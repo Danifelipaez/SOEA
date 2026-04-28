@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SOEA.API/SOEA.API.csproj" />
+    <Project Path="src/SOEA.Application/SOEA.Application.csproj" />
+    <Project Path="src/SOEA.Domain/SOEA.Domain.csproj" />
+    <Project Path="src/SOEA.Engine.ConstraintProg/SOEA.Engine.ConstraintProg.csproj" />
+    <Project Path="src/SOEA.Engine.Genetic/SOEA.Engine.Genetic.csproj" />
+    <Project Path="src/SOEA.Engine.GraphColoring/SOEA.Engine.GraphColoring.csproj" />
+    <Project Path="src/SOEA.Infrastructure.Data/SOEA.Infrastructure.Data.csproj" />
+    <Project Path="src/SOEA.Infrastructure.Excel/SOEA.Infrastructure.Excel.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/SOEA.Tests/SOEA.Tests.csproj" />
+  </Folder>
+</Solution>

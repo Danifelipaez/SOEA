@@ -1,0 +1,6 @@
+@SOEA.API_HostAddress = http://localhost:5066
+
+GET {{SOEA.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
