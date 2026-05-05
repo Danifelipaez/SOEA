@@ -62,10 +62,12 @@ All tables in the production database schema.
 |---|---|---|
 | `Id` | uniqueidentifier | PK |
 | `Name` | nvarchar(100) | NOT NULL |
-| `Type` | nvarchar(20) | NOT NULL, CHECK IN ('Classroom','Lab','Auditorium','Virtual') |
+| `Type` | nvarchar(20) | NOT NULL, CHECK IN ('Classroom','Lab','Auditorium') |
 | `Capacity` | int | NOT NULL, CHECK > 0 |
 | `Building` | nvarchar(100) | NULL |
 | `Floor` | int | NULL |
+
+Virtual sessions are represented by `Session.SpaceId = NULL`; they do not require a persisted `Space` row.
 
 ### `TimeSlots`
 | Column | Type | Constraints |

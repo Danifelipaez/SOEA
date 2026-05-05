@@ -48,13 +48,13 @@ A group of students enrolled in the same program and semester.
 
 ## Space
 
-A physical or virtual location for sessions.
+A physical location for sessions.
 
 | Field | Type | Required | Description | Allowed Values |
 |---|---|---|---|---|
 | `Id` | GUID | Yes | Unique identifier | Auto-generated |
 | `Name` | string | Yes | Room name or code | E.g., "Aula 204", "Lab Química" |
-| `Type` | Enum | Yes | Space type | `Classroom`, `Lab`, `Auditorium`, `Virtual` |
+| `Type` | Enum | Yes | Space type | `Classroom`, `Lab`, `Auditorium` |
 | `Capacity` | int | Yes | Maximum occupancy | > 0 |
 | `Building` | string | No | Building name or code | — |
 | `Floor` | int | No | Floor number | — |

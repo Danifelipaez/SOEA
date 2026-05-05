@@ -38,7 +38,7 @@ The pilot is a controlled initial deployment with a limited dataset to:
 2. Optimization runs in under 10 minutes for pilot data volume
 3. JSON output is valid and matches the spec in `docs/data/json-output-spec.md`
 4. At least 2 coordinators review and approve the pilot schedule
-5. Soft-constraint fitness score is ≤ 20% above the theoretical minimum (TBD)
+5. Soft-constraint fitness score is ≤ 20% above the documented pilot baseline score
 
 ---
 

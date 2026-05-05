@@ -40,10 +40,10 @@ soea-angular/
 
 ## Getting Started
 
-> This workspace has not been scaffolded yet. To create it, run:
+> This workspace has not been scaffolded yet. From the repository root, create it inside `frontend/` so the app lands in the correct folder:
 
 ```bash
-ng new soea-angular --routing --style=scss
+cd frontend && ng new soea-angular --routing --style=scss
 ```
 
 Then install any required dependencies (e.g., Angular Material, ngx-charts for schedule visualization).

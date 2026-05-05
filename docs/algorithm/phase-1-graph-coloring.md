@@ -33,15 +33,15 @@ Two sessions conflict (are connected by an edge) if ANY of the following is true
 |---|---|
 | Same instructor | An instructor cannot teach two sessions simultaneously |
 | Same cohort | A cohort cannot attend two sessions simultaneously |
-| Same alternancia type AND both require physical space | Both cohorts would physically occupy a space at the same time |
+| Same alternancia type OR non-alternating cohort involved | Both cohorts would physically occupy a space at the same time |
 | Same cohort AND sequential dependency (split block constraint) | Consecutive-day restriction from HC-T05 |
 
 ### Alternancia Edge Logic
 
-- TypeA + TypeA sharing a space → conflict edge (both physically present on same weeks)
+- TypeA + TypeA sharing a space → conflict edge (both physically present on the same weeks)
 - TypeB + TypeB sharing a space → conflict edge
 - TypeA + TypeB sharing a space → **no** conflict edge (never physically present simultaneously)
-- Either is NonAlternating → always conflict edge for space sharing
+- Any session involving NonAlternating → conflict edge for space sharing
 
 ---
 
@@ -56,9 +56,10 @@ the same color.
 
 1. Sort nodes by **degree** (number of edges) in descending order
 2. Assign the lowest-numbered available color to each node in order, skipping colors used by neighbors
-3. If no color is available, add a new color (time slot)
+3. If no color is available, mark the session as uncolored so Phase 2 can resolve or reject it explicitly
 
 This is a greedy heuristic — it is fast but may not minimize colors or satisfy all constraints.
+If no available color exists, the session is marked as uncolored so Phase 2 can resolve or reject it explicitly.
 Its output is refined in Phase 2.
 
 ---

@@ -51,7 +51,7 @@ For each session `s ∈ S`:
 
 1. **Instructor conflict**: `∀ s₁, s₂ ∈ S, s₁ ≠ s₂: inst(s₁) = inst(s₂) → t(s₁) ≠ t(s₂)`
 2. **Cohort conflict**: `∀ s₁, s₂ ∈ S, s₁ ≠ s₂: coh(s₁) = coh(s₂) → t(s₁) ≠ t(s₂)`
-3. **Space conflict (same alternancia type)**: `∀ s₁, s₂ ∈ S: r(s₁) = r(s₂) ∧ t(s₁) = t(s₂) → alt(s₁) ≠ alt(s₂)`
+3. **Space conflict (alternancia aware)**: `∀ s₁, s₂ ∈ S: r(s₁) = r(s₂) ∧ t(s₁) = t(s₂) → alt(s₁) = alt(s₂) ∨ alt(s₁) = NonAlternating ∨ alt(s₂) = NonAlternating`
 4. **Capacity**: `∀ s ∈ S: r(s) ≠ null → enrolled(coh(s)) ≤ capacity(r(s))`
 5. **Availability**: `∀ s ∈ S: t(s) ∈ available(inst(s))`
 6. **Space type**: `∀ s ∈ S: type(s) ≠ null → spaceType(r(s)) = type(s)`

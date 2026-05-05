@@ -16,7 +16,7 @@ Project timeline from initial setup to pilot deployment.
 - [x] Create documentation folder structure (`docs/`)
 - [ ] Set up Angular workspace (`frontend/soea-angular/`)
 - [ ] Configure database connection (EF Core + SQL Server/PostgreSQL)
-- [ ] Set up xUnit test project
+- [x] Set up xUnit test project
 
 ### Phase 1 — Domain Model (Week 2)
 - [ ] Implement domain entities: `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`, `Subject`
