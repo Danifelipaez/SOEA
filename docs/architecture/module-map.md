@@ -13,15 +13,20 @@ All projects in the `src/` and `test/` directories.
 ## Module Dependency Rules
 
 ```
-SOEA.API            → SOEA.Application
-SOEA.Application    → SOEA.Domain
-SOEA.Application    → Engine interfaces (defined in SOEA.Domain or SOEA.Application)
-SOEA.Infrastructure.*  → SOEA.Domain (implements interfaces)
-SOEA.Engine.*          → SOEA.Domain (implements interfaces)
-SOEA.Domain         → (no dependencies on other SOEA projects)
+SOEA.API               → SOEA.Application
+SOEA.API               → SOEA.Infrastructure.Data
+SOEA.API               → SOEA.Infrastructure.Excel
+SOEA.Application       → SOEA.Domain
+SOEA.Application       → SOEA.Engine.GraphColoring
+SOEA.Application       → SOEA.Engine.ConstraintProg
+SOEA.Application       → SOEA.Engine.Genetic
+SOEA.Infrastructure.*  → SOEA.Domain
+SOEA.Engine.*          → SOEA.Domain
+SOEA.Domain            → (no dependencies on other SOEA projects)
 ```
 
-**Never allow**: Domain → Infrastructure, Domain → API, Application → Infrastructure (directly)
+**Never allow**: Domain → Infrastructure, Domain → API, Application → Infrastructure (directly),
+Application → API
 
 ---
 

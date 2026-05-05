@@ -105,10 +105,10 @@ The canonical JSON output of the optimization pipeline (FR-05 from `docs/require
   "sessions": [
     {
       "sessionId": "a1b2c3d4-0001-0001-0001-000000000001",
-      "subject": { "id": "s001", "name": "Cálculo I", "code": "MAT-101" },
-      "cohort": { "id": "c001", "name": "Engineering — Sem 1", "alternanciaType": "TypeA", "enrolledStudents": 30 },
-      "instructor": { "id": "i001", "fullName": "Prof. Carlos Ruiz", "email": "c.ruiz@uni.edu.co" },
-      "space": { "id": "sp001", "name": "Aula 101", "type": "Classroom", "capacity": 40 },
+      "subject": { "id": "b1b2c3d4-1111-1111-1111-111111111111", "name": "Cálculo I", "code": "MAT-101" },
+      "cohort": { "id": "c1c2c3d4-2222-2222-2222-222222222222", "name": "Engineering — Sem 1", "alternanciaType": "TypeA", "enrolledStudents": 30 },
+      "instructor": { "id": "d1d2d3d4-3333-3333-3333-333333333333", "fullName": "Prof. Carlos Ruiz", "email": "c.ruiz@uni.edu.co" },
+      "space": { "id": "e1e2e3e4-4444-4444-4444-444444444444", "name": "Aula 101", "type": "Classroom", "capacity": 40 },
       "timeSlot": { "dayOfWeek": "Monday", "startTime": "07:00", "endTime": "09:00" },
       "modality": "InPerson",
       "durationHours": 2.0,
@@ -117,9 +117,9 @@ The canonical JSON output of the optimization pipeline (FR-05 from `docs/require
     },
     {
       "sessionId": "a1b2c3d4-0001-0001-0001-000000000002",
-      "subject": { "id": "s002", "name": "Química Orgánica", "code": "QUI-201" },
-      "cohort": { "id": "c002", "name": "Chemical Eng — Sem 2", "alternanciaType": "TypeB", "enrolledStudents": 22 },
-      "instructor": { "id": "i002", "fullName": "Dra. María Torres", "email": "m.torres@uni.edu.co" },
+      "subject": { "id": "b1b2c3d4-1111-1111-1111-111111111112", "name": "Química Orgánica", "code": "QUI-201" },
+      "cohort": { "id": "c1c2c3d4-2222-2222-2222-222222222223", "name": "Chemical Eng — Sem 2", "alternanciaType": "TypeB", "enrolledStudents": 22 },
+      "instructor": { "id": "d1d2d3d4-3333-3333-3333-333333333334", "fullName": "Dra. María Torres", "email": "m.torres@uni.edu.co" },
       "space": null,
       "timeSlot": { "dayOfWeek": "Tuesday", "startTime": "09:00", "endTime": "11:00" },
       "modality": "Virtual",

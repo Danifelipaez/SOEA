@@ -13,9 +13,9 @@ All domain-specific terms used across backend, frontend, and documentation.
 
 | Term | Definition |
 |---|---|
-| **Session** | A scheduled teaching event: one subject + one instructor + one cohort + one time slot + one space |
+| **Session** | A scheduled teaching event: one subject + one instructor + one cohort + one time slot + optional space |
 | **Cohort** | A group of students enrolled in the same academic program and semester (e.g., "Systems Engineering — Semester 3") |
-| **Space** | A physical or virtual location where a session can take place (classroom, lab, virtual room) |
+| **Space** | A physical location where an in-person session can take place (classroom, lab, auditorium) |
 | **Espacio** | Spanish equivalent of Space; used in the original institutional documents |
 | **Instructor** | A person assigned to deliver a session (professor, lecturer, teaching assistant) |
 | **Time Slot** | A discrete schedulable unit: day + start time + end time (e.g., Monday 07:00–09:00) |
@@ -45,7 +45,7 @@ All domain-specific terms used across backend, frontend, and documentation.
 - Entity classes: singular noun (`Session`, `Cohort`, `Space`)
 - Collections: plural noun (`Sessions`, `Cohorts`, `Spaces`)
 - Use English for all code identifiers; Spanish only for user-facing labels and doc titles
-- Use `AlternanciaType` enum with values `TypeA` and `TypeB`
+- Use `AlternanciaType` enum with values `TypeA`, `TypeB`, and `NonAlternating`
 
 ---
 

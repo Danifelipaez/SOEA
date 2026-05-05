@@ -57,7 +57,7 @@ SOEA uses **Clean Architecture** organized as a **.NET Modular Monolith**.
 
 | Concern | Technology | Rationale |
 |---|---|---|
-| Backend framework | ASP.NET Core (.NET 8) | Mature, cross-platform, strong ecosystem |
+| Backend framework | ASP.NET Core (.NET 10) | Mature, cross-platform, strong ecosystem |
 | ORM | Entity Framework Core | Reduces boilerplate, good LINQ support |
 | Database | SQL Server or PostgreSQL | Relational model fits timetabling data |
 | Excel ingestion | EPPlus | .NET-native, no Office dependency |

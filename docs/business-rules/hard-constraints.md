@@ -17,8 +17,8 @@ All non-negotiable scheduling rules. Optimization preferences belong in `soft-co
 
 | ID | Rule |
 |---|---|
-| HC-S01 | A space may not host two sessions with conflicting cohort types (same alternancia type) in the same time slot |
-| HC-S02 | The total enrolled students of sessions sharing a space in the same slot must not exceed the space capacity |
+| HC-S01 | A space may not host two sessions in the same time slot if both cohorts are Type A, both are Type B, or either cohort is NonAlternating |
+| HC-S02 | The total enrolled students of sessions physically present in the same space and time slot must not exceed the space capacity |
 | HC-S03 | A session that requires a specific space type (lab, auditorium) must be assigned to a space of that type |
 | HC-S04 | Virtual sessions must not be assigned to a physical space |
 
@@ -51,7 +51,7 @@ All non-negotiable scheduling rules. Optimization preferences belong in `soft-co
 
 | ID | Rule |
 |---|---|
-| HC-SU01 | Subjects flagged as "always 8+8" (e.g., Química Orgánica) must be scheduled as two consecutive 8-hour sessions — confirm exact interpretation with domain expert |
+| HC-SU01 | Subjects flagged as "always 8+8" (e.g., Química Orgánica) must be scheduled as two consecutive 8-hour sessions |
 | HC-SU02 | Subjects flagged as non-alternating must have sessions in all weeks, not just alternating weeks |
 
 ---
@@ -75,5 +75,5 @@ Hard constraints are enforced in two places:
 ## Open Questions
 
 - Is HC-T04 (lunch break) configurable per institution, or always fixed at 12:00–13:00?
-- What is the exact definition of "always 8+8" for HC-SU01? Is it two 8-hour sessions or two sessions of 8 credit hours each?
+- What is the exact curriculum flag used to mark "always 8+8" subjects, and does it always mean two consecutive 8-hour sessions?
 - Are there any hard limits on consecutive teaching hours for instructors?
