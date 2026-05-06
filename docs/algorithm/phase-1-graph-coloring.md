@@ -32,9 +32,9 @@ Dos sesiones entran en conflicto (se conectan por una arista) si CUALQUIERA de l
 | Condición | Razón |
 |---|---|
 | Mismo docente | Un docente no puede impartir dos sesiones simultáneamente |
-| Misma cohorte | Una cohorte no puede asistir a dos sesiones simultáneamente |
-| Mismo tipo de alternancia O cohorte no alternante involucrada | Ambas cohortes ocuparían físicamente un espacio al mismo tiempo |
-| Misma cohorte Y dependencia secuencial (restricción split block) | Restricción de días consecutivos de HC-T05 |
+| Mismo grupo | Un grupo no puede asistir a dos sesiones simultáneamente |
+| Mismo tipo de alternancia O grupo no alternante involucrado | Ambos grupos ocuparían físicamente un espacio al mismo tiempo |
+| Mismo grupo Y dependencia secuencial (restricción split block) | Restricción de días consecutivos de HC-T05 |
 
 ### Lógica de aristas por alternancia
 
@@ -66,13 +66,13 @@ Su salida se refina en la Fase 2.
 
 ## Entradas
 
-- Full list of sessions `S` with their instructor, cohort, and alternancia type
-- Set of available time slots `T`
+- Lista completa de sesiones `S` con su docente, grupo y tipo de alternancia
+- Conjunto de espacios de tiempo disponibles `T`
 
 ## Salidas
 
-- `PartialSchedule`: a mapping `session → timeSlot` for all sessions
-- Sessions that could not be colored (if any) are flagged as `Conflict` status
+- `PartialSchedule`: un mapeo `sesion → espacioDeTiempo` para todas las sesiones
+- Sesiones que no pudieron colorearse (si existen) se marcan con estado `Conflict`
 
 ---
 
@@ -92,4 +92,4 @@ La Fase 1 debería completarse en menos de 5 segundos para hasta 500 sesiones.
 ## Preguntas abiertas
 
 - ¿El coloreado de grafos debería usar un algoritmo DSatur en lugar de Welsh-Powell para minimizar mejor el número cromático?
-- ¿Las restricciones blandas (por ejemplo, preferir horarios de mañana para ciertas cohortes) deberían incorporarse como indicios en la Fase 1?
+- ¿Las restricciones blandas (por ejemplo, preferir horarios de mañana para ciertos grupos) deberían incorporarse como indicios en la Fase 1?

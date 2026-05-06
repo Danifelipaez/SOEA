@@ -19,15 +19,16 @@ Cronograma del proyecto desde la configuración inicial hasta el despliegue pilo
 - [x] Configurar el proyecto de pruebas xUnit
 
 ### Fase 1 — Modelo de dominio (Semana 2)
-- [ ] Implementar entidades de dominio: `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`, `Subject`
+- [ ] Implementar entidades de dominio: `Usuario`, `Administrador`, `Docente`, `DisponibilidadDocente`, `Asignatura`, `GrupoDeEstudiantes`, `EspacioAcademico`, `Sesion`
 - [ ] Implementar objetos de valor: `AlternanciaType`, `TimeRange`
-- [ ] Definir interfaces de dominio: `IScheduleRepository`, `IOptimizationEngine`
+- [ ] Definir interfaces de dominio: `ISesionRepository`, `IOptimizationEngine`
 - [ ] Escribir pruebas unitarias para invariantes de entidades de dominio
 
 ### Fase 2 — Ingesta de datos (Semana 3)
-- [ ] Implementar `CurriculumExcelReader` usando EPPlus
-- [ ] Implementar `InstructorAvailabilityReader`
-- [ ] Implementar `SpaceInventoryReader`
+- [ ] Implementar `AsignaturaExcelReader` usando EPPlus
+- [ ] Implementar `GrupoEstudiantesReader`
+- [ ] Implementar `DisponibilidadDocenteReader`
+- [ ] Implementar `EspacioAcademicoReader`
 - [ ] Escribir pruebas de integración para los lectores de Excel
 - [ ] Configurar el `DbContext` de EF Core y la migración inicial
 

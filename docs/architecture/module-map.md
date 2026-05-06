@@ -37,10 +37,10 @@ Application → API
 **Responsabilidad**: Modelo central de negocio sin dependencias externas.
 
 Contains:
-- Entidades: `src/SOEA.Domain/Entities/` (`Sesion`, `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`, `Subject`)
+- Entidades: `src/SOEA.Domain/Entities/` (`Usuario`, `Administrador`, `Docente`, `DisponibilidadDocente`, `Asignatura`, `GrupoDeEstudiantes`, `EspacioAcademico`, `Sesion`)
 - Objetos de valor: `AlternanciaType`, `TimeRange`, `Capacity`
-- Enumeraciones: `SpaceType`, `SessionStatus`, `ConstraintSeverity`
-- Interfaces de dominio (puertos): `src/SOEA.Domain/Interfaces/` (`IScheduleRepository`, `IOptimizationEngine`, `IExcelIngestionService`)
+- Enumeraciones: `TipoEspacio`, `ModalidadSesion`, `ConstraintSeverity`
+- Interfaces de dominio (puertos): repositorios y motores de optimización (`ISesionRepository`, `IOptimizationEngine`, `IExcelIngestionService`)
 - Excepciones de dominio: `ConstraintViolationException`, `InvalidSessionException`
 
 **No debe referenciar**: EF Core, EPPlus, OR-Tools, ASP.NET, Angular
@@ -54,7 +54,7 @@ Contains:
 Contains:
 - Comandos: `GenerateScheduleCommand`, `IngestExcelCommand`, `PublishScheduleCommand`
 - Consultas: `GetScheduleQuery`, `ValidateConstraintsQuery`
-- DTOs: `ScheduleDto`, `SessionDto`, `CohortDto`
+- DTOs: `ScheduleDto`, `SesionDto`, `GrupoDto`
 - Orquestador del pipeline: `ScheduleOptimizationPipeline` (llama Graph Coloring → CP → Genetic)
 - Servicio de validación: `ConstraintValidator`
 
@@ -69,11 +69,11 @@ Contains:
 
 Contains:
 - `SoeaDbContext` y configuraciones de tipos de entidad
-- Implementaciones de repositorios (`ScheduleRepository`, `CohortRepository`, etc.)
+- Implementaciones de repositorios (`SesionRepository`, `GrupoRepository`, etc.)
 - Migraciones de base de datos
 
 **Depende de**: `SOEA.Domain`, Entity Framework Core
-**Implementa**: `IScheduleRepository` y otras interfaces de repositorio de `SOEA.Domain`
+**Implementa**: repositorios de `SOEA.Domain`
 
 ---
 
@@ -82,9 +82,10 @@ Contains:
 **Responsabilidad**: Leer datos institucionales desde archivos Excel usando EPPlus.
 
 Contains:
-- `CurriculumExcelReader` — lee datos de asignaturas/cohortes/horas
-- `InstructorAvailabilityReader` — lee matrices de disponibilidad
-- `SpaceInventoryReader` — lee capacidad y tipo de sala
+- `AsignaturaExcelReader` — lee datos de asignaturas
+- `GrupoEstudiantesReader` — lee grupos de estudiantes
+- `DisponibilidadDocenteReader` — lee matrices de disponibilidad
+- `EspacioAcademicoReader` — lee capacidad y tipo de sala
 - Mapeadores de filas de Excel a entidades de dominio
 
 **Depende de**: `SOEA.Domain`, EPPlus

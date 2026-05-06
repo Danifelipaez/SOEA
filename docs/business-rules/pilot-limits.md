@@ -24,10 +24,10 @@ El piloto es un despliegue inicial controlado con un conjunto de datos limitado 
 | Parámetro | Límite del piloto | Notas |
 |---|---|---|
 | Programas académicos | Por definir (p. ej., 2–3 programas) | Se sugiere Ingeniería de Sistemas + otro programa |
-| Cohortes | ≤ 20 cohortes | Entre todos los programas incluidos |
+| Grupos de estudiantes | ≤ 20 grupos | Entre todos los programas incluidos |
 | Docentes | ≤ 30 docentes | Solo quienes impartan asignaturas del programa piloto |
 | Espacios | ≤ 15 espacios | Aulas y laboratorios asignados a los programas piloto |
-| Asignaturas por cohorte | Según la malla curricular real | Sin simplificación |
+| Asignaturas por grupo | Según la malla curricular real | Sin simplificación |
 | Semestre | 1 semestre completo | Primavera o otoño: por definir |
 
 ---
@@ -46,7 +46,7 @@ El piloto es un despliegue inicial controlado con un conjunto de datos limitado 
 
 - Los datos de entrada (archivos Excel) pueden tener inconsistencias que deben detectarse durante la ingesta
 - Los datos de disponibilidad de docentes pueden estar incompletos en la primera ejecución
-- Las asignaciones de tipo de alternancia pueden no ser uniformes entre cohortes
+- Las asignaciones de tipo de alternancia pueden no ser uniformes entre grupos
 
 ---
 

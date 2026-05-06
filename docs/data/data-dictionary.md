@@ -2,7 +2,7 @@
 
 ## Propósito
 Definir cada campo de datos del modelo de dominio de SOEA: nombre, tipo, descripción, si es obligatorio/opcional
-y valores permitidos. Copilot usa esto como fuente autorizada al generar clases de entidades,
+ y valores permitidos. Copilot usa esto como fuente autorizada al generar clases de entidades,
 esquemas de base de datos, lectores de Excel y DTOs de API.
 
 ## Alcance
@@ -10,118 +10,125 @@ Todas las entidades persistentes del dominio. Los campos derivados o calculados 
 
 ---
 
-## Session
+## Usuario
 
-La unidad programable central: una ocurrencia de una asignatura para una cohorte.
+Entidad base para cuentas humanas del sistema.
 
 | Campo | Tipo | Requerido | Descripción | Valores permitidos / Restricciones |
 |---|---|---|---|---|
-| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
-| `SubjectId` | GUID | Sí | Referencia a Subject | Debe existir en la tabla Subject |
-| `CohortId` | GUID | Sí | Referencia a Cohort | Debe existir en la tabla Cohort |
-| `InstructorId` | GUID | Sí | Referencia a Instructor | Debe existir en la tabla Instructor |
-| `SpaceId` | GUID | No | Espacio asignado (null si es virtual) | Debe existir en la tabla Space |
-| `TimeSlotId` | GUID | Sí | Espacio de tiempo asignado | Debe existir en la tabla TimeSlot |
-| `AlternanciaType` | Enum | Sí | Tipo de alternancia de la cohorte | `TypeA`, `TypeB`, `NonAlternating` |
-| `Modality` | Enum | Sí | Presencial o virtual | `InPerson`, `Virtual` |
-| `Status` | Enum | Sí | Estado de programación | `Pending`, `Assigned`, `Conflict` |
-| `DurationHours` | decimal | Sí | Duración de la sesión en horas | > 0, ≤ 8 |
-| `IsBlock` | bool | Sí | Indica si es una sesión en bloque continuo | — |
-| `IsSplitBlock` | bool | Sí | Indica si las horas están divididas en varios días | No puede ser true si IsBlock es true |
+| `Id_usuario` | UUID | Sí | Identificador único de la cuenta | Generado automáticamente |
+| `Nombre` | string | Sí | Nombre completo visible | — |
+| `Email` | string | Sí | Correo institucional | Formato de correo válido, único |
 
 ---
 
-## Cohort
+## Administrador
 
-Grupo de estudiantes inscritos en el mismo programa y semestre.
+Especialización de Usuario para gestión académica.
 
-| Campo | Tipo | Requerido | Descripción | Valores permitidos |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos / Restricciones |
 |---|---|---|---|---|
-| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
-| `Name` | string | Sí | Nombre visible de la cohorte | Por ejemplo, "Systems Engineering — Sem 3" |
-| `ProgramId` | GUID | Sí | Programa académico | Debe existir en la tabla Program |
-| `Semester` | int | Sí | Número de semestre académico | 1–10 |
-| `EnrolledStudents` | int | Sí | Número de estudiantes inscritos | > 0 |
-| `AlternanciaType` | Enum | Sí | Tipo A, Tipo B o no alternante | `TypeA`, `TypeB`, `NonAlternating` |
+| `Id_usuario` | UUID | Sí | PK/FK a Usuario | Debe existir en `Usuario.Id_usuario` |
+| `Tipo_admin` | enum | Sí | Rol administrativo del usuario | `Programa`, `Admisiones`, `RedEdu` |
 
 ---
 
-## Space
+## Docente
 
-Ubicación física para las sesiones.
+Especialización de Usuario para docencia.
 
-| Campo | Tipo | Requerido | Descripción | Valores permitidos |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos / Restricciones |
 |---|---|---|---|---|
-| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
-| `Name` | string | Sí | Nombre o código del espacio | Por ejemplo, "Aula 204", "Lab Química" |
-| `Type` | Enum | Sí | Tipo de espacio | `Classroom`, `Lab`, `Auditorium` |
-| `Capacity` | int | Sí | Ocupación máxima | > 0 |
-| `Building` | string | No | Nombre o código del edificio | — |
-| `Floor` | int | No | Número del piso | — |
+| `Id_usuario` | UUID | Sí | PK/FK a Usuario | Debe existir en `Usuario.Id_usuario` |
+| `Tipo_vinculacion` | string | Sí | Tipo de vinculación contractual | Catálogo institucional |
 
 ---
 
-## Instructor
+## Disponibilidad_Docente
 
-Persona que imparte sesiones.
+Bloques de tiempo disponibles por docente.
 
-| Campo | Tipo | Requerido | Descripción | Valores permitidos |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos / Restricciones |
 |---|---|---|---|---|
-| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
-| `FullName` | string | Sí | Nombre completo | — |
-| `Email` | string | Sí | Correo institucional | Formato de correo válido |
-| `MaxWeeklyHours` | decimal | Sí | Máximo de horas de docencia contratadas por semana | > 0 |
-| `Availability` | list of TimeSlot | Sí | Espacios de tiempo disponibles | Ver TimeSlot |
+| `Id_disponibilidad` | UUID | Sí | Identificador único del bloque | Generado automáticamente |
+| `Id_usuario` | UUID | Sí | FK a Docente | Debe existir en `Docente.Id_usuario` |
+| `Dia_semana` | enum | Sí | Día de la semana | `Monday`–`Friday` |
+| `Hora_inicio` | TimeOnly | Sí | Hora de inicio | 07:00–21:30 |
+| `Hora_fin` | TimeOnly | Sí | Hora de fin | > `Hora_inicio`, ≤ 21:30 |
 
 ---
 
-## TimeSlot
+## Asignatura
 
-Bloque de tiempo discreto programable.
+Curso académico de la malla curricular.
 
-| Campo | Tipo | Requerido | Descripción | Valores permitidos |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos / Restricciones |
 |---|---|---|---|---|
-| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
-| `DayOfWeek` | Enum | Sí | Día de la semana | `Monday`–`Friday` |
-| `StartTime` | TimeOnly | Sí | Hora de inicio | 07:00–21:30 |
-| `EndTime` | TimeOnly | Sí | Hora de fin | > StartTime, ≤ 21:30 |
+| `Id_asignatura` | UUID | Sí | Identificador único | Generado automáticamente |
+| `Nombre` | string | Sí | Nombre de la asignatura | — |
+| `Prog_academico` | string | Sí | Programa académico al que pertenece | Catálogo institucional |
+| `Req_equipamiento` | string | No | Equipamiento requerido | Lista separada por comas o referencia a catálogo |
+| `Tipo_de_clase` | enum | Sí | Tipo de clase | `Teorica`, `Laboratorio`, `Practica` |
+| `Duracion` | decimal | Sí | Duración de la sesión en horas | > 0, ≤ 8 |
+| `Num_semanas_en_lab` | int | No | Semanas que requieren laboratorio | ≥ 0 |
+| `Creado_por_id_admin` | UUID | Sí | FK a Administrador | Debe existir en `Administrador.Id_usuario` |
 
 ---
 
-## Subject
+## Grupo_de_estudiantes
 
-Una asignatura o curso académico de la malla curricular.
+Grupo de estudiantes asociado a una asignatura.
 
-| Campo | Tipo | Requerido | Descripción | Valores permitidos |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos / Restricciones |
 |---|---|---|---|---|
-| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
-| `Name` | string | Sí | Nombre de la asignatura | — |
-| `Code` | string | Sí | Código institucional de la asignatura | Alfanumérico |
-| `WeeklyHours` | decimal | Sí | Horas por semana por cohorte | > 0 |
-| `RequiresLab` | bool | Sí | Indica si las sesiones deben ser en un laboratorio | — |
-| `IsNonAlternating` | bool | Sí | Indica si las sesiones ocurren todas las semanas (no alternan) | — |
-| `ProgramId` | GUID | Sí | Programa académico al que pertenece la asignatura | — |
+| `Id_grupo` | UUID | Sí | Identificador único | Generado automáticamente |
+| `Prog_academico` | string | Sí | Programa académico del grupo | Catálogo institucional |
+| `Cohorte` | string | Sí | Cohorte o semestre asociado | Por ejemplo, "2025-1 / Sem 3" |
+| `Num_estudiantes` | int | Sí | Número de estudiantes inscritos | > 0 |
+| `Asignatura` | UUID | Sí | FK a Asignatura | Debe existir en `Asignatura.Id_asignatura` |
+| `Creado_por_id_admin` | UUID | Sí | FK a Administrador | Debe existir en `Administrador.Id_usuario` |
 
 ---
 
-## Schedule
+## Espacio_Academico
 
-La salida completa del horario para un semestre.
+Ubicación física o recurso virtual para dictar sesiones.
 
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `Id` | GUID | Sí | Identificador único |
-| `SemesterLabel` | string | Sí | Por ejemplo, "2025-1" |
-| `GeneratedAt` | DateTime | Sí | Marca temporal de generación |
-| `Status` | Enum | Sí | `Draft`, `Published`, `Archived` |
-| `Sessions` | list of Session | Sí | Todas las sesiones asignadas |
-| `HardConstraintViolations` | int | Calculado | Debe ser 0 para un horario válido |
-| `SoftConstraintFitnessScore` | decimal | Calculado | Más bajo es mejor; proviene de la Fase 3 |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos / Restricciones |
+|---|---|---|---|---|
+| `Id_espacio` | UUID | Sí | Identificador único | Generado automáticamente |
+| `Nombre` | string | Sí | Nombre o código del espacio | Por ejemplo, "Aula 204" |
+| `Bloque` | string | No | Bloque/edificio | — |
+| `Tipo` | enum | Sí | Tipo de espacio | `Aula`, `Laboratorio`, `Auditorio` |
+| `Capacidad` | int | Sí | Ocupación máxima | > 0 |
+| `Equipamiento` | string | No | Equipamiento disponible | Lista separada por comas o referencia a catálogo |
+| `Es_virtual` | bool | Sí | Indica si el espacio es virtual | — |
+| `Reservado_por_id_admin` | UUID | No | FK a Administrador que lo reservó | Debe existir en `Administrador.Id_usuario` |
+
+---
+
+## Sesion
+
+Unidad programable: una ocurrencia de clase en un día y hora específicos.
+
+| Campo | Tipo | Requerido | Descripción | Valores permitidos / Restricciones |
+|---|---|---|---|---|
+| `Id_sesion` | UUID | Sí | Identificador único | Generado automáticamente |
+| `Id_grupo` | UUID | Sí | FK a Grupo_de_estudiantes | Debe existir en `Grupo_de_estudiantes.Id_grupo` |
+| `Id_espacio` | UUID | No | FK a Espacio_Academico | Null cuando `Modalidad = Virtual` |
+| `Id_docente` | UUID | Sí | FK a Docente | Debe existir en `Docente.Id_usuario` |
+| `Dia_semana` | enum | Sí | Día de la semana | `Monday`–`Friday` |
+| `Hora_inicio` | TimeOnly | Sí | Hora de inicio | 07:00–21:30 |
+| `Hora_fin` | TimeOnly | Sí | Hora de fin | > `Hora_inicio`, ≤ 21:30 |
+| `Modalidad` | enum | Sí | Modalidad de la sesión | `Presencial`, `Virtual` |
+| `Semana_num` | int | Sí | Número de la semana del semestre | ≥ 1 |
+| `Es_alternancia_virtual` | bool | Sí | Indica si la sesión es virtual por alternancia | — |
+| `Creado_por_id_admin` | UUID | Sí | FK a Administrador | Debe existir en `Administrador.Id_usuario` |
 
 ---
 
 ## Preguntas abiertas
 
-- ¿`Instructor.Availability` debe almacenarse como una tabla de unión separada o incrustada como JSON?
-- ¿`Subject.WeeklyHours` es lo mismo que `Session.DurationHours × sesiones por semana`?
-- ¿Existen asignaturas con horas variables que cambian según la cohorte?
+- ¿`Req_equipamiento` y `Equipamiento` deben normalizarse a una tabla de catálogo?
+- ¿`Tipo_vinculacion` y `Tipo_de_clase` se deben restringir con listas institucionales rígidas?
+- ¿Las sesiones virtuales deben persistir siempre con `Id_espacio = null`, aun si existe un `Espacio_Academico` virtual?

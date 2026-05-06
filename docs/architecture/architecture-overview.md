@@ -73,8 +73,8 @@ SOEA usa **Clean Architecture** organizada como un **monolito modular .NET**.
 
 ```
 Excel Input → [Ingestion] → Domain Model → [Phase 1: Graph Coloring]
-    → Partial Schedule → [Phase 2: CP-SAT] → Feasible Schedule
-    → [Phase 3: Genetic Algorithm] → Optimized Schedule → JSON Output
+    → Horario Parcial → [Phase 2: CP-SAT] → Horario Factible
+    → [Phase 3: Genetic Algorithm] → Horario Optimizado → JSON Output
 ```
 
 Cada fase se implementa en su propio proyecto dentro de `src/`:

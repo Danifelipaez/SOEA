@@ -17,7 +17,7 @@ en el que el objetivo es asignar un conjunto de eventos (sesiones) a un conjunto
 de modo que se satisfaga un conjunto de restricciones.
 
 SOEA resuelve una variante específica de UCTP que incluye:
-- Modelo de cohorte en alternancia (híbrido)
+- Modelo de grupos de estudiantes en alternancia (híbrido)
 - Pipeline de optimización de tres fases
 - Restricciones duras (deben cumplirse) y restricciones blandas (a optimizar)
 
@@ -32,11 +32,11 @@ Sea:
 - **T** = conjunto de espacios de tiempo disponibles (día × hora inicio-fin)
 - **R** = conjunto de espacios físicos (salas)
 - **I** = conjunto de docentes
-- **C** = conjunto de cohortes
+- **G** = conjunto de grupos de estudiantes
 
 Cada sesión `s ∈ S` tiene:
 - Un docente requerido `inst(s) ∈ I`
-- Una cohorte requerida `coh(s) ∈ C`
+- Un grupo requerido `grp(s) ∈ G`
 - Una duración requerida `dur(s)` en horas
 - Un tipo de espacio requerido opcional `type(s)`
 - Un tipo de alternancia `alt(s) ∈ {TypeA, TypeB, NonAlternating}`
@@ -50,9 +50,9 @@ For each session `s ∈ S`:
 ### Restricciones de factibilidad (duras)
 
 1. **Conflicto de docente**: `∀ s₁, s₂ ∈ S, s₁ ≠ s₂: inst(s₁) = inst(s₂) → t(s₁) ≠ t(s₂)`
-2. **Conflicto de cohorte**: `∀ s₁, s₂ ∈ S, s₁ ≠ s₂: coh(s₁) = coh(s₂) → t(s₁) ≠ t(s₂)`
+2. **Conflicto de grupo**: `∀ s₁, s₂ ∈ S, s₁ ≠ s₂: grp(s₁) = grp(s₂) → t(s₁) ≠ t(s₂)`
 3. **Conflicto de espacio (considerando alternancia)**: `∀ s₁, s₂ ∈ S: r(s₁) = r(s₂) ∧ t(s₁) = t(s₂) → alt(s₁) = alt(s₂) ∨ alt(s₁) = NonAlternating ∨ alt(s₂) = NonAlternating`
-4. **Capacidad**: `∀ s ∈ S: r(s) ≠ null → enrolled(coh(s)) ≤ capacity(r(s))`
+4. **Capacidad**: `∀ s ∈ S: r(s) ≠ null → enrolled(grp(s)) ≤ capacity(r(s))`
 5. **Disponibilidad**: `∀ s ∈ S: t(s) ∈ available(inst(s))`
 6. **Tipo de espacio**: `∀ s ∈ S: type(s) ≠ null → spaceType(r(s)) = type(s)`
 7. **Límites de tiempo**: `∀ s ∈ S: startTime(t(s)) ≥ 07:00 ∧ endTime(t(s)) ≤ 21:30`

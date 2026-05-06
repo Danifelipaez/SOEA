@@ -14,9 +14,10 @@ Todos los requisitos para el motor de optimización del backend, la ingesta de d
 
 ### FR-01 — Ingesta de datos desde Excel
 El sistema deberá aceptar archivos Excel que contengan:
-- Datos de malla curricular (asignaturas, horas por semana, cohortes)
+- Datos de malla curricular (asignaturas, duración, tipo de clase)
+- Grupos de estudiantes (programa, cohorte, número de estudiantes)
 - Disponibilidad de docentes (bloques de tiempo por docente y por día)
-- Inventario de espacios (capacidad, tipo, equipamiento)
+- Inventario de espacios académicos (capacidad, tipo, equipamiento)
 
 ### FR-02 — Generación de horarios
 El sistema deberá producir un horario completo para un semestre a partir de los datos de entrada,
@@ -43,7 +44,7 @@ El sistema deberá producir un informe de validación que liste cualquier violac
 restante de restricciones blandas después de la optimización, con una puntuación de severidad.
 
 ### FR-08 — Soporte de alternancia
-El sistema deberá asignar las sesiones de acuerdo con las reglas de alternancia (Tipo A / Tipo B),
+El sistema deberá asignar las sesiones de acuerdo con las reglas de alternancia (semanas presenciales/virtuales),
 según se define en `docs/business-rules/alternancia.md`.
 
 ---
@@ -52,7 +53,7 @@ según se define en `docs/business-rules/alternancia.md`.
 
 ### NFR-01 — Rendimiento
 El pipeline de optimización deberá completarse en menos de 10 minutos para una carga semestral estándar
-(hasta 200 cohortes, 50 docentes, 30 espacios).
+(hasta 200 grupos, 50 docentes, 30 espacios).
 
 ### NFR-02 — Corrección
 Todas las restricciones duras deben cumplirse (cero violaciones) en la salida final.

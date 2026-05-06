@@ -19,7 +19,7 @@ El objetivo principal es generar automáticamente horarios académicos factibles
 
 ## Problem Being Solved
 
-Programar manualmente sesiones para cientos de cohortes en decenas de espacios físicos es:
+Programar manualmente sesiones para cientos de grupos de estudiantes en decenas de espacios físicos es:
 - Lento (actualmente toma días o semanas por semestre)
 - Propenso a errores (conflictos, asignaciones por encima de la capacidad, violaciones de reglas)
 - Difícil de adaptar cuando ocurren cambios a mitad de semestre
@@ -39,12 +39,12 @@ Producir un horario completo, libre de conflictos y optimizado para un semestre,
 
 ## In Scope
 
-- Programación de sesiones académicas para cohortes de pregrado
-- Asignación de alternancia Tipo A / Tipo B (ver `docs/business-rules/alternancia.md`)
-- Asignación de espacios físicos (aulas, laboratorios)
+- Programación de sesiones académicas para grupos de estudiantes de pregrado
+- Asignación de alternancia (semanas presenciales/virtuales) por sesión
+- Asignación de espacios académicos (aulas, laboratorios)
 - Validación de disponibilidad de docentes
-- Ingesta de datos desde Excel (archivos de malla curricular y disponibilidad)
-- Interfaz web basada en roles (Admin, Coordinator, Instructor, Student)
+- Ingesta de datos desde Excel (asignaturas, grupos, disponibilidad y espacios)
+- Interfaz web basada en roles (Admin, Coordinador, Docente, Estudiante)
 - Validación piloto con un subconjunto de programas (definido en `docs/business-rules/pilot-limits.md`)
 
 ---
@@ -69,5 +69,5 @@ El despliegue inicial apunta a un piloto limitado (ver `docs/business-rules/pilo
 ## Open Questions
 
 - ¿Qué programas específicos están incluidos en el piloto?
-- ¿Existe un número máximo de cohortes por semestre para la primera versión?
-- ¿Las sesiones virtuales se programan en espacios físicos o se excluyen por completo?
+- ¿Existe un número máximo de grupos por semestre para la primera versión?
+- ¿Las sesiones virtuales se programan con `Id_espacio = null` o con espacios virtuales registrados?

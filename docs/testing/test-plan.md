@@ -17,9 +17,9 @@ Cubren clases individuales de forma aislada con todas las dependencias simuladas
 
 | Área | Clase objetivo | Qué probar |
 |---|---|---|
-| Domain | `Session` | Invariantes de entidad (duration > 0, una sesión virtual no tiene espacio) |
-| Domain | `TimeSlot` | Validación de StartTime < EndTime |
-| Domain | `Cohort` | Asignación de AlternanciaType |
+| Domain | `Sesion` | Invariantes de entidad (hora_inicio < hora_fin, modalidad virtual sin espacio) |
+| Domain | `DisponibilidadDocente` | Validación de bloques de tiempo |
+| Domain | `GrupoDeEstudiantes` | Número de estudiantes > 0 |
 | Application | `ConstraintValidator` | Lógica de detección de restricciones duras |
 | Application | `ScheduleOptimizationPipeline` | Llamadas de orquestación de fases (motores simulados) |
 | Phase 1 | `ConflictGraphBuilder` | Construcción de aristas para cada tipo de conflicto |
@@ -45,7 +45,7 @@ Pruebas que validan directamente cada restricción dura de `hard-constraints.md`
 
 | Restricción | Escenario de prueba |
 |---|---|
-| HC-I01 | Dos sesiones con el mismo docente en el mismo espacio de tiempo → debe marcarse |
+| HC-I01 | Dos sesiones con el mismo docente en el mismo horario → debe marcarse |
 | HC-S02 | 30 estudiantes asignados a un espacio con capacidad 25 → debe marcarse |
 | HC-T02 | Sesión de laboratorio que inicia a las 20:00 → debe marcarse |
 | HC-T05 | Sesiones split-block en días consecutivos → debe marcarse |
@@ -55,9 +55,9 @@ Pruebas que validan directamente cada restricción dura de `hard-constraints.md`
 
 ## Datos de prueba
 
-- Conjunto de prueba pequeño: 5 cohortes, 3 docentes, 5 espacios, 20 sesiones
+- Conjunto de prueba pequeño: 5 grupos, 3 docentes, 5 espacios, 20 sesiones
 - Conjunto de caso extremo: sesión que no puede programarse (todos los espacios del docente ocupados)
-- Conjunto de alternancia: mezcla de cohortes Type A, Type B y NonAlternating
+- Conjunto de alternancia: mezcla de grupos Type A, Type B y NonAlternating
 
 Los archivos de datos de prueba deben colocarse en `test/SOEA.Tests/TestData/`.
 

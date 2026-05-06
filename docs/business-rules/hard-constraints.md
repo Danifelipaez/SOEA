@@ -17,7 +17,7 @@ Todas las reglas de programación no negociables. Las preferencias de optimizaci
 
 | ID | Rule |
 |---|---|
-| HC-S01 | Un espacio no puede alojar dos sesiones en el mismo espacio de tiempo si ambas cohortes son Tipo A, ambas son Tipo B o alguna cohorte es NonAlternating |
+| HC-S01 | Un espacio no puede alojar dos sesiones en el mismo espacio de tiempo si ambos grupos son Tipo A, ambos son Tipo B o algún grupo es NonAlternating |
 | HC-S02 | El total de estudiantes inscritos de las sesiones presentes físicamente en el mismo espacio y espacio de tiempo no debe exceder la capacidad del espacio |
 | HC-S03 | Una sesión que requiera un tipo específico de espacio (laboratorio, auditorio) debe asignarse a un espacio de ese tipo |
 | HC-S04 | Las sesiones virtuales no deben asignarse a un espacio físico |
@@ -40,12 +40,12 @@ Todas las reglas de programación no negociables. Las preferencias de optimizaci
 | HC-T04 | Ninguna sesión puede programarse durante el receso del mediodía (12:00–13:00) salvo que la institución lo permita explícitamente |
 | HC-T05 | Las sesiones que formen un bloque dividido (horas distribuidas en varios días) no deben programarse en días consecutivos |
 
-### Restricciones de cohorte
+### Restricciones de grupo
 
 | ID | Rule |
 |---|---|
-| HC-C01 | Una cohorte no puede tener dos sesiones en el mismo espacio de tiempo |
-| HC-C02 | Las horas totales programadas de una cohorte deben coincidir con las horas definidas por la malla curricular por asignatura y semana |
+| HC-C01 | Un grupo no puede tener dos sesiones en el mismo espacio de tiempo |
+| HC-C02 | Las horas totales programadas de un grupo deben coincidir con las horas definidas por la malla curricular por asignatura y semana |
 
 ### Restricciones específicas de asignatura
 
@@ -76,4 +76,4 @@ Las restricciones duras se aplican en dos lugares:
 
 - ¿HC-T04 (receso del almuerzo) es configurable por institución o siempre está fijo en 12:00–13:00?
 - ¿Cuál es la marca exacta de la malla curricular usada para señalar asignaturas "siempre 8+8" y siempre significa dos sesiones consecutivas de 8 horas?
-- ¿Existen límites duros sobre horas consecutivas de docencia para los instructores?
+- ¿Existen límites duros sobre horas consecutivas de docencia para los docentes?

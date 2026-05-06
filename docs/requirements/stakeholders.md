@@ -14,7 +14,7 @@ Todos los actores humanos que interactúan directamente con el sistema o cuyas r
 ### Admin
 - **Quién**: Personal de la oficina de programación o administrador de TI
 - **Responsibilities**:
-  - Cargar archivos Excel (malla curricular, espacios, disponibilidad de docentes)
+  - Cargar archivos Excel (asignaturas, grupos, espacios, disponibilidad de docentes)
   - Configurar parámetros del sistema (fechas del semestre, alcance del piloto)
   - Ejecutar el pipeline de optimización
   - Administrar cuentas de usuario
@@ -28,17 +28,17 @@ Todos los actores humanos que interactúan directamente con el sistema o cuyas r
   - Aprobar o solicitar una nueva optimización
 - **Valida**: Corrección del horario para los programas asignados
 
-### Instructor
+### Docente
 - **Quién**: Profesor universitario o catedrático
 - **Responsibilities**:
   - Ver su horario personal de docencia
   - Reportar conflictos de disponibilidad
 - **Valida**: Sus propias asignaciones de sesión
 
-### Student
+### Estudiante
 - **Quién**: Estudiante de pregrado matriculado
 - **Responsibilities**:
-  - Ver el horario de su cohorte
+  - Ver el horario de su grupo de estudiantes
 - **Valida**: No aplica (rol de solo lectura)
 
 ---

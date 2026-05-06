@@ -76,10 +76,10 @@ Empieza aquí cuando trabajes en una nueva funcionalidad o le pidas ayuda a Copi
 
 ### `SOEA.Domain`
 Conceptos centrales del negocio sin dependencias externas.
-- Entidades: `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`
-- Objetos de valor y enumeraciones: `AlternanciaType`, `ConstraintWeight`, `SessionStatus`
+- Entidades: `Usuario`, `Administrador`, `Docente`, `DisponibilidadDocente`, `Asignatura`, `GrupoDeEstudiantes`, `EspacioAcademico`, `Sesion`
+- Objetos de valor y enumeraciones: `AlternanciaType`, `ModalidadSesion`, `TipoEspacio`
 - Interfaces de dominio (puertos) implementadas por Infrastructure
-- Invariantes de negocio (por ejemplo, una sesión no puede exceder su duración permitida)
+- Invariantes de negocio (por ejemplo, una sesión no puede existir con `Modalidad = Virtual` y `Id_espacio` asignado)
 
 ### `SOEA.Application`
 Capa de orquestación — coordina objetos de dominio e infraestructura.
@@ -96,7 +96,7 @@ Implementación del acceso a datos.
 
 ### `SOEA.Infrastructure.Excel`
 Ingesta de Excel mediante EPPlus.
-- Lectores para malla curricular, disponibilidad de docentes y datos de espacios
+- Lectores para asignaturas, grupos, disponibilidad de docentes y datos de espacios
 - Mapeadores de filas de Excel a entidades de dominio
 
 ### `SOEA.Engine.GraphColoring`
@@ -128,9 +128,9 @@ Punto de entrada HTTP.
 ## Responsabilidades del frontend (`frontend/soea-angular`)
 
 SPA en Angular basada en roles:
-- **Admin**: configure spaces, upload Excel data, trigger optimization
-- **Coordinator**: review and validate generated schedules
-- **Instructor / Student**: view personal timetables
+- **Admin**: configurar espacios, cargar datos de Excel, iniciar la optimización
+- **Coordinador**: revisar y validar horarios generados
+- **Docente / Estudiante**: ver su horario personal
 
 ---
 
