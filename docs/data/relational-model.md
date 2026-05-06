@@ -7,7 +7,7 @@ Copilot usa esto al generar configuraciones de entidades EF Core y migraciones d
 ## Alcance
 Todas las tablas del esquema de base de datos de producción.
 
-> Nota: Los nombres siguen la convención de código en inglés; equivalencias en español se describen en `data-dictionary.md`.
+> Nota: Los nombres siguen la convención de código en inglés; equivalencias en español se describen en `docs/data/data-dictionary.md`.
 
 ---
 

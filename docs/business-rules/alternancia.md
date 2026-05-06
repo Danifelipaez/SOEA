@@ -7,7 +7,7 @@ Copilot usa esto al generar la lógica de asignación de sesiones y las restricc
 
 ## Alcance
 Todas las reglas que gobiernan cómo los grupos alternan entre las modalidades presencial y virtual
- a lo largo de las semanas de un semestre.
+a lo largo de las semanas de un semestre.
 
 ---
 
