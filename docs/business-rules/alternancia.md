@@ -58,7 +58,7 @@ siempre que estén en calendarios de alternancia opuestos.
 - `modalidad`: `Presencial` o `Virtual`
 
 El tipo de alternancia (`AlternanciaType`) se utiliza como valor canónico del dominio para derivar
-`es_alternancia_virtual` según la semana.
+`es_alternancia_virtual` según la semana. Para `NonAlternating`, `es_alternancia_virtual` es siempre `false`.
 
 ---
 

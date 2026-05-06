@@ -75,7 +75,7 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 }
 ```
 
-> `academicSpaceId` y `academicSpace` serán `null` cuando `modality = "Virtual"`.
+> `academicSpaceId` será `null` cuando `modality = "Virtual"`; el campo `academicSpace` puede omitirse o ser `null`.
 
 ---
 

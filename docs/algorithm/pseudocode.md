@@ -42,8 +42,8 @@ function GraphColoringPhase(sessions):
 function BuildConflictGraph(sessions):
     G = empty graph
     for each pair (s1, s2) in sessions × sessions where s1 ≠ s2:
-        if SameDocente(s1, s2) OR
-           SameGrupo(s1, s2) OR
+        if SameTeacher(s1, s2) OR
+           SameStudentGroup(s1, s2) OR
            ConflictOnAlternanciaType(s1, s2):
             G.addEdge(s1, s2)
     return G
