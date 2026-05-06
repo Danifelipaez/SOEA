@@ -1,33 +1,33 @@
-# Phase 2 — Constraint Programming (CP-SAT)
+# Fase 2 — Programación por restricciones (CP-SAT)
 
-## Purpose
-Describe how SOEA uses Google OR-Tools CP-SAT to enforce all hard constraints and produce
-a feasible schedule. Copilot uses this when implementing `SOEA.Engine.ConstraintProg`.
+## Propósito
+Describir cómo SOEA usa Google OR-Tools CP-SAT para imponer todas las restricciones duras y producir
+un horario factible. Copilot usa esto al implementar `SOEA.Engine.ConstraintProg`.
 
-## Scope
-Phase 2 only: hard constraint enforcement and feasibility solving.
-Phase 1 (Graph Coloring warm start) and Phase 3 (Genetic optimization) are in their own docs.
-
----
-
-## Goal of Phase 2
-
-Take the Phase 1 warm-start `PartialSchedule` and find a **fully feasible** assignment —
-one that violates zero hard constraints — by using OR-Tools CP-SAT.
-
-Phase 2 assigns both **time slots** and **spaces** to all sessions.
+## Alcance
+Solo la Fase 2: imposición de restricciones duras y resolución de factibilidad.
+La Fase 1 (warm start de Graph Coloring) y la Fase 3 (optimización genética) están en sus propios documentos.
 
 ---
 
-## Technology
+## Objetivo de la Fase 2
 
-- **Library**: Google OR-Tools CP-SAT solver (`Google.OrTools` NuGet package)
-- **Model type**: Constraint Programming (CP), not Linear Programming (LP)
-- **Solver timeout**: configurable (default 600 seconds)
+Tomar el `PartialSchedule` de warm start de la Fase 1 y encontrar una asignación **totalmente factible** —
+una que no viole ninguna restricción dura — usando OR-Tools CP-SAT.
+
+La Fase 2 asigna tanto **espacios de tiempo** como **espacios** a todas las sesiones.
 
 ---
 
-## CP Model Overview
+## Tecnología
+
+- **Biblioteca**: solucionador Google OR-Tools CP-SAT (paquete NuGet `Google.OrTools`)
+- **Tipo de modelo**: Programación por restricciones (CP), no Programación Lineal (LP)
+- **Tiempo límite del solucionador**: configurable (predeterminado 600 segundos)
+
+---
+
+## Resumen del modelo CP
 
 ### Variables
 
@@ -35,61 +35,61 @@ For each session `s`:
 - `timeVar(s)`: integer variable ∈ {0, ..., |T|-1} — index into the time slot array
 - `spaceVar(s)`: integer variable ∈ {0, ..., |R|-1, null_index} — index into the space array
 
-### Constraints Added to the Model
+### Restricciones añadidas al modelo
 
 Each hard constraint from `docs/business-rules/hard-constraints.md` is encoded as follows:
 
-| Hard Constraint | CP-SAT Encoding |
+| Restricción dura | Codificación CP-SAT |
 |---|---|
-| HC-I01: Instructor conflict | For each pair of sessions with same instructor: `timeVar(s₁) ≠ timeVar(s₂)` |
-| HC-C01: Cohort conflict | For each pair of sessions with same cohort: `timeVar(s₁) ≠ timeVar(s₂)` |
-| HC-S01: Space conflict (same alt type) | For each pair with same alt type and both in-person: `¬(timeVar(s₁) = timeVar(s₂) ∧ spaceVar(s₁) = spaceVar(s₂))` |
-| HC-S02: Capacity | `enrolledStudents(coh(s)) ≤ capacity(r)` — enforced by restricting `spaceVar(s)` domain to valid spaces |
-| HC-I02: Instructor availability | `timeVar(s) ∈ domain(available(inst(s)))` |
-| HC-S03: Space type | `spaceVar(s) ∈ domain(spacesOfType(type(s)))` |
-| HC-T01–T02: Time bounds | Variable domain restricted to valid time slots only |
-| HC-T03: 3h block = consecutive | Block sessions linked via auxiliary `AllDifferent` / ordering constraints |
+| HC-I01: Conflicto de docente | Para cada par de sesiones con el mismo docente: `timeVar(s₁) ≠ timeVar(s₂)` |
+| HC-C01: Conflicto de cohorte | Para cada par de sesiones con la misma cohorte: `timeVar(s₁) ≠ timeVar(s₂)` |
+| HC-S01: Conflicto de espacio (mismo tipo de alternancia) | Para cada par con el mismo tipo de alternancia y ambas presenciales: `¬(timeVar(s₁) = timeVar(s₂) ∧ spaceVar(s₁) = spaceVar(s₂))` |
+| HC-S02: Capacidad | `enrolledStudents(coh(s)) ≤ capacity(r)` — se impone restringiendo el dominio de `spaceVar(s)` a espacios válidos |
+| HC-I02: Disponibilidad del docente | `timeVar(s) ∈ domain(available(inst(s)))` |
+| HC-S03: Tipo de espacio | `spaceVar(s) ∈ domain(spacesOfType(type(s)))` |
+| HC-T01–T02: Límites de tiempo | El dominio de la variable se restringe solo a espacios de tiempo válidos |
+| HC-T03: Bloque de 3h = consecutivo | Las sesiones en bloque se enlazan mediante restricciones auxiliares `AllDifferent` / de orden |
 
-### Warm Start (Hint)
+### Warm Start (indicio)
 
-The Phase 1 assignment is passed to CP-SAT as a **solution hint**:
+La asignación de la Fase 1 se pasa a CP-SAT como un **indicio de solución**:
 ```
 solver.AddHint(timeVar(s), phase1TimeIndex(s))
 ```
-This helps CP-SAT find a feasible solution faster.
+Esto ayuda a CP-SAT a encontrar una solución factible más rápido.
 
 ---
 
-## Inputs
+## Entradas
 
 - `PartialSchedule` from Phase 1 (time slot hints)
 - Full domain model: sessions, instructors, cohorts, spaces, time slots
 
-## Outputs
+## Salidas
 
-- `FeasibleSchedule`: a complete assignment of sessions to time slots and spaces
-- All hard constraints satisfied (zero violations)
-- If no feasible solution exists within the timeout, Phase 2 returns an `InfeasibleResult`
-
----
-
-## Infeasibility Handling
-
-If CP-SAT cannot find a feasible solution:
-1. Log which constraints are most likely causing infeasibility (using CP-SAT assumptions API)
-2. Return an error to the Application layer with a constraint conflict report
-3. The Application layer surfaces this to the user as a validation error before Phase 3 runs
+- `FeasibleSchedule`: una asignación completa de sesiones a espacios de tiempo y espacios
+- Todas las restricciones duras satisfechas (cero violaciones)
+- Si no existe una solución factible dentro del tiempo límite, la Fase 2 devuelve un `InfeasibleResult`
 
 ---
 
-## Performance Target
+## Manejo de infactibilidad
 
-Phase 2 should find a feasible solution within 120 seconds for pilot data volumes.
-The configurable timeout cap is 600 seconds.
+Si CP-SAT no puede encontrar una solución factible:
+1. Registrar qué restricciones son las más probables causantes de la infactibilidad (usando la API de supuestos de CP-SAT)
+2. Devolver un error a la capa Application con un informe de conflicto de restricciones
+3. La capa Application lo muestra al usuario como un error de validación antes de ejecutar la Fase 3
 
 ---
 
-## Open Questions
+## Objetivo de rendimiento
 
-- Should CP-SAT also optimize a basic objective (e.g., minimize spread) or only enforce feasibility?
-- Should Phase 2 skip sessions that Phase 1 flagged as unresolvable and report them separately?
+La Fase 2 debería encontrar una solución factible en menos de 120 segundos para volúmenes de datos del piloto.
+El límite configurable de tiempo es de 600 segundos.
+
+---
+
+## Preguntas abiertas
+
+- ¿CP-SAT también debería optimizar un objetivo básico (por ejemplo, minimizar dispersión) o solo imponer factibilidad?
+- ¿La Fase 2 debería omitir las sesiones que la Fase 1 marcó como no resolubles y reportarlas por separado?

@@ -1,17 +1,17 @@
-# Relational Model
+# Modelo relacional
 
-## Purpose
-Define the physical database tables, columns, primary/foreign keys, and indexes for SOEA.
-Copilot uses this when generating EF Core entity configurations and database migrations.
+## Propósito
+Definir las tablas físicas de la base de datos, columnas, claves primarias/foráneas e índices de SOEA.
+Copilot usa esto al generar configuraciones de entidades EF Core y migraciones de base de datos.
 
-## Scope
-All tables in the production database schema.
+## Alcance
+Todas las tablas del esquema de base de datos de producción.
 
 ---
 
-## Tables
+## Tablas
 
-> Note: This is an initial draft based on the domain model. Refine after the first EF Core migration.
+> Nota: Este es un borrador inicial basado en el modelo de dominio. Debe refinarse después de la primera migración de EF Core.
 
 ### `Schedules`
 | Column | Type | Constraints |
@@ -67,7 +67,7 @@ All tables in the production database schema.
 | `Building` | nvarchar(100) | NULL |
 | `Floor` | int | NULL |
 
-Virtual sessions are represented by `Session.SpaceId = NULL`; they do not require a persisted `Space` row.
+Las sesiones virtuales se representan con `Session.SpaceId = NULL`; no requieren una fila persistida de `Space`.
 
 ### `TimeSlots`
 | Column | Type | Constraints |
@@ -102,17 +102,17 @@ Virtual sessions are represented by `Session.SpaceId = NULL`; they do not requir
 
 ---
 
-## Indexes
+## Índices
 
-- `Sessions(CohortId, TimeSlotId)` — conflict detection
-- `Sessions(InstructorId, TimeSlotId)` — conflict detection
-- `Sessions(SpaceId, TimeSlotId)` — conflict detection
-- `Cohorts(ProgramId)` — program-level queries
-- `Subjects(ProgramId)` — curriculum queries
+- `Sessions(CohortId, TimeSlotId)` — detección de conflictos
+- `Sessions(InstructorId, TimeSlotId)` — detección de conflictos
+- `Sessions(SpaceId, TimeSlotId)` — detección de conflictos
+- `Cohorts(ProgramId)` — consultas por programa
+- `Subjects(ProgramId)` — consultas de malla curricular
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- Should SQL Server or PostgreSQL syntax be used for the migration target?
-- Should `TimeSlot` rows be pre-seeded (standard institutional slots) or user-defined?
+- ¿Debe usarse sintaxis de SQL Server o PostgreSQL para el destino de la migración?
+- ¿Las filas de `TimeSlot` deben precargarse (espacios institucionales estándar) o ser definidas por el usuario?

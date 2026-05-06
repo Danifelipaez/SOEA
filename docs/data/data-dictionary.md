@@ -1,127 +1,127 @@
-# Data Dictionary
+# Diccionario de datos
 
-## Purpose
-Define every data field in the SOEA domain model: name, type, description, required/optional status,
-and allowed values. Copilot uses this as the authoritative source when generating entity classes,
-database schemas, Excel readers, and API DTOs.
+## Propósito
+Definir cada campo de datos del modelo de dominio de SOEA: nombre, tipo, descripción, si es obligatorio/opcional
+y valores permitidos. Copilot usa esto como fuente autorizada al generar clases de entidades,
+esquemas de base de datos, lectores de Excel y DTOs de API.
 
-## Scope
-All persistent domain entities. Derived/computed fields are noted as such.
+## Alcance
+Todas las entidades persistentes del dominio. Los campos derivados o calculados se indican como tales.
 
 ---
 
 ## Session
 
-The core schedulable unit: one occurrence of a subject for a cohort.
+La unidad programable central: una ocurrencia de una asignatura para una cohorte.
 
-| Field | Type | Required | Description | Allowed Values / Constraints |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos / Restricciones |
 |---|---|---|---|---|
-| `Id` | GUID | Yes | Unique identifier | Auto-generated |
-| `SubjectId` | GUID | Yes | Reference to Subject | Must exist in Subject table |
-| `CohortId` | GUID | Yes | Reference to Cohort | Must exist in Cohort table |
-| `InstructorId` | GUID | Yes | Reference to Instructor | Must exist in Instructor table |
-| `SpaceId` | GUID | No | Assigned Space (null if virtual) | Must exist in Space table |
-| `TimeSlotId` | GUID | Yes | Assigned time slot | Must exist in TimeSlot table |
-| `AlternanciaType` | Enum | Yes | Cohort alternancia type | `TypeA`, `TypeB`, `NonAlternating` |
-| `Modality` | Enum | Yes | Presencial or virtual | `InPerson`, `Virtual` |
-| `Status` | Enum | Yes | Scheduling status | `Pending`, `Assigned`, `Conflict` |
-| `DurationHours` | decimal | Yes | Session duration in hours | > 0, ≤ 8 |
-| `IsBlock` | bool | Yes | Whether this is a contiguous block session | — |
-| `IsSplitBlock` | bool | Yes | Whether hours are split across multiple days | Cannot be true if IsBlock is true |
+| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
+| `SubjectId` | GUID | Sí | Referencia a Subject | Debe existir en la tabla Subject |
+| `CohortId` | GUID | Sí | Referencia a Cohort | Debe existir en la tabla Cohort |
+| `InstructorId` | GUID | Sí | Referencia a Instructor | Debe existir en la tabla Instructor |
+| `SpaceId` | GUID | No | Espacio asignado (null si es virtual) | Debe existir en la tabla Space |
+| `TimeSlotId` | GUID | Sí | Espacio de tiempo asignado | Debe existir en la tabla TimeSlot |
+| `AlternanciaType` | Enum | Sí | Tipo de alternancia de la cohorte | `TypeA`, `TypeB`, `NonAlternating` |
+| `Modality` | Enum | Sí | Presencial o virtual | `InPerson`, `Virtual` |
+| `Status` | Enum | Sí | Estado de programación | `Pending`, `Assigned`, `Conflict` |
+| `DurationHours` | decimal | Sí | Duración de la sesión en horas | > 0, ≤ 8 |
+| `IsBlock` | bool | Sí | Indica si es una sesión en bloque continuo | — |
+| `IsSplitBlock` | bool | Sí | Indica si las horas están divididas en varios días | No puede ser true si IsBlock es true |
 
 ---
 
 ## Cohort
 
-A group of students enrolled in the same program and semester.
+Grupo de estudiantes inscritos en el mismo programa y semestre.
 
-| Field | Type | Required | Description | Allowed Values |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos |
 |---|---|---|---|---|
-| `Id` | GUID | Yes | Unique identifier | Auto-generated |
-| `Name` | string | Yes | Cohort display name | E.g., "Systems Engineering — Sem 3" |
-| `ProgramId` | GUID | Yes | Academic program | Must exist in Program table |
-| `Semester` | int | Yes | Academic semester number | 1–10 |
-| `EnrolledStudents` | int | Yes | Number of enrolled students | > 0 |
-| `AlternanciaType` | Enum | Yes | Type A, Type B, or non-alternating | `TypeA`, `TypeB`, `NonAlternating` |
+| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
+| `Name` | string | Sí | Nombre visible de la cohorte | Por ejemplo, "Systems Engineering — Sem 3" |
+| `ProgramId` | GUID | Sí | Programa académico | Debe existir en la tabla Program |
+| `Semester` | int | Sí | Número de semestre académico | 1–10 |
+| `EnrolledStudents` | int | Sí | Número de estudiantes inscritos | > 0 |
+| `AlternanciaType` | Enum | Sí | Tipo A, Tipo B o no alternante | `TypeA`, `TypeB`, `NonAlternating` |
 
 ---
 
 ## Space
 
-A physical location for sessions.
+Ubicación física para las sesiones.
 
-| Field | Type | Required | Description | Allowed Values |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos |
 |---|---|---|---|---|
-| `Id` | GUID | Yes | Unique identifier | Auto-generated |
-| `Name` | string | Yes | Room name or code | E.g., "Aula 204", "Lab Química" |
-| `Type` | Enum | Yes | Space type | `Classroom`, `Lab`, `Auditorium` |
-| `Capacity` | int | Yes | Maximum occupancy | > 0 |
-| `Building` | string | No | Building name or code | — |
-| `Floor` | int | No | Floor number | — |
+| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
+| `Name` | string | Sí | Nombre o código del espacio | Por ejemplo, "Aula 204", "Lab Química" |
+| `Type` | Enum | Sí | Tipo de espacio | `Classroom`, `Lab`, `Auditorium` |
+| `Capacity` | int | Sí | Ocupación máxima | > 0 |
+| `Building` | string | No | Nombre o código del edificio | — |
+| `Floor` | int | No | Número del piso | — |
 
 ---
 
 ## Instructor
 
-A person who delivers sessions.
+Persona que imparte sesiones.
 
-| Field | Type | Required | Description | Allowed Values |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos |
 |---|---|---|---|---|
-| `Id` | GUID | Yes | Unique identifier | Auto-generated |
-| `FullName` | string | Yes | Full name | — |
-| `Email` | string | Yes | Institutional email | Valid email format |
-| `MaxWeeklyHours` | decimal | Yes | Maximum contracted teaching hours per week | > 0 |
-| `Availability` | list of TimeSlot | Yes | Available time blocks | See TimeSlot |
+| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
+| `FullName` | string | Sí | Nombre completo | — |
+| `Email` | string | Sí | Correo institucional | Formato de correo válido |
+| `MaxWeeklyHours` | decimal | Sí | Máximo de horas de docencia contratadas por semana | > 0 |
+| `Availability` | list of TimeSlot | Sí | Espacios de tiempo disponibles | Ver TimeSlot |
 
 ---
 
 ## TimeSlot
 
-A discrete schedulable time block.
+Bloque de tiempo discreto programable.
 
-| Field | Type | Required | Description | Allowed Values |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos |
 |---|---|---|---|---|
-| `Id` | GUID | Yes | Unique identifier | Auto-generated |
-| `DayOfWeek` | Enum | Yes | Day of the week | `Monday`–`Friday` |
-| `StartTime` | TimeOnly | Yes | Start time | 07:00–21:30 |
-| `EndTime` | TimeOnly | Yes | End time | > StartTime, ≤ 21:30 |
+| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
+| `DayOfWeek` | Enum | Sí | Día de la semana | `Monday`–`Friday` |
+| `StartTime` | TimeOnly | Sí | Hora de inicio | 07:00–21:30 |
+| `EndTime` | TimeOnly | Sí | Hora de fin | > StartTime, ≤ 21:30 |
 
 ---
 
 ## Subject
 
-An academic course or subject from the curriculum.
+Una asignatura o curso académico de la malla curricular.
 
-| Field | Type | Required | Description | Allowed Values |
+| Campo | Tipo | Requerido | Descripción | Valores permitidos |
 |---|---|---|---|---|
-| `Id` | GUID | Yes | Unique identifier | Auto-generated |
-| `Name` | string | Yes | Subject name | — |
-| `Code` | string | Yes | Institutional course code | Alphanumeric |
-| `WeeklyHours` | decimal | Yes | Hours per week per cohort | > 0 |
-| `RequiresLab` | bool | Yes | Whether sessions must be in a lab | — |
-| `IsNonAlternating` | bool | Yes | Whether sessions occur every week (not alternating) | — |
-| `ProgramId` | GUID | Yes | Academic program this subject belongs to | — |
+| `Id` | GUID | Sí | Identificador único | Generado automáticamente |
+| `Name` | string | Sí | Nombre de la asignatura | — |
+| `Code` | string | Sí | Código institucional de la asignatura | Alfanumérico |
+| `WeeklyHours` | decimal | Sí | Horas por semana por cohorte | > 0 |
+| `RequiresLab` | bool | Sí | Indica si las sesiones deben ser en un laboratorio | — |
+| `IsNonAlternating` | bool | Sí | Indica si las sesiones ocurren todas las semanas (no alternan) | — |
+| `ProgramId` | GUID | Sí | Programa académico al que pertenece la asignatura | — |
 
 ---
 
 ## Schedule
 
-The complete timetable output for one semester.
+La salida completa del horario para un semestre.
 
-| Field | Type | Required | Description |
+| Campo | Tipo | Requerido | Descripción |
 |---|---|---|---|
-| `Id` | GUID | Yes | Unique identifier |
-| `SemesterLabel` | string | Yes | E.g., "2025-1" |
-| `GeneratedAt` | DateTime | Yes | Timestamp of generation |
-| `Status` | Enum | Yes | `Draft`, `Published`, `Archived` |
-| `Sessions` | list of Session | Yes | All assigned sessions |
-| `HardConstraintViolations` | int | Computed | Must be 0 for a valid schedule |
-| `SoftConstraintFitnessScore` | decimal | Computed | Lower is better; from Phase 3 |
+| `Id` | GUID | Sí | Identificador único |
+| `SemesterLabel` | string | Sí | Por ejemplo, "2025-1" |
+| `GeneratedAt` | DateTime | Sí | Marca temporal de generación |
+| `Status` | Enum | Sí | `Draft`, `Published`, `Archived` |
+| `Sessions` | list of Session | Sí | Todas las sesiones asignadas |
+| `HardConstraintViolations` | int | Calculado | Debe ser 0 para un horario válido |
+| `SoftConstraintFitnessScore` | decimal | Calculado | Más bajo es mejor; proviene de la Fase 3 |
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- Should `Instructor.Availability` be stored as a separate join table or embedded as JSON?
-- Is `Subject.WeeklyHours` the same as `Session.DurationHours × sessions per week`?
-- Are there subjects with variable hours that differ by cohort?
+- ¿`Instructor.Availability` debe almacenarse como una tabla de unión separada o incrustada como JSON?
+- ¿`Subject.WeeklyHours` es lo mismo que `Session.DurationHours × sesiones por semana`?
+- ¿Existen asignaturas con horas variables que cambian según la cohorte?

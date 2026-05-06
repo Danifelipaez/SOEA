@@ -1,59 +1,59 @@
-# Stakeholders
+# Partes interesadas
 
-## Purpose
-Identify who uses SOEA, what role they play, and what they are responsible for validating.
-Copilot uses this document when generating role-based authorization logic, UI views, and access control.
+## Propósito
+Identificar quién usa SOEA, qué rol desempeña y qué le corresponde validar.
+Copilot usa este documento al generar lógica de autorización basada en roles, vistas de UI y control de acceso.
 
-## Scope
-All human actors who interact with the system directly or whose constraints the system must respect.
+## Alcance
+Todos los actores humanos que interactúan directamente con el sistema o cuyas restricciones debe respetar.
 
 ---
 
 ## Roles
 
 ### Admin
-- **Who**: Scheduling office staff or IT administrator
+- **Quién**: Personal de la oficina de programación o administrador de TI
 - **Responsibilities**:
-  - Upload Excel files (curriculum, spaces, instructor availability)
-  - Configure system parameters (semester dates, pilot scope)
-  - Trigger the optimization pipeline
-  - Manage user accounts
-- **Validates**: Data integrity, system configuration, final schedule publication
+  - Cargar archivos Excel (malla curricular, espacios, disponibilidad de docentes)
+  - Configurar parámetros del sistema (fechas del semestre, alcance del piloto)
+  - Ejecutar el pipeline de optimización
+  - Administrar cuentas de usuario
+- **Valida**: Integridad de datos, configuración del sistema, publicación final del horario
 
-### Academic Coordinator
-- **Who**: Faculty coordinator or academic director per program
+### Coordinador académico
+- **Quién**: Coordinador de facultad o director académico por programa
 - **Responsibilities**:
-  - Review generated schedules for their program
-  - Flag constraint violations or business-rule exceptions
-  - Approve or request re-optimization
-- **Validates**: Schedule correctness for assigned programs
+  - Revisar los horarios generados para su programa
+  - Marcar violaciones de restricciones o excepciones de reglas de negocio
+  - Aprobar o solicitar una nueva optimización
+- **Valida**: Corrección del horario para los programas asignados
 
 ### Instructor
-- **Who**: University professor or lecturer
+- **Quién**: Profesor universitario o catedrático
 - **Responsibilities**:
-  - View their personal teaching timetable
-  - Report availability conflicts
-- **Validates**: Their own session assignments
+  - Ver su horario personal de docencia
+  - Reportar conflictos de disponibilidad
+- **Valida**: Sus propias asignaciones de sesión
 
 ### Student
-- **Who**: Enrolled undergraduate student
+- **Quién**: Estudiante de pregrado matriculado
 - **Responsibilities**:
-  - View their cohort timetable
-- **Validates**: N/A (read-only role)
+  - Ver el horario de su cohorte
+- **Valida**: No aplica (rol de solo lectura)
 
 ---
 
-## Indirect Stakeholders
+## Partes interesadas indirectas
 
-| Stakeholder | Interest |
+| Parte interesada | Interés |
 |---|---|
-| University management | Efficient use of physical spaces |
-| IT department | System deployment and data security |
-| Accreditation body | Schedule compliance with academic regulations |
+| Dirección universitaria | Uso eficiente de los espacios físicos |
+| Departamento de TI | Despliegue del sistema y seguridad de los datos |
+| Organismo de acreditación | Cumplimiento del horario con la normativa académica |
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- Does the institution need a "Department Head" role separate from Coordinator?
-- Should Instructors be able to block availability through the UI, or only via uploaded Excel?
+- ¿La institución necesita un rol de "Jefe de Departamento" separado del Coordinador?
+- ¿Los docentes deberían poder bloquear disponibilidad desde la UI o solo mediante Excel cargado?

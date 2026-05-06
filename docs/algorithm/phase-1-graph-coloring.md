@@ -1,95 +1,95 @@
-# Phase 1 — Graph Coloring
+# Fase 1 — Graph Coloring
 
-## Purpose
-Describe the graph coloring approach used in the first phase of SOEA's optimization pipeline.
-Copilot uses this when implementing `SOEA.Engine.GraphColoring`.
+## Propósito
+Describir el enfoque de coloreado de grafos usado en la primera fase del pipeline de optimización de SOEA.
+Copilot usa esto al implementar `SOEA.Engine.GraphColoring`.
 
-## Scope
-Phase 1 only: conflict graph construction and initial slot pre-assignment.
-Phase 2 (CP feasibility) and Phase 3 (Genetic optimization) are described in their own docs.
-
----
-
-## Goal of Phase 1
-
-Produce a fast, plausible (but not necessarily constraint-perfect) initial assignment of sessions
-to time slots. This **warm-start** seed reduces the search space for Phase 2 (CP-SAT).
-
-Phase 1 does not assign rooms — only time slots. Room assignment is completed in Phase 2.
+## Alcance
+Solo la Fase 1: construcción del grafo de conflictos y preasignación inicial de espacios de tiempo.
+La Fase 2 (factibilidad CP) y la Fase 3 (optimización genética) se describen en sus propios documentos.
 
 ---
 
-## The Conflict Graph
+## Objetivo de la Fase 1
 
-A **conflict graph** `G = (V, E)` is constructed where:
-- Each **node** `v ∈ V` represents one session to be scheduled
-- An **edge** `(v₁, v₂) ∈ E` means sessions `v₁` and `v₂` cannot be assigned the same time slot
+Producir una asignación inicial rápida y plausible (pero no necesariamente perfecta en restricciones) de sesiones
+a espacios de tiempo. Esta semilla de **warm start** reduce el espacio de búsqueda para la Fase 2 (CP-SAT).
 
-### Edge Rules
+La Fase 1 no asigna salas: solo espacios de tiempo. La asignación de salas se completa en la Fase 2.
 
-Two sessions conflict (are connected by an edge) if ANY of the following is true:
+---
 
-| Condition | Reason |
+## El grafo de conflictos
+
+A **grafo de conflictos** `G = (V, E)` se construye donde:
+- Cada **nodo** `v ∈ V` representa una sesión que debe programarse
+- Una **arista** `(v₁, v₂) ∈ E` significa que las sesiones `v₁` y `v₂` no pueden asignarse al mismo espacio de tiempo
+
+### Reglas de arista
+
+Dos sesiones entran en conflicto (se conectan por una arista) si CUALQUIERA de las siguientes condiciones es verdadera:
+
+| Condición | Razón |
 |---|---|
-| Same instructor | An instructor cannot teach two sessions simultaneously |
-| Same cohort | A cohort cannot attend two sessions simultaneously |
-| Same alternancia type OR non-alternating cohort involved | Both cohorts would physically occupy a space at the same time |
-| Same cohort AND sequential dependency (split block constraint) | Consecutive-day restriction from HC-T05 |
+| Mismo docente | Un docente no puede impartir dos sesiones simultáneamente |
+| Misma cohorte | Una cohorte no puede asistir a dos sesiones simultáneamente |
+| Mismo tipo de alternancia O cohorte no alternante involucrada | Ambas cohortes ocuparían físicamente un espacio al mismo tiempo |
+| Misma cohorte Y dependencia secuencial (restricción split block) | Restricción de días consecutivos de HC-T05 |
 
-### Alternancia Edge Logic
+### Lógica de aristas por alternancia
 
-- TypeA + TypeA sharing a space → conflict edge (both physically present on the same weeks)
-- TypeB + TypeB sharing a space → conflict edge
-- TypeA + TypeB sharing a space → **no** conflict edge (never physically present simultaneously)
-- Any session involving NonAlternating → conflict edge for space sharing
-
----
-
-## Graph Coloring Algorithm
-
-**Colors** = available time slots in `T`
-
-Goal: assign a color (time slot) to each node (session) such that no two adjacent nodes share
-the same color.
-
-### Recommended Algorithm: Welsh-Powell Heuristic
-
-1. Sort nodes by **degree** (number of edges) in descending order
-2. Assign the lowest-numbered available color to each node in order, skipping colors used by neighbors
-3. If no color is available, mark the session as uncolored so Phase 2 can resolve or reject it explicitly
-
-This is a greedy heuristic — it is fast but may not minimize colors or satisfy all constraints.
-If no available color exists, the session is marked as uncolored so Phase 2 can resolve or reject it explicitly.
-Its output is refined in Phase 2.
+- TypeA + TypeA compartiendo un espacio → arista de conflicto (ambas están físicamente presentes en las mismas semanas)
+- TypeB + TypeB compartiendo un espacio → arista de conflicto
+- TypeA + TypeB compartiendo un espacio → **no** hay arista de conflicto (nunca están físicamente presentes al mismo tiempo)
+- Cualquier sesión que involucre NonAlternating → arista de conflicto por compartición de espacio
 
 ---
 
-## Inputs
+## Algoritmo de coloreado de grafos
+
+**Colores** = espacios de tiempo disponibles en `T`
+
+Objetivo: asignar un color (espacio de tiempo) a cada nodo (sesión) de modo que ningún par de nodos adyacentes comparta
+el mismo color.
+
+### Algoritmo recomendado: heurística Welsh-Powell
+
+1. Ordenar los nodos por **grado** (número de aristas) en orden descendente
+2. Asignar a cada nodo, en orden, el color disponible con número más bajo, omitiendo los colores usados por los vecinos
+3. Si no hay color disponible, marcar la sesión como sin colorear para que la Fase 2 la resuelva o la rechace explícitamente
+
+Esta es una heurística codiciosa: es rápida, pero puede no minimizar los colores ni satisfacer todas las restricciones.
+Si no existe un color disponible, la sesión se marca como sin colorear para que la Fase 2 la resuelva o la rechace explícitamente.
+Su salida se refina en la Fase 2.
+
+---
+
+## Entradas
 
 - Full list of sessions `S` with their instructor, cohort, and alternancia type
 - Set of available time slots `T`
 
-## Outputs
+## Salidas
 
 - `PartialSchedule`: a mapping `session → timeSlot` for all sessions
 - Sessions that could not be colored (if any) are flagged as `Conflict` status
 
 ---
 
-## Integration with Phase 2
+## Integración con la Fase 2
 
-The `PartialSchedule` output is passed to `SOEA.Engine.ConstraintProg` as a warm-start hint.
-Phase 2 may reassign slots for conflicting or infeasible sessions.
-
----
-
-## Performance Target
-
-Phase 1 should complete in under 5 seconds for up to 500 sessions.
+La salida `PartialSchedule` se pasa a `SOEA.Engine.ConstraintProg` como indicio de warm start.
+La Fase 2 puede reasignar espacios de tiempo para sesiones conflictivas o infactibles.
 
 ---
 
-## Open Questions
+## Objetivo de rendimiento
 
-- Should the graph coloring use a DSatur algorithm instead of Welsh-Powell for better chromatic number minimization?
-- Should soft constraints (e.g., prefer morning slots for certain cohorts) be incorporated as hints in Phase 1?
+La Fase 1 debería completarse en menos de 5 segundos para hasta 500 sesiones.
+
+---
+
+## Preguntas abiertas
+
+- ¿El coloreado de grafos debería usar un algoritmo DSatur en lugar de Welsh-Powell para minimizar mejor el número cromático?
+- ¿Las restricciones blandas (por ejemplo, preferir horarios de mañana para ciertas cohortes) deberían incorporarse como indicios en la Fase 1?

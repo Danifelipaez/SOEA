@@ -1,18 +1,18 @@
 # soea-angular
 
 ## Purpose
-Angular frontend for SOEA — the role-based scheduling web application.
+Frontend en Angular para SOEA: la aplicación web de programación basada en roles.
 
 ## Overview
-This is the Angular workspace for the SOEA frontend. It provides a single-page application (SPA)
-with distinct views and permissions for each role:
+Este es el workspace de Angular para el frontend de SOEA. Proporciona una aplicación de una sola página (SPA)
+con vistas y permisos diferenciados para cada rol:
 
-| Role | Capabilities |
+| Rol | Capacidades |
 |---|---|
-| Admin | Upload Excel data, configure parameters, trigger optimization, manage users |
-| Coordinator | Review generated schedules, flag issues, approve or request re-optimization |
-| Instructor | View personal teaching timetable |
-| Student | View cohort timetable |
+| Admin | Cargar datos de Excel, configurar parámetros, lanzar la optimización, administrar usuarios |
+| Coordinator | Revisar horarios generados, marcar incidencias, aprobar o solicitar una nueva optimización |
+| Instructor | Ver su horario personal de clases |
+| Student | Ver el horario de su cohorte |
 
 ## Planned Structure (to be scaffolded)
 
@@ -20,41 +20,41 @@ with distinct views and permissions for each role:
 soea-angular/
 ├── src/
 │   ├── app/
-│   │   ├── core/                  ← auth, guards, interceptors, models
-│   │   ├── shared/                ← reusable components (schedule grid, loading spinner)
+│   │   ├── core/                  ← autenticación, guards, interceptores, modelos
+│   │   ├── shared/                ← componentes reutilizables (rejilla de horarios, spinner de carga)
 │   │   ├── features/
-│   │   │   ├── admin/             ← Excel upload, optimization trigger, user management
-│   │   │   ├── coordinator/       ← schedule review, approval workflow
-│   │   │   ├── instructor/        ← personal timetable view
-│   │   │   └── student/           ← cohort timetable view
+│   │   │   ├── admin/             ← carga de Excel, disparo de optimización, gestión de usuarios
+│   │   │   ├── coordinator/       ← revisión de horarios, flujo de aprobación
+│   │   │   ├── instructor/        ← vista de horario personal
+│   │   │   └── student/           ← vista de horario de cohorte
 │   │   ├── app-routing.module.ts
 │   │   └── app.module.ts
 │   ├── assets/
 │   └── environments/
-│       ├── environment.ts         ← development API URL
-│       └── environment.prod.ts    ← production API URL
+│       ├── environment.ts         ← URL de la API en desarrollo
+│       └── environment.prod.ts    ← URL de la API en producción
 ├── angular.json
 ├── package.json
 └── tsconfig.json
 ```
 
-## Getting Started
+## Primeros pasos
 
-> This workspace has not been scaffolded yet. From the repository root, create it inside `frontend/` so the app lands in the correct folder:
+> Este workspace todavía no ha sido generado. Desde la raíz del repositorio, créalo dentro de `frontend/` para que la app quede en la carpeta correcta:
 
 ```bash
 cd frontend && ng new soea-angular --routing --style=scss
 ```
 
-Then install any required dependencies (e.g., Angular Material, ngx-charts for schedule visualization).
+Después instala las dependencias necesarias (por ejemplo, Angular Material, ngx-charts para la visualización de horarios).
 
 ## API Integration
 
-The frontend communicates with the SOEA backend via the REST API defined in `docs/data/json-output-spec.md`.
-The base API URL is configured in `src/environments/environment.ts`.
+El frontend se comunica con el backend de SOEA a través de la API REST definida en `docs/data/json-output-spec.md`.
+La URL base de la API se configura en `src/environments/environment.ts`.
 
 ## Related Docs
 
-- Roles and permissions: `docs/requirements/stakeholders.md`
-- Schedule JSON format: `docs/data/json-output-spec.md`
-- Domain terminology: `docs/requirements/glossary.md`
+- Roles y permisos: `docs/requirements/stakeholders.md`
+- Formato JSON de horarios: `docs/data/json-output-spec.md`
+- Terminología del dominio: `docs/requirements/glossary.md`

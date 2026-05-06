@@ -1,22 +1,22 @@
-# Archive
+# Archivo
 
-This folder contains reference documents and source materials that were used to derive the
-active documentation under `docs/`.
+Esta carpeta contiene documentos de referencia y materiales de origen que se utilizaron para derivar la
+documentación activa bajo `docs/`.
 
-## Purpose
-Store the original knowledge base and any large reference files without cluttering the
-active documentation folders. Copilot does not need to read these for day-to-day coding tasks.
+## Propósito
+Almacenar la base de conocimiento original y cualquier archivo de referencia grande sin saturar las
+carpetas de documentación activa. Copilot no necesita leerlos para las tareas de programación diarias.
 
-## Contents
+## Contenido
 
-Place the following types of files here:
-- Original project brief or knowledge base documents (e.g., `BasedeConocimientov6.md`)
-- Raw institutional data samples (anonymized)
-- Prior architecture proposals or meeting notes
-- Any document that has been superseded by a more focused doc under `docs/`
+Coloca aquí los siguientes tipos de archivos:
+- Documento original del proyecto o base de conocimiento (por ejemplo, `BasedeConocimientov6.md`)
+- Muestras crudas de datos institucionales (anonimizadas)
+- Propuestas de arquitectura anteriores o notas de reuniones
+- Cualquier documento que haya sido reemplazado por otro más específico en `docs/`
 
-## Note
+## Nota
 
-Documents in this folder are for **human reference only**.
-The active, authoritative documentation is in the sibling folders:
+Los documentos de esta carpeta son solo para **referencia humana**.
+La documentación activa y autorizada está en las carpetas hermanas:
 `requirements/`, `business-rules/`, `architecture/`, `data/`, `algorithm/`, `testing/`, `roadmap/`.

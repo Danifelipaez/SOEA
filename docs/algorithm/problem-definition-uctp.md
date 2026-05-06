@@ -1,97 +1,97 @@
-# Problem Definition — University Course Timetabling Problem (UCTP)
+# Definición del problema — University Course Timetabling Problem (UCTP)
 
-## Purpose
-Define SOEA's scheduling problem formally as a UCTP variant. Copilot uses this document
-when generating optimization models, constraint encodings, and solver configurations.
+## Propósito
+Definir formalmente el problema de programación de SOEA como una variante de UCTP. Copilot usa este documento
+al generar modelos de optimización, codificaciones de restricciones y configuraciones del solucionador.
 
-## Scope
-Formal problem definition, variables, constraints, and objective function.
-Algorithm-specific implementation details are in the Phase docs.
-
----
-
-## What Is UCTP?
-
-The **University Course Timetabling Problem (UCTP)** is a combinatorial optimization problem
-where the goal is to assign a set of events (sessions) to a set of time periods and rooms such
-that a set of constraints is satisfied.
-
-SOEA solves a specific variant of UCTP that includes:
-- Alternancia (hybrid) cohort model
-- Three-phase optimization pipeline
-- Hard constraints (must satisfy) and soft constraints (optimize)
+## Alcance
+Definición formal del problema, variables, restricciones y función objetivo.
+Los detalles de implementación específicos de cada algoritmo están en los documentos de fase.
 
 ---
 
-## Formal Definition
+## ¿Qué es UCTP?
 
-### Input
+El **University Course Timetabling Problem (UCTP)** es un problema de optimización combinatoria
+en el que el objetivo es asignar un conjunto de eventos (sesiones) a un conjunto de periodos de tiempo y salas
+de modo que se satisfaga un conjunto de restricciones.
 
-Let:
-- **S** = set of sessions to be scheduled
-- **T** = set of available time slots (day × start–end time)
-- **R** = set of physical spaces (rooms)
-- **I** = set of instructors
-- **C** = set of cohorts
+SOEA resuelve una variante específica de UCTP que incluye:
+- Modelo de cohorte en alternancia (híbrido)
+- Pipeline de optimización de tres fases
+- Restricciones duras (deben cumplirse) y restricciones blandas (a optimizar)
 
-Each session `s ∈ S` has:
-- A required instructor `inst(s) ∈ I`
-- A required cohort `coh(s) ∈ C`
-- A required duration `dur(s)` in hours
-- An optional required space type `type(s)`
-- An alternancia type `alt(s) ∈ {TypeA, TypeB, NonAlternating}`
+---
 
-### Decision Variables
+## Definición formal
+
+### Entrada
+
+Sea:
+- **S** = conjunto de sesiones a programar
+- **T** = conjunto de espacios de tiempo disponibles (día × hora inicio-fin)
+- **R** = conjunto de espacios físicos (salas)
+- **I** = conjunto de docentes
+- **C** = conjunto de cohortes
+
+Cada sesión `s ∈ S` tiene:
+- Un docente requerido `inst(s) ∈ I`
+- Una cohorte requerida `coh(s) ∈ C`
+- Una duración requerida `dur(s)` en horas
+- Un tipo de espacio requerido opcional `type(s)`
+- Un tipo de alternancia `alt(s) ∈ {TypeA, TypeB, NonAlternating}`
+
+### Variables de decisión
 
 For each session `s ∈ S`:
 - `t(s) ∈ T` — assigned time slot
 - `r(s) ∈ R ∪ {null}` — assigned space (null for virtual sessions)
 
-### Feasibility Constraints (Hard)
+### Restricciones de factibilidad (duras)
 
-1. **Instructor conflict**: `∀ s₁, s₂ ∈ S, s₁ ≠ s₂: inst(s₁) = inst(s₂) → t(s₁) ≠ t(s₂)`
-2. **Cohort conflict**: `∀ s₁, s₂ ∈ S, s₁ ≠ s₂: coh(s₁) = coh(s₂) → t(s₁) ≠ t(s₂)`
-3. **Space conflict (alternancia aware)**: `∀ s₁, s₂ ∈ S: r(s₁) = r(s₂) ∧ t(s₁) = t(s₂) → alt(s₁) = alt(s₂) ∨ alt(s₁) = NonAlternating ∨ alt(s₂) = NonAlternating`
-4. **Capacity**: `∀ s ∈ S: r(s) ≠ null → enrolled(coh(s)) ≤ capacity(r(s))`
-5. **Availability**: `∀ s ∈ S: t(s) ∈ available(inst(s))`
-6. **Space type**: `∀ s ∈ S: type(s) ≠ null → spaceType(r(s)) = type(s)`
-7. **Time bounds**: `∀ s ∈ S: startTime(t(s)) ≥ 07:00 ∧ endTime(t(s)) ≤ 21:30`
+1. **Conflicto de docente**: `∀ s₁, s₂ ∈ S, s₁ ≠ s₂: inst(s₁) = inst(s₂) → t(s₁) ≠ t(s₂)`
+2. **Conflicto de cohorte**: `∀ s₁, s₂ ∈ S, s₁ ≠ s₂: coh(s₁) = coh(s₂) → t(s₁) ≠ t(s₂)`
+3. **Conflicto de espacio (considerando alternancia)**: `∀ s₁, s₂ ∈ S: r(s₁) = r(s₂) ∧ t(s₁) = t(s₂) → alt(s₁) = alt(s₂) ∨ alt(s₁) = NonAlternating ∨ alt(s₂) = NonAlternating`
+4. **Capacidad**: `∀ s ∈ S: r(s) ≠ null → enrolled(coh(s)) ≤ capacity(r(s))`
+5. **Disponibilidad**: `∀ s ∈ S: t(s) ∈ available(inst(s))`
+6. **Tipo de espacio**: `∀ s ∈ S: type(s) ≠ null → spaceType(r(s)) = type(s)`
+7. **Límites de tiempo**: `∀ s ∈ S: startTime(t(s)) ≥ 07:00 ∧ endTime(t(s)) ≤ 21:30`
 
-See `docs/business-rules/hard-constraints.md` for the complete list.
+Consulta `docs/business-rules/hard-constraints.md` para la lista completa.
 
-### Objective Function (Soft Optimization)
+### Función objetivo (optimización blanda)
 
-Minimize:
+Minimizar:
 ```
 F(assignment) = Σᵢ wᵢ × violationCount(SCᵢ)
 ```
 
-Where `SCᵢ` are the soft constraints and `wᵢ` are their weights.
-See `docs/business-rules/soft-constraints.md` for the full list.
+Donde `SCᵢ` son las restricciones blandas y `wᵢ` sus pesos.
+Consulta `docs/business-rules/soft-constraints.md` para la lista completa.
 
 ---
 
-## Why Three Phases?
+## ¿Por qué tres fases?
 
-The UCTP is NP-hard. Solving it directly with a full CP model for large instances is too slow.
-The three-phase decomposition reduces complexity:
+UCTP es NP-hard. Resolverlo directamente con un modelo CP completo para instancias grandes es demasiado lento.
+La descomposición en tres fases reduce la complejidad:
 
-1. **Phase 1 — Graph Coloring**: Fast heuristic that produces a plausible (but possibly infeasible) initial assignment by modeling conflicts as a graph coloring problem. Reduces the search space for Phase 2.
+1. **Fase 1 — Graph Coloring**: Heurística rápida que produce una asignación inicial plausible (pero posiblemente infactible) modelando los conflictos como un problema de coloreado de grafos. Reduce el espacio de búsqueda para la Fase 2.
 
-2. **Phase 2 — CP-SAT**: Exact feasibility solver that enforces all hard constraints. Takes the Phase 1 assignment as a warm start and finds the nearest feasible solution.
+2. **Fase 2 — CP-SAT**: Solucionador exacto de factibilidad que impone todas las restricciones duras. Toma la asignación de la Fase 1 como punto de partida y encuentra la solución factible más cercana.
 
-3. **Phase 3 — Genetic Algorithm**: Metaheuristic that optimizes soft constraints starting from the Phase 2 feasible solution.
+3. **Fase 3 — Algoritmo Genético**: Metaheurística que optimiza restricciones blandas a partir de la solución factible de la Fase 2.
 
 ---
 
-## References
+## Referencias
 
 - Schaerf, A. (1999). "A Survey of Automated Timetabling." *Artificial Intelligence Review*, 13(2), 87–127.
 - Tan, J. et al. (2021). "A Survey of the State-of-the-Art of Optimisation Methodologies in School Timetabling Problems." *Expert Systems with Applications*, 165.
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- What is the expected number of sessions per semester for the full institution (not just pilot)?
-- Are there any sessions that must be assigned to specific fixed time slots (pinned sessions)?
+- ¿Cuál es el número esperado de sesiones por semestre para toda la institución (no solo el piloto)?
+- ¿Hay sesiones que deban asignarse a espacios de tiempo fijos específicos (sesiones ancladas)?

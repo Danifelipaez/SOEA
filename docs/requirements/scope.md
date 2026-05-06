@@ -1,79 +1,73 @@
 # Scope
 
 ## Purpose
-Define what SOEA is, what problem it solves, and what it explicitly does not cover.
-This is the first document Copilot should use when generating high-level code or answering architectural questions.
+Definir qué es SOEA, qué problema resuelve y qué no cubre explícitamente.
+Este es el primer documento que Copilot debe usar al generar código de alto nivel o responder preguntas arquitectónicas.
 
 ## Scope
-This document covers the institutional context, problem statement, system objectives, and exclusions.
+Este documento cubre el contexto institucional, la declaración del problema, los objetivos del sistema y las exclusiones.
 
 ---
 
 ## System Overview
 
-SOEA (Sistema de Optimización de Espacios Académicos) is a university course timetabling system
-designed for Colombian higher-education institutions that operate under an **alternancia** (hybrid
-in-person/virtual) model.
+SOEA (Sistema de Optimización de Espacios Académicos) es un sistema de horario académico universitario diseñado para instituciones de educación superior colombianas que operan bajo un modelo de **alternancia** (híbrido presencial/virtual).
 
-The core goal is to automatically generate feasible and optimized academic schedules that respect
-institutional hard constraints (rooms, capacity, instructor availability) and optimize for soft
-preferences (compact schedules, workload balance, classroom stability).
+El objetivo principal es generar automáticamente horarios académicos factibles y optimizados que respeten las restricciones duras institucionales (espacios, capacidad, disponibilidad de docentes) y optimicen las preferencias blandas (horarios compactos, balance de carga, estabilidad de aulas).
 
 ---
 
 ## Problem Being Solved
 
-Manually scheduling sessions for hundreds of cohorts across dozens of physical spaces is:
-- Time-consuming (currently takes days or weeks per semester)
-- Error-prone (conflicts, over-capacity assignments, rule violations)
-- Difficult to adapt when changes occur mid-semester
+Programar manualmente sesiones para cientos de cohortes en decenas de espacios físicos es:
+- Lento (actualmente toma días o semanas por semestre)
+- Propenso a errores (conflictos, asignaciones por encima de la capacidad, violaciones de reglas)
+- Difícil de adaptar cuando ocurren cambios a mitad de semestre
 
-SOEA automates this process using a three-phase optimization pipeline:
-1. Graph Coloring — initial slot pre-assignment
-2. Constraint Programming (OR-Tools CP-SAT) — feasibility enforcement
-3. Genetic Algorithm — soft-constraint optimization
+SOEA automatiza este proceso mediante un pipeline de optimización de tres fases:
+1. Graph Coloring — preasignación inicial de espacios de tiempo
+2. Constraint Programming (OR-Tools CP-SAT) — imposición de factibilidad
+3. Genetic Algorithm — optimización de restricciones blandas
 
 ---
 
 ## Business Objective
 
-Produce a complete, conflict-free, and optimized timetable for a semester, exportable as JSON and
-viewable through a role-based web interface.
+Producir un horario completo, libre de conflictos y optimizado para un semestre, exportable como JSON y consultable mediante una interfaz web basada en roles.
 
 ---
 
 ## In Scope
 
-- Academic session scheduling for undergraduate cohorts
-- Alternancia Type A / Type B assignment (see `docs/business-rules/alternancia.md`)
-- Physical space assignment (classrooms, labs)
-- Instructor availability enforcement
-- Excel-based data ingestion (curriculum and availability files)
-- Role-based web UI (Admin, Coordinator, Instructor, Student)
-- Pilot validation with a subset of programs (defined in `docs/business-rules/pilot-limits.md`)
+- Programación de sesiones académicas para cohortes de pregrado
+- Asignación de alternancia Tipo A / Tipo B (ver `docs/business-rules/alternancia.md`)
+- Asignación de espacios físicos (aulas, laboratorios)
+- Validación de disponibilidad de docentes
+- Ingesta de datos desde Excel (archivos de malla curricular y disponibilidad)
+- Interfaz web basada en roles (Admin, Coordinator, Instructor, Student)
+- Validación piloto con un subconjunto de programas (definido en `docs/business-rules/pilot-limits.md`)
 
 ---
 
 ## Out of Scope
 
-- Exam scheduling
-- Teacher contract management
-- Student enrollment management
-- Mobile application
-- Real-time room booking
-- Integration with external SIS/ERP systems (future phase)
+- Programación de exámenes
+- Gestión de contratos de docentes
+- Gestión de matrículas de estudiantes
+- Aplicación móvil
+- Reserva de espacios en tiempo real
+- Integración con sistemas SIS/ERP externos (fase futura)
 
 ---
 
 ## Pilot Context
 
-The initial deployment targets a limited pilot (see `docs/business-rules/pilot-limits.md`) to
-validate correctness before institution-wide rollout.
+El despliegue inicial apunta a un piloto limitado (ver `docs/business-rules/pilot-limits.md`) para validar la corrección antes de un despliegue a nivel institucional.
 
 ---
 
 ## Open Questions
 
-- Which specific programs are included in the pilot?
-- Is there a maximum number of cohorts per semester for the first release?
-- Are virtual sessions scheduled into physical spaces or excluded entirely?
+- ¿Qué programas específicos están incluidos en el piloto?
+- ¿Existe un número máximo de cohortes por semestre para la primera versión?
+- ¿Las sesiones virtuales se programan en espacios físicos o se excluyen por completo?

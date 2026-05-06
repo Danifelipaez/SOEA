@@ -1,63 +1,63 @@
-# Deployment
+# Despliegue
 
-## Purpose
-Describe how SOEA is deployed, what infrastructure it requires, and how environments differ.
-Copilot uses this when generating configuration files, Docker setups, or environment-specific code.
+## Propósito
+Describir cómo se despliega SOEA, qué infraestructura requiere y en qué se diferencian los entornos.
+Copilot usa esto al generar archivos de configuración, montajes de Docker o código específico por entorno.
 
-## Scope
-Development, staging, and production deployment configurations.
+## Alcance
+Configuraciones de despliegue para desarrollo, staging y producción.
 
 ---
 
-## Deployment Model
+## Modelo de despliegue
 
-SOEA is deployed as a **single-process monolith** with the following components:
+SOEA se despliega como un **monolito de un solo proceso** con los siguientes componentes:
 
-| Component | Deployment Unit |
+| Componente | Unidad de despliegue |
 |---|---|
-| .NET API | Single ASP.NET Core process |
-| Database | SQL Server or PostgreSQL instance |
-| Frontend | Angular SPA (static files served by the API or a CDN/reverse proxy) |
+| API .NET | Un solo proceso ASP.NET Core |
+| Base de datos | Instancia de SQL Server o PostgreSQL |
+| Frontend | SPA Angular (archivos estáticos servidos por la API o por un CDN/reverse proxy) |
 
 ---
 
-## Environment Matrix
+## Matriz de entornos
 
-| Environment | Database | Frontend | Notes |
+| Entorno | Base de datos | Frontend | Notas |
 |---|---|---|---|
-| Development | Local SQL Server / SQLite | `ng serve` (Angular dev server) | Developer workstation |
-| Staging | SQL Server / PostgreSQL | Built Angular SPA | Integration testing |
-| Production | PostgreSQL (recommended) | Served via Nginx or Azure Static Web Apps | Pilot deployment |
+| Desarrollo | SQL Server local / SQLite | `ng serve` (servidor de desarrollo Angular) | Estación de trabajo del desarrollador |
+| Staging | SQL Server / PostgreSQL | SPA Angular compilada | Pruebas de integración |
+| Producción | PostgreSQL (recomendado) | Servida mediante Nginx o Azure Static Web Apps | Despliegue piloto |
 
 ---
 
-## Configuration
+## Configuración
 
-Environment-specific settings are stored in:
-- `src/SOEA.API/appsettings.json` — base configuration
-- `src/SOEA.API/appsettings.Development.json` — development overrides
-- Environment variables — secrets and production overrides (never committed to source control)
+Los ajustes específicos por entorno se almacenan en:
+- `src/SOEA.API/appsettings.json` — configuración base
+- `src/SOEA.API/appsettings.Development.json` — sobrescrituras de desarrollo
+- Variables de entorno — secretos y sobrescrituras de producción (nunca se suben al control de código)
 
-Required configuration keys:
-- `ConnectionStrings:DefaultConnection` — database connection string
-- `Jwt:Secret` — JWT signing key
-- `Jwt:Issuer` / `Jwt:Audience` — token metadata
-- `OptimizationEngine:TimeoutSeconds` — max solver time (default: 600)
-
----
-
-## Docker (future)
-
-A `Dockerfile` and `docker-compose.yml` are planned for staging deployment.
-The compose file will define:
-- `soea-api` service (ASP.NET Core)
-- `soea-db` service (PostgreSQL)
-- Volume mount for Excel input files
+Claves de configuración requeridas:
+- `ConnectionStrings:DefaultConnection` — cadena de conexión a la base de datos
+- `Jwt:Secret` — clave de firma JWT
+- `Jwt:Issuer` / `Jwt:Audience` — metadatos del token
+- `OptimizationEngine:TimeoutSeconds` — tiempo máximo del solucionador (predeterminado: 600)
 
 ---
 
-## Open Questions
+## Docker (futuro)
 
-- Is Azure, on-premises Linux, or a university server the target production host?
-- Is Docker available on the target production server?
-- Should the Angular app be served by the ASP.NET Core API (embedded) or separately?
+Se planean un `Dockerfile` y un `docker-compose.yml` para el despliegue en staging.
+El archivo compose definirá:
+- Servicio `soea-api` (ASP.NET Core)
+- Servicio `soea-db` (PostgreSQL)
+- Montaje de volumen para archivos de entrada Excel
+
+---
+
+## Preguntas abiertas
+
+- ¿Azure, Linux local o un servidor universitario es el host objetivo de producción?
+- ¿Docker está disponible en el servidor de producción objetivo?
+- ¿La app Angular debe servirse desde la API ASP.NET Core (embebida) o por separado?

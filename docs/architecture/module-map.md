@@ -1,16 +1,16 @@
-# Module Map
+# Mapa de módulos
 
-## Purpose
-List every project/assembly in the SOEA solution, describe its single responsibility,
-and define which other projects it may depend on. Copilot uses this when generating
-new classes, deciding which project a file belongs to, and enforcing layer boundaries.
+## Propósito
+Enumerar cada proyecto/ensamblado de la solución SOEA, describir su responsabilidad única
+y definir de qué otros proyectos puede depender. Copilot usa esto al generar nuevas clases,
+decidir a qué proyecto pertenece un archivo y hacer respetar los límites de capa.
 
-## Scope
-All projects in the `src/` and `test/` directories.
+## Alcance
+Todos los proyectos de los directorios `src/` y `test/`.
 
 ---
 
-## Module Dependency Rules
+## Reglas de dependencias entre módulos
 
 ```
 SOEA.API               → SOEA.Application
@@ -25,145 +25,145 @@ SOEA.Engine.*          → SOEA.Domain
 SOEA.Domain            → (no dependencies on other SOEA projects)
 ```
 
-**Never allow**: Domain → Infrastructure, Domain → API, Application → Infrastructure (directly),
+**Nunca permitir**: Domain → Infrastructure, Domain → API, Application → Infrastructure (directamente),
 Application → API
 
 ---
 
-## Module Details
+## Detalle de módulos
 
 ### `SOEA.Domain`
-**Path**: `src/SOEA.Domain/`
-**Responsibility**: Core business model with no external dependencies.
+**Ruta**: `src/SOEA.Domain/`
+**Responsabilidad**: Modelo central de negocio sin dependencias externas.
 
 Contains:
-- Entities: `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`, `Subject`
-- Value objects: `AlternanciaType`, `TimeRange`, `Capacity`
-- Enums: `SpaceType`, `SessionStatus`, `ConstraintSeverity`
-- Domain interfaces (ports): `IScheduleRepository`, `IOptimizationEngine`, `IExcelIngestionService`
-- Domain exceptions: `ConstraintViolationException`, `InvalidSessionException`
+- Entidades: `src/SOEA.Domain/Entities/` (`Sesion`, `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`, `Subject`)
+- Objetos de valor: `AlternanciaType`, `TimeRange`, `Capacity`
+- Enumeraciones: `SpaceType`, `SessionStatus`, `ConstraintSeverity`
+- Interfaces de dominio (puertos): `src/SOEA.Domain/Interfaces/` (`IScheduleRepository`, `IOptimizationEngine`, `IExcelIngestionService`)
+- Excepciones de dominio: `ConstraintViolationException`, `InvalidSessionException`
 
-**Must not reference**: EF Core, EPPlus, OR-Tools, ASP.NET, Angular
+**No debe referenciar**: EF Core, EPPlus, OR-Tools, ASP.NET, Angular
 
 ---
 
 ### `SOEA.Application`
-**Path**: `src/SOEA.Application/`
-**Responsibility**: Use cases, commands, queries, and pipeline orchestration.
+**Ruta**: `src/SOEA.Application/`
+**Responsabilidad**: Casos de uso, comandos, consultas y orquestación del pipeline.
 
 Contains:
-- Commands: `GenerateScheduleCommand`, `IngestExcelCommand`, `PublishScheduleCommand`
-- Queries: `GetScheduleQuery`, `ValidateConstraintsQuery`
+- Comandos: `GenerateScheduleCommand`, `IngestExcelCommand`, `PublishScheduleCommand`
+- Consultas: `GetScheduleQuery`, `ValidateConstraintsQuery`
 - DTOs: `ScheduleDto`, `SessionDto`, `CohortDto`
-- Pipeline orchestrator: `ScheduleOptimizationPipeline` (calls Graph Coloring → CP → Genetic)
-- Validation service: `ConstraintValidator`
+- Orquestador del pipeline: `ScheduleOptimizationPipeline` (llama Graph Coloring → CP → Genetic)
+- Servicio de validación: `ConstraintValidator`
 
-**Depends on**: `SOEA.Domain`
-**Must not reference**: EF Core, EPPlus, OR-Tools, ASP.NET
+**Depende de**: `SOEA.Domain`
+**No debe referenciar**: EF Core, EPPlus, OR-Tools, ASP.NET
 
 ---
 
 ### `SOEA.Infrastructure.Data`
-**Path**: `src/SOEA.Infrastructure.Data/`
-**Responsibility**: Database access using EF Core.
+**Ruta**: `src/SOEA.Infrastructure.Data/`
+**Responsabilidad**: Acceso a base de datos usando EF Core.
 
 Contains:
-- `SoeaDbContext` and entity type configurations
-- Repository implementations (`ScheduleRepository`, `CohortRepository`, etc.)
-- Database migrations
+- `SoeaDbContext` y configuraciones de tipos de entidad
+- Implementaciones de repositorios (`ScheduleRepository`, `CohortRepository`, etc.)
+- Migraciones de base de datos
 
-**Depends on**: `SOEA.Domain`, Entity Framework Core
-**Implements**: `IScheduleRepository` and other repository interfaces from `SOEA.Domain`
+**Depende de**: `SOEA.Domain`, Entity Framework Core
+**Implementa**: `IScheduleRepository` y otras interfaces de repositorio de `SOEA.Domain`
 
 ---
 
 ### `SOEA.Infrastructure.Excel`
-**Path**: `src/SOEA.Infrastructure.Excel/`
-**Responsibility**: Read institutional data from Excel files using EPPlus.
+**Ruta**: `src/SOEA.Infrastructure.Excel/`
+**Responsabilidad**: Leer datos institucionales desde archivos Excel usando EPPlus.
 
 Contains:
-- `CurriculumExcelReader` — reads subject/cohort/hours data
-- `InstructorAvailabilityReader` — reads availability grids
-- `SpaceInventoryReader` — reads room capacity and type data
-- Mappers from Excel rows to domain entities
+- `CurriculumExcelReader` — lee datos de asignaturas/cohortes/horas
+- `InstructorAvailabilityReader` — lee matrices de disponibilidad
+- `SpaceInventoryReader` — lee capacidad y tipo de sala
+- Mapeadores de filas de Excel a entidades de dominio
 
-**Depends on**: `SOEA.Domain`, EPPlus
-**Implements**: `IExcelIngestionService` from `SOEA.Domain`
+**Depende de**: `SOEA.Domain`, EPPlus
+**Implementa**: `IExcelIngestionService` de `SOEA.Domain`
 
 ---
 
 ### `SOEA.Engine.GraphColoring`
-**Path**: `src/SOEA.Engine.GraphColoring/`
-**Responsibility**: Phase 1 of the optimization pipeline.
+**Ruta**: `src/SOEA.Engine.GraphColoring/`
+**Responsabilidad**: Fase 1 del pipeline de optimización.
 
 Contains:
-- `ConflictGraphBuilder` — creates the session conflict graph
-- `GraphColoringScheduler` — assigns preliminary time slots using coloring heuristics (e.g., Welsh-Powell)
-- Output: `PartialSchedule` passed to Phase 2
+- `ConflictGraphBuilder` — crea el grafo de conflictos de sesiones
+- `GraphColoringScheduler` — asigna espacios de tiempo preliminares usando heurísticas de coloreado (por ejemplo, Welsh-Powell)
+- Salida: `PartialSchedule` que se pasa a la Fase 2
 
-**Depends on**: `SOEA.Domain`
-**Implements**: `IGraphColoringEngine` interface from `SOEA.Domain` or `SOEA.Application`
+**Depende de**: `SOEA.Domain`
+**Implementa**: la interfaz `IGraphColoringEngine` de `SOEA.Domain` o `SOEA.Application`
 
 ---
 
 ### `SOEA.Engine.ConstraintProg`
-**Path**: `src/SOEA.Engine.ConstraintProg/`
-**Responsibility**: Phase 2 — enforce all hard constraints using OR-Tools CP-SAT.
+**Ruta**: `src/SOEA.Engine.ConstraintProg/`
+**Responsabilidad**: Fase 2: imponer todas las restricciones duras usando OR-Tools CP-SAT.
 
 Contains:
-- `CpSatSchedulerBuilder` — translates domain model to CP-SAT variables and constraints
-- `HardConstraintEncoder` — adds each hard constraint from `docs/business-rules/hard-constraints.md` as a CP-SAT constraint
-- `FeasibleScheduleExtractor` — converts CP-SAT solution back to domain objects
+- `CpSatSchedulerBuilder` — traduce el modelo de dominio a variables y restricciones CP-SAT
+- `HardConstraintEncoder` — agrega cada restricción dura de `docs/business-rules/hard-constraints.md` como restricción CP-SAT
+- `FeasibleScheduleExtractor` — convierte la solución CP-SAT de vuelta a objetos de dominio
 
-**Depends on**: `SOEA.Domain`, Google OR-Tools
-**Implements**: `IConstraintProgrammingEngine` from `SOEA.Domain` or `SOEA.Application`
+**Depende de**: `SOEA.Domain`, Google OR-Tools
+**Implementa**: `IConstraintProgrammingEngine` de `SOEA.Domain` o `SOEA.Application`
 
 ---
 
 ### `SOEA.Engine.Genetic`
-**Path**: `src/SOEA.Engine.Genetic/`
-**Responsibility**: Phase 3 — optimize soft constraints using a Genetic Algorithm.
+**Ruta**: `src/SOEA.Engine.Genetic/`
+**Responsabilidad**: Fase 3: optimizar restricciones blandas usando un algoritmo genético.
 
 Contains:
-- `ScheduleChromosome` — encodes a complete schedule as a chromosome
-- `FitnessEvaluator` — computes the weighted soft-constraint violation score
-- `GeneticScheduleOptimizer` — runs selection, crossover, mutation, and convergence logic
+- `ScheduleChromosome` — codifica un horario completo como cromosoma
+- `FitnessEvaluator` — calcula la puntuación ponderada de violaciones de restricciones blandas
+- `GeneticScheduleOptimizer` — ejecuta la lógica de selección, cruce, mutación y convergencia
 
-**Depends on**: `SOEA.Domain`
-**Implements**: `IGeneticOptimizationEngine` from `SOEA.Domain` or `SOEA.Application`
+**Depende de**: `SOEA.Domain`
+**Implementa**: `IGeneticOptimizationEngine` de `SOEA.Domain` o `SOEA.Application`
 
 ---
 
 ### `SOEA.API`
-**Path**: `src/SOEA.API/`
-**Responsibility**: HTTP entry point — exposes the system as a REST API.
+**Ruta**: `src/SOEA.API/`
+**Responsabilidad**: Punto de entrada HTTP: expone el sistema como API REST.
 
 Contains:
-- Controllers: `ScheduleController`, `IngestionController`, `ValidationController`
-- Middleware: JWT authentication, role-based authorization
-- Request/response models (separate from Application DTOs)
-- OpenAPI / Swagger configuration
+- Controladores: `ScheduleController`, `IngestionController`, `ValidationController`
+- Middleware: autenticación JWT, autorización basada en roles
+- Modelos de solicitud/respuesta (separados de los DTOs de Application)
+- Configuración de OpenAPI / Swagger
 
-**Depends on**: `SOEA.Application`, all Infrastructure and Engine projects (for DI registration)
+**Depende de**: `SOEA.Application`, todos los proyectos de Infrastructure y Engine (para registro de DI)
 
 ---
 
 ### `SOEA.Tests`
-**Path**: `test/SOEA.Tests/`
-**Responsibility**: Automated test suite (unit + integration tests).
+**Ruta**: `test/SOEA.Tests/`
+**Responsabilidad**: Suite de pruebas automatizadas (unitarias + integración).
 
 Contains:
-- Domain unit tests (entity invariants, constraint checks)
-- Application unit tests (use case logic, pipeline orchestration)
-- Engine unit tests (graph coloring, CP model correctness, GA fitness)
-- Integration tests (end-to-end pipeline with test data)
+- Pruebas unitarias de dominio (invariantes de entidades, validaciones de restricciones)
+- Pruebas unitarias de Application (lógica de casos de uso, orquestación del pipeline)
+- Pruebas unitarias de Engine (graph coloring, corrección del modelo CP, aptitud del GA)
+- Pruebas de integración (pipeline end-to-end con datos de prueba)
 
-**Depends on**: All `SOEA.*` projects, xUnit, Moq (or NSubstitute)
+**Depende de**: todos los proyectos `SOEA.*`, xUnit, Moq (o NSubstitute)
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- Should each engine phase have its own test project (e.g., `SOEA.Engine.GraphColoring.Tests`)?
-- Should Application DTOs be a separate project (`SOEA.Application.Contracts`) to allow
-  sharing with the frontend TypeScript client?
+- ¿Cada fase del motor debería tener su propio proyecto de pruebas (por ejemplo, `SOEA.Engine.GraphColoring.Tests`)?
+- ¿Los DTOs de Application deberían estar en un proyecto separado (`SOEA.Application.Contracts`) para poder
+  compartirlos con el cliente TypeScript del frontend?
