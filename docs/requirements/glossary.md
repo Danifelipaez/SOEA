@@ -23,7 +23,7 @@ Todos los términos específicos del dominio usados en el backend, el frontend y
 | **Modalidad** | `SessionModality` | Tipo de sesión: Presencial o Virtual |
 | **Alternancia** | `Alternation` | Modelo híbrido en el que algunas sesiones ocurren virtualmente en semanas específicas |
 | **Semana_num** | `WeekNumber` | Número de la semana del semestre aplicado a la sesión |
-| **Tipo de alternancia** | `AlternanciaType` | Enum canónico del dominio; valores: `TypeA`, `TypeB`, `NonAlternating` |
+| **Tipo de alternancia** | `AlternanciaType` (excepción canónica) | Enum canónico del dominio; valores: `TypeA`, `TypeB`, `NonAlternating` |
 | **Restricción dura** | `HardConstraint` | Regla que nunca debe violarse en un horario válido (ver `hard-constraints.md`) |
 | **Restricción blanda** | `SoftConstraint` | Preferencia que debe optimizarse, pero puede relajarse (ver `soft-constraints.md`) |
 | **Grafo de conflictos** | `ConflictGraph` | Grafo donde los nodos son sesiones y las aristas representan conflictos; se usa en la Fase 1 |

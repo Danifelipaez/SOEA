@@ -53,17 +53,17 @@ siempre que estén en calendarios de alternancia opuestos.
 
 ## Datos requeridos por sesión
 
-- `semana_num`: número de la semana en la que ocurre la sesión
-- `es_alternancia_virtual`: indica si esa sesión ocurre virtualmente por alternancia
-- `modalidad`: `Presencial` o `Virtual`
+- `weekNumber` (`semana_num`): número de la semana en la que ocurre la sesión
+- `isVirtualAlternation` (`es_alternancia_virtual`): indica si esa sesión ocurre virtualmente por alternancia
+- `modality`: `Presencial` o `Virtual`
 
 El tipo de alternancia (`AlternanciaType`) se utiliza como valor canónico del dominio para derivar
 `es_alternancia_virtual` según la semana. Para `NonAlternating`, `es_alternancia_virtual` es siempre `false`.
 
 Reglas de derivación explícitas:
-- `TypeA`: `es_alternancia_virtual = (semana_num % 2 == 0)`
-- `TypeB`: `es_alternancia_virtual = (semana_num % 2 != 0)`
-- `NonAlternating`: `es_alternancia_virtual = false`
+- `TypeA`: `isVirtualAlternation = (weekNumber % 2 == 0)`
+- `TypeB`: `isVirtualAlternation = (weekNumber % 2 != 0)`
+- `NonAlternating`: `isVirtualAlternation = false`
 
 ---
 
