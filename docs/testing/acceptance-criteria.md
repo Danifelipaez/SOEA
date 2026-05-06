@@ -18,7 +18,7 @@ Un horario generado por SOEA para el conjunto de datos del piloto se acepta cuan
 
 | # | Criterio | Cómo verificar |
 |---|---|---|
-| AC-01 | Cero violaciones de restricciones duras en el horario generado | `resumen.violacionesDuras = 0` en la salida JSON |
+| AC-01 | Cero violaciones de restricciones duras en el horario generado | `summary.hardConstraintViolations = 0` en la salida JSON |
 | AC-02 | La puntuación de aptitud de restricciones blandas está dentro del 20% del valor base documentado del piloto | Comparar con el horario de referencia congelado para el conjunto de datos del piloto |
 | AC-03 | Cada sesión del conjunto de datos del piloto aparece exactamente una vez en la salida | Conteo de sesiones en salida = conteo de sesiones en entrada |
 | AC-04 | Se respetan todas las reglas de disponibilidad de docentes | Cruzar la salida con el archivo de disponibilidad de docentes |

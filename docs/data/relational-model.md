@@ -7,111 +7,113 @@ Copilot usa esto al generar configuraciones de entidades EF Core y migraciones d
 ## Alcance
 Todas las tablas del esquema de base de datos de producción.
 
+> Nota: Los nombres siguen la convención de código en inglés; equivalencias en español se describen en `data-dictionary.md`.
+
 ---
 
 ## Tablas
 
 > Nota: Este es un borrador inicial basado en el modelo de dominio. Debe refinarse después de la primera migración de EF Core.
 
-### `Usuarios`
+### `Users`
 | Column | Type | Constraints |
 |---|---|---|
-| `Id_usuario` | uniqueidentifier | PK |
-| `Nombre` | nvarchar(200) | NOT NULL |
+| `UserId` | uniqueidentifier | PK |
+| `Name` | nvarchar(200) | NOT NULL |
 | `Email` | nvarchar(200) | NOT NULL, UNIQUE |
 
-### `Administradores`
+### `Administrators`
 | Column | Type | Constraints |
 |---|---|---|
-| `Id_usuario` | uniqueidentifier | PK, FK → Usuarios.Id_usuario |
-| `Tipo_admin` | nvarchar(30) | NOT NULL, CHECK IN ('Programa','Admisiones','RedEdu') |
+| `UserId` | uniqueidentifier | PK, FK → Users.UserId |
+| `AdminType` | nvarchar(30) | NOT NULL, CHECK IN ('Program','Admissions','RedEdu') |
 
-### `Docentes`
+### `Teachers`
 | Column | Type | Constraints |
 |---|---|---|
-| `Id_usuario` | uniqueidentifier | PK, FK → Usuarios.Id_usuario |
-| `Tipo_vinculacion` | nvarchar(50) | NOT NULL |
+| `UserId` | uniqueidentifier | PK, FK → Users.UserId |
+| `EmploymentType` | nvarchar(50) | NOT NULL |
 
-### `Disponibilidad_Docente`
+### `TeacherAvailability`
 | Column | Type | Constraints |
 |---|---|---|
-| `Id_disponibilidad` | uniqueidentifier | PK |
-| `Id_usuario` | uniqueidentifier | FK → Docentes.Id_usuario |
-| `Dia_semana` | nvarchar(10) | NOT NULL, CHECK IN ('Monday','Tuesday','Wednesday','Thursday','Friday') |
-| `Hora_inicio` | time | NOT NULL |
-| `Hora_fin` | time | NOT NULL, CHECK > Hora_inicio |
+| `AvailabilityId` | uniqueidentifier | PK |
+| `TeacherId` | uniqueidentifier | FK → Teachers.UserId |
+| `DayOfWeek` | nvarchar(10) | NOT NULL, CHECK IN ('Monday','Tuesday','Wednesday','Thursday','Friday') |
+| `StartTime` | time | NOT NULL |
+| `EndTime` | time | NOT NULL, CHECK > StartTime |
 
-### `Asignaturas`
+### `Subjects`
 | Column | Type | Constraints |
 |---|---|---|
-| `Id_asignatura` | uniqueidentifier | PK |
-| `Nombre` | nvarchar(200) | NOT NULL |
-| `Prog_academico` | nvarchar(200) | NOT NULL |
-| `Req_equipamiento` | nvarchar(200) | NULL |
-| `Tipo_de_clase` | nvarchar(30) | NOT NULL |
-| `Duracion` | decimal(4,2) | NOT NULL, CHECK > 0 |
-| `Num_semanas_en_lab` | int | NULL, CHECK >= 0 |
-| `Creado_por_id_admin` | uniqueidentifier | FK → Administradores.Id_usuario |
+| `SubjectId` | uniqueidentifier | PK |
+| `Name` | nvarchar(200) | NOT NULL |
+| `AcademicProgram` | nvarchar(200) | NOT NULL |
+| `EquipmentRequirements` | nvarchar(200) | NULL |
+| `ClassType` | nvarchar(30) | NOT NULL |
+| `DurationHours` | decimal(4,2) | NOT NULL, CHECK > 0 |
+| `LabWeeks` | int | NULL, CHECK >= 0 |
+| `CreatedByAdminId` | uniqueidentifier | FK → Administrators.UserId |
 
-### `Grupos_de_estudiantes`
+### `StudentGroups`
 | Column | Type | Constraints |
 |---|---|---|
-| `Id_grupo` | uniqueidentifier | PK |
-| `Prog_academico` | nvarchar(200) | NOT NULL |
-| `Cohorte` | nvarchar(50) | NOT NULL |
-| `Num_estudiantes` | int | NOT NULL, CHECK > 0 |
-| `Asignatura` | uniqueidentifier | FK → Asignaturas.Id_asignatura |
-| `Creado_por_id_admin` | uniqueidentifier | FK → Administradores.Id_usuario |
+| `StudentGroupId` | uniqueidentifier | PK |
+| `AcademicProgram` | nvarchar(200) | NOT NULL |
+| `CohortLabel` | nvarchar(50) | NOT NULL |
+| `StudentCount` | int | NOT NULL, CHECK > 0 |
+| `SubjectId` | uniqueidentifier | FK → Subjects.SubjectId |
+| `CreatedByAdminId` | uniqueidentifier | FK → Administrators.UserId |
 
-### `Espacios_Academicos`
+### `AcademicSpaces`
 | Column | Type | Constraints |
 |---|---|---|
-| `Id_espacio` | uniqueidentifier | PK |
-| `Nombre` | nvarchar(100) | NOT NULL |
-| `Bloque` | nvarchar(50) | NULL |
-| `Tipo` | nvarchar(30) | NOT NULL |
-| `Capacidad` | int | NOT NULL, CHECK > 0 |
-| `Equipamiento` | nvarchar(200) | NULL |
-| `Es_virtual` | bit | NOT NULL, DEFAULT 0 |
-| `Reservado_por_id_admin` | uniqueidentifier | NULL, FK → Administradores.Id_usuario |
+| `AcademicSpaceId` | uniqueidentifier | PK |
+| `Name` | nvarchar(100) | NOT NULL |
+| `BuildingBlock` | nvarchar(50) | NULL |
+| `SpaceType` | nvarchar(30) | NOT NULL |
+| `Capacity` | int | NOT NULL, CHECK > 0 |
+| `Equipment` | nvarchar(200) | NULL |
+| `IsVirtual` | bit | NOT NULL, DEFAULT 0 |
+| `ReservedByAdminId` | uniqueidentifier | NULL, FK → Administrators.UserId |
 
-### `Asignatura_Espacio`
+### `SubjectAcademicSpaces`
 | Column | Type | Constraints |
 |---|---|---|
-| `Id_asignatura` | uniqueidentifier | FK → Asignaturas.Id_asignatura |
-| `Id_espacio` | uniqueidentifier | FK → Espacios_Academicos.Id_espacio |
-| PK | composite | (`Id_asignatura`, `Id_espacio`) |
+| `SubjectId` | uniqueidentifier | FK → Subjects.SubjectId |
+| `AcademicSpaceId` | uniqueidentifier | FK → AcademicSpaces.AcademicSpaceId |
+| PK | composite | (`SubjectId`, `AcademicSpaceId`) |
 
-### `Sesiones`
+### `Sessions`
 | Column | Type | Constraints |
 |---|---|---|
-| `Id_sesion` | uniqueidentifier | PK |
-| `Id_grupo` | uniqueidentifier | FK → Grupos_de_estudiantes.Id_grupo |
-| `Id_espacio` | uniqueidentifier | NULL, FK → Espacios_Academicos.Id_espacio |
-| `Id_docente` | uniqueidentifier | FK → Docentes.Id_usuario |
-| `Dia_semana` | nvarchar(10) | NOT NULL, CHECK IN ('Monday','Tuesday','Wednesday','Thursday','Friday') |
-| `Hora_inicio` | time | NOT NULL |
-| `Hora_fin` | time | NOT NULL, CHECK > Hora_inicio |
-| `Modalidad` | nvarchar(20) | NOT NULL, CHECK IN ('Presencial','Virtual') |
-| `Semana_num` | int | NOT NULL, CHECK > 0 |
-| `Es_alternancia_virtual` | bit | NOT NULL |
-| `Creado_por_id_admin` | uniqueidentifier | FK → Administradores.Id_usuario |
+| `SessionId` | uniqueidentifier | PK |
+| `StudentGroupId` | uniqueidentifier | FK → StudentGroups.StudentGroupId |
+| `AcademicSpaceId` | uniqueidentifier | NULL, FK → AcademicSpaces.AcademicSpaceId |
+| `TeacherId` | uniqueidentifier | FK → Teachers.UserId |
+| `DayOfWeek` | nvarchar(10) | NOT NULL, CHECK IN ('Monday','Tuesday','Wednesday','Thursday','Friday') |
+| `StartTime` | time | NOT NULL |
+| `EndTime` | time | NOT NULL, CHECK > StartTime |
+| `Modality` | nvarchar(20) | NOT NULL, CHECK IN ('InPerson','Virtual') |
+| `WeekNumber` | int | NOT NULL, CHECK > 0 |
+| `IsVirtualAlternation` | bit | NOT NULL |
+| `CreatedByAdminId` | uniqueidentifier | FK → Administrators.UserId |
 
-Las sesiones virtuales se representan con `Sesiones.Id_espacio = NULL` y `Modalidad = 'Virtual'`.
+Las sesiones virtuales se representan con `Sessions.AcademicSpaceId = NULL` y `Modality = 'Virtual'`.
 
 ---
 
 ## Índices
 
-- `Sesiones(Id_grupo, Dia_semana, Hora_inicio)` — detección de conflictos por grupo
-- `Sesiones(Id_docente, Dia_semana, Hora_inicio)` — detección de conflictos por docente
-- `Sesiones(Id_espacio, Dia_semana, Hora_inicio)` — detección de conflictos por espacio
-- `Grupos_de_estudiantes(Asignatura)` — consultas por asignatura
-- `Asignaturas(Prog_academico)` — consultas por programa
+- `Sessions(StudentGroupId, DayOfWeek, StartTime)` — detección de conflictos por grupo
+- `Sessions(TeacherId, DayOfWeek, StartTime)` — detección de conflictos por docente
+- `Sessions(AcademicSpaceId, DayOfWeek, StartTime)` — detección de conflictos por espacio
+- `StudentGroups(SubjectId)` — consultas por asignatura
+- `Subjects(AcademicProgram)` — consultas por programa
 
 ---
 
 ## Preguntas abiertas
 
-- ¿Se requiere historizar cambios en `Sesiones` (versionado de horarios)?
-- ¿`Asignatura_Espacio` representa requisitos de equipamiento o restricciones duras de asignación?
+- ¿Se requiere historizar cambios en `Sessions` (versionado de horarios)?
+- ¿`SubjectAcademicSpaces` representa requisitos de equipamiento o restricciones duras de asignación?

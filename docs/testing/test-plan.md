@@ -17,9 +17,9 @@ Cubren clases individuales de forma aislada con todas las dependencias simuladas
 
 | Área | Clase objetivo | Qué probar |
 |---|---|---|
-| Domain | `Sesion` | Invariantes de entidad (hora_inicio < hora_fin, modalidad virtual sin espacio) |
-| Domain | `DisponibilidadDocente` | Validación de bloques de tiempo |
-| Domain | `GrupoDeEstudiantes` | Número de estudiantes > 0 |
+| Domain | `Session` | Invariantes de entidad (startTime < endTime, modalidad virtual sin espacio) |
+| Domain | `TeacherAvailability` | Validación de bloques de tiempo |
+| Domain | `StudentGroup` | Número de estudiantes > 0 |
 | Application | `ConstraintValidator` | Lógica de detección de restricciones duras |
 | Application | `ScheduleOptimizationPipeline` | Llamadas de orquestación de fases (motores simulados) |
 | Phase 1 | `ConflictGraphBuilder` | Construcción de aristas para cada tipo de conflicto |

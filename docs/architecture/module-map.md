@@ -37,10 +37,10 @@ Application → API
 **Responsabilidad**: Modelo central de negocio sin dependencias externas.
 
 Contains:
-- Entidades: `src/SOEA.Domain/Entities/` (`Usuario`, `Administrador`, `Docente`, `DisponibilidadDocente`, `Asignatura`, `GrupoDeEstudiantes`, `EspacioAcademico`, `Sesion`)
+- Entidades: `src/SOEA.Domain/Entities/` (`User`, `Administrator`, `Teacher`, `TeacherAvailability`, `Subject`, `StudentGroup`, `AcademicSpace`, `Session`)
 - Objetos de valor: `AlternanciaType`, `TimeRange`, `Capacity`
-- Enumeraciones: `TipoEspacio`, `ModalidadSesion`, `ConstraintSeverity`
-- Interfaces de dominio (puertos): repositorios y motores de optimización (`ISesionRepository`, `IOptimizationEngine`, `IExcelIngestionService`)
+- Enumeraciones: `SpaceType`, `SessionModality`, `ConstraintSeverity`
+- Interfaces de dominio (puertos): repositorios y motores de optimización (`ISessionRepository`, `IOptimizationEngine`, `IExcelIngestionService`)
 - Excepciones de dominio: `ConstraintViolationException`, `InvalidSessionException`
 
 **No debe referenciar**: EF Core, EPPlus, OR-Tools, ASP.NET, Angular
@@ -54,7 +54,7 @@ Contains:
 Contains:
 - Comandos: `GenerateScheduleCommand`, `IngestExcelCommand`, `PublishScheduleCommand`
 - Consultas: `GetScheduleQuery`, `ValidateConstraintsQuery`
-- DTOs: `ScheduleDto`, `SesionDto`, `GrupoDto`
+- DTOs: `ScheduleDto`, `SessionDto`, `StudentGroupDto`
 - Orquestador del pipeline: `ScheduleOptimizationPipeline` (llama Graph Coloring → CP → Genetic)
 - Servicio de validación: `ConstraintValidator`
 
@@ -69,7 +69,7 @@ Contains:
 
 Contains:
 - `SoeaDbContext` y configuraciones de tipos de entidad
-- Implementaciones de repositorios (`SesionRepository`, `GrupoRepository`, etc.)
+- Implementaciones de repositorios (`SessionRepository`, `StudentGroupRepository`, etc.)
 - Migraciones de base de datos
 
 **Depende de**: `SOEA.Domain`, Entity Framework Core
@@ -82,10 +82,10 @@ Contains:
 **Responsabilidad**: Leer datos institucionales desde archivos Excel usando EPPlus.
 
 Contains:
-- `AsignaturaExcelReader` — lee datos de asignaturas
-- `GrupoEstudiantesReader` — lee grupos de estudiantes
-- `DisponibilidadDocenteReader` — lee matrices de disponibilidad
-- `EspacioAcademicoReader` — lee capacidad y tipo de sala
+- `SubjectExcelReader` — lee datos de asignaturas
+- `StudentGroupReader` — lee grupos de estudiantes
+- `TeacherAvailabilityReader` — lee matrices de disponibilidad
+- `AcademicSpaceReader` — lee capacidad y tipo de sala
 - Mapeadores de filas de Excel a entidades de dominio
 
 **Depende de**: `SOEA.Domain`, EPPlus

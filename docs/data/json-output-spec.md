@@ -8,92 +8,94 @@ de enlace de datos del frontend.
 ## Alcance
 La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requirements/SRS.md`).
 
+> Nota: Los nombres siguen la convención de código en inglés; equivalencias en español se describen en `data-dictionary.md`.
+
 ---
 
 ## Estructura de nivel superior
 
 ```json
 {
-  "horarioId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "periodo": "2025-1",
-  "generadoEn": "2025-03-01T10:30:00Z",
-  "estado": "Publicado",
-  "resumen": {
-    "totalSesiones": 180,
-    "violacionesDuras": 0,
-    "puntajeRestriccionesBlandas": 12.5
+  "scheduleId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "period": "2025-1",
+  "generatedAt": "2025-03-01T10:30:00Z",
+  "status": "Published",
+  "summary": {
+    "totalSessions": 180,
+    "hardConstraintViolations": 0,
+    "softConstraintFitnessScore": 12.5
   },
-  "sesiones": [ ... ]
+  "sessions": [ ... ]
 }
 ```
 
 ---
 
-## Objeto Sesion
+## Objeto Session
 
 ```json
 {
-  "id_sesion": "a1b2c3d4-...",
-  "id_grupo": "c1c2c3d4-...",
-  "id_docente": "d1d2c3d4-...",
-  "id_espacio": "e1e2c3d4-...",
-  "dia_semana": "Monday",
-  "hora_inicio": "07:00",
-  "hora_fin": "09:00",
-  "modalidad": "Presencial",
-  "semana_num": 3,
-  "es_alternancia_virtual": false,
-  "creado_por_id_admin": "f1f2f3f4-...",
-  "grupo": {
-    "id_grupo": "c1c2c3d4-...",
-    "prog_academico": "Ingeniería de Sistemas",
-    "cohorte": "Sem 3",
-    "num_estudiantes": 28,
-    "asignatura": {
-      "id_asignatura": "b1b2c3d4-...",
-      "nombre": "Algoritmos y Programación",
-      "tipo_de_clase": "Teorica"
+  "sessionId": "a1b2c3d4-...",
+  "studentGroupId": "c1c2c3d4-...",
+  "teacherId": "d1d2c3d4-...",
+  "academicSpaceId": "e1e2c3d4-...",
+  "dayOfWeek": "Monday",
+  "startTime": "07:00",
+  "endTime": "09:00",
+  "modality": "InPerson",
+  "weekNumber": 3,
+  "isVirtualAlternation": false,
+  "createdByAdminId": "f1f2f3f4-...",
+  "studentGroup": {
+    "studentGroupId": "c1c2c3d4-...",
+    "academicProgram": "Ingeniería de Sistemas",
+    "cohortLabel": "Sem 3",
+    "studentCount": 28,
+    "subject": {
+      "subjectId": "b1b2c3d4-...",
+      "name": "Algoritmos y Programación",
+      "classType": "Lecture"
     }
   },
-  "docente": {
-    "id_usuario": "d1d2c3d4-...",
-    "nombre": "Dra. Ana López",
+  "teacher": {
+    "teacherId": "d1d2c3d4-...",
+    "name": "Dra. Ana López",
     "email": "ana.lopez@university.edu.co",
-    "tipo_vinculacion": "Planta"
+    "employmentType": "Planta"
   },
-  "espacio": {
-    "id_espacio": "e1e2c3d4-...",
-    "nombre": "Aula 204",
-    "bloque": "B",
-    "tipo": "Aula",
-    "capacidad": 35,
-    "equipamiento": "Proyector",
-    "es_virtual": false
+  "academicSpace": {
+    "academicSpaceId": "e1e2c3d4-...",
+    "name": "Aula 204",
+    "buildingBlock": "B",
+    "spaceType": "Classroom",
+    "capacity": 35,
+    "equipment": "Proyector",
+    "isVirtual": false
   }
 }
 ```
 
-> `id_espacio` y `espacio` serán `null` cuando `modalidad = "Virtual"`.
+> `academicSpaceId` y `academicSpace` serán `null` cuando `modality = "Virtual"`.
 
 ---
 
 ## Descripción de campos
 
-| Campo | Tipo | Descripción |
+| Field | Type | Description |
 |---|---|---|
-| `horarioId` | string (UUID) | Identificador único de esta versión del horario |
-| `periodo` | string | Por ejemplo, "2025-1" o "2025-2" |
-| `generadoEn` | string (ISO 8601) | Marca temporal UTC de generación |
-| `estado` | string | `Borrador`, `Publicado` o `Archivado` |
-| `resumen.totalSesiones` | int | Cantidad total de sesiones en la salida |
-| `resumen.violacionesDuras` | int | Debe ser 0 en un horario publicado válido |
-| `resumen.puntajeRestriccionesBlandas` | decimal | Puntuación ponderada de violaciones blandas (más bajo = mejor) |
-| `sesion.modalidad` | string | `Presencial` o `Virtual` |
-| `sesion.dia_semana` | string | `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday` |
-| `sesion.hora_inicio` | string | Formato `HH:mm` (24 horas) |
-| `sesion.hora_fin` | string | Formato `HH:mm` (24 horas) |
-| `sesion.semana_num` | int | Número de semana del semestre |
-| `sesion.es_alternancia_virtual` | bool | Indica alternancia virtual en esa semana |
+| `scheduleId` | string (UUID) | Identificador único de esta versión del horario |
+| `period` | string | Por ejemplo, "2025-1" o "2025-2" |
+| `generatedAt` | string (ISO 8601) | Marca temporal UTC de generación |
+| `status` | string | `Draft`, `Published` o `Archived` |
+| `summary.totalSessions` | int | Cantidad total de sesiones en la salida |
+| `summary.hardConstraintViolations` | int | Debe ser 0 en un horario publicado válido |
+| `summary.softConstraintFitnessScore` | decimal | Puntuación ponderada de violaciones blandas (más bajo = mejor) |
+| `session.modality` | string | `InPerson` o `Virtual` |
+| `session.dayOfWeek` | string | `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday` |
+| `session.startTime` | string | Formato `HH:mm` (24 horas) |
+| `session.endTime` | string | Formato `HH:mm` (24 horas) |
+| `session.weekNumber` | int | Número de semana del semestre |
+| `session.isVirtualAlternation` | bool | Indica alternancia virtual en esa semana |
 
 ---
 
@@ -101,59 +103,59 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 
 ```json
 {
-  "horarioId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "periodo": "2025-1",
-  "generadoEn": "2025-03-01T10:30:00Z",
-  "estado": "Publicado",
-  "resumen": {
-    "totalSesiones": 2,
-    "violacionesDuras": 0,
-    "puntajeRestriccionesBlandas": 0.0
+  "scheduleId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "period": "2025-1",
+  "generatedAt": "2025-03-01T10:30:00Z",
+  "status": "Published",
+  "summary": {
+    "totalSessions": 2,
+    "hardConstraintViolations": 0,
+    "softConstraintFitnessScore": 0.0
   },
-  "sesiones": [
+  "sessions": [
     {
-      "id_sesion": "a1b2c3d4-0001-0001-0001-000000000001",
-      "id_grupo": "c1c2c3d4-2222-2222-2222-222222222222",
-      "id_docente": "d1d2c3d4-3333-3333-3333-333333333333",
-      "id_espacio": "e1e2c3d4-4444-4444-4444-444444444444",
-      "dia_semana": "Monday",
-      "hora_inicio": "07:00",
-      "hora_fin": "09:00",
-      "modalidad": "Presencial",
-      "semana_num": 1,
-      "es_alternancia_virtual": false,
-      "creado_por_id_admin": "f1f2f3f4-5555-5555-5555-555555555555",
-      "grupo": {
-        "id_grupo": "c1c2c3d4-2222-2222-2222-222222222222",
-        "prog_academico": "Ingeniería",
-        "cohorte": "Sem 1",
-        "num_estudiantes": 30,
-        "asignatura": { "id_asignatura": "b1b2c3d4-1111-1111-1111-111111111111", "nombre": "Cálculo I", "tipo_de_clase": "Teorica" }
+      "sessionId": "a1b2c3d4-0001-0001-0001-000000000001",
+      "studentGroupId": "c1c2c3d4-2222-2222-2222-222222222222",
+      "teacherId": "d1d2c3d4-3333-3333-3333-333333333333",
+      "academicSpaceId": "e1e2c3d4-4444-4444-4444-444444444444",
+      "dayOfWeek": "Monday",
+      "startTime": "07:00",
+      "endTime": "09:00",
+      "modality": "InPerson",
+      "weekNumber": 1,
+      "isVirtualAlternation": false,
+      "createdByAdminId": "f1f2f3f4-5555-5555-5555-555555555555",
+      "studentGroup": {
+        "studentGroupId": "c1c2c3d4-2222-2222-2222-222222222222",
+        "academicProgram": "Ingeniería",
+        "cohortLabel": "Sem 1",
+        "studentCount": 30,
+        "subject": { "subjectId": "b1b2c3d4-1111-1111-1111-111111111111", "name": "Cálculo I", "classType": "Lecture" }
       },
-      "docente": { "id_usuario": "d1d2c3d4-3333-3333-3333-333333333333", "nombre": "Prof. Carlos Ruiz", "email": "c.ruiz@uni.edu.co", "tipo_vinculacion": "Catedra" },
-      "espacio": { "id_espacio": "e1e2c3d4-4444-4444-4444-444444444444", "nombre": "Aula 101", "bloque": "A", "tipo": "Aula", "capacidad": 40, "equipamiento": "Proyector", "es_virtual": false }
+      "teacher": { "teacherId": "d1d2c3d4-3333-3333-3333-333333333333", "name": "Prof. Carlos Ruiz", "email": "c.ruiz@uni.edu.co", "employmentType": "Catedra" },
+      "academicSpace": { "academicSpaceId": "e1e2c3d4-4444-4444-4444-444444444444", "name": "Aula 101", "buildingBlock": "A", "spaceType": "Classroom", "capacity": 40, "equipment": "Proyector", "isVirtual": false }
     },
     {
-      "id_sesion": "a1b2c3d4-0001-0001-0001-000000000002",
-      "id_grupo": "c1c2c3d4-2222-2222-2222-222222222223",
-      "id_docente": "d1d2c3d4-3333-3333-3333-333333333334",
-      "id_espacio": null,
-      "dia_semana": "Tuesday",
-      "hora_inicio": "09:00",
-      "hora_fin": "11:00",
-      "modalidad": "Virtual",
-      "semana_num": 2,
-      "es_alternancia_virtual": true,
-      "creado_por_id_admin": "f1f2f3f4-5555-5555-5555-555555555555",
-      "grupo": {
-        "id_grupo": "c1c2c3d4-2222-2222-2222-222222222223",
-        "prog_academico": "Ingeniería",
-        "cohorte": "Sem 2",
-        "num_estudiantes": 22,
-        "asignatura": { "id_asignatura": "b1b2c3d4-1111-1111-1111-111111111112", "nombre": "Química Orgánica", "tipo_de_clase": "Laboratorio" }
+      "sessionId": "a1b2c3d4-0001-0001-0001-000000000002",
+      "studentGroupId": "c1c2c3d4-2222-2222-2222-222222222223",
+      "teacherId": "d1d2c3d4-3333-3333-3333-333333333334",
+      "academicSpaceId": null,
+      "dayOfWeek": "Tuesday",
+      "startTime": "09:00",
+      "endTime": "11:00",
+      "modality": "Virtual",
+      "weekNumber": 2,
+      "isVirtualAlternation": true,
+      "createdByAdminId": "f1f2f3f4-5555-5555-5555-555555555555",
+      "studentGroup": {
+        "studentGroupId": "c1c2c3d4-2222-2222-2222-222222222223",
+        "academicProgram": "Ingeniería",
+        "cohortLabel": "Sem 2",
+        "studentCount": 22,
+        "subject": { "subjectId": "b1b2c3d4-1111-1111-1111-111111111112", "name": "Química Orgánica", "classType": "Lab" }
       },
-      "docente": { "id_usuario": "d1d2c3d4-3333-3333-3333-333333333334", "nombre": "Dra. María Torres", "email": "m.torres@uni.edu.co", "tipo_vinculacion": "Planta" },
-      "espacio": null
+      "teacher": { "teacherId": "d1d2c3d4-3333-3333-3333-333333333334", "name": "Dra. María Torres", "email": "m.torres@uni.edu.co", "employmentType": "Planta" },
+      "academicSpace": null
     }
   ]
 }
@@ -164,13 +166,13 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 ## Uso posterior
 
 - **Aplicación frontend Angular**: consume este JSON para renderizar rejillas de horarios
-- **UI de revisión del coordinador**: usa `resumen.violacionesDuras` para marcar borradores inválidos
+- **UI de revisión del coordinador**: usa `summary.hardConstraintViolations` para marcar borradores inválidos
 - **Trazabilidad de auditoría**: el JSON completo se almacena en la base de datos por cada versión del horario
 
 ---
 
 ## Preguntas abiertas
 
-- ¿El frontend necesita que `grupo`, `docente` y `espacio` sean siempre objetos completos o basta con IDs?
+- ¿El frontend necesita que `studentGroup`, `teacher` y `academicSpace` sean siempre objetos completos o basta con IDs?
 - ¿Se debe incluir un arreglo de violaciones con detalle por sesión?
-- ¿La semana se representa con `semana_num` numérico o con fechas reales del calendario?
+- ¿La semana se representa con `weekNumber` numérico o con fechas reales del calendario?

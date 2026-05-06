@@ -76,10 +76,10 @@ Empieza aquí cuando trabajes en una nueva funcionalidad o le pidas ayuda a Copi
 
 ### `SOEA.Domain`
 Conceptos centrales del negocio sin dependencias externas.
-- Entidades: `Usuario`, `Administrador`, `Docente`, `DisponibilidadDocente`, `Asignatura`, `GrupoDeEstudiantes`, `EspacioAcademico`, `Sesion`
-- Objetos de valor y enumeraciones: `AlternanciaType`, `ModalidadSesion`, `TipoEspacio`
+- Entidades: `User` (Usuario), `Administrator` (Administrador), `Teacher` (Docente), `TeacherAvailability` (DisponibilidadDocente), `Subject` (Asignatura), `StudentGroup` (GrupoDeEstudiantes), `AcademicSpace` (EspacioAcademico), `Session` (Sesion)
+- Objetos de valor y enumeraciones: `AlternanciaType`, `SessionModality`, `SpaceType`
 - Interfaces de dominio (puertos) implementadas por Infrastructure
-- Invariantes de negocio (por ejemplo, una sesión no puede existir con `Modalidad = Virtual` y `Id_espacio` asignado)
+- Invariantes de negocio (por ejemplo, una sesión no puede existir con `Modality = Virtual` y `AcademicSpaceId` asignado)
 
 ### `SOEA.Application`
 Capa de orquestación — coordina objetos de dominio e infraestructura.
