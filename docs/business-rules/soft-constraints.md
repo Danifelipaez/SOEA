@@ -1,62 +1,62 @@
-# Soft Constraints
+# Restricciones blandas
 
-## Purpose
-List scheduling preferences that the system should optimize but may relax when a fully optimal
-solution is not achievable. These constraints contribute to the fitness function in Phase 3
-(Genetic Algorithm).
-Copilot uses this when implementing the fitness function in `SOEA.Engine.Genetic`.
+## Propósito
+Listar las preferencias de programación que el sistema debe optimizar, pero que puede relajar cuando
+no sea posible lograr una solución totalmente óptima. Estas restricciones contribuyen a la función de aptitud
+en la Fase 3 (Algoritmo Genético).
+Copilot usa esto al implementar la función de aptitud en `SOEA.Engine.Genetic`.
 
-## Scope
-All optimization preferences. Rules that must never be violated belong in `hard-constraints.md`.
+## Alcance
+Todas las preferencias de optimización. Las reglas que nunca deben violarse pertenecen a `hard-constraints.md`.
 
 ---
 
-## Constraint List
+## Lista de restricciones
 
-Each soft constraint has a **weight** (higher = more important to satisfy).
-Weights are configurable and serve as initial defaults.
+Cada restricción blanda tiene un **peso** (más alto = más importante de cumplir).
+Los pesos son configurables y sirven como valores iniciales por defecto.
 
-| ID | Rule | Default Weight |
+| ID | Regla | Peso predeterminado |
 |---|---|---|
-| SC-01 | Instructor schedules should be compact (minimize idle gaps between sessions) | 3 |
-| SC-02 | Cohort schedules should be compact (minimize idle gaps for students) | 3 |
-| SC-03 | Sessions for the same cohort on the same day should not leave more than 1 gap hour | 2 |
-| SC-04 | Avoid scheduling a cohort's first session before 07:00 or last session after 19:00 when possible | 2 |
-| SC-05 | Assign the same cohort to the same room for the same subject across weeks (classroom stability) | 2 |
-| SC-06 | Distribute instructor workload evenly across days (avoid front-loading or back-loading) | 2 |
-| SC-07 | Minimize the number of different spaces used by the same cohort per day | 1 |
-| SC-08 | Prefer scheduling related subjects (same program, same cohort) in adjacent time slots | 1 |
-| SC-09 | Avoid assigning instructors to the maximum allowed hours every day | 1 |
+| SC-01 | Los horarios del docente deben ser compactos (minimizar huecos inactivos entre sesiones) | 3 |
+| SC-02 | Los horarios de la cohorte deben ser compactos (minimizar huecos inactivos para los estudiantes) | 3 |
+| SC-03 | Las sesiones de la misma cohorte en el mismo día no deberían dejar más de 1 hora de hueco | 2 |
+| SC-04 | Evitar, cuando sea posible, programar la primera sesión de una cohorte antes de las 07:00 o la última después de las 19:00 | 2 |
+| SC-05 | Asignar a la misma cohorte el mismo salón para la misma asignatura en distintas semanas (estabilidad de aula) | 2 |
+| SC-06 | Distribuir de forma uniforme la carga del docente a lo largo de los días (evitar concentrarla al inicio o al final) | 2 |
+| SC-07 | Minimizar el número de espacios diferentes usados por la misma cohorte en un mismo día | 1 |
+| SC-08 | Preferir programar asignaturas relacionadas (mismo programa, misma cohorte) en espacios de tiempo adyacentes | 1 |
+| SC-09 | Evitar asignar a los docentes el máximo de horas permitidas todos los días | 1 |
 
 ---
 
-## Fitness Function Overview
+## Resumen de la función de aptitud
 
-The fitness score for a schedule (chromosome) is computed as:
+La puntuación de aptitud de un horario (cromosoma) se calcula como:
 
 ```
 fitness = Σ (weight_i × violation_count_i)   for all soft constraints SC-01..SC-09
 ```
 
-A **lower** fitness score is better (fewer weighted violations).
-A schedule with fitness = 0 perfectly satisfies all soft constraints.
+Una puntuación de aptitud **más baja** es mejor (menos violaciones ponderadas).
+Un horario con fitness = 0 satisface perfectamente todas las restricciones blandas.
 
-The Genetic Algorithm minimizes this score across generations.
-See `docs/algorithm/phase-3-genetic-algorithm.md` for full details.
-
----
-
-## Examples
-
-- A cohort with sessions at 07:00–09:00 and 13:00–15:00 with no class in between scores a
-  violation for SC-02 (4-hour idle gap).
-- An instructor scheduled for 6 consecutive hours on Monday and 0 hours on Friday scores a
-  violation for SC-06.
+El Algoritmo Genético minimiza esta puntuación a lo largo de las generaciones.
+Consulta `docs/algorithm/phase-3-genetic-algorithm.md` para más detalles.
 
 ---
 
-## Open Questions
+## Ejemplos
 
-- Are the default weights above correct, or should the institution configure them per program?
-- Should SC-05 (classroom stability) be promoted to a hard constraint for accessibility reasons?
-- Is SC-04 (preferred hours) configurable per cohort or institution-wide?
+- Una cohorte con sesiones de 07:00–09:00 y 13:00–15:00 sin clase en medio incurre en una
+  violación de SC-02 (hueco inactivo de 4 horas).
+- Un docente programado durante 6 horas consecutivas el lunes y 0 horas el viernes incurre en una
+  violación de SC-06.
+
+---
+
+## Preguntas abiertas
+
+- ¿Los pesos predeterminados anteriores son correctos o la institución debería configurarlos por programa?
+- ¿SC-05 (estabilidad de aula) debería elevarse a restricción dura por motivos de accesibilidad?
+- ¿SC-04 (horarios preferidos) es configurable por cohorte o a nivel institucional?

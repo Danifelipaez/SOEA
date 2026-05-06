@@ -1,16 +1,16 @@
-# Pseudocode Summary
+# Resumen de pseudocódigo
 
-## Purpose
-Provide high-level pseudocode for each phase of the SOEA optimization pipeline.
-This serves as a quick reference for Copilot when generating algorithm implementations
-and for contributors learning the system.
+## Propósito
+Proporcionar pseudocódigo de alto nivel para cada fase del pipeline de optimización de SOEA.
+Esto sirve como referencia rápida para Copilot al generar implementaciones de algoritmos
+y para los colaboradores que están aprendiendo el sistema.
 
-## Scope
-All three phases plus the orchestration pipeline.
+## Alcance
+Las tres fases y el pipeline de orquestación.
 
 ---
 
-## Pipeline Orchestrator (SOEA.Application)
+## Orquestador del pipeline (SOEA.Application)
 
 ```pseudocode
 function GenerateSchedule(inputData):
@@ -26,12 +26,12 @@ function GenerateSchedule(inputData):
 
 ---
 
-## Phase 1 — Graph Coloring
+## Fase 1 — Graph Coloring
 
 ```pseudocode
 function GraphColoringPhase(sessions):
     G = BuildConflictGraph(sessions)
-    // sort nodes by degree descending (Welsh-Powell)
+    // ordenar nodos por grado descendente (Welsh-Powell)
     sortedSessions = SortByDegree(G, descending)
     assignment = {}
     for each session s in sortedSessions:
@@ -51,22 +51,22 @@ function BuildConflictGraph(sessions):
 
 ---
 
-## Phase 2 — Constraint Programming (CP-SAT)
+## Fase 2 — Programación por restricciones (CP-SAT)
 
 ```pseudocode
 function ConstraintProgrammingPhase(partialSchedule, sessions):
     model = new CpModel()
-    // define variables
+    // definir variables
     for each session s in sessions:
         timeVar[s]  = model.NewIntVar(0, |timeSlots|-1, "time_" + s.Id)
         spaceVar[s] = model.NewIntVar(0, |spaces|,      "space_" + s.Id)  // last index = virtual
-    // add hard constraints
+    // agregar restricciones duras
     for each hard constraint HC in HardConstraints:
         EncodeConstraint(model, HC, sessions, timeVar, spaceVar)
-    // add warm-start hints from Phase 1
+    // agregar indicios de warm start de la Fase 1
     for each session s:
         model.AddHint(timeVar[s], partialSchedule.TimeSlotIndex(s))
-    // solve
+    // resolver
     solver = new CpSolver()
     solver.TimeLimit = config.TimeoutSeconds
     status = solver.Solve(model)
@@ -78,7 +78,7 @@ function ConstraintProgrammingPhase(partialSchedule, sessions):
 
 ---
 
-## Phase 3 — Genetic Algorithm
+## Fase 3 — Algoritmo genético
 
 ```pseudocode
 function GeneticAlgorithmPhase(feasibleSchedule):
@@ -103,7 +103,7 @@ function Fitness(chromosome):
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- Should the Repair step in Phase 3 use CP-SAT (expensive but correct) or a simple greedy reassignment?
-- Should the orchestrator retry Phase 2 with relaxed constraints if the first run is infeasible?
+- ¿El paso de reparación en la Fase 3 debería usar CP-SAT (costoso pero correcto) o una reasignación codiciosa simple?
+- ¿El orquestador debería reintentar la Fase 2 con restricciones relajadas si la primera ejecución es infactible?

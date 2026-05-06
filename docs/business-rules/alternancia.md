@@ -1,63 +1,63 @@
-# Alternancia Rules
+# Reglas de alternancia
 
-## Purpose
-Define the alternancia (hybrid) scheduling model used by the institution. This document is the
-authoritative source for any code that assigns cohorts to in-person vs. virtual weeks.
-Copilot uses this when generating session assignment logic and cohort scheduling constraints.
+## Propósito
+Definir el modelo de programación de alternancia (híbrido) usado por la institución. Este documento es la
+fuente autorizada para cualquier código que asigne cohortes a semanas presenciales o virtuales.
+Copilot usa esto al generar la lógica de asignación de sesiones y las restricciones de programación de cohortes.
 
-## Scope
-All rules governing how cohorts alternate between presencial (in-person) and virtual modalities
-across weeks in a semester.
-
----
-
-## What Is Alternancia?
-
-In the alternancia model, cohorts do not attend in-person every week. Instead, they alternate
-between:
-- **Presencial weeks** — students physically attend their assigned space
-- **Virtual weeks** — sessions are delivered online (no physical space required)
-
-This means two different cohorts can share the same physical space in the same time slot,
-provided they are on opposite alternancia schedules.
+## Alcance
+Todas las reglas que gobiernan cómo las cohortes alternan entre las modalidades presencial y virtual
+a lo largo de las semanas de un semestre.
 
 ---
 
-## Types
+## ¿Qué es la alternancia?
+
+En el modelo de alternancia, las cohortes no asisten presencialmente todas las semanas. En su lugar, alternan
+entre:
+- **Semanas presenciales** — los estudiantes asisten físicamente a su espacio asignado
+- **Semanas virtuales** — las sesiones se dictan en línea (no se requiere espacio físico)
+
+Esto significa que dos cohortes diferentes pueden compartir el mismo espacio físico en el mismo espacio de tiempo,
+siempre que estén en calendarios de alternancia opuestos.
+
+---
+
+## Tipos
 
 ### Type A (Tipo A)
-- Attends in-person on **odd weeks** (weeks 1, 3, 5, …)
-- Attends virtually on **even weeks** (weeks 2, 4, 6, …)
+- Asiste presencialmente en **semanas impares** (semanas 1, 3, 5, …)
+- Asiste virtualmente en **semanas pares** (semanas 2, 4, 6, …)
 
 ### Type B (Tipo B)
-- Attends in-person on **even weeks** (weeks 2, 4, 6, …)
-- Attends virtually on **odd weeks** (weeks 1, 3, 5, …)
+- Asiste presencialmente en **semanas pares** (semanas 2, 4, 6, …)
+- Asiste virtualmente en **semanas impares** (semanas 1, 3, 5, …)
 
 ---
 
-## Key Rules
+## Reglas clave
 
-| Rule ID | Rule | Notes |
+| ID de regla | Regla | Notas |
 |---|---|---|
-| ALT-01 | A Type A cohort and a Type B cohort may share the same space in the same time slot | They are never physically present at the same time |
-| ALT-02 | Two Type A cohorts may NOT share the same space in the same time slot | They are always physically present on the same weeks |
-| ALT-03 | Two Type B cohorts may NOT share the same space in the same time slot | Same reason as ALT-02 |
-| ALT-04 | Virtual sessions do not consume physical space capacity | No space constraint applies during virtual weeks |
-| ALT-05 | A session assigned to a fixed day/time applies to all weeks in the semester | The modality (presencial/virtual) changes, but the slot does not |
-| ALT-06 | Some subjects require presencial attendance every week (non-alternating) | E.g., laboratory sessions — must be flagged in the curriculum data |
+| ALT-01 | Una cohorte Tipo A y una cohorte Tipo B pueden compartir el mismo espacio en el mismo espacio de tiempo | Nunca están presentes físicamente al mismo tiempo |
+| ALT-02 | Dos cohortes Tipo A NO pueden compartir el mismo espacio en el mismo espacio de tiempo | Siempre están presentes físicamente en las mismas semanas |
+| ALT-03 | Dos cohortes Tipo B NO pueden compartir el mismo espacio en el mismo espacio de tiempo | La misma razón que ALT-02 |
+| ALT-04 | Las sesiones virtuales no consumen capacidad de espacio físico | No se aplica ninguna restricción de espacio durante las semanas virtuales |
+| ALT-05 | Una sesión asignada a un día/hora fija aplica a todas las semanas del semestre | La modalidad (presencial/virtual) cambia, pero el espacio de tiempo no |
+| ALT-06 | Algunas asignaturas requieren asistencia presencial todas las semanas (no alternantes) | Por ejemplo, las sesiones de laboratorio: deben marcarse en los datos de la malla curricular |
 
 ---
 
-## Fixed vs. Flexible Sessions
+## Sesiones fijas vs. flexibles
 
-- **Fixed sessions**: time slot assigned once and remains throughout the semester (most sessions)
-- **Flexible sessions**: may be rescheduled per week (rare — only with explicit institutional approval)
+- **Sesiones fijas**: el espacio de tiempo se asigna una vez y permanece durante todo el semestre (la mayoría de las sesiones)
+- **Sesiones flexibles**: pueden reprogramarse por semana (raro: solo con aprobación institucional explícita)
 
-SOEA currently only supports fixed session scheduling.
+Actualmente SOEA solo admite programación de sesiones fijas.
 
 ---
 
-## Examples
+## Ejemplos
 
 - Cohort A-3 (Type A, Systems Engineering Sem 3) and Cohort B-7 (Type B, Systems Engineering Sem 7)
   can share Room 204 at 07:00–09:00 Monday because they are never both in-person on the same week.
@@ -66,17 +66,17 @@ SOEA currently only supports fixed session scheduling.
 
 ---
 
-## Impact on Conflict Graph (Phase 1)
+## Impacto en el grafo de conflictos (Fase 1)
 
-Two sessions conflict in the space dimension if and only if:
-- Both cohorts have the same `AlternanciaType` (both A or both B), OR
-- Either cohort is flagged as non-alternating (always presencial)
+Dos sesiones entran en conflicto en la dimensión de espacio si y solo si:
+- Ambas cohortes tienen el mismo `AlternanciaType` (ambas A o ambas B), O
+- Alguna de las cohortes está marcada como no alternante (siempre presencial)
 
-See `docs/algorithm/phase-1-graph-coloring.md` for how this affects edge construction.
+Consulta `docs/algorithm/phase-1-graph-coloring.md` para ver cómo esto afecta la construcción de aristas.
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- Can a single cohort contain students with different alternancia types?
-- How are virtual sessions tracked in the output JSON — are they listed as separate session records?
+- ¿Una sola cohorte puede contener estudiantes con distintos tipos de alternancia?
+- ¿Cómo se registran las sesiones virtuales en el JSON de salida: se listan como registros separados de sesión?

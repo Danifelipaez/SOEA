@@ -1,25 +1,25 @@
-# SOEA Agent Guide
+# Guía del agente SOEA
 
-Use this workspace guide for any coding task in SOEA. Keep changes small, follow the documented architecture, and link to the project docs instead of restating them.
+Usa esta guía del workspace para cualquier tarea de programación en SOEA. Mantén los cambios pequeños, sigue la arquitectura documentada y enlaza la documentación del proyecto en lugar de repetirla.
 
-## Start Here
+## Empezar aquí
 
-- Use [README.md](README.md) for the project overview and repository layout.
-- Use [docs/architecture/module-map.md](docs/architecture/module-map.md) to decide which project owns a change.
-- Use [docs/architecture/architecture-overview.md](docs/architecture/architecture-overview.md) for system structure.
-- Use [docs/requirements/glossary.md](docs/requirements/glossary.md) to keep domain terms consistent.
+- Usa [README.md](README.md) para ver la descripción general del proyecto y la estructura del repositorio.
+- Usa [docs/architecture/module-map.md](docs/architecture/module-map.md) para decidir qué proyecto es el dueño de un cambio.
+- Usa [docs/architecture/architecture-overview.md](docs/architecture/architecture-overview.md) para entender la estructura del sistema.
+- Usa [docs/requirements/glossary.md](docs/requirements/glossary.md) para mantener consistentes los términos del dominio.
 
-## Working Rules
+## Reglas de trabajo
 
-- Keep domain logic in `SOEA.Domain`; orchestration in `SOEA.Application`; integrations in the matching infrastructure or engine project.
-- Do not cross layer boundaries just to make a change easier. If a dependency looks wrong, move the logic to the owning project instead.
-- Prefer the documented business rules over assumptions, especially for alternancia, space assignment, and scheduling constraints.
-- Do not persist virtual sessions as physical space rows. Virtual sessions are modeled with null space values.
-- Treat `AlternanciaType` as the canonical set from the domain: `TypeA`, `TypeB`, and `NonAlternating`.
+- Mantén la lógica de dominio en `SOEA.Domain`; la orquestación en `SOEA.Application`; las integraciones en el proyecto de infraestructura o motor correspondiente.
+- No cruces límites de capa solo para hacer un cambio más fácil. Si una dependencia parece incorrecta, mueve la lógica al proyecto dueño.
+- Prefiere las reglas de negocio documentadas frente a suposiciones, especialmente para alternancia, asignación de espacios y restricciones de programación.
+- No persistas sesiones virtuales como filas de espacio físico. Las sesiones virtuales se modelan con valores nulos en el espacio.
+- Trata `AlternanciaType` como el conjunto canónico del dominio: `TypeA`, `TypeB` y `NonAlternating`.
 
-## Before Editing Code
+## Antes de editar código
 
-- Read the most relevant doc first:
+- Lee primero el documento más relevante:
   - [docs/business-rules/hard-constraints.md](docs/business-rules/hard-constraints.md)
   - [docs/business-rules/soft-constraints.md](docs/business-rules/soft-constraints.md)
   - [docs/business-rules/alternancia.md](docs/business-rules/alternancia.md)
@@ -27,18 +27,18 @@ Use this workspace guide for any coding task in SOEA. Keep changes small, follow
   - [docs/data/data-dictionary.md](docs/data/data-dictionary.md)
   - [docs/data/json-output-spec.md](docs/data/json-output-spec.md)
 
-## Validation
+## Validación
 
-- Use `dotnet build` to check the solution.
-- Use `dotnet test` for the xUnit test project under `test/SOEA.Tests`.
-- For API work, run `dotnet run --project src/SOEA.API/SOEA.API.csproj` when a manual check is useful.
+- Usa `dotnet build` para comprobar la solución.
+- Usa `dotnet test` para el proyecto de pruebas xUnit en `test/SOEA.Tests`.
+- Para trabajo de API, ejecuta `dotnet run --project src/SOEA.API/SOEA.API.csproj` cuando sea útil una verificación manual.
 
 ## Frontend
 
-- Frontend work lives under [frontend/soea-angular/README.md](frontend/soea-angular/README.md).
-- Keep frontend changes inside the Angular workspace and do not mix them into backend projects.
+- El trabajo de frontend vive en [frontend/soea-angular/README.md](frontend/soea-angular/README.md).
+- Mantén los cambios de frontend dentro del workspace de Angular y no los mezcles con proyectos de backend.
 
-## Testing Focus
+## Enfoque de pruebas
 
-- Prefer tests that match the touched layer: domain invariants, application orchestration, engine behavior, or API integration.
-- Review [docs/testing/test-plan.md](docs/testing/test-plan.md) and [docs/testing/acceptance-criteria.md](docs/testing/acceptance-criteria.md) when a change affects behavior, validation, or user-visible output.
+- Prioriza pruebas que correspondan a la capa afectada: invariantes del dominio, orquestación de la aplicación, comportamiento del motor o integración de API.
+- Revisa [docs/testing/test-plan.md](docs/testing/test-plan.md) y [docs/testing/acceptance-criteria.md](docs/testing/acceptance-criteria.md) cuando un cambio afecte el comportamiento, la validación o una salida visible para el usuario.

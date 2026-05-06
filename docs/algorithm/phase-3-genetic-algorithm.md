@@ -1,25 +1,25 @@
-# Phase 3 — Genetic Algorithm
+# Fase 3 — Algoritmo genético
 
-## Purpose
-Describe the Genetic Algorithm used in Phase 3 to optimize soft constraints in the schedule
-produced by Phase 2. Copilot uses this when implementing `SOEA.Engine.Genetic`.
+## Propósito
+Describir el algoritmo genético usado en la Fase 3 para optimizar restricciones blandas en el horario
+producido por la Fase 2. Copilot usa esto al implementar `SOEA.Engine.Genetic`.
 
-## Scope
-Phase 3 only: soft-constraint optimization via Genetic Algorithm.
-Phase 1 (Graph Coloring) and Phase 2 (CP-SAT) are described in their own docs.
-
----
-
-## Goal of Phase 3
-
-Take the Phase 2 **feasible** schedule and improve it by minimizing the weighted soft-constraint
-violation score (fitness). Hard constraints must remain satisfied throughout.
+## Alcance
+Solo la Fase 3: optimización de restricciones blandas mediante Algoritmo Genético.
+La Fase 1 (Graph Coloring) y la Fase 2 (CP-SAT) se describen en sus propios documentos.
 
 ---
 
-## Chromosome Representation
+## Objetivo de la Fase 3
 
-A **chromosome** encodes one complete schedule assignment:
+Tomar el horario **factible** de la Fase 2 y mejorarlo minimizando la puntuación ponderada de
+violaciones de restricciones blandas (aptitud). Las restricciones duras deben permanecer satisfechas en todo momento.
+
+---
+
+## Representación del cromosoma
+
+Un **cromosoma** codifica una asignación completa del horario:
 
 ```
 chromosome = [ (sessionId₁, timeSlotIndex₁, spaceIndex₁),
@@ -28,54 +28,54 @@ chromosome = [ (sessionId₁, timeSlotIndex₁, spaceIndex₁),
                (sessionIdₙ, timeSlotIndexₙ, spaceIndexₙ) ]
 ```
 
-Each gene is a 3-tuple: session → assigned time slot → assigned space.
+Cada gen es una terna de 3 elementos: sesión → espacio de tiempo asignado → espacio asignado.
 
-The Phase 2 feasible schedule is the **initial chromosome** (seed of the first generation).
+El horario factible de la Fase 2 es el **cromosoma inicial** (semilla de la primera generación).
 
 ---
 
-## Fitness Function
+## Función de aptitud
 
 ```
 fitness(chromosome) = Σᵢ wᵢ × violationCount(SC_i, chromosome)
 ```
 
-Where:
-- `SC_i` = soft constraint i (from `docs/business-rules/soft-constraints.md`)
-- `wᵢ` = weight of constraint i
-- `violationCount` = number of individual violations of that constraint in the schedule
+Donde:
+- `SC_i` = restricción blanda i (de `docs/business-rules/soft-constraints.md`)
+- `wᵢ` = peso de la restricción i
+- `violationCount` = número de violaciones individuales de esa restricción en el horario
 
-**Lower fitness = better schedule.**
+**Menor fitness = mejor horario.**
 
-A chromosome with fitness = 0 perfectly satisfies all soft constraints.
-
----
-
-## Genetic Operations
-
-### Selection
-- **Tournament selection**: randomly select k chromosomes, keep the best
-- Tournament size k = 5 (configurable)
-
-### Crossover
-- **Single-point crossover** on the session list
-- Both offspring inherit hard-constraint-preserving gene segments
-- After crossover, verify that no hard constraints are violated; if violated, repair or discard
-
-### Mutation
-- **Random gene mutation**: for a randomly selected session, assign a different valid time slot
-  or space (drawn from the set of hard-constraint-safe alternatives)
-- Mutation probability: 0.05 per gene (configurable)
-- Mutation always checks hard constraint compliance before accepting the change
-
-### Repair Operator
-If a crossover or mutation produces a hard constraint violation:
-1. Try to reassign the conflicting session to a valid alternative slot/space
-2. If no valid alternative exists, revert to the parent chromosome for that gene
+Un cromosoma con fitness = 0 satisface perfectamente todas las restricciones blandas.
 
 ---
 
-## Algorithm Flow
+## Operaciones genéticas
+
+### Selección
+- **Selección por torneo**: seleccionar aleatoriamente k cromosomas y conservar el mejor
+- Tamaño del torneo k = 5 (configurable)
+
+### Cruce
+- **Cruce de un punto** sobre la lista de sesiones
+- Ambos descendientes heredan segmentos de genes que preservan restricciones duras
+- Después del cruce, verificar que no se violen restricciones duras; si se violan, reparar o descartar
+
+### Mutación
+- **Mutación aleatoria de gen**: para una sesión seleccionada al azar, asignar un espacio de tiempo
+  o espacio distinto y válido (tomado del conjunto de alternativas seguras respecto a restricciones duras)
+- Probabilidad de mutación: 0.05 por gen (configurable)
+- La mutación siempre verifica el cumplimiento de restricciones duras antes de aceptar el cambio
+
+### Operador de reparación
+Si un cruce o una mutación produce una violación de restricción dura:
+1. Intentar reasignar la sesión conflictiva a un espacio de tiempo/espacio alternativo válido
+2. Si no existe una alternativa válida, revertir al cromosoma padre para ese gen
+
+---
+
+## Flujo del algoritmo
 
 ```
 1. Initialize population with N copies of the Phase 2 feasible schedule
@@ -90,40 +90,40 @@ If a crossover or mutation produces a hard constraint violation:
 4. Return the chromosome with the lowest fitness score
 ```
 
-### Hyperparameters (defaults — all configurable)
+### Hiperparámetros (predeterminados — todos configurables)
 
-| Parameter | Default |
+| Parámetro | Predeterminado |
 |---|---|
-| Population size N | 50 |
-| Max generations G | 200 |
-| Tournament size k | 5 |
-| Crossover probability | 0.8 |
-| Mutation probability per gene | 0.05 |
-| Convergence threshold (no improvement for X generations) | 30 |
+| Tamaño de población N | 50 |
+| Máx. generaciones G | 200 |
+| Tamaño del torneo k | 5 |
+| Probabilidad de cruce | 0.8 |
+| Probabilidad de mutación por gen | 0.05 |
+| Umbral de convergencia (sin mejora durante X generaciones) | 30 |
 
 ---
 
-## Inputs
+## Entradas
 
 - `FeasibleSchedule` from Phase 2 (seed chromosome)
 - Soft constraint definitions and weights from configuration
 
-## Outputs
+## Salidas
 
-- `OptimizedSchedule`: the chromosome with the lowest fitness score after G generations
-- Fitness score included in the output for reporting
-
----
-
-## Performance Target
-
-Phase 3 should complete within 5 minutes for pilot data volumes (≤ 200 sessions).
+- `OptimizedSchedule`: el cromosoma con la puntuación de fitness más baja tras G generaciones
+- La puntuación de fitness se incluye en la salida para reportes
 
 ---
 
-## Open Questions
+## Objetivo de rendimiento
 
-- Should the initial population include diversity beyond copies of the Phase 2 seed?
-  (e.g., perturb by randomly swapping compatible sessions)
-- Should soft constraint weights be configurable per-run through the Admin UI?
-- Is Simulated Annealing an acceptable alternative to Genetic Algorithm if GA convergence is slow?
+La Fase 3 debería completarse en menos de 5 minutos para volúmenes de datos del piloto (≤ 200 sesiones).
+
+---
+
+## Preguntas abiertas
+
+- ¿La población inicial debería incluir diversidad más allá de copias de la semilla de la Fase 2?
+  (por ejemplo, perturbar intercambiando aleatoriamente sesiones compatibles)
+- ¿Los pesos de las restricciones blandas deberían poder configurarse por ejecución desde la UI de Admin?
+- ¿Simulated Annealing es una alternativa aceptable al Algoritmo Genético si la convergencia del GA es lenta?

@@ -1,15 +1,13 @@
 ﻿
-using System;
-using System.Collections.Generic;
-
 namespace SOEA.Domain
 {
     public enum TipoEspacio
     {
         Salon,
         Laboratorio,
-        Audirorio
+        Auditorio
     }
+
     public enum DiaDeSemana
     {
         Lunes,
@@ -18,16 +16,12 @@ namespace SOEA.Domain
         Jueves,
         Viernes
     }
+
     public enum TipoAlternancia
     {
         Normal,
-        semanal,
-        biSemanal
+        Semanal,
+        BiSemanal
     }
-    
-}
-
-public class Class1
-{
 
 }

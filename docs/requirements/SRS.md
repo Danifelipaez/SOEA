@@ -1,76 +1,76 @@
-# Software Requirements Specification (SRS)
+# Especificación de Requisitos de Software (SRS)
 
-## Purpose
-High-level functional and non-functional requirements for SOEA.
-This document is the authoritative source for what the system must do.
-Copilot uses this when generating use cases, API endpoints, and test cases.
+## Propósito
+Requisitos funcionales y no funcionales de alto nivel para SOEA.
+Este documento es la fuente autorizada de lo que el sistema debe hacer.
+Copilot usa esto al generar casos de uso, endpoints de API y casos de prueba.
 
-## Scope
-All requirements for the backend optimization engine, data ingestion, API, and frontend.
+## Alcance
+Todos los requisitos para el motor de optimización del backend, la ingesta de datos, la API y el frontend.
 
 ---
 
-## Functional Requirements
+## Requisitos funcionales
 
-### FR-01 — Excel Data Ingestion
-The system shall accept Excel files containing:
-- Curriculum data (subjects, hours per week, cohorts)
-- Instructor availability (time blocks per instructor per day)
-- Space inventory (capacity, type, equipment)
+### FR-01 — Ingesta de datos desde Excel
+El sistema deberá aceptar archivos Excel que contengan:
+- Datos de malla curricular (asignaturas, horas por semana, cohortes)
+- Disponibilidad de docentes (bloques de tiempo por docente y por día)
+- Inventario de espacios (capacidad, tipo, equipamiento)
 
-### FR-02 — Schedule Generation
-The system shall produce a complete timetable for one semester given the input data,
-using a three-phase pipeline (Graph Coloring → CP → Genetic Algorithm).
+### FR-02 — Generación de horarios
+El sistema deberá producir un horario completo para un semestre a partir de los datos de entrada,
+usando un pipeline de tres fases (Graph Coloring → CP → Genetic Algorithm).
 
-### FR-03 — Hard Constraint Enforcement
-The generated schedule shall not violate any hard constraint defined in
+### FR-03 — Cumplimiento de restricciones duras
+El horario generado no deberá violar ninguna restricción dura definida en
 `docs/business-rules/hard-constraints.md`.
 
-### FR-04 — Soft Constraint Optimization
-The system shall optimize soft constraints (see `docs/business-rules/soft-constraints.md`)
-through the Genetic Algorithm phase.
+### FR-04 — Optimización de restricciones blandas
+El sistema deberá optimizar las restricciones blandas (ver `docs/business-rules/soft-constraints.md`)
+mediante la fase del Algoritmo Genético.
 
-### FR-05 — JSON Export
-The system shall export the final schedule as a structured JSON document
-(format defined in `docs/data/json-output-spec.md`).
+### FR-05 — Exportación JSON
+El sistema deberá exportar el horario final como un documento JSON estructurado
+(el formato se define en `docs/data/json-output-spec.md`).
 
-### FR-06 — Role-Based Web UI
-The system shall provide a web interface with distinct views and permissions for:
-Admin, Coordinator, Instructor, Student (see `docs/requirements/stakeholders.md`).
+### FR-06 — Interfaz web basada en roles
+El sistema deberá proporcionar una interfaz web con vistas y permisos diferenciados para:
+Admin, Coordinador, Docente y Estudiante (ver `docs/requirements/stakeholders.md`).
 
-### FR-07 — Schedule Validation Report
-The system shall produce a validation report listing any remaining soft-constraint
-violations after optimization, with a severity score.
+### FR-07 — Informe de validación del horario
+El sistema deberá producir un informe de validación que liste cualquier violación
+restante de restricciones blandas después de la optimización, con una puntuación de severidad.
 
-### FR-08 — Alternancia Support
-The system shall assign sessions according to alternancia rules (Type A / Type B),
-as defined in `docs/business-rules/alternancia.md`.
+### FR-08 — Soporte de alternancia
+El sistema deberá asignar las sesiones de acuerdo con las reglas de alternancia (Tipo A / Tipo B),
+según se define en `docs/business-rules/alternancia.md`.
 
 ---
 
-## Non-Functional Requirements
+## Requisitos no funcionales
 
-### NFR-01 — Performance
-The optimization pipeline shall complete within 10 minutes for a standard semester load
-(up to 200 cohorts, 50 instructors, 30 spaces).
+### NFR-01 — Rendimiento
+El pipeline de optimización deberá completarse en menos de 10 minutos para una carga semestral estándar
+(hasta 200 cohortes, 50 docentes, 30 espacios).
 
-### NFR-02 — Correctness
-All hard constraints must be satisfied (zero violations) in the final output.
+### NFR-02 — Corrección
+Todas las restricciones duras deben cumplirse (cero violaciones) en la salida final.
 
-### NFR-03 — Usability
-Non-technical users (Coordinators) must be able to review and understand the generated
-schedule without training beyond a 30-minute onboarding session.
+### NFR-03 — Usabilidad
+Los usuarios no técnicos (Coordinadores) deben poder revisar y entender el horario generado
+sin capacitación adicional más allá de una sesión de inducción de 30 minutos.
 
-### NFR-04 — Maintainability
-The codebase shall follow Clean Architecture conventions as described in
+### NFR-04 — Mantenibilidad
+La base de código deberá seguir las convenciones de Clean Architecture descritas en
 `docs/architecture/architecture-overview.md`.
 
-### NFR-05 — Security
-Role-based access control shall prevent users from accessing data outside their scope.
+### NFR-05 — Seguridad
+El control de acceso basado en roles deberá impedir que los usuarios accedan a datos fuera de su alcance.
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- What is the exact maximum number of sessions per semester for sizing performance targets?
-- Should schedule regeneration be possible mid-semester (partial re-optimization)?
+- ¿Cuál es el número máximo exacto de sesiones por semestre para dimensionar los objetivos de rendimiento?
+- ¿La regeneración de horarios debería ser posible a mitad de semestre (reoptimización parcial)?

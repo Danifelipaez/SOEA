@@ -1,86 +1,86 @@
-# Delivery Plan
+# Plan de entrega
 
-## Purpose
-Outline the development roadmap for SOEA: phases, milestones, and recommended work order.
-This document guides the sequence in which Copilot should be asked to scaffold and implement features.
+## Propósito
+Esbozar la hoja de ruta de desarrollo de SOEA: fases, hitos y orden de trabajo recomendado.
+Este documento guía la secuencia en la que se le debe pedir a Copilot que cree la estructura e implemente funcionalidades.
 
-## Scope
-Project timeline from initial setup to pilot deployment.
-
----
-
-## Development Phases
-
-### Phase 0 — Project Setup (Week 1)
-- [x] Initialize .NET solution with Clean Architecture project structure
-- [x] Create documentation folder structure (`docs/`)
-- [ ] Set up Angular workspace (`frontend/soea-angular/`)
-- [ ] Configure database connection (EF Core + SQL Server/PostgreSQL)
-- [x] Set up xUnit test project
-
-### Phase 1 — Domain Model (Week 2)
-- [ ] Implement domain entities: `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`, `Subject`
-- [ ] Implement value objects: `AlternanciaType`, `TimeRange`
-- [ ] Define domain interfaces: `IScheduleRepository`, `IOptimizationEngine`
-- [ ] Write unit tests for domain entity invariants
-
-### Phase 2 — Data Ingestion (Week 3)
-- [ ] Implement `CurriculumExcelReader` using EPPlus
-- [ ] Implement `InstructorAvailabilityReader`
-- [ ] Implement `SpaceInventoryReader`
-- [ ] Write integration tests for Excel readers
-- [ ] Set up EF Core `DbContext` and initial migration
-
-### Phase 3 — Optimization Engine: Graph Coloring (Week 4)
-- [ ] Implement `ConflictGraphBuilder`
-- [ ] Implement `GraphColoringScheduler` (Welsh-Powell heuristic)
-- [ ] Write unit tests for graph construction and coloring
-
-### Phase 4 — Optimization Engine: CP-SAT (Week 5–6)
-- [ ] Add OR-Tools NuGet dependency
-- [ ] Implement `CpSatSchedulerBuilder`
-- [ ] Encode all hard constraints from `docs/business-rules/hard-constraints.md`
-- [ ] Implement infeasibility reporting
-- [ ] Write unit tests for each encoded constraint
-
-### Phase 5 — Optimization Engine: Genetic Algorithm (Week 7–8)
-- [ ] Implement `ScheduleChromosome`
-- [ ] Implement `FitnessEvaluator` with all soft constraints from `docs/business-rules/soft-constraints.md`
-- [ ] Implement `GeneticScheduleOptimizer` (selection, crossover, mutation, repair)
-- [ ] Write unit tests for fitness function and genetic operations
-
-### Phase 6 — Application Layer (Week 9)
-- [ ] Implement `GenerateScheduleCommand` and handler
-- [ ] Implement `ScheduleOptimizationPipeline` (orchestrates Phases 1→2→3)
-- [ ] Implement `ConstraintValidator` (post-generation validation)
-- [ ] Implement `IngestExcelCommand` and handler
-- [ ] Write application-layer unit tests
-
-### Phase 7 — API Layer (Week 10)
-- [ ] Implement `ScheduleController` (generate, retrieve, publish)
-- [ ] Implement `IngestionController` (upload Excel files)
-- [ ] Add JWT authentication and role-based authorization
-- [ ] Configure Swagger/OpenAPI
-- [ ] Write API integration tests
-
-### Phase 8 — Frontend (Week 11–12)
-- [ ] Scaffold Angular workspace with routing and role-based guards
-- [ ] Admin: Excel upload form + trigger optimization button
-- [ ] Coordinator: schedule review grid + approval workflow
-- [ ] Instructor/Student: personal timetable view
-
-### Phase 9 — Pilot Validation (Week 13–14)
-- [ ] Run pilot dataset through full pipeline
-- [ ] Verify all acceptance criteria from `docs/testing/acceptance-criteria.md`
-- [ ] Collect coordinator feedback
-- [ ] Fix any blocking issues
-- [ ] Final sign-off
+## Alcance
+Cronograma del proyecto desde la configuración inicial hasta el despliegue piloto.
 
 ---
 
-## Recommended Ask-Copilot Order
+## Fases de desarrollo
 
-When asking Copilot to generate code, follow this order for best results:
+### Fase 0 — Configuración del proyecto (Semana 1)
+- [x] Inicializar la solución .NET con la estructura de proyectos Clean Architecture
+- [x] Crear la estructura de carpetas de documentación (`docs/`)
+- [ ] Configurar el workspace de Angular (`frontend/soea-angular/`)
+- [ ] Configurar la conexión a la base de datos (EF Core + SQL Server/PostgreSQL)
+- [x] Configurar el proyecto de pruebas xUnit
+
+### Fase 1 — Modelo de dominio (Semana 2)
+- [ ] Implementar entidades de dominio: `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`, `Subject`
+- [ ] Implementar objetos de valor: `AlternanciaType`, `TimeRange`
+- [ ] Definir interfaces de dominio: `IScheduleRepository`, `IOptimizationEngine`
+- [ ] Escribir pruebas unitarias para invariantes de entidades de dominio
+
+### Fase 2 — Ingesta de datos (Semana 3)
+- [ ] Implementar `CurriculumExcelReader` usando EPPlus
+- [ ] Implementar `InstructorAvailabilityReader`
+- [ ] Implementar `SpaceInventoryReader`
+- [ ] Escribir pruebas de integración para los lectores de Excel
+- [ ] Configurar el `DbContext` de EF Core y la migración inicial
+
+### Fase 3 — Motor de optimización: Graph Coloring (Semana 4)
+- [ ] Implementar `ConflictGraphBuilder`
+- [ ] Implementar `GraphColoringScheduler` (heurística Welsh-Powell)
+- [ ] Escribir pruebas unitarias para la construcción del grafo y el coloreado
+
+### Fase 4 — Motor de optimización: CP-SAT (Semanas 5–6)
+- [ ] Agregar la dependencia NuGet de OR-Tools
+- [ ] Implementar `CpSatSchedulerBuilder`
+- [ ] Codificar todas las restricciones duras de `docs/business-rules/hard-constraints.md`
+- [ ] Implementar el reporte de infactibilidad
+- [ ] Escribir pruebas unitarias para cada restricción codificada
+
+### Fase 5 — Motor de optimización: Algoritmo Genético (Semanas 7–8)
+- [ ] Implementar `ScheduleChromosome`
+- [ ] Implementar `FitnessEvaluator` con todas las restricciones blandas de `docs/business-rules/soft-constraints.md`
+- [ ] Implementar `GeneticScheduleOptimizer` (selección, cruce, mutación, reparación)
+- [ ] Escribir pruebas unitarias para la función de aptitud y las operaciones genéticas
+
+### Fase 6 — Capa de Application (Semana 9)
+- [ ] Implementar `GenerateScheduleCommand` y su handler
+- [ ] Implementar `ScheduleOptimizationPipeline` (orquesta las Fases 1→2→3)
+- [ ] Implementar `ConstraintValidator` (validación posterior a la generación)
+- [ ] Implementar `IngestExcelCommand` y su handler
+- [ ] Escribir pruebas unitarias de la capa de Application
+
+### Fase 7 — Capa de API (Semana 10)
+- [ ] Implementar `ScheduleController` (generar, recuperar, publicar)
+- [ ] Implementar `IngestionController` (carga de archivos Excel)
+- [ ] Agregar autenticación JWT y autorización basada en roles
+- [ ] Configurar Swagger/OpenAPI
+- [ ] Escribir pruebas de integración de API
+
+### Fase 8 — Frontend (Semanas 11–12)
+- [ ] Generar el workspace de Angular con routing y guards basados en roles
+- [ ] Admin: formulario de carga de Excel + botón para lanzar la optimización
+- [ ] Coordinador: rejilla de revisión del horario + flujo de aprobación
+- [ ] Docente/Estudiante: vista de horario personal
+
+### Fase 9 — Validación del piloto (Semanas 13–14)
+- [ ] Ejecutar el conjunto de datos del piloto a través del pipeline completo
+- [ ] Verificar todos los criterios de aceptación de `docs/testing/acceptance-criteria.md`
+- [ ] Recopilar comentarios de los coordinadores
+- [ ] Corregir cualquier problema bloqueante
+- [ ] Aprobación final
+
+---
+
+## Orden recomendado para pedirle cosas a Copilot
+
+Cuando le pidas a Copilot que genere código, sigue este orden para obtener mejores resultados:
 
 1. Domain entities (use `docs/data/data-dictionary.md`)
 2. Domain interfaces (use `docs/architecture/module-map.md`)
@@ -95,7 +95,7 @@ When asking Copilot to generate code, follow this order for best results:
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- Is the 14-week timeline aligned with the academic semester calendar?
-- Are there dependencies on IT infrastructure (server setup, database provisioning) that affect the timeline?
+- ¿El cronograma de 14 semanas está alineado con el calendario académico del semestre?
+- ¿Existen dependencias de infraestructura de TI (configuración del servidor, aprovisionamiento de base de datos) que afecten el cronograma?

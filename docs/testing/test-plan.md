@@ -1,69 +1,69 @@
-# Test Plan
+# Plan de pruebas
 
-## Purpose
-Define the testing strategy for SOEA: what types of tests exist, what they cover, and how
-to run them. Copilot uses this when generating test files and test data.
+## Propósito
+Definir la estrategia de pruebas para SOEA: qué tipos de pruebas existen, qué cubren y cómo
+ejecutarlas. Copilot usa esto al generar archivos de prueba y datos de prueba.
 
-## Scope
-All automated tests in `test/SOEA.Tests/`. Manual/acceptance testing is in `acceptance-criteria.md`.
+## Alcance
+Todas las pruebas automatizadas en `test/SOEA.Tests/`. Las pruebas manuales/de aceptación están en `acceptance-criteria.md`.
 
 ---
 
-## Test Levels
+## Niveles de prueba
 
-### Unit Tests
+### Pruebas unitarias
 
-Cover individual classes in isolation with all dependencies mocked.
+Cubren clases individuales de forma aislada con todas las dependencias simuladas.
 
-| Area | Target Class | What to Test |
+| Área | Clase objetivo | Qué probar |
 |---|---|---|
-| Domain | `Session` | Entity invariants (duration > 0, virtual session has no space) |
-| Domain | `TimeSlot` | StartTime < EndTime validation |
-| Domain | `Cohort` | AlternanciaType assignment |
-| Application | `ConstraintValidator` | Hard constraint detection logic |
-| Application | `ScheduleOptimizationPipeline` | Phase orchestration calls (mock engines) |
-| Phase 1 | `ConflictGraphBuilder` | Edge construction for each conflict type |
-| Phase 1 | `GraphColoringScheduler` | Coloring produces no adjacent nodes with same color |
-| Phase 2 | `HardConstraintEncoder` | Each HC maps to the correct CP-SAT constraint type |
-| Phase 3 | `FitnessEvaluator` | Fitness = 0 for a schedule with zero soft violations |
-| Phase 3 | `GeneticScheduleOptimizer` | Fitness improves or stays equal across generations |
+| Domain | `Session` | Invariantes de entidad (duration > 0, una sesión virtual no tiene espacio) |
+| Domain | `TimeSlot` | Validación de StartTime < EndTime |
+| Domain | `Cohort` | Asignación de AlternanciaType |
+| Application | `ConstraintValidator` | Lógica de detección de restricciones duras |
+| Application | `ScheduleOptimizationPipeline` | Llamadas de orquestación de fases (motores simulados) |
+| Phase 1 | `ConflictGraphBuilder` | Construcción de aristas para cada tipo de conflicto |
+| Phase 1 | `GraphColoringScheduler` | El coloreado no produce nodos adyacentes con el mismo color |
+| Phase 2 | `HardConstraintEncoder` | Cada HC se mapea al tipo correcto de restricción CP-SAT |
+| Phase 3 | `FitnessEvaluator` | Fitness = 0 para un horario sin violaciones blandas |
+| Phase 3 | `GeneticScheduleOptimizer` | El fitness mejora o se mantiene entre generaciones |
 
-### Integration Tests
+### Pruebas de integración
 
-Test the interaction between layers using real (in-memory or test) data.
+Prueban la interacción entre capas usando datos reales (en memoria o de prueba).
 
-| Test | What to Verify |
+| Prueba | Qué verificar |
 |---|---|
-| End-to-end pipeline (small dataset) | Full pipeline (Phase 1→2→3) produces a schedule with zero hard violations |
-| Excel ingestion | Reading a sample Excel file produces the correct domain entities |
-| API endpoint: POST /schedule/generate | Returns 200 with valid JSON output matching `json-output-spec.md` |
-| Database round-trip | A saved schedule can be loaded and matches the original |
+| Pipeline end-to-end (conjunto pequeño) | El pipeline completo (Fase 1→2→3) produce un horario con cero violaciones duras |
+| Ingesta de Excel | Leer un archivo de Excel de muestra produce las entidades de dominio correctas |
+| Endpoint API: POST /schedule/generate | Devuelve 200 con un JSON válido que coincide con `json-output-spec.md` |
+| Ida y vuelta en base de datos | Un horario guardado puede cargarse y coincide con el original |
 
-### Constraint-Specific Tests
+### Pruebas específicas de restricciones
 
-Tests that directly validate each hard constraint from `hard-constraints.md`.
+Pruebas que validan directamente cada restricción dura de `hard-constraints.md`.
 
-| Constraint | Test Scenario |
+| Restricción | Escenario de prueba |
 |---|---|
-| HC-I01 | Two sessions with the same instructor in the same time slot → should be flagged |
-| HC-S02 | 30 students assigned to a room of capacity 25 → should be flagged |
-| HC-T02 | Lab session starting at 20:00 → should be flagged |
-| HC-T05 | Split-block sessions on consecutive days → should be flagged |
-| HC-S04 | Virtual session with a physical space assigned → should be flagged |
+| HC-I01 | Dos sesiones con el mismo docente en el mismo espacio de tiempo → debe marcarse |
+| HC-S02 | 30 estudiantes asignados a un espacio con capacidad 25 → debe marcarse |
+| HC-T02 | Sesión de laboratorio que inicia a las 20:00 → debe marcarse |
+| HC-T05 | Sesiones split-block en días consecutivos → debe marcarse |
+| HC-S04 | Sesión virtual con un espacio físico asignado → debe marcarse |
 
 ---
 
-## Test Data
+## Datos de prueba
 
-- Small test dataset: 5 cohorts, 3 instructors, 5 spaces, 20 sessions
-- Edge case dataset: session that cannot be scheduled (all instructor slots occupied)
-- Alternancia dataset: mix of Type A, Type B, and NonAlternating cohorts
+- Conjunto de prueba pequeño: 5 cohortes, 3 docentes, 5 espacios, 20 sesiones
+- Conjunto de caso extremo: sesión que no puede programarse (todos los espacios del docente ocupados)
+- Conjunto de alternancia: mezcla de cohortes Type A, Type B y NonAlternating
 
-Test data files should be placed in `test/SOEA.Tests/TestData/`.
+Los archivos de datos de prueba deben colocarse en `test/SOEA.Tests/TestData/`.
 
 ---
 
-## Running Tests
+## Ejecución de pruebas
 
 ```bash
 dotnet test test/SOEA.Tests/SOEA.Tests.csproj
@@ -71,16 +71,16 @@ dotnet test test/SOEA.Tests/SOEA.Tests.csproj
 
 ---
 
-## Test Coverage Target
+## Objetivo de cobertura de pruebas
 
-- Domain layer: 90% line coverage
-- Application layer: 80% line coverage
-- Engine layers: 75% line coverage (complex algorithm paths)
-- Infrastructure layers: 60% line coverage (focus on integration tests)
+- Capa de dominio: 90% de cobertura de líneas
+- Capa de Application: 80% de cobertura de líneas
+- Capas de Engine: 75% de cobertura de líneas (rutas complejas del algoritmo)
+- Capas de Infrastructure: 60% de cobertura de líneas (enfoque en pruebas de integración)
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- Should each engine phase have its own test project (e.g., `SOEA.Engine.GraphColoring.Tests`)?
-- Should test data be embedded as C# objects or loaded from JSON/Excel files?
+- ¿Cada fase del motor debería tener su propio proyecto de pruebas (por ejemplo, `SOEA.Engine.GraphColoring.Tests`)?
+- ¿Los datos de prueba deberían incrustarse como objetos C# o cargarse desde archivos JSON/Excel?

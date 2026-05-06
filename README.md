@@ -1,143 +1,143 @@
 # SOEA — Sistema de Optimización de Espacios Académicos
 
-SOEA is a university course timetabling system (UCTP) designed to automate and optimize academic scheduling for Colombian institutions that follow the alternancia (hybrid) model. It combines a **.NET Clean Architecture modular monolith** backend with an **Angular** frontend and a three-phase optimization engine (Graph Coloring → Constraint Programming → Genetic Algorithm).
+SOEA es un sistema de horario académico universitario (UCTP) diseñado para automatizar y optimizar la programación académica de instituciones colombianas que siguen el modelo de alternancia (híbrido). Combina un backend basado en un **monolito modular con Clean Architecture en .NET** con un frontend en **Angular** y un motor de optimización de tres fases (Graph Coloring → Constraint Programming → Genetic Algorithm).
 
 ---
 
-## Tech Stack
+## Stack Tecnológico
 
-| Layer | Technology |
+| Capa | Tecnología |
 |---|---|
-| Backend | .NET 8, ASP.NET Core, Clean Architecture |
-| ORM / Persistence | Entity Framework Core, SQL Server / PostgreSQL |
-| Excel Ingestion | EPPlus |
-| Optimization Engine | OR-Tools (CP-SAT), custom Graph Coloring, Genetic Algorithm |
-| Frontend | Angular (role-based UI) |
+| Backend | .NET 10, ASP.NET Core, Clean Architecture |
+| ORM / Persistencia | Entity Framework Core, SQL Server / PostgreSQL |
+| Ingesta de Excel | EPPlus |
+| Motor de optimización | OR-Tools (CP-SAT), Graph Coloring personalizado, Genetic Algorithm |
+| Frontend | Angular (interfaz basada en roles) |
 | Testing | xUnit |
 
 ---
 
-## Repository Layout
+## Estructura del Repositorio
 
 ```text
 /
-├── README.md                        ← you are here
+├── README.md                        ← estás aquí
 ├── SOEA.sln                         ← .NET solution file
 │
-├── docs/                            ← all project documentation (Copilot context)
-│   ├── requirements/                ← scope, stakeholders, glossary, SRS
-│   ├── business-rules/              ← alternancia, hard/soft constraints, pilot limits
-│   ├── architecture/                ← architecture overview, module map, deployment
-│   ├── data/                        ← data dictionary, ER model, JSON output spec
-│   ├── algorithm/                   ← UCTP problem definition + 3 algorithm phases
-│   ├── testing/                     ← test plan and acceptance criteria
-│   ├── roadmap/                     ← delivery plan and milestones
-│   └── archive/                     ← reference / source documents
+├── docs/                            ← toda la documentación del proyecto (contexto de Copilot)
+│   ├── requirements/                ← alcance, stakeholders, glosario, SRS
+│   ├── business-rules/              ← alternancia, restricciones duras/blandas, límites del piloto
+│   ├── architecture/                ← visión general de arquitectura, mapa de módulos, despliegue
+│   ├── data/                        ← diccionario de datos, modelo ER, especificación JSON de salida
+│   ├── algorithm/                   ← definición del problema UCTP + 3 fases del algoritmo
+│   ├── testing/                     ← plan de pruebas y criterios de aceptación
+│   ├── roadmap/                     ← plan de entrega y hitos
+│   └── archive/                     ← documentos de referencia / origen
 │
-├── src/                             ← backend source code (.NET)
-│   ├── SOEA.Domain/                 ← entities, value objects, domain rules
-│   ├── SOEA.Application/            ← use cases, commands, queries, DTOs
-│   ├── SOEA.Infrastructure.Data/    ← EF Core, DB access, repositories
-│   ├── SOEA.Infrastructure.Excel/   ← EPPlus Excel ingestion
-│   ├── SOEA.Engine.GraphColoring/   ← Phase 1: graph coloring pre-assignment
-│   ├── SOEA.Engine.ConstraintProg/  ← Phase 2: OR-Tools CP-SAT feasibility solver
-│   ├── SOEA.Engine.Genetic/         ← Phase 3: genetic algorithm soft-constraint optimizer
-│   └── SOEA.API/                    ← ASP.NET Core Web API (controllers, middleware)
+├── src/                             ← código fuente del backend (.NET)
+│   ├── SOEA.Domain/                 ← entidades, objetos de valor, reglas de dominio
+│   ├── SOEA.Application/            ← casos de uso, comandos, consultas, DTOs
+│   ├── SOEA.Infrastructure.Data/    ← EF Core, acceso a BD, repositorios
+│   ├── SOEA.Infrastructure.Excel/   ← ingesta de Excel con EPPlus
+│   ├── SOEA.Engine.GraphColoring/   ← Fase 1: preasignación con graph coloring
+│   ├── SOEA.Engine.ConstraintProg/  ← Fase 2: solucionador de factibilidad OR-Tools CP-SAT
+│   ├── SOEA.Engine.Genetic/         ← Fase 3: optimizador genético de restricciones blandas
+│   └── SOEA.API/                    ← Web API ASP.NET Core (controladores, middleware)
 │
-├── test/                            ← automated tests
-│   └── SOEA.Tests/                  ← unit and integration tests (xUnit)
+├── test/                            ← pruebas automatizadas
+│   └── SOEA.Tests/                  ← pruebas unitarias e integración (xUnit)
 │
-└── frontend/                        ← Angular frontend
-    └── soea-angular/                ← Angular workspace (role-based scheduling UI)
+└── frontend/                        ← frontend en Angular
+    └── soea-angular/                ← espacio de trabajo Angular (interfaz de programación por roles)
 ```
 
 ---
 
-## Important Documentation Files
+## Archivos de documentación importantes
 
-Start here when working on a new feature or asking Copilot for help:
+Empieza aquí cuando trabajes en una nueva funcionalidad o le pidas ayuda a Copilot:
 
-| Topic | File |
+| Tema | Archivo |
 |---|---|
-| What the system is and who uses it | [`docs/requirements/scope.md`](docs/requirements/scope.md) |
-| Domain vocabulary | [`docs/requirements/glossary.md`](docs/requirements/glossary.md) |
-| Hard scheduling constraints | [`docs/business-rules/hard-constraints.md`](docs/business-rules/hard-constraints.md) |
-| Soft/optimization preferences | [`docs/business-rules/soft-constraints.md`](docs/business-rules/soft-constraints.md) |
-| Alternancia rules (Type A / B) | [`docs/business-rules/alternancia.md`](docs/business-rules/alternancia.md) |
-| System architecture | [`docs/architecture/architecture-overview.md`](docs/architecture/architecture-overview.md) |
-| Module responsibilities | [`docs/architecture/module-map.md`](docs/architecture/module-map.md) |
-| Optimization problem (UCTP) | [`docs/algorithm/problem-definition-uctp.md`](docs/algorithm/problem-definition-uctp.md) |
-| Data fields and meanings | [`docs/data/data-dictionary.md`](docs/data/data-dictionary.md) |
-| JSON output format | [`docs/data/json-output-spec.md`](docs/data/json-output-spec.md) |
+| Qué es el sistema y quién lo usa | [`docs/requirements/scope.md`](docs/requirements/scope.md) |
+| Vocabulario del dominio | [`docs/requirements/glossary.md`](docs/requirements/glossary.md) |
+| Restricciones duras de programación | [`docs/business-rules/hard-constraints.md`](docs/business-rules/hard-constraints.md) |
+| Preferencias blandas / de optimización | [`docs/business-rules/soft-constraints.md`](docs/business-rules/soft-constraints.md) |
+| Reglas de alternancia (Tipo A / B) | [`docs/business-rules/alternancia.md`](docs/business-rules/alternancia.md) |
+| Arquitectura del sistema | [`docs/architecture/architecture-overview.md`](docs/architecture/architecture-overview.md) |
+| Responsabilidades de los módulos | [`docs/architecture/module-map.md`](docs/architecture/module-map.md) |
+| Problema de optimización (UCTP) | [`docs/algorithm/problem-definition-uctp.md`](docs/algorithm/problem-definition-uctp.md) |
+| Campos de datos y significado | [`docs/data/data-dictionary.md`](docs/data/data-dictionary.md) |
+| Formato de salida JSON | [`docs/data/json-output-spec.md`](docs/data/json-output-spec.md) |
 
 ---
 
-## Backend Module Responsibilities
+## Responsabilidades de los módulos del backend
 
 ### `SOEA.Domain`
-Core business concepts with no external dependencies.
-- Entities: `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`
-- Value objects and enums: `AlternanciaType`, `ConstraintWeight`, `SessionStatus`
-- Domain interfaces (ports) implemented by Infrastructure
-- Business invariants (e.g., a session cannot exceed its allowed duration)
+Conceptos centrales del negocio sin dependencias externas.
+- Entidades: `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`
+- Objetos de valor y enumeraciones: `AlternanciaType`, `ConstraintWeight`, `SessionStatus`
+- Interfaces de dominio (puertos) implementadas por Infrastructure
+- Invariantes de negocio (por ejemplo, una sesión no puede exceder su duración permitida)
 
 ### `SOEA.Application`
-Orchestration layer — coordinates domain objects and infrastructure.
-- Use cases / command handlers (e.g., `GenerateScheduleCommand`, `ValidateConstraintsQuery`)
-- DTOs for input/output
-- Optimization pipeline coordination (calls the three engine phases in order)
-- No direct dependency on EF Core, Excel, or HTTP
+Capa de orquestación — coordina objetos de dominio e infraestructura.
+- Casos de uso / controladores de comandos (por ejemplo, `GenerateScheduleCommand`, `ValidateConstraintsQuery`)
+- DTOs de entrada y salida
+- Coordinación del pipeline de optimización (invoca las tres fases del motor en orden)
+- Sin dependencia directa de EF Core, Excel ni HTTP
 
 ### `SOEA.Infrastructure.Data`
-Data access implementation.
-- EF Core `DbContext` and entity configurations
-- Repository implementations
-- Database migrations
+Implementación del acceso a datos.
+- `DbContext` de EF Core y configuraciones de entidades
+- Implementaciones de repositorios
+- Migraciones de base de datos
 
 ### `SOEA.Infrastructure.Excel`
-Excel ingestion via EPPlus.
-- Readers for curriculum, instructor availability, and space data
-- Mappers from Excel rows to domain entities
+Ingesta de Excel mediante EPPlus.
+- Lectores para malla curricular, disponibilidad de docentes y datos de espacios
+- Mapeadores de filas de Excel a entidades de dominio
 
 ### `SOEA.Engine.GraphColoring`
-Phase 1 of the optimization pipeline.
-- Builds a conflict graph from session data
-- Assigns preliminary time slots using graph coloring heuristics
-- Output feeds Phase 2
+Fase 1 del pipeline de optimización.
+- Construye un grafo de conflictos a partir de los datos de las sesiones
+- Asigna horarios preliminares usando heurísticas de graph coloring
+- Su salida alimenta la Fase 2
 
 ### `SOEA.Engine.ConstraintProg`
-Phase 2 of the optimization pipeline.
-- Uses OR-Tools CP-SAT to enforce all hard constraints
-- Returns a feasible (not necessarily optimal) schedule
-- Output feeds Phase 3
+Fase 2 del pipeline de optimización.
+- Usa OR-Tools CP-SAT para imponer todas las restricciones duras
+- Devuelve un horario factible (no necesariamente óptimo)
+- Su salida alimenta la Fase 3
 
 ### `SOEA.Engine.Genetic`
-Phase 3 of the optimization pipeline.
-- Genetic algorithm to optimize soft constraints
-- Chromosome = complete schedule assignment
-- Fitness function based on weighted soft-constraint violations
+Fase 3 del pipeline de optimización.
+- Algoritmo genético para optimizar restricciones blandas
+- Cromosoma = asignación completa del horario
+- Función de aptitud basada en violaciones ponderadas de restricciones blandas
 
 ### `SOEA.API`
-HTTP entry point.
-- ASP.NET Core controllers and minimal API endpoints
-- Authentication and role-based authorization middleware
-- Request/response models and OpenAPI documentation
+Punto de entrada HTTP.
+- Controladores ASP.NET Core y endpoints de Minimal API
+- Middleware de autenticación y autorización basada en roles
+- Modelos de solicitud/respuesta y documentación OpenAPI
 
 ---
 
-## Frontend Responsibilities (`frontend/soea-angular`)
+## Responsabilidades del frontend (`frontend/soea-angular`)
 
-Role-based Angular SPA:
+SPA en Angular basada en roles:
 - **Admin**: configure spaces, upload Excel data, trigger optimization
 - **Coordinator**: review and validate generated schedules
 - **Instructor / Student**: view personal timetables
 
 ---
 
-## How to Use This Repo with Copilot
+## Cómo usar este repositorio con Copilot
 
-1. **Open the relevant doc first** before asking Copilot to generate code.
-2. **Reference the doc in your prompt**, for example:
+1. **Abre primero el documento relevante** antes de pedirle a Copilot que genere código.
+2. **Referencia el documento en tu prompt**, por ejemplo:
    > "Using `docs/business-rules/hard-constraints.md`, implement the hard-constraint validator in `SOEA.Engine.ConstraintProg`."
-3. **Work in small, focused steps** — one use case, one entity, or one constraint at a time.
-4. **Keep domain terminology consistent** across docs and code (see `docs/requirements/glossary.md`).
+3. **Trabaja en pasos pequeños y enfocados**: un caso de uso, una entidad o una restricción a la vez.
+4. **Mantén consistente la terminología del dominio** entre la documentación y el código (ver `docs/requirements/glossary.md`).

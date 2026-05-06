@@ -1,38 +1,38 @@
-# Pilot Limits
+# Límites del piloto
 
-## Purpose
-Define the scope and constraints of the initial pilot deployment of SOEA.
-This document prevents over-engineering for the first release and sets clear acceptance
-boundaries for testing.
+## Propósito
+Definir el alcance y las restricciones del despliegue inicial piloto de SOEA.
+Este documento evita sobreingeniería en la primera versión y establece límites claros de
+aceptación para las pruebas.
 
-## Scope
-Boundaries of the pilot — what data, programs, and volumes are included in the first test run.
+## Alcance
+Límites del piloto: qué datos, programas y volúmenes se incluyen en la primera ejecución de prueba.
 
 ---
 
-## Pilot Definition
+## Definición del piloto
 
-The pilot is a controlled initial deployment with a limited dataset to:
+El piloto es un despliegue inicial controlado con un conjunto de datos limitado para:
 1. Validate the optimization pipeline end-to-end
 2. Verify hard constraint compliance
 3. Collect feedback from Academic Coordinators before institution-wide rollout
 
 ---
 
-## Pilot Scope (to be confirmed with domain expert)
+## Alcance del piloto (por confirmar con el experto del dominio)
 
-| Parameter | Pilot Limit | Notes |
+| Parámetro | Límite del piloto | Notas |
 |---|---|---|
-| Academic programs | TBD (e.g., 2–3 programs) | Systems Engineering + one other program suggested |
-| Cohorts | ≤ 20 cohorts | Across all included programs |
-| Instructors | ≤ 30 instructors | Only those teaching pilot-program subjects |
-| Spaces | ≤ 15 spaces | Classrooms and labs assigned to pilot programs |
-| Subjects per cohort | As per real curriculum | No simplification |
-| Semester | 1 complete semester | Spring or Fall — to be defined |
+| Programas académicos | Por definir (p. ej., 2–3 programas) | Se sugiere Ingeniería de Sistemas + otro programa |
+| Cohortes | ≤ 20 cohortes | Entre todos los programas incluidos |
+| Docentes | ≤ 30 docentes | Solo quienes impartan asignaturas del programa piloto |
+| Espacios | ≤ 15 espacios | Aulas y laboratorios asignados a los programas piloto |
+| Asignaturas por cohorte | Según la malla curricular real | Sin simplificación |
+| Semestre | 1 semestre completo | Primavera o otoño: por definir |
 
 ---
 
-## Acceptance Criteria for Pilot
+## Criterios de aceptación del piloto
 
 1. Zero hard constraint violations in the generated schedule
 2. Optimization runs in under 10 minutes for pilot data volume
@@ -42,16 +42,16 @@ The pilot is a controlled initial deployment with a limited dataset to:
 
 ---
 
-## Known Risks
+## Riesgos conocidos
 
-- Input data (Excel files) may have inconsistencies that must be caught during ingestion
-- Instructor availability data may be incomplete for the first run
-- Alternancia type assignments may not be uniform across cohorts
+- Los datos de entrada (archivos Excel) pueden tener inconsistencias que deben detectarse durante la ingesta
+- Los datos de disponibilidad de docentes pueden estar incompletos en la primera ejecución
+- Las asignaciones de tipo de alternancia pueden no ser uniformes entre cohortes
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- Which programs are confirmed for the pilot?
-- Who are the 2 coordinators designated to validate the pilot output?
-- What semester is the pilot targeting?
+- ¿Qué programas están confirmados para el piloto?
+- ¿Quiénes son los 2 coordinadores designados para validar la salida del piloto?
+- ¿A qué semestre apunta el piloto?

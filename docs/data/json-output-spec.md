@@ -1,16 +1,16 @@
-# JSON Output Specification
+# Especificación de salida JSON
 
-## Purpose
-Define the exact structure of the JSON document that SOEA produces as its schedule output.
-Copilot uses this when generating serialization code, API response models, and frontend
-data-binding types.
+## Propósito
+Definir la estructura exacta del documento JSON que SOEA produce como salida de horario.
+Copilot usa esto al generar código de serialización, modelos de respuesta de API y tipos
+de enlace de datos del frontend.
 
-## Scope
-The canonical JSON output of the optimization pipeline (FR-05 from `docs/requirements/SRS.md`).
+## Alcance
+La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requirements/SRS.md`).
 
 ---
 
-## Top-Level Structure
+## Estructura de nivel superior
 
 ```json
 {
@@ -29,7 +29,7 @@ The canonical JSON output of the optimization pipeline (FR-05 from `docs/require
 
 ---
 
-## Session Object
+## Objeto Session
 
 ```json
 {
@@ -70,26 +70,26 @@ The canonical JSON output of the optimization pipeline (FR-05 from `docs/require
 
 ---
 
-## Field Descriptions
+## Descripción de campos
 
-| Field | Type | Description |
+| Campo | Tipo | Descripción |
 |---|---|---|
-| `scheduleId` | string (UUID) | Unique identifier for this schedule version |
-| `semesterLabel` | string | E.g., "2025-1" or "2025-2" |
-| `generatedAt` | string (ISO 8601) | UTC timestamp of generation |
-| `status` | string | `Draft`, `Published`, or `Archived` |
-| `summary.totalSessions` | int | Count of all sessions in the output |
-| `summary.hardConstraintViolations` | int | Must be 0 in a valid published schedule |
-| `summary.softConstraintFitnessScore` | decimal | Weighted soft-violation score (lower = better) |
-| `session.space` | object or null | Null when modality is "Virtual" |
-| `session.modality` | string | `InPerson` or `Virtual` |
+| `scheduleId` | string (UUID) | Identificador único de esta versión del horario |
+| `semesterLabel` | string | Por ejemplo, "2025-1" o "2025-2" |
+| `generatedAt` | string (ISO 8601) | Marca temporal UTC de generación |
+| `status` | string | `Draft`, `Published` o `Archived` |
+| `summary.totalSessions` | int | Cantidad total de sesiones en la salida |
+| `summary.hardConstraintViolations` | int | Debe ser 0 en un horario publicado válido |
+| `summary.softConstraintFitnessScore` | decimal | Puntuación ponderada de violaciones blandas (más bajo = mejor) |
+| `session.space` | object or null | Null cuando la modalidad es "Virtual" |
+| `session.modality` | string | `InPerson` o `Virtual` |
 | `session.timeSlot.dayOfWeek` | string | `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday` |
-| `session.timeSlot.startTime` | string | `HH:mm` format (24-hour) |
-| `session.timeSlot.endTime` | string | `HH:mm` format (24-hour) |
+| `session.timeSlot.startTime` | string | Formato `HH:mm` (24 horas) |
+| `session.timeSlot.endTime` | string | Formato `HH:mm` (24 horas) |
 
 ---
 
-## Example: Minimal Valid Output (2 sessions)
+## Ejemplo: salida válida mínima (2 sesiones)
 
 ```json
 {
@@ -133,16 +133,16 @@ The canonical JSON output of the optimization pipeline (FR-05 from `docs/require
 
 ---
 
-## Downstream Usage
+## Uso posterior
 
-- **Frontend Angular app**: consumes this JSON to render schedule grids
-- **Coordinator review UI**: uses `summary.hardConstraintViolations` to flag invalid drafts
-- **Audit trail**: the full JSON is stored in the database per schedule version
+- **Aplicación frontend Angular**: consume este JSON para renderizar rejillas de horarios
+- **UI de revisión del coordinador**: usa `summary.hardConstraintViolations` para marcar borradores inválidos
+- **Trazabilidad de auditoría**: el JSON completo se almacena en la base de datos por cada versión del horario
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- Should the output include a `violations` array listing each individual constraint violation?
-- Should time slots use ISO 8601 duration notation or the HH:mm strings above?
-- Is there a need for a per-cohort or per-instructor filtered output endpoint?
+- ¿La salida debe incluir un arreglo `violations` que liste cada violación individual de restricción?
+- ¿Los espacios de tiempo deben usar notación de duración ISO 8601 o las cadenas HH:mm anteriores?
+- ¿Hace falta un endpoint de salida filtrado por cohorte o por docente?

@@ -1,55 +1,54 @@
-# Glossary
+# Glosario
 
-## Purpose
-Define every domain term used in SOEA code, docs, and UI so that all contributors (and Copilot)
-use consistent language. When in doubt, refer to this file before naming a class, variable, or endpoint.
+## Propósito
+Definir cada término del dominio usado en el código, la documentación y la interfaz de SOEA para que todos los colaboradores (y Copilot) usen un lenguaje consistente. En caso de duda, consulta este archivo antes de nombrar una clase, variable o endpoint.
 
-## Scope
-All domain-specific terms used across backend, frontend, and documentation.
+## Alcance
+Todos los términos específicos del dominio usados en el backend, el frontend y la documentación.
 
 ---
 
-## Terms
+## Términos
 
 | Term | Definition |
 |---|---|
-| **Session** | A scheduled teaching event: one subject + one instructor + one cohort + one time slot + optional space |
-| **Cohort** | A group of students enrolled in the same academic program and semester (e.g., "Systems Engineering — Semester 3") |
-| **Space** | A physical location where an in-person session can take place (classroom, lab, auditorium) |
-| **Espacio** | Spanish equivalent of Space; used in the original institutional documents |
-| **Instructor** | A person assigned to deliver a session (professor, lecturer, teaching assistant) |
-| **Time Slot** | A discrete schedulable unit: day + start time + end time (e.g., Monday 07:00–09:00) |
-| **Schedule** | The complete assignment of all sessions to time slots and spaces for a semester |
-| **Alternancia** | Hybrid teaching model: cohorts alternate between in-person (presencial) and virtual weeks |
-| **Type A (Tipo A)** | Alternancia cohort that attends in-person on odd weeks and virtually on even weeks |
-| **Type B (Tipo B)** | Alternancia cohort that attends in-person on even weeks and virtually on odd weeks |
-| **Hard Constraint** | A rule that must never be violated in any valid schedule (see `hard-constraints.md`) |
-| **Soft Constraint** | A preference that should be optimized but may be relaxed (see `soft-constraints.md`) |
-| **Conflict** | Two sessions that cannot share the same time slot (same instructor, same space, or same cohort) |
-| **Conflict Graph** | A graph where nodes are sessions and edges represent conflicts; used in Phase 1 |
-| **Chromosome** | A complete schedule encoding used in the Genetic Algorithm (Phase 3) |
-| **Fitness** | A numeric score measuring how well a chromosome satisfies soft constraints |
-| **OR-Tools** | Google's open-source optimization library; used for Constraint Programming in Phase 2 |
-| **CP-SAT** | The constraint programming solver inside OR-Tools used in Phase 2 |
-| **EPPlus** | .NET library for reading/writing Excel files; used for data ingestion |
-| **EF Core** | Entity Framework Core; the ORM used for database access |
-| **UCTP** | University Course Timetabling Problem; the formal combinatorial optimization problem SOEA solves |
-| **Pilot** | Limited initial deployment covering a subset of programs to validate the system before full rollout |
-| **Block** | A session that spans multiple consecutive hours (e.g., a 3-hour lab block on a single day) |
-| **Split Block** | A session whose hours are distributed across multiple days |
+| **Session** | Evento académico programado: una asignatura + un docente + una cohorte + un espacio de tiempo + espacio opcional |
+| **Cohort** | Grupo de estudiantes inscritos en el mismo programa académico y semestre (por ejemplo, "Ingeniería de Sistemas — Semestre 3") |
+| **Space** | Ubicación física donde puede realizarse una sesión presencial (aula, laboratorio, auditorio) |
+| **Espacio** | Equivalente en español de Space; se usa en los documentos institucionales originales |
+| **Instructor** | Persona asignada para impartir una sesión (profesor, catedrático, asistente de docencia) |
+| **Time Slot** | Unidad programable discreta: día + hora de inicio + hora de fin (por ejemplo, lunes 07:00–09:00) |
+| **Schedule** | Asignación completa de todas las sesiones a espacios de tiempo y espacios para un semestre |
+| **Alternancia** | Modelo híbrido de enseñanza: las cohortes alternan entre semanas presenciales y virtuales |
+| **Type A (Tipo A)** | Cohorte en alternancia que asiste presencialmente en semanas impares y virtualmente en semanas pares |
+| **Type B (Tipo B)** | Cohorte en alternancia que asiste presencialmente en semanas pares y virtualmente en semanas impares |
+| **Hard Constraint** | Regla que nunca debe violarse en un horario válido (ver `hard-constraints.md`) |
+| **Soft Constraint** | Preferencia que debe optimizarse, pero puede relajarse (ver `soft-constraints.md`) |
+| **Conflict** | Dos sesiones que no pueden compartir el mismo espacio de tiempo (mismo docente, mismo espacio o misma cohorte) |
+| **Conflict Graph** | Grafo donde los nodos son sesiones y las aristas representan conflictos; se usa en la Fase 1 |
+| **Chromosome** | Codificación completa de un horario usada en el Algoritmo Genético (Fase 3) |
+| **Fitness** | Puntuación numérica que mide qué tan bien un cromosoma satisface las restricciones blandas |
+| **OR-Tools** | Biblioteca de optimización de código abierto de Google; se usa para Programación por Restricciones en la Fase 2 |
+| **CP-SAT** | Solucionador de programación por restricciones de OR-Tools usado en la Fase 2 |
+| **EPPlus** | Biblioteca .NET para leer/escribir archivos de Excel; se usa para la ingesta de datos |
+| **EF Core** | Entity Framework Core; el ORM usado para acceso a datos |
+| **UCTP** | University Course Timetabling Problem; el problema formal de optimización combinatoria que resuelve SOEA |
+| **Pilot** | Despliegue inicial limitado que cubre un subconjunto de programas para validar el sistema antes del despliegue completo |
+| **Block** | Sesión que abarca varias horas consecutivas (por ejemplo, un bloque de laboratorio de 3 horas en un solo día) |
+| **Split Block** | Sesión cuyas horas se distribuyen en varios días |
 
 ---
 
-## Naming Conventions for Code
+## Convenciones de nomenclatura para el código
 
-- Entity classes: singular noun (`Session`, `Cohort`, `Space`)
-- Collections: plural noun (`Sessions`, `Cohorts`, `Spaces`)
-- Use English for all code identifiers; Spanish only for user-facing labels and doc titles
-- Use `AlternanciaType` enum with values `TypeA`, `TypeB`, and `NonAlternating`
+- Clases de entidad: sustantivo en singular (`Session`, `Cohort`, `Space`)
+- Colecciones: sustantivo en plural (`Sessions`, `Cohorts`, `Spaces`)
+- Usa inglés para todos los identificadores de código; español solo para etiquetas visibles al usuario y títulos de documentos
+- Usa la enumeración `AlternanciaType` con los valores `TypeA`, `TypeB` y `NonAlternating`
 
 ---
 
-## Open Questions
+## Preguntas abiertas
 
-- Is "Espacio" always a physical room, or can it also be a virtual meeting link?
-- Should "virtual sessions" be assigned to a Space entity or excluded from space constraints?
+- ¿"Espacio" siempre es una sala física o también puede ser un enlace de reunión virtual?
+- ¿Las "sesiones virtuales" deben asignarse a una entidad Space o excluirse de las restricciones de espacio?
