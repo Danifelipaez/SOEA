@@ -7,7 +7,7 @@ Copilot usa esto al generar configuraciones de entidades EF Core y migraciones d
 ## Alcance
 Todas las tablas del esquema de base de datos de producción.
 
-> Nota: Los nombres siguen la convención de código en inglés; equivalencias en español se describen en [`docs/data/data-dictionary.md`](docs/data/data-dictionary.md).
+> Nota: Los nombres siguen la convención de código en inglés; equivalencias en español se describen en [`data-dictionary.md`](data-dictionary.md).
 
 ---
 
@@ -99,6 +99,7 @@ Todas las tablas del esquema de base de datos de producción.
 | `IsVirtualAlternation` | bit | NOT NULL |
 | `CreatedByAdminId` | uniqueidentifier | FK → Administrators.UserId |
 
+`DayOfWeek` debe mantenerse como un enum compartido entre `TeacherAvailability` y `Sessions` para garantizar consistencia.
 Las sesiones virtuales se representan con `Sessions.AcademicSpaceId = NULL` y `Modality = 'Virtual'`.
 
 ---

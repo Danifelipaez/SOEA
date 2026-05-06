@@ -17,7 +17,7 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 ```json
 {
   "scheduleId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "period": "2025-1",
+  "semesterLabel": "2025-1",
   "generatedAt": "2025-03-01T10:30:00Z",
   "status": "Published",
   "summary": {
@@ -84,7 +84,7 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 | Field | Type | Description |
 |---|---|---|
 | `scheduleId` | string (UUID) | Identificador único de esta versión del horario |
-| `period` | string | Por ejemplo, "2025-1" o "2025-2" |
+| `semesterLabel` | string | Por ejemplo, "2025-1" o "2025-2" |
 | `generatedAt` | string (ISO 8601) | Marca temporal UTC de generación |
 | `status` | string | `Draft`, `Published` o `Archived` |
 | `summary.totalSessions` | int | Cantidad total de sesiones en la salida |
@@ -104,7 +104,7 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 ```json
 {
   "scheduleId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "period": "2025-1",
+  "semesterLabel": "2025-1",
   "generatedAt": "2025-03-01T10:30:00Z",
   "status": "Published",
   "summary": {

@@ -60,6 +60,11 @@ siempre que estén en calendarios de alternancia opuestos.
 El tipo de alternancia (`AlternanciaType`) se utiliza como valor canónico del dominio para derivar
 `es_alternancia_virtual` según la semana. Para `NonAlternating`, `es_alternancia_virtual` es siempre `false`.
 
+Reglas de derivación explícitas:
+- `TypeA`: `es_alternancia_virtual = (semana_num % 2 == 0)`
+- `TypeB`: `es_alternancia_virtual = (semana_num % 2 != 0)`
+- `NonAlternating`: `es_alternancia_virtual = false`
+
 ---
 
 ## Ejemplos

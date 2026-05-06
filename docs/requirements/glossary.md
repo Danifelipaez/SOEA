@@ -40,7 +40,7 @@ Todos los términos específicos del dominio usados en el backend, el frontend y
 - Clases de entidad: sustantivo en singular en inglés (`User`, `Teacher`, `Session`, `StudentGroup`, `AcademicSpace`, `Subject`)
 - Colecciones: sustantivo en plural en inglés (`Users`, `Teachers`, `Sessions`)
 - Usa inglés para todos los identificadores de código; español solo para etiquetas visibles al usuario y títulos de documentos
-- Usa la enumeración `AlternanciaType` con los valores `TypeA`, `TypeB` y `NonAlternating`
+- Usa la enumeración `AlternanciaType` con los valores `TypeA`, `TypeB` y `NonAlternating` (excepción explícita al uso estricto de inglés por ser término canónico del dominio)
 
 ---
 

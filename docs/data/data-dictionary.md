@@ -8,7 +8,7 @@ esquemas de base de datos, lectores de Excel y DTOs de API.
 ## Alcance
 Todas las entidades persistentes del dominio. Los campos derivados o calculados se indican como tales.
 
-> Nota: Los nombres siguen la convención de código en inglés; entre paréntesis se indica el nombre equivalente del diagrama ER en español.
+> Nota: Los nombres siguen la convención de código en inglés; las equivalencias en español se indican entre paréntesis en este documento y se resumen en [`er-model.md`](er-model.md).
 
 ---
 
