@@ -13,9 +13,9 @@ Límites del piloto: qué datos, programas y volúmenes se incluyen en la primer
 ## Definición del piloto
 
 El piloto es un despliegue inicial controlado con un conjunto de datos limitado para:
-1. Validate the optimization pipeline end-to-end
-2. Verify hard constraint compliance
-3. Collect feedback from Academic Coordinators before institution-wide rollout
+1. Validar el pipeline de optimización de extremo a extremo
+2. Verificar el cumplimiento de las restricciones duras
+3. Recopilar comentarios de los coordinadores académicos antes del despliegue institucional
 
 ---
 
@@ -34,11 +34,11 @@ El piloto es un despliegue inicial controlado con un conjunto de datos limitado 
 
 ## Criterios de aceptación del piloto
 
-1. Zero hard constraint violations in the generated schedule
-2. Optimization runs in under 10 minutes for pilot data volume
-3. JSON output is valid and matches the spec in `docs/data/json-output-spec.md`
-4. At least 2 coordinators review and approve the pilot schedule
-5. Soft-constraint fitness score is ≤ 20% above the documented pilot baseline score
+1. Cero violaciones de restricciones duras en el horario generado
+2. La optimización termina en menos de 10 minutos para el volumen de datos del piloto
+3. La salida JSON es válida y coincide con la especificación en `docs/data/json-output-spec.md`
+4. Al menos 2 coordinadores revisan y aprueban el horario del piloto
+5. La puntuación de aptitud de restricciones blandas es ≤ 20% por encima de la puntuación base documentada del piloto
 
 ---
 

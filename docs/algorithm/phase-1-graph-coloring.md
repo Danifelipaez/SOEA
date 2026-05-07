@@ -1,4 +1,4 @@
-# Fase 1 — Graph Coloring
+# Fase 1 — coloreado de grafos
 
 ## Propósito
 Describir el enfoque de coloreado de grafos usado en la primera fase del pipeline de optimización de SOEA.
@@ -41,7 +41,7 @@ Dos sesiones entran en conflicto (se conectan por una arista) si CUALQUIERA de l
 - TypeA + TypeA compartiendo un espacio → arista de conflicto (ambas están físicamente presentes en las mismas semanas)
 - TypeB + TypeB compartiendo un espacio → arista de conflicto
 - TypeA + TypeB compartiendo un espacio → **no** hay arista de conflicto (nunca están físicamente presentes al mismo tiempo)
-- Cualquier sesión que involucre NonAlternating → arista de conflicto por compartición de espacio
+- Cualquier sesión que involucre SinAlternancia → arista de conflicto por compartición de espacio
 
 ---
 
@@ -66,13 +66,13 @@ Su salida se refina en la Fase 2.
 
 ## Entradas
 
-- Full list of sessions `S` with their instructor, cohort, and alternancia type
-- Set of available time slots `T`
+- Lista completa de sesiones `S` con su docente, cohorte y tipo de alternancia
+- Conjunto de espacios de tiempo disponibles `T`
 
 ## Salidas
 
-- `PartialSchedule`: a mapping `session → timeSlot` for all sessions
-- Sessions that could not be colored (if any) are flagged as `Conflict` status
+- `PartialSchedule`: un mapeo `session → timeSlot` para todas las sesiones
+- Las sesiones que no puedan colorearse (si las hay) se marcan con estado `Conflict`
 
 ---
 

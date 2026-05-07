@@ -6,13 +6,13 @@ un horario factible. Copilot usa esto al implementar `SOEA.Engine.ConstraintProg
 
 ## Alcance
 Solo la Fase 2: imposición de restricciones duras y resolución de factibilidad.
-La Fase 1 (warm start de Graph Coloring) y la Fase 3 (optimización genética) están en sus propios documentos.
+La Fase 1 (inicio en frío de coloreado de grafos) y la Fase 3 (optimización genética) están en sus propios documentos.
 
 ---
 
 ## Objetivo de la Fase 2
 
-Tomar el `PartialSchedule` de warm start de la Fase 1 y encontrar una asignación **totalmente factible** —
+Tomar el `PartialSchedule` como indicio inicial de la Fase 1 y encontrar una asignación **totalmente factible** —
 una que no viole ninguna restricción dura — usando OR-Tools CP-SAT.
 
 La Fase 2 asigna tanto **espacios de tiempo** como **espacios** a todas las sesiones.
@@ -22,7 +22,7 @@ La Fase 2 asigna tanto **espacios de tiempo** como **espacios** a todas las sesi
 ## Tecnología
 
 - **Biblioteca**: solucionador Google OR-Tools CP-SAT (paquete NuGet `Google.OrTools`)
-- **Tipo de modelo**: Programación por restricciones (CP), no Programación Lineal (LP)
+- **Tipo de modelo**: programación por restricciones (CP), no programación lineal (LP)
 - **Tiempo límite del solucionador**: configurable (predeterminado 600 segundos)
 
 ---
@@ -31,13 +31,13 @@ La Fase 2 asigna tanto **espacios de tiempo** como **espacios** a todas las sesi
 
 ### Variables
 
-For each session `s`:
-- `timeVar(s)`: integer variable ∈ {0, ..., |T|-1} — index into the time slot array
-- `spaceVar(s)`: integer variable ∈ {0, ..., |R|-1, null_index} — index into the space array
+Para cada sesión `s`:
+- `timeVar(s)`: variable entera ∈ {0, ..., |T|-1} — índice dentro del arreglo de espacios de tiempo
+- `spaceVar(s)`: variable entera ∈ {0, ..., |R|-1, null_index} — índice dentro del arreglo de espacios
 
 ### Restricciones añadidas al modelo
 
-Each hard constraint from `docs/business-rules/hard-constraints.md` is encoded as follows:
+Cada restricción dura de `docs/business-rules/hard-constraints.md` se codifica así:
 
 | Restricción dura | Codificación CP-SAT |
 |---|---|
@@ -62,8 +62,8 @@ Esto ayuda a CP-SAT a encontrar una solución factible más rápido.
 
 ## Entradas
 
-- `PartialSchedule` from Phase 1 (time slot hints)
-- Full domain model: sessions, instructors, cohorts, spaces, time slots
+- `PartialSchedule` de la Fase 1 (indicios de espacios de tiempo)
+- Modelo de dominio completo: sesiones, docentes, cohortes, espacios, espacios de tiempo
 
 ## Salidas
 

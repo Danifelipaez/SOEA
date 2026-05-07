@@ -5,8 +5,8 @@ Describir el algoritmo genético usado en la Fase 3 para optimizar restricciones
 producido por la Fase 2. Copilot usa esto al implementar `SOEA.Engine.Genetic`.
 
 ## Alcance
-Solo la Fase 3: optimización de restricciones blandas mediante Algoritmo Genético.
-La Fase 1 (Graph Coloring) y la Fase 2 (CP-SAT) se describen en sus propios documentos.
+Solo la Fase 3: optimización de restricciones blandas mediante algoritmo genético.
+La Fase 1 (coloreado de grafos) y la Fase 2 (CP-SAT) se describen en sus propios documentos.
 
 ---
 
@@ -78,8 +78,8 @@ Si un cruce o una mutación produce una violación de restricción dura:
 ## Flujo del algoritmo
 
 ```
-1. Initialize population with N copies of the Phase 2 feasible schedule
-   (optionally add perturbed variants for diversity)
+1. Inicializar la población con N copias del horario factible de la Fase 2
+  (opcionalmente agregar variantes perturbadas para dar diversidad)
 2. Evaluate fitness for all chromosomes
 3. Repeat for G generations (or until convergence):
    a. Select parents via tournament selection
@@ -105,8 +105,8 @@ Si un cruce o una mutación produce una violación de restricción dura:
 
 ## Entradas
 
-- `FeasibleSchedule` from Phase 2 (seed chromosome)
-- Soft constraint definitions and weights from configuration
+- `FeasibleSchedule` de la Fase 2 (cromosoma semilla)
+- Definiciones y pesos de restricciones blandas desde la configuración
 
 ## Salidas
 

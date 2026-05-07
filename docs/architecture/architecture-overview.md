@@ -24,32 +24,73 @@ SOEA usa **Clean Architecture** organizada como un **monolito modular .NET**.
 ## Diagrama de capas
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     SOEA.API                            │
-│         (controladores ASP.NET Core, middleware)       │
-└────────────────────────┬────────────────────────────────┘
-                         │ calls
-┌────────────────────────▼────────────────────────────────┐
-│                 SOEA.Application                        │
-│   (casos de uso, comandos, consultas, orquestación del pipeline)│
-└───────┬────────────────┬────────────────────────────────┘
-        │ domain         │ calls engines + infra (via interfaces)
-        ▼                ▼
-┌───────────────┐   ┌──────────────────────────────────────┐
-│ SOEA.Domain   │   │ Capas de Infrastructure + Engine     │
-│ (entidades,   │   │ ┌──────────────────────────────────┐ │
-│  objetos de   │   │ │ SOEA.Infrastructure.Data (EF Core)│ │
-│  valor,       │   │ │ SOEA.Infrastructure.Excel (EPPlus)│ │
-│  interfaces)  │   │ │ SOEA.Engine.GraphColoring         │ │
-└───────────────┘   │ │ SOEA.Engine.GraphColoring         │ │
-                    │ │ SOEA.Engine.ConstraintProg        │ │
-                    │ │ SOEA.Engine.Genetic               │ │
-                    │ └──────────────────────────────────┘ │
-                    └──────────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│          SQL Server / PostgreSQL database               │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                        Capa de Presentación — Frontend Angular                           │
+│                                                                                          │
+│  ┌───────────────────────────┐  ┌───────────────────────────┐  ┌──────────────────────┐  │
+│  │       Módulo Admin        │  │     Módulo Profesor       │  │   Módulo Estudiante  │  │
+│  │  espacios, ocupación      │  │  vista personalizada de   │  │  materias inscritas  │  │
+│  │  global, edición manual   │  │  clases asignadas         │  │  docente, horario,   │  │
+│  │  de horarios              │  │                           │  │  lugar               │  │
+│  └───────────────────────────┘  └───────────────────────────┘  └──────────────────────┘  │
+└─────────────────────────────────────────┬────────────────────────────────────────────────┘
+                                          │ HTTP REST
+                                          ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                                      SOEA.API                                            │
+│              Controllers  ·  Endpoints REST  ·  Program.cs (registro de servicios)       │
+└──────┬───────────────────────────────────┬────────────────────────────────────────┬──────┘
+       │ [DI]                              │                                   [DI] │
+       │ AddScoped<ISessionRepository,     │                   AddScoped<IExcelImporter,
+       │   SessionRepository>()            │                         ExcelImporter>()
+       │                                   ▼                                        │
+       │          ┌────────────────────────────────────────────────────────────┐    │
+       │          │                   SOEA.Application                         │    │
+       │          │  Orquestación · Casos de uso                               │    │
+       │          │  Solo conoce interfaces, nunca implementaciones concretas  │    │
+       │          └───────────┬─────────────────────┬──────────────┬───────────┘    │
+       │                      │                     │              │                │
+       │                      ▼                     ▼              ▼                │__________
+       │  ┌────────────────────────┐  ┌────────────────────────┐  ┌────────────────────────┐  │
+       │  │  SOEA.Engine           │  │  SOEA.Engine           │  │  SOEA.Engine           │  │
+       │  │  .GraphColoring        │  │  .ConstraintProg       │  │  .Genetic              │  │
+       │  │                        │  │                        │  │                        │  │
+       │  │  Fase 1                │  │  Fase 2                │  │  Fase 3                │  │
+       │  │  Conflictos docentes   │  │  Hard constraints      │  │  Soft constraints      │  │
+       │  │  Coloración de grafos  ├─►│  Constraint            ├─►│  Algoritmo genético    │  │
+       │  │  (determinístico)      │  │  Programming           │  │  Mutación +            │  │
+       │  │  Sin deps. externas    │  │  OR-Tools (Google)     │  │  hibridación           │  │
+       │  └──────────┬─────────────┘  └──────────┬─────────────┘  └──────────┬─────────────┘  │
+       │             └────────────────────────────┼──────────────────────────┘                │_
+       │                                          │                                            │
+       │                                          ▼                                            │
+       │  ┌────────────────────────────────────────────────────────────────────────────────┐   │
+       │  │                         SOEA.Domain — Núcleo Puro                              │   │
+       │  │                                                                                │   │
+       │  │   Entidades · Reglas de negocio · Interfaces del dominio                       │   │
+       │  │   (ISessionRepository, IExcelImporter, IHorarioRepository, etc.)               │   │
+       │  │                                                                                │   │
+       │  │   ✗  Sin dependencias externas. Ninguna flecha sale hacia afuera.             │   │
+       │  └─────────────────────┬──────────────────────────────────┬───────────────────────┘   │
+       │                        │  implementa interfaces            │  implementa interfaces   │
+       │                        ▼                                   ▼                          │
+       └───────►┌───────────────────────────────┐  ┌───────────────────────────────┐◄──────────┘
+                │  SOEA.Infrastructure.Data     │  │  SOEA.Infrastructure.Excel    │
+                │                               │  │                               │
+                │  Implementa:                  │  │  Implementa IExcelImporter    │
+                │  ISessionRepository           │  │                               │
+                │  IHorarioRepository, etc.     │  │  Parsea el Excel de química   │
+                │                               │  │  EPPlus · ClosedXML           │
+                │  Entity Framework Core        │  │                               │
+                │  PostgreSQL                   │  └───────────────────────────────┘
+                └───────────────────────────────┘
+
+                ┌────────────────────────────────────────────┐
+                │               SOEA.Tests                   │- - - referencia para pruebas - - -►  SOEA.Application
+                │                                            │                                      SOEA.Engine.*
+                │  xUnit · Pruebas unitarias e integración   │
+                │  por motor algorítmico                     │
+                └────────────────────────────────────────────┘
 ```
 
 ---
@@ -72,9 +113,9 @@ SOEA usa **Clean Architecture** organizada como un **monolito modular .NET**.
 ## Pipeline de optimización
 
 ```
-Excel Input → [Ingestion] → Domain Model → [Phase 1: Graph Coloring]
-    → Partial Schedule → [Phase 2: CP-SAT] → Feasible Schedule
-    → [Phase 3: Genetic Algorithm] → Optimized Schedule → JSON Output
+Entrada Excel → [Ingesta] → Modelo de dominio → [Fase 1: coloreado de grafos]
+  → Horario parcial → [Fase 2: CP-SAT] → Horario factible
+  → [Fase 3: algoritmo genético] → Horario optimizado → salida JSON
 ```
 
 Cada fase se implementa en su propio proyecto dentro de `src/`:

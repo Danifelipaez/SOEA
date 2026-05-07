@@ -17,16 +17,16 @@ Cubren clases individuales de forma aislada con todas las dependencias simuladas
 
 | Área | Clase objetivo | Qué probar |
 |---|---|---|
-| Domain | `Session` | Invariantes de entidad (duration > 0, una sesión virtual no tiene espacio) |
-| Domain | `TimeSlot` | Validación de StartTime < EndTime |
-| Domain | `Cohort` | Asignación de AlternanciaType |
+| Domain | `Sesion` | Invariantes de entidad (duration > 0, una sesión virtual no tiene espacio) |
+| Domain | `EspacioDeTiempo` | Validación de StartTime < EndTime |
+| Domain | `Cohorte` | Asignación de TipoAlternancia |
 | Application | `ConstraintValidator` | Lógica de detección de restricciones duras |
 | Application | `ScheduleOptimizationPipeline` | Llamadas de orquestación de fases (motores simulados) |
-| Phase 1 | `ConflictGraphBuilder` | Construcción de aristas para cada tipo de conflicto |
-| Phase 1 | `GraphColoringScheduler` | El coloreado no produce nodos adyacentes con el mismo color |
-| Phase 2 | `HardConstraintEncoder` | Cada HC se mapea al tipo correcto de restricción CP-SAT |
-| Phase 3 | `FitnessEvaluator` | Fitness = 0 para un horario sin violaciones blandas |
-| Phase 3 | `GeneticScheduleOptimizer` | El fitness mejora o se mantiene entre generaciones |
+| Fase 1 | `ConflictGraphBuilder` | Construcción de aristas para cada tipo de conflicto |
+| Fase 1 | `GraphColoringScheduler` | El coloreado no produce nodos adyacentes con el mismo color |
+| Fase 2 | `HardConstraintEncoder` | Cada HC se mapea al tipo correcto de restricción CP-SAT |
+| Fase 3 | `FitnessEvaluator` | Fitness = 0 para un horario sin violaciones blandas |
+| Fase 3 | `GeneticScheduleOptimizer` | El fitness mejora o se mantiene entre generaciones |
 
 ### Pruebas de integración
 
@@ -57,7 +57,7 @@ Pruebas que validan directamente cada restricción dura de `hard-constraints.md`
 
 - Conjunto de prueba pequeño: 5 cohortes, 3 docentes, 5 espacios, 20 sesiones
 - Conjunto de caso extremo: sesión que no puede programarse (todos los espacios del docente ocupados)
-- Conjunto de alternancia: mezcla de cohortes Type A, Type B y NonAlternating
+- Conjunto de alternancia: mezcla de cohortes Tipo A, Tipo B y SinAlternancia
 
 Los archivos de datos de prueba deben colocarse en `test/SOEA.Tests/TestData/`.
 
