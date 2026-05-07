@@ -1,6 +1,6 @@
 ﻿namespace SOEA.Engine.GraphColoring;
 
-public class Class1
+public class BaseColoracionGrafica
 {
 
 }

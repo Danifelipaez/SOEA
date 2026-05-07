@@ -15,7 +15,7 @@ Todas las reglas de programación no negociables. Las preferencias de optimizaci
 
 ### Restricciones de espacio
 
-| ID | Rule |
+| ID | Regla |
 |---|---|
 | HC-S01 | Un espacio no puede alojar dos sesiones en el mismo espacio de tiempo si ambas cohortes son Tipo A, ambas son Tipo B o alguna cohorte es NonAlternating |
 | HC-S02 | El total de estudiantes inscritos de las sesiones presentes físicamente en el mismo espacio y espacio de tiempo no debe exceder la capacidad del espacio |
@@ -24,7 +24,7 @@ Todas las reglas de programación no negociables. Las preferencias de optimizaci
 
 ### Restricciones de docente
 
-| ID | Rule |
+| ID | Regla |
 |---|---|
 | HC-I01 | Un docente no puede asignarse a dos sesiones en el mismo espacio de tiempo |
 | HC-I02 | Una sesión solo debe asignarse a un espacio de tiempo dentro de la disponibilidad declarada del docente |
@@ -32,7 +32,7 @@ Todas las reglas de programación no negociables. Las preferencias de optimizaci
 
 ### Restricciones de tiempo
 
-| ID | Rule |
+| ID | Regla |
 |---|---|
 | HC-T01 | Las sesiones deben programarse dentro del horario de operación de la institución (07:00–21:30) |
 | HC-T02 | Las sesiones de laboratorio no pueden comenzar después de las 19:30 (para terminar como máximo a las 21:30) |
@@ -42,14 +42,14 @@ Todas las reglas de programación no negociables. Las preferencias de optimizaci
 
 ### Restricciones de cohorte
 
-| ID | Rule |
+| ID | Regla |
 |---|---|
 | HC-C01 | Una cohorte no puede tener dos sesiones en el mismo espacio de tiempo |
 | HC-C02 | Las horas totales programadas de una cohorte deben coincidir con las horas definidas por la malla curricular por asignatura y semana |
 
 ### Restricciones específicas de asignatura
 
-| ID | Rule |
+| ID | Regla |
 |---|---|
 | HC-SU01 | Las asignaturas marcadas como "siempre 8+8" (por ejemplo, Química Orgánica) deben programarse como dos sesiones consecutivas de 8 horas |
 | HC-SU02 | Las asignaturas marcadas como no alternantes deben tener sesiones en todas las semanas, no solo en las semanas alternas |

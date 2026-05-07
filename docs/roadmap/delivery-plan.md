@@ -19,7 +19,7 @@ Cronograma del proyecto desde la configuración inicial hasta el despliegue pilo
 - [x] Configurar el proyecto de pruebas xUnit
 
 ### Fase 1 — Modelo de dominio (Semana 2)
-- [ ] Implementar entidades de dominio: `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`, `Subject`
+- [ ] Implementar entidades de dominio: `Sesion`, `Cohorte`, `Espacio`, `Docente`, `EspacioDeTiempo`, `Horario`, `Asignatura`
 - [ ] Implementar objetos de valor: `AlternanciaType`, `TimeRange`
 - [ ] Definir interfaces de dominio: `IScheduleRepository`, `IOptimizationEngine`
 - [ ] Escribir pruebas unitarias para invariantes de entidades de dominio
@@ -31,7 +31,7 @@ Cronograma del proyecto desde la configuración inicial hasta el despliegue pilo
 - [ ] Escribir pruebas de integración para los lectores de Excel
 - [ ] Configurar el `DbContext` de EF Core y la migración inicial
 
-### Fase 3 — Motor de optimización: Graph Coloring (Semana 4)
+### Fase 3 — Motor de optimización: coloreado de grafos (Semana 4)
 - [ ] Implementar `ConflictGraphBuilder`
 - [ ] Implementar `GraphColoringScheduler` (heurística Welsh-Powell)
 - [ ] Escribir pruebas unitarias para la construcción del grafo y el coloreado

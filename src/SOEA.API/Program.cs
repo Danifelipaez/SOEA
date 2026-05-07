@@ -1,41 +1,41 @@
-var builder = WebApplication.CreateBuilder(args);
+var generador = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+generador.Services.AddOpenApi();
 
-var app = builder.Build();
+var aplicacion = generador.Build();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+if (aplicacion.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    aplicacion.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+aplicacion.UseHttpsRedirection();
 
-var summaries = new[]
+var resumenesClima = new[]
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
+    "Congelado", "Helado", "Frio", "Fresco", "Templado", "Calido", "Tibio", "Caluroso", "Asfixiante", "Abrasador"
 };
 
-app.MapGet("/weatherforecast", () =>
+aplicacion.MapGet("/pronostico-clima", () =>
 {
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
+    var pronostico = Enumerable.Range(1, 5).Select(indice =>
+        new PronosticoClima
         (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
+            DateOnly.FromDateTime(DateTime.Now.AddDays(indice)),
             Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
+            resumenesClima[Random.Shared.Next(resumenesClima.Length)]
         ))
         .ToArray();
-    return forecast;
+    return pronostico;
 })
-.WithName("GetWeatherForecast");
+.WithName("ObtenerPronosticoClima");
 
-app.Run();
+aplicacion.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
+record PronosticoClima(DateOnly Fecha, int TemperaturaC, string? Resumen)
 {
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
+    public int TemperaturaF => 32 + (int)(TemperaturaC / 0.5556);
 }

@@ -25,11 +25,11 @@ siempre que estén en calendarios de alternancia opuestos.
 
 ## Tipos
 
-### Type A (Tipo A)
+### Tipo A
 - Asiste presencialmente en **semanas impares** (semanas 1, 3, 5, …)
 - Asiste virtualmente en **semanas pares** (semanas 2, 4, 6, …)
 
-### Type B (Tipo B)
+### Tipo B
 - Asiste presencialmente en **semanas pares** (semanas 2, 4, 6, …)
 - Asiste virtualmente en **semanas impares** (semanas 1, 3, 5, …)
 
@@ -59,10 +59,10 @@ Actualmente SOEA solo admite programación de sesiones fijas.
 
 ## Ejemplos
 
-- Cohort A-3 (Type A, Systems Engineering Sem 3) and Cohort B-7 (Type B, Systems Engineering Sem 7)
-  can share Room 204 at 07:00–09:00 Monday because they are never both in-person on the same week.
-- Cohort A-3 and Cohort A-5 (both Type A) cannot share the same space — they are in-person on
-  the same weeks.
+- La cohorte A-3 (Tipo A, Ingeniería de Sistemas Sem 3) y la cohorte B-7 (Tipo B, Ingeniería de Sistemas Sem 7)
+  pueden compartir el salón 204 el lunes de 07:00–09:00 porque nunca están ambas presenciales en la misma semana.
+- La cohorte A-3 y la cohorte A-5 (ambas Tipo A) no pueden compartir el mismo espacio: están presenciales en
+  las mismas semanas.
 
 ---
 

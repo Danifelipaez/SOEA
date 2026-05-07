@@ -1,9 +1,9 @@
 ﻿namespace SOEA.Tests;
 
-public class UnitTest1
+public class PruebaInicial
 {
     [Fact]
-    public void Test1()
+    public void DebeCompilar()
     {
 
     }

@@ -43,9 +43,9 @@ Cada sesión `s ∈ S` tiene:
 
 ### Variables de decisión
 
-For each session `s ∈ S`:
-- `t(s) ∈ T` — assigned time slot
-- `r(s) ∈ R ∪ {null}` — assigned space (null for virtual sessions)
+Para cada sesión `s ∈ S`:
+- `t(s) ∈ T` — espacio de tiempo asignado
+- `r(s) ∈ R ∪ {null}` — espacio asignado (null para sesiones virtuales)
 
 ### Restricciones de factibilidad (duras)
 
@@ -76,11 +76,11 @@ Consulta `docs/business-rules/soft-constraints.md` para la lista completa.
 UCTP es NP-hard. Resolverlo directamente con un modelo CP completo para instancias grandes es demasiado lento.
 La descomposición en tres fases reduce la complejidad:
 
-1. **Fase 1 — Graph Coloring**: Heurística rápida que produce una asignación inicial plausible (pero posiblemente infactible) modelando los conflictos como un problema de coloreado de grafos. Reduce el espacio de búsqueda para la Fase 2.
+1. **Fase 1 — coloreado de grafos**: heurística rápida que produce una asignación inicial plausible (pero posiblemente infactible) modelando los conflictos como un problema de coloreado de grafos. Reduce el espacio de búsqueda para la Fase 2.
 
-2. **Fase 2 — CP-SAT**: Solucionador exacto de factibilidad que impone todas las restricciones duras. Toma la asignación de la Fase 1 como punto de partida y encuentra la solución factible más cercana.
+2. **Fase 2 — CP-SAT**: solucionador exacto de factibilidad que impone todas las restricciones duras. Toma la asignación de la Fase 1 como punto de partida y encuentra la solución factible más cercana.
 
-3. **Fase 3 — Algoritmo Genético**: Metaheurística que optimiza restricciones blandas a partir de la solución factible de la Fase 2.
+3. **Fase 3 — algoritmo genético**: metaheurística que optimiza restricciones blandas a partir de la solución factible de la Fase 2.
 
 ---
 

@@ -29,7 +29,7 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 
 ---
 
-## Objeto Session
+## Objeto Sesión
 
 ```json
 {
