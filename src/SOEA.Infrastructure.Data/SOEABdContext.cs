@@ -42,11 +42,5 @@ namespace SOEA.Infrastructure.Data.Context
         public SOEABdContext(DbContextOptions<SOEABdContext> options) : base(options)
         {
         }
-
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-            // Configuraciones adicionales de entidades si es necesario
-        }
     }
 }
