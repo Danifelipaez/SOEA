@@ -20,7 +20,7 @@ El sistema deberá aceptar archivos Excel que contengan:
 
 ### FR-02 — Generación de horarios
 El sistema deberá producir un horario completo para un semestre a partir de los datos de entrada,
-usando un pipeline de tres fases (Graph Coloring → CP → Genetic Algorithm).
+usando un pipeline de tres fases (coloreado de grafos → CP → algoritmo genético).
 
 ### FR-03 — Cumplimiento de restricciones duras
 El horario generado no deberá violar ninguna restricción dura definida en
@@ -36,7 +36,7 @@ El sistema deberá exportar el horario final como un documento JSON estructurado
 
 ### FR-06 — Interfaz web basada en roles
 El sistema deberá proporcionar una interfaz web con vistas y permisos diferenciados para:
-Admin, Coordinador, Docente y Estudiante (ver `docs/requirements/stakeholders.md`).
+Administrador, Coordinador, Docente y Estudiante (ver `docs/requirements/stakeholders.md`).
 
 ### FR-07 — Informe de validación del horario
 El sistema deberá producir un informe de validación que liste cualquier violación

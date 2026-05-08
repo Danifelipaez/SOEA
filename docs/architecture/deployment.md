@@ -5,7 +5,7 @@ Describir cómo se despliega SOEA, qué infraestructura requiere y en qué se di
 Copilot usa esto al generar archivos de configuración, montajes de Docker o código específico por entorno.
 
 ## Alcance
-Configuraciones de despliegue para desarrollo, staging y producción.
+Configuraciones de despliegue para desarrollo, pruebas y producción.
 
 ---
 
@@ -15,9 +15,9 @@ SOEA se despliega como un **monolito de un solo proceso** con los siguientes com
 
 | Componente | Unidad de despliegue |
 |---|---|
-| API .NET | Un solo proceso ASP.NET Core |
+| API de .NET | Un solo proceso ASP.NET Core |
 | Base de datos | Instancia de SQL Server o PostgreSQL |
-| Frontend | SPA Angular (archivos estáticos servidos por la API o por un CDN/reverse proxy) |
+| Frontend | SPA Angular (archivos estáticos servidos por la API o por un CDN o proxy inverso) |
 
 ---
 
@@ -26,7 +26,7 @@ SOEA se despliega como un **monolito de un solo proceso** con los siguientes com
 | Entorno | Base de datos | Frontend | Notas |
 |---|---|---|---|
 | Desarrollo | SQL Server local / SQLite | `ng serve` (servidor de desarrollo Angular) | Estación de trabajo del desarrollador |
-| Staging | SQL Server / PostgreSQL | SPA Angular compilada | Pruebas de integración |
+| Pruebas | SQL Server / PostgreSQL | SPA Angular compilada | Pruebas de integración |
 | Producción | PostgreSQL (recomendado) | Servida mediante Nginx o Azure Static Web Apps | Despliegue piloto |
 
 ---
@@ -48,7 +48,7 @@ Claves de configuración requeridas:
 
 ## Docker (futuro)
 
-Se planean un `Dockerfile` y un `docker-compose.yml` para el despliegue en staging.
+Se planean un `Dockerfile` y un `docker-compose.yml` para el despliegue en pruebas.
 El archivo compose definirá:
 - Servicio `soea-api` (ASP.NET Core)
 - Servicio `soea-db` (PostgreSQL)

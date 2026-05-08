@@ -10,7 +10,7 @@ Todas las entidades persistentes del dominio. Los campos derivados o calculados 
 
 ---
 
-## Session
+## Sesión
 
 La unidad programable central: una ocurrencia de una asignatura para una cohorte.
 
@@ -31,7 +31,7 @@ La unidad programable central: una ocurrencia de una asignatura para una cohorte
 
 ---
 
-## Cohort
+## Cohorte
 
 Grupo de estudiantes inscritos en el mismo programa y semestre.
 
@@ -46,7 +46,7 @@ Grupo de estudiantes inscritos en el mismo programa y semestre.
 
 ---
 
-## Space
+## Espacio
 
 Ubicación física para las sesiones.
 
@@ -61,7 +61,7 @@ Ubicación física para las sesiones.
 
 ---
 
-## Instructor
+## Docente
 
 Persona que imparte sesiones.
 
@@ -75,7 +75,7 @@ Persona que imparte sesiones.
 
 ---
 
-## TimeSlot
+## Espacio de tiempo
 
 Bloque de tiempo discreto programable.
 
@@ -88,7 +88,7 @@ Bloque de tiempo discreto programable.
 
 ---
 
-## Subject
+## Asignatura
 
 Una asignatura o curso académico de la malla curricular.
 
@@ -104,17 +104,17 @@ Una asignatura o curso académico de la malla curricular.
 
 ---
 
-## Schedule
+## Horario
 
 La salida completa del horario para un semestre.
 
 | Campo | Tipo | Requerido | Descripción |
 |---|---|---|---|
 | `Id` | GUID | Sí | Identificador único |
-| `SemesterLabel` | string | Sí | Por ejemplo, "2025-1" |
+| `Semestre` | string | Sí | Por ejemplo, "2025-1" |
 | `GeneratedAt` | DateTime | Sí | Marca temporal de generación |
-| `Status` | Enum | Sí | `Draft`, `Published`, `Archived` |
-| `Sessions` | list of Session | Sí | Todas las sesiones asignadas |
+| `Estado` | Enum | Sí | `Draft`, `Published`, `Archived` |
+| `sesiones` | list of Session | Sí | Todas las sesiones asignadas |
 | `HardConstraintViolations` | int | Calculado | Debe ser 0 para un horario válido |
 | `SoftConstraintFitnessScore` | decimal | Calculado | Más bajo es mejor; proviene de la Fase 3 |
 
