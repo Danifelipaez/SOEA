@@ -18,7 +18,7 @@ function GenerateSchedule(inputData):
     partialPlan = GraphColoringPhase(sessions)
     feasiblePlan = ConstraintProgrammingPhase(partialPlan, sessions)
     if feasiblePlan is Infeasible:
-        return Error("No feasible schedule found — check constraint conflicts")
+        return Error("No se encontró un horario factible — revisa los conflictos de restricciones")
     optimizedPlan = GeneticAlgorithmPhase(feasiblePlan)
     ValidateHardConstraints(optimizedPlan)   // final safety check
     return Serialize(optimizedPlan)
@@ -26,7 +26,7 @@ function GenerateSchedule(inputData):
 
 ---
 
-## Fase 1 — Graph Coloring
+## Fase 1 — coloreado de grafos
 
 ```pseudocode
 function GraphColoringPhase(sessions):
@@ -34,7 +34,7 @@ function GraphColoringPhase(sessions):
     // ordenar nodos por grado descendente (Welsh-Powell)
     sortedSessions = SortByDegree(G, descending)
     assignment = {}
-    for each session s in sortedSessions:
+    para cada sesión s en sortedSessions:
         usedColors = {assignment[neighbor] for neighbor in G.neighbors(s)}
         assignment[s] = FirstAvailableTimeSlot(allTimeSlots, usedColors)
     return PartialSchedule(assignment)
@@ -57,14 +57,14 @@ function BuildConflictGraph(sessions):
 function ConstraintProgrammingPhase(partialSchedule, sessions):
     model = new CpModel()
     // definir variables
-    for each session s in sessions:
+    para cada sesión s en sessions:
         timeVar[s]  = model.NewIntVar(0, |timeSlots|-1, "time_" + s.Id)
         spaceVar[s] = model.NewIntVar(0, |spaces|,      "space_" + s.Id)  // last index = virtual
     // agregar restricciones duras
     for each hard constraint HC in HardConstraints:
         EncodeConstraint(model, HC, sessions, timeVar, spaceVar)
     // agregar indicios de warm start de la Fase 1
-    for each session s:
+    para cada sesión s:
         model.AddHint(timeVar[s], partialSchedule.TimeSlotIndex(s))
     // resolver
     solver = new CpSolver()

@@ -1,20 +1,20 @@
 # soea-angular
 
-## Purpose
+## Propósito
 Frontend en Angular para SOEA: la aplicación web de programación basada en roles.
 
-## Overview
+## Resumen
 Este es el workspace de Angular para el frontend de SOEA. Proporciona una aplicación de una sola página (SPA)
 con vistas y permisos diferenciados para cada rol:
 
 | Rol | Capacidades |
 |---|---|
-| Admin | Cargar datos de Excel, configurar parámetros, lanzar la optimización, administrar usuarios |
-| Coordinator | Revisar horarios generados, marcar incidencias, aprobar o solicitar una nueva optimización |
-| Instructor | Ver su horario personal de clases |
-| Student | Ver el horario de su cohorte |
+| Administrador | Cargar datos de Excel, configurar parámetros, lanzar la optimización, administrar usuarios |
+| Coordinador | Revisar horarios generados, marcar incidencias, aprobar o solicitar una nueva optimización |
+| Docente | Ver su horario personal de clases |
+| Estudiante | Ver el horario de su cohorte |
 
-## Planned Structure (to be scaffolded)
+## Estructura prevista (pendiente de generar)
 
 ```text
 soea-angular/
@@ -48,12 +48,12 @@ cd frontend && ng new soea-angular --routing --style=scss
 
 Después instala las dependencias necesarias (por ejemplo, Angular Material, ngx-charts para la visualización de horarios).
 
-## API Integration
+## Integración con la API
 
 El frontend se comunica con el backend de SOEA a través de la API REST definida en `docs/data/json-output-spec.md`.
 La URL base de la API se configura en `src/environments/environment.ts`.
 
-## Related Docs
+## Documentos relacionados
 
 - Roles y permisos: `docs/requirements/stakeholders.md`
 - Formato JSON de horarios: `docs/data/json-output-spec.md`

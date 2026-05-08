@@ -48,9 +48,9 @@ Antes del despliegue a nivel institucional:
 | # | Criterio |
 |---|---|
 | AC-P01 | El sistema maneja el conjunto de datos completo del semestre (todos los programas) dentro de los objetivos de rendimiento |
-| AC-P02 | El control de acceso basado en roles está verificado para los cuatro roles (Admin, Coordinator, Instructor, Student) |
+| AC-P02 | El control de acceso basado en roles está verificado para los cuatro roles (Administrador, Coordinador, Docente, Estudiante) |
 | AC-P03 | La ingesta de datos acepta archivos Excel institucionales reales sin errores |
-| AC-P04 | El sistema está desplegado en un entorno de staging y probado por TI |
+| AC-P04 | El sistema está desplegado en un entorno de pruebas y probado por TI |
 | AC-P05 | Existe una guía de usuario o documento de incorporación para los coordinadores |
 
 ---

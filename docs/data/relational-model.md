@@ -14,7 +14,7 @@ Todas las tablas del esquema de base de datos de producción.
 > Nota: Este es un borrador inicial basado en el modelo de dominio. Debe refinarse después de la primera migración de EF Core.
 
 ### `Schedules`
-| Column | Type | Constraints |
+| Columna | Tipo | Restricciones |
 |---|---|---|
 | `Id` | uniqueidentifier | PK |
 | `SemesterLabel` | nvarchar(20) | NOT NULL |
@@ -22,14 +22,14 @@ Todas las tablas del esquema de base de datos de producción.
 | `Status` | nvarchar(20) | NOT NULL, CHECK IN ('Draft','Published','Archived') |
 
 ### `Programs`
-| Column | Type | Constraints |
+| Columna | Tipo | Restricciones |
 |---|---|---|
 | `Id` | uniqueidentifier | PK |
 | `Name` | nvarchar(200) | NOT NULL |
 | `Code` | nvarchar(20) | NOT NULL, UNIQUE |
 
 ### `Cohorts`
-| Column | Type | Constraints |
+| Columna | Tipo | Restricciones |
 |---|---|---|
 | `Id` | uniqueidentifier | PK |
 | `Name` | nvarchar(200) | NOT NULL |
@@ -39,7 +39,7 @@ Todas las tablas del esquema de base de datos de producción.
 | `AlternanciaType` | nvarchar(20) | NOT NULL, CHECK IN ('TypeA','TypeB','NonAlternating') |
 
 ### `Subjects`
-| Column | Type | Constraints |
+| Columna | Tipo | Restricciones |
 |---|---|---|
 | `Id` | uniqueidentifier | PK |
 | `Name` | nvarchar(200) | NOT NULL |
@@ -50,7 +50,7 @@ Todas las tablas del esquema de base de datos de producción.
 | `ProgramId` | uniqueidentifier | FK → Programs.Id |
 
 ### `Instructors`
-| Column | Type | Constraints |
+| Columna | Tipo | Restricciones |
 |---|---|---|
 | `Id` | uniqueidentifier | PK |
 | `FullName` | nvarchar(200) | NOT NULL |
@@ -58,7 +58,7 @@ Todas las tablas del esquema de base de datos de producción.
 | `MaxWeeklyHours` | decimal(4,2) | NOT NULL, CHECK > 0 |
 
 ### `Spaces`
-| Column | Type | Constraints |
+| Columna | Tipo | Restricciones |
 |---|---|---|
 | `Id` | uniqueidentifier | PK |
 | `Name` | nvarchar(100) | NOT NULL |
@@ -70,7 +70,7 @@ Todas las tablas del esquema de base de datos de producción.
 Las sesiones virtuales se representan con `Session.SpaceId = NULL`; no requieren una fila persistida de `Space`.
 
 ### `TimeSlots`
-| Column | Type | Constraints |
+| Columna | Tipo | Restricciones |
 |---|---|---|
 | `Id` | uniqueidentifier | PK |
 | `DayOfWeek` | nvarchar(10) | NOT NULL, CHECK IN ('Monday','Tuesday','Wednesday','Thursday','Friday') |
@@ -78,14 +78,14 @@ Las sesiones virtuales se representan con `Session.SpaceId = NULL`; no requieren
 | `EndTime` | time | NOT NULL, CHECK > StartTime |
 
 ### `InstructorAvailability`
-| Column | Type | Constraints |
+| Columna | Tipo | Restricciones |
 |---|---|---|
 | `InstructorId` | uniqueidentifier | FK → Instructors.Id |
 | `TimeSlotId` | uniqueidentifier | FK → TimeSlots.Id |
 | PK | composite | (InstructorId, TimeSlotId) |
 
 ### `Sessions`
-| Column | Type | Constraints |
+| Columna | Tipo | Restricciones |
 |---|---|---|
 | `Id` | uniqueidentifier | PK |
 | `ScheduleId` | uniqueidentifier | FK → Schedules.Id |

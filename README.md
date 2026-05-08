@@ -4,14 +4,14 @@ SOEA es un sistema de horario académico universitario (UCTP) diseñado para aut
 
 ---
 
-## Stack Tecnológico
+## Pila Tecnológica
 
 | Capa | Tecnología |
 |---|---|
 | Backend | .NET 10, ASP.NET Core, Clean Architecture |
 | ORM / Persistencia | Entity Framework Core, SQL Server / PostgreSQL |
 | Ingesta de Excel | EPPlus |
-| Motor de optimización | OR-Tools (CP-SAT), Graph Coloring personalizado, Genetic Algorithm |
+| Motor de optimización | OR-Tools (CP-SAT), coloreado de grafos personalizado, algoritmo genético |
 | Frontend | Angular (interfaz basada en roles) |
 | Testing | xUnit |
 
@@ -22,7 +22,7 @@ SOEA es un sistema de horario académico universitario (UCTP) diseñado para aut
 ```text
 /
 ├── README.md                        ← estás aquí
-├── SOEA.sln                         ← .NET solution file
+├── SOEA.sln                         ← archivo de solución de .NET
 │
 ├── docs/                            ← toda la documentación del proyecto (contexto de Copilot)
 │   ├── requirements/                ← alcance, stakeholders, glosario, SRS
@@ -39,10 +39,10 @@ SOEA es un sistema de horario académico universitario (UCTP) diseñado para aut
 │   ├── SOEA.Application/            ← casos de uso, comandos, consultas, DTOs
 │   ├── SOEA.Infrastructure.Data/    ← EF Core, acceso a BD, repositorios
 │   ├── SOEA.Infrastructure.Excel/   ← ingesta de Excel con EPPlus
-│   ├── SOEA.Engine.GraphColoring/   ← Fase 1: preasignación con graph coloring
+│   ├── SOEA.Engine.GraphColoring/   ← Fase 1: preasignación con coloreado de grafos
 │   ├── SOEA.Engine.ConstraintProg/  ← Fase 2: solucionador de factibilidad OR-Tools CP-SAT
 │   ├── SOEA.Engine.Genetic/         ← Fase 3: optimizador genético de restricciones blandas
-│   └── SOEA.API/                    ← Web API ASP.NET Core (controladores, middleware)
+│   └── SOEA.API/                    ← API web ASP.NET Core (controladores, middleware)
 │
 ├── test/                            ← pruebas automatizadas
 │   └── SOEA.Tests/                  ← pruebas unitarias e integración (xUnit)
@@ -76,14 +76,14 @@ Empieza aquí cuando trabajes en una nueva funcionalidad o le pidas ayuda a Copi
 
 ### `SOEA.Domain`
 Conceptos centrales del negocio sin dependencias externas.
-- Entidades: `Session`, `Cohort`, `Space`, `Instructor`, `TimeSlot`, `Schedule`
-- Objetos de valor y enumeraciones: `AlternanciaType`, `ConstraintWeight`, `SessionStatus`
+- Entidades: `Sesion`, `Cohorte`, `Espacio`, `Docente`, `TimeSlot`, `Horario`
+- Objetos de valor y enumeraciones: `TipoAlternancia`, `ConstraintWeight`, `EstadoSesion`
 - Interfaces de dominio (puertos) implementadas por Infrastructure
 - Invariantes de negocio (por ejemplo, una sesión no puede exceder su duración permitida)
 
 ### `SOEA.Application`
 Capa de orquestación — coordina objetos de dominio e infraestructura.
-- Casos de uso / controladores de comandos (por ejemplo, `GenerateScheduleCommand`, `ValidateConstraintsQuery`)
+- Casos de uso / controladores de comandos (por ejemplo, `GenerarHorarioCommand`, `ValidarRestriccionesQuery`)
 - DTOs de entrada y salida
 - Coordinación del pipeline de optimización (invoca las tres fases del motor en orden)
 - Sin dependencia directa de EF Core, Excel ni HTTP
@@ -102,7 +102,7 @@ Ingesta de Excel mediante EPPlus.
 ### `SOEA.Engine.GraphColoring`
 Fase 1 del pipeline de optimización.
 - Construye un grafo de conflictos a partir de los datos de las sesiones
-- Asigna horarios preliminares usando heurísticas de graph coloring
+- Asigna horarios preliminares usando heurísticas de coloreado de grafos
 - Su salida alimenta la Fase 2
 
 ### `SOEA.Engine.ConstraintProg`
@@ -128,9 +128,9 @@ Punto de entrada HTTP.
 ## Responsabilidades del frontend (`frontend/soea-angular`)
 
 SPA en Angular basada en roles:
-- **Admin**: configure spaces, upload Excel data, trigger optimization
-- **Coordinator**: review and validate generated schedules
-- **Instructor / Student**: view personal timetables
+- **Administrador**: configura espacios, carga datos de Excel y lanza la optimización
+- **Coordinador**: revisa y valida los horarios generados
+- **Docente / Estudiante**: ve su horario personal
 
 ---
 
@@ -138,6 +138,6 @@ SPA en Angular basada en roles:
 
 1. **Abre primero el documento relevante** antes de pedirle a Copilot que genere código.
 2. **Referencia el documento en tu prompt**, por ejemplo:
-   > "Using `docs/business-rules/hard-constraints.md`, implement the hard-constraint validator in `SOEA.Engine.ConstraintProg`."
+    > "Usando `docs/business-rules/hard-constraints.md`, implementa el validador de restricciones duras en `SOEA.Engine.ConstraintProg`."
 3. **Trabaja en pasos pequeños y enfocados**: un caso de uso, una entidad o una restricción a la vez.
 4. **Mantén consistente la terminología del dominio** entre la documentación y el código (ver `docs/requirements/glossary.md`).
