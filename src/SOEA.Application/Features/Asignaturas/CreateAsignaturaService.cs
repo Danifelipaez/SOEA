@@ -1,11 +1,12 @@
 using SOEA.Application.Interfaces;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
+namespace SOEA.Application.Features.Asignaturas;
 
 public class CreateAsignaturaRequest
 {
-    public string Nombre { get; set; }
-    public string Codigo { get; set; }
+    public string Nombre { get; set; }="";
+    public string Codigo { get; set; }="";
     public int BloquesSemanales { get; set; }
     public bool RequiereLab { get; set; }
     public TipoAlternancia Alternancia { get; set; }
