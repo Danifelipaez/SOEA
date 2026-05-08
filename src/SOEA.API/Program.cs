@@ -17,17 +17,16 @@ builder.Services.AddDbContext<SOEABdContext>(options =>
 builder.Services.AddScoped<IAsignaturaRepository, AsignaturaRepository>();
 builder.Services.AddScoped<CreateAsignaturaService>();
 
-//Swagger + Controladores
+//OpenAPI + Controladores
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
 if(app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    app.MapOpenApi();
 }
 app.UseHttpsRedirection();
 app.UseAuthorization();
