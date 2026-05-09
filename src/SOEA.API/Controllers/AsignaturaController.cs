@@ -1,21 +1,30 @@
 using Microsoft.AspNetCore.Mvc;
 using SOEA.Application.Features.Asignaturas;
-using SOEA.Application.Interfaces;
+using SOEA.Application.Features.Asignaturas.Requests;
+using SOEA.Application.Features.Asignaturas.Responses;
+using SOEA.Domain.Interfaces;
 
 namespace SOEA.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    //newtestline
     public class AsignaturasController : ControllerBase
     {
         private readonly CreateAsignaturaService _createService;
-        private readonly IAsignaturaRepository _repository;
+        private readonly GetAsignaturaByIdService _getByIdService;
+        private readonly GetAsignaturasService _getAllService;
+        private readonly DeleteAsignaturaService _deleteService;
 
-        public AsignaturasController(CreateAsignaturaService createService, IAsignaturaRepository repository)
+        public AsignaturasController(
+            CreateAsignaturaService createService,
+            GetAsignaturaByIdService getByIdService,
+            GetAsignaturasService getAllService,
+            DeleteAsignaturaService deleteService)
         {
             _createService = createService;
-            _repository = repository;
+            _getByIdService = getByIdService;
+            _getAllService = getAllService;
+            _deleteService = deleteService;
         }
 
         [HttpPost]
@@ -25,43 +34,57 @@ namespace SOEA.API.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var response = await _createService.ExecuteAsync(request);
-            return CreatedAtAction(nameof(GetAsignatura), new { id = response.Id }, response);
+            try
+            {
+                var response = await _createService.ExecuteAsync(request);
+                return CreatedAtAction(nameof(GetAsignatura), new { id = response.Id }, response);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<AsignaturaResponse>> GetAsignatura(Guid id)
         {
-            var asignatura = await _repository.GetByIdAsync(id);
-            if (asignatura == null)
-                return NotFound();
-
-            return Ok(new AsignaturaResponse
+            try
             {
-                Id = asignatura.Id,
-                Nombre = asignatura.Nombre,
-                Codigo = asignatura.Codigo,
-                BloquesSemanales = asignatura.BloquesSemanales,
-                RequiereLab = asignatura.RequiereLab,
-                Alternancia = asignatura.Alternancia,
-                ProgramaId = asignatura.ProgramaId
-            });
+                var response = await _getByIdService.ExecuteAsync(id);
+                return Ok(response);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return NotFound(ex.Message);
+            }
         }
 
         [HttpGet]
         public async Task<ActionResult<List<AsignaturaResponse>>> GetAllAsignaturas()
         {
-            var asignaturas = await _repository.GetAllAsync();
-            return Ok(asignaturas.Select(a => new AsignaturaResponse
+            try
             {
-                Id = a.Id,
-                Nombre = a.Nombre,
-                Codigo = a.Codigo,
-                BloquesSemanales = a.BloquesSemanales,
-                RequiereLab = a.RequiereLab,
-                Alternancia = a.Alternancia,
-                ProgramaId = a.ProgramaId
-            }).ToList());
+                var responses = await _getAllService.ExecuteAsync();
+                return Ok(responses);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ex.Message);
+            }
+        }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteAsignatura(Guid id)
+        {
+            try
+            {
+                await _deleteService.ExecuteAsync(id);
+                return NoContent();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return NotFound(ex.Message);
+            }
         }
     }
 }
