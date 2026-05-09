@@ -1,35 +1,52 @@
 # SOEA — Estructura de Carpetas y Archivos
 
-## Patrón: Vertical Slice Architecture
+## Patrón: Clean Architecture
 
-Este proyecto usa **Vertical Slice** en lugar de CQRS. Cada feature (Asignatura, Docente, Espacio, etc.) es **una rodaja vertical** que atraviesa:
+Este proyecto usa **Clean Architecture** organizada en capas concéntricas. Las dependencias siempre apuntan hacia adentro:
 
 ```
-API Controller (Asignaturas)
-    ↓
-Application Service (CreateAsignaturaService)
-    ↓
-Domain Entity (Asignatura)
-    ↓
-Infrastructure Repository (AsignaturaRepository)
-    ↓
-EF Core Configuration (AsignaturaConfiguration)
-    ↓
-PostgreSQL Table
+┌─ Capa de Presentación (API)
+│  └─ Controllers/
+│     └─ AsignaturasController.cs
+│
+├─ Capa de Aplicación (Application)
+│  └─ Features/
+│     └─ Asignaturas/
+│        └─ CreateAsignaturaService.cs
+│
+├─ Capa de Dominio (Domain) ← Pura, sin dependencias externas
+│  └─ Entities/
+│     └─ Asignatura.cs
+│
+└─ Capa de Infraestructura (Infrastructure) ← Implementa contratos del Domain
+   └─ Repositories/
+      └─ AsignaturaRepository.cs
+      └─ Configurations/
+         └─ AsignaturaConfiguration.cs
+```
+
+**Flujo de dependencias (siempre hacia adentro):**
+```
+API → Application → Domain ← Infrastructure
+       (usa)        (interfaces)  (implementa)
 ```
 
 **Ventajas:**
-- Cada feature es independiente
-- Fácil de entender: todo de una entidad en una carpeta
-- Escalable: agregar Docente = copiar patrón de Asignatura
-- Minimiza acoplamiento entre features
-- Ideal para pilot pequeño
+- Aislamiento de reglas de negocio: Domain es independiente de frameworks
+- Testabilidad: Application depende de interfaces, no de implementaciones
+- Escalabilidad: cambiar EF Core o PostgreSQL no afecta Domain/Application
+- Flexibilidad: Infrastructure es intercambiable
+
+**Organización dentro de Application:**
+- Features se organizan **por responsabilidad de negocio** (Asignaturas, Docentes, Espacios)
+- Cada feature contiene servicios para operaciones relacionadas (Create, Get, Update, Delete)
+- Las interfaces de dominio viven en `Interfaces/` (contratos que Infrastructure implementa)
 
 **Regla de oro:** Si trabaja en Asignatura, toca:
-- `SOEA.Application/Features/Asignaturas/`
-- `SOEA.API/Controllers/AsignaturasController.cs`
-- `SOEA.Infrastructure.Data/Repositories/AsignaturaRepository.cs`
-- `SOEA.Infrastructure.Data/Configurations/AsignaturaConfiguration.cs`
+- **Presentation (API):** `SOEA.API/Controllers/AsignaturasController.cs`
+- **Application:** `SOEA.Application/Features/Asignaturas/` (servicios y DTOs)
+- **Domain:** `SOEA.Domain/Entities/Asignatura.cs` (entidades y reglas)
+- **Infrastructure:** `SOEA.Infrastructure.Data/Repositories/AsignaturaRepository.cs` + `Configurations/AsignaturaConfiguration.cs`
 
 ---
 
@@ -69,22 +86,23 @@ soea-angular/
 
 ---
 
-## SOEA.API — Vertical Slice Endpoints
+## SOEA.API — Capa de Presentación (Clean Architecture)
 
-Controladores organizados por feature. Cada controlador llama al servicio de su vertical slice.
+Punto de entrada HTTP. Expone endpoints REST que coordinan con Application.
+No contiene lógica de negocio: solo valida entrada, delega a servicios, formatea respuesta.
 
 ```
 SOEA.API/
 ├── Controllers/
-│   ├── AsignaturasController.cs
-│   ├── DocentesController.cs
-│   ├── EspaciosController.cs
-│   ├── HorariosController.cs
-│   └── AuthController.cs
+│   ├── AsignaturasController.cs    # Endpoints de Asignatura
+│   ├── DocentesController.cs       # Endpoints de Docentes
+│   ├── EspaciosController.cs       # Endpoints de Espacios
+│   ├── HorariosController.cs       # Endpoints de Horarios
+│   └── AuthController.cs           # Autenticación
 ├── Middleware/
 │   ├── GlobalExceptionHandlerMiddleware.cs
 │   └── RequestLoggingMiddleware.cs
-├── Models/                        # Request & Response (compartidos con Application)
+├── Dtos/                           # Data Transfer Objects (por feature)
 │   ├── Asignaturas/
 │   │   ├── CreateAsignaturaRequest.cs
 │   │   └── AsignaturaResponse.cs
@@ -101,44 +119,49 @@ SOEA.API/
 │   └── Common/
 │       ├── ErrorDetail.cs
 │       └── PaginationResponse.cs
-└── Configuration/
-    ├── Program.cs                 # DI registration + Middleware setup
-    ├── appsettings.json
-    ├── appsettings.Development.json
-    └── DependencyInjectionConfig.cs
+├── Program.cs                      # Registro de dependencias (DI)
+├── appsettings.json
+└── appsettings.Development.json
 ```
 
-**Flujo endpoint → servicio:**
+**Flujo request-response:**
 ```
 POST /api/asignaturas
-  ↓
+  ↓ (API recibe request)
 AsignaturasController.Create()
-  ↓
+  ↓ (delega a Application)
 CreateAsignaturaService.ExecuteAsync()
-  ↓
+  ↓ (service usa Domain entity + Repository)
 IAsignaturaRepository.AddAsync()
-  ↓
+  ↓ (Infrastructure implementa)
 AsignaturaRepository (EF Core)
   ↓
 PostgreSQL
 ```
 
+**Responsabilidad:** Validar entrada HTTP, no validar reglas de negocio (eso es Domain).
+
 
 ---
 
-## SOEA.Application — Vertical Slice
+## SOEA.Application — Capa de Aplicación (Clean Architecture)
 
-Organización por feature. Cada slice contiene toda la lógica de una entidad: servicios, DTOs, handlers.
+Orquestación de casos de uso. Coordina Domain entities, Infrastructure repositories e Engines.
+**Nunca accede directamente** a EF Core, Excel, HTTP, etc. — depende de interfaces.
 
 ```
 SOEA.Application/
-├── Features/
+├── Features/                      # Organización por responsabilidad de negocio
 │   ├── Asignaturas/
 │   │   ├── CreateAsignaturaService.cs
 │   │   ├── GetAsignaturasService.cs
-│   │   ├── Requests/
-│   │   │   └── CreateAsignaturaRequest.cs
-│   │   └── Responses/
+│   │   ├── UpdateAsignaturaService.cs
+│   │   ├── DeleteAsignaturaService.cs
+│   │   ├── Requests/              # DTOs de entrada
+│   │   │   ├── CreateAsignaturaRequest.cs
+│   │   │   ├── UpdateAsignaturaRequest.cs
+│   │   │   └── GetAsignaturasQuery.cs
+│   │   └── Responses/             # DTOs de salida
 │   │       └── AsignaturaResponse.cs
 │   ├── Docentes/
 │   │   ├── CreateDocenteService.cs
@@ -154,64 +177,112 @@ SOEA.Application/
 │   │   │   └── CreateEspacioRequest.cs
 │   │   └── Responses/
 │   │       └── EspacioResponse.cs
-│   └── Horarios/
-│       ├── GenerateScheduleService.cs
-│       ├── ValidateConstraintsService.cs
-│       ├── Requests/
-│       │   └── GenerateScheduleRequest.cs
-│       └── Responses/
-│           ├── ScheduleResponse.cs
-│           └── InfeasibilityReportResponse.cs
-├── Interfaces/
+│   ├── Horarios/
+│   │   ├── GenerateScheduleService.cs    # Orquesta los 3 Engines
+│   │   ├── ValidateConstraintsService.cs
+│   │   ├── Requests/
+│   │   │   └── GenerateScheduleRequest.cs
+│   │   └── Responses/
+│   │       ├── ScheduleResponse.cs
+│   │       └── InfeasibilityReportResponse.cs
+│   └── Excel/
+│       ├── ImportScheduleService.cs
+│       └── Requests/
+│           └── ImportExcelRequest.cs
+├── Interfaces/                    # Contratos del Dominio (implementados por Infrastructure)
 │   ├── IAsignaturaRepository.cs
 │   ├── IDocenteRepository.cs
 │   ├── IEspacioRepository.cs
-│   └── IHorarioRepository.cs
+│   ├── IHorarioRepository.cs
+│   ├── IExcelImporter.cs
+│   └── IRepository.cs             # Base interface
 └── Common/
-    └── IRepository.cs             # Base interface
+    ├── ApplicationException.cs
+    └── Mappings/                  # AutoMapper o manual mapping
+        └── MappingProfile.cs
 ```
 
-**Razón de este patrón:**
-- Cada feature vertical: Domain → Application → Infrastructure → API
-- DTOs separados (Requests/Responses) por claridad
-- Interfaces de repositorio en Application (contrato con Infrastructure)
-- Escalable: agregar Sesion es copiar el patrón de Asignaturas
+**Por qué Features aquí:**
+- Domain es **agnóstico a Features**: una Asignatura es lo mismo en cualquier caso de uso
+- Application **agrupa servicios** relacionados (todos los servicios de Asignatura van en Asignaturas/)
+- Separa concerns: cambiar lógica de Docentes no afecta a Asignaturas
+
+**Regla:** Features en Application = **servicios de aplicación**, no entidades.
+- Asignatura entity vive en Domain/Entities/Asignatura.cs (compartida por todos los servicios)
+- CreateAsignaturaService, GetAsignaturasService, etc. viven en Application/Features/Asignaturas/
 
 
 ---
 
-## SOEA.Domain — Núcleo Puro
+## SOEA.Domain — Capa de Dominio (Núcleo Puro de Clean Architecture)
+
+Reglas de negocio independientes de cualquier framework o librería externa.
+**Ninguna clase aquí depende de EF Core, ASP.NET, EPPlus, or-tools, etc.**
 
 ```
 SOEA.Domain/
 ├── Entities/
-│   ├── Sesion.cs
-│   ├── Espacio.cs
-│   ├── Docente.cs
-│   ├── FranjaTiempo.cs
-│   ├── Horario.cs
-│   ├── Asignatura.cs
-│   ├── Programa.cs
-│   └── DisponibilidadDocente.cs
-│   # // Cohorte.cs  (comentado / pendiente)
+│   ├── Sesion.cs          # Entity: representa una clase o actividad
+│   ├── Espacio.cs         # Entity: salón, laboratorio, auditorio
+│   ├── Docente.cs         # Entity: instructor
+│   ├── Asignatura.cs      # Entity: materia del programa
+│   ├── Horario.cs         # Entity: horario generado por optimización
+│   ├── Programa.cs        # Entity: plan de estudios
+│   └── DisponibilidadDocente.cs  # Entity: restricción de disponibilidad
+├── ValueObjects/          # Objetos sin identidad, inmutables
+│   ├── RangoTiempo.cs     # StartTime + EndTime
+│   ├── Capacidad.cs       # cantidad (cantidad mínima/máxima)
+│   ├── RestriccionesPesos.cs
+│   └── EtiquetaSemestre.cs
 ├── Enums/
-│   ├── TipoAlternancia.cs         # TipoA, TipoB, Normal
-│   ├── TipoEspacio.cs             # Salon, Lab, Auditorio
-│   ├── EstadoSesion.cs            # Pendiente, Asignada, Conflicto
-│   └── Modalidad.cs               # Presencial, Virtual
-├── Interfaces/
-│   ├── IHorarioRepositorio.cs
-│   ├── ISesionRepositorio.cs
-│   └── IExcelImportador.cs
-├── Exceptions/
+│   ├── TipoAlternancia.cs     # TypeA, TypeB, Normal
+│   ├── TipoEspacio.cs         # Salon, Lab, Auditorio
+│   ├── EstadoSesion.cs        # Pending, Assigned, Conflict
+│   ├── EstadoHorario.cs       # Feasible, Infeasible, Partial
+│   ├── Modalidad.cs           # Presencial, Virtual, Hibrido
+│   ├── DiaDeSemana.cs         # Monday, Tuesday, ...
+│   ├── FranjaHoraria.cs       # Mañana, Tarde, Noche
+│   └── TipoRestriccion.cs     # Hard, Soft
+├── Interfaces/                # Puertos (implementados por Infrastructure)
+│   ├── IAsignaturaRepository.cs
+│   ├── IDocenteRepository.cs
+│   ├── IEspacioRepository.cs
+│   ├── IHorarioRepository.cs
+│   ├── IExcelImporter.cs
+│   └── IUnitOfWork.cs
+├── Exceptions/                # Excepciones de negocio
 │   ├── OptimizationInfeasibleException.cs
 │   ├── ConstraintViolationException.cs
-│   └── InvalidSessionException.cs
-└── ValueObjects/
-    ├── RangoTiempo.cs
-    ├── Capacidad.cs
-    ├── RestriccionesPesos.cs
-    └── EtiquetaSemestre.cs
+│   ├── InvalidSessionException.cs
+│   └── DomainException.cs (base)
+└── Services/                  # Servicios de dominio (orquestación local)
+    ├── ScheduleValidator.cs   # Valida reglas de horario
+    └── ConstraintEvaluator.cs # Evalúa restricciones
+```
+
+**Principios:**
+- Todas las reglas de negocio viven aquí (no en Application, no en Infrastructure)
+- Si algo requiere validar un Espacio, la lógica de validación va aquí
+- Excepciones de dominio heredan de `DomainException`
+- Interfaces de repositorio se definen aquí; Infrastructure las implementa
+
+**Ejemplo de límite limpio:**
+```csharp
+// ✅ BIEN: Validación de negocio en Entity
+public class Sesion : AggregateRoot
+{
+    public void ValidarDuracion()
+    {
+        if (Duracion > MaximoDuracionSesion)
+            throw new InvalidSessionException("Sesion muy larga");
+    }
+}
+
+// ❌ MAL: Lógica de BD aquí
+public class Sesion : AggregateRoot
+{
+    public void SaveToDatabase() { } // NO
+}
 ```
 
 ---
@@ -267,101 +338,233 @@ SOEA.Engine.Genetic/
 
 ---
 
-## SOEA.Infrastructure.Data — EF Core + PostgreSQL
+## SOEA.Infrastructure.Data — Capa de Infraestructura (Clean Architecture)
 
-DbContext centralizado; Repositories y Configurations por entidad (Vertical Slice).
+Implementa los contratos del Dominio. Encapsula EF Core, PostgreSQL, y detalles técnicos.
+**Application y Domain nunca conocen esta capa directamente.** Solo ven interfaces.
 
 ```
 SOEA.Infrastructure.Data/
-├── SoEADbContext.cs               # DbContext centralizado
+├── SoEADbContext.cs               # DbContext centralizado (una fuente de verdad)
 ├── Repositories/
-│   ├── BaseRepository.cs          # Implementación base
-│   ├── AsignaturaRepository.cs
-│   ├── DocenteRepository.cs
-│   ├── EspacioRepository.cs
-│   └── HorarioRepository.cs
+│   ├── BaseRepository.cs          # Implementación base (CRUD común)
+│   ├── AsignaturaRepository.cs    # Implementa IAsignaturaRepository
+│   ├── DocenteRepository.cs       # Implementa IDocenteRepository
+│   ├── EspacioRepository.cs       # Implementa IEspacioRepository
+│   └── HorarioRepository.cs       # Implementa IHorarioRepository
 ├── Configurations/                # EF Fluent API (OnModelCreating)
 │   ├── AsignaturaConfiguration.cs
 │   ├── DocenteConfiguration.cs
 │   ├── EspacioConfiguration.cs
 │   ├── HorarioConfiguration.cs
 │   ├── SesionConfiguration.cs
-│   └── ProgramaConfiguration.cs
-└── Migrations/                    # EF Core auto-generated
-    ├── 001_InitialCreate.cs
-    ├── 002_AddAsignaturas.cs
-    └── ...
+│   ├── ProgramaConfiguration.cs
+│   └── DisponibilidadDocenteConfiguration.cs
+├── Migrations/                    # EF Core auto-generated
+│   ├── 001_InitialCreate.cs
+│   ├── 002_AddAsignaturas.cs
+│   └── ...
+└── UnitOfWork.cs                  # Implementa IUnitOfWork (si se usa)
 ```
 
 **Por qué esta estructura:**
-- `SoEADbContext`: único DbSet centralizado (una fuente de verdad)
-- `*Repository`: cada feature tiene su repositorio (sigue Vertical Slice)
-- `*Configuration`: mapeo EF por entidad (aislado, fácil de encontrar)
-- Migrations: historial limpio, nombrado por cambio
+- `SoEADbContext`: mapeo centralizado (una sola fuente de verdad de la BD)
+- `BaseRepository`: eliminaoperaciones CRUD repetidas
+- `*Repository`: cada repositorio implementa su interfaz de Domain
+- `*Configuration`: mapeo por entidad (aislado, fácil de modificar sin afectar otros)
+- Migrations: historial limpio de cambios de esquema
+
+**Ejemplo de implementación (inyección de dependencia):**
+```csharp
+// En Program.cs
+services.AddScoped<IAsignaturaRepository, AsignaturaRepository>();
+// Application no sabe que AsignaturaRepository existe
+// Solo sabe que existe IAsignaturaRepository
+```
+
+**Responsabilidad:** Traducir operaciones Domain/Application a llamadas EF Core.
 
 
 ---
 
-## SOEA.Infrastructure.Excel
+## SOEA.Infrastructure.Excel — Capa de Infraestructura (Ingesta de Datos)
+
+Implementa `IExcelImporter` (interfaz definida en Domain). Traduce filas de Excel a entidades de Domain.
+Aislado: cambiar EPPlus a ClosedXML o CSV no afecta Application ni Domain.
 
 ```
 SOEA.Infrastructure.Excel/
-├── LectorExcel.cs
-├── LectorDisponibilidadDocente.cs
-├── LectorInventarioEspacios.cs
-├── ExcelRowMapper.cs              # Excel rows → Domain entities
-├── ExcelDataValidator.cs
-├── IExcelImporter.cs              # implements domain interface
-├── VirtualRoomCleaner.cs          # depura salas virtuales de Admisiones
-└── InstructorNameNormalizer.cs    # homogeniza usuario/cédula
+├── ExcelDataImporter.cs           # Implementa IExcelImporter
+├── Readers/
+│   ├── AsignaturasExcelReader.cs
+│   ├── DocentesExcelReader.cs
+│   ├── EspaciosExcelReader.cs
+│   └── DisponibilidadExcelReader.cs
+├── Mappers/
+│   ├── ExcelRowToEntityMapper.cs   # Excel row → Domain entity
+│   └── RowValidator.cs             # Valida filas antes de mapear
+├── Processors/
+│   ├── VirtualRoomCleaner.cs       # Limpia salas virtuales de Admisiones
+│   ├── InstructorNameNormalizer.cs # Homogeniza usuario/cédula
+│   └── CapacityCalculator.cs       # Deduce capacidad de espacio
+└── Exceptions/
+    └── ExcelImportException.cs
 ```
+
+**Responsabilidad:** Leer Excel, validar formato, traducir a Domain entities.
+**No conoce:** Servicios de Application, repositorios, lógica de horario.
 
 ---
 
-## SOEA.Tests — xUnit + Vertical Slice
+## SOEA.Tests — Tests por Capa (Clean Architecture)
 
-Tests organizados por capa y feature. Sigue la misma estructura de Vertical Slice.
+Cada capa tiene sus pruebas correspondientes. Las pruebas respetan los límites de Clean Architecture.
 
 ```
-SOEA.Tests/
-├── Domain.Tests/
-│   ├── Entities/
-│   │   ├── AsignaturaEntityTests.cs
-│   │   ├── DocenteEntityTests.cs
-│   │   ├── EspacioEntityTests.cs
-│   │   └── SesionEntityTests.cs
-│   └── Enums/
-│       ├── TipoAlternanciaTests.cs
-│       └── TipoEspacioTests.cs
-├── Application.Tests/
-│   ├── Features/Asignaturas/
-│   │   └── CreateAsignaturaServiceTests.cs
-│   ├── Features/Docentes/
-│   │   └── CreateDocenteServiceTests.cs
-│   └── Features/Espacios/
-│       └── CreateEspacioServiceTests.cs
-├── Infrastructure.Tests/
-│   ├── Repositories/
-│   │   ├── AsignaturaRepositoryTests.cs
-│   │   ├── DocenteRepositoryTests.cs
-│   │   └── EspacioRepositoryTests.cs
-│   └── DbContextTests.cs
-├── Integration.Tests/
-│   ├── Features/Asignaturas/
-│   │   ├── CreateAsignaturaIntegrationTests.cs
-│   │   └── GetAsignaturasIntegrationTests.cs
-│   ├── Features/Docentes/
-│   │   └── CreateDocenteIntegrationTests.cs
-│   └── EndToEndScheduleTests.cs
+test/SOEA.Tests/
+├── Unit/
+│   ├── Domain/
+│   │   ├── Entities/
+│   │   │   ├── AsignaturaEntityTests.cs         # Invariantes: duración, código único
+│   │   │   ├── DocenteEntityTests.cs
+│   │   │   ├── SesionEntityTests.cs
+│   │   │   └── EspacioEntityTests.cs
+│   │   ├── ValueObjects/
+│   │   │   ├── RangoTiempoTests.cs
+│   │   │   └── CapacidadTests.cs
+│   │   └── Enums/
+│   │       ├── TipoAlternanciaTests.cs
+│   │       └── TipoEspacioTests.cs
+│   │
+│   ├── Application/
+│   │   ├── Features/Asignaturas/
+│   │   │   ├── CreateAsignaturaServiceTests.cs  # Mock de IAsignaturaRepository
+│   │   │   └── GetAsignaturasServiceTests.cs
+│   │   ├── Features/Docentes/
+│   │   │   └── CreateDocenteServiceTests.cs
+│   │   └── Features/Horarios/
+│   │       └── GenerateScheduleServiceTests.cs
+│   │
+│   └── Infrastructure/
+│       ├── Repositories/
+│       │   ├── AsignaturaRepositoryTests.cs     # In-memory EF Core
+│       │   └── DocenteRepositoryTests.cs
+│       └── Excel/
+│           └── ExcelImporterTests.cs            # Mock de EPPlus
+│
+├── Integration/
+│   ├── Controllers/
+│   │   ├── AsignaturasControllerTests.cs        # API → Application → Infrastructure → BD
+│   │   ├── DocentesControllerTests.cs
+│   │   └── HorariosControllerTests.cs
+│   └── Engine/
+│       ├── GraphColoringEngineTests.cs
+│       ├── ConstraintProgEngineTests.cs
+│       └── GeneticEngineTests.cs
+│
 └── Common/
-    ├── TestFixtures.cs
-    ├── DatabaseFixture.cs
-    └── SeedTestData.cs
+    ├── TestFixtures.cs                         # Shared test data
+    ├── DatabaseFixture.cs                      # In-memory EF Core setup
+    └── FakeRepositories.cs                     # Test doubles (mocks/stubs)
 ```
 
-**Estructura de tests por capas:**
-- **Domain.Tests**: invariantes, validaciones de entidades
-- **Application.Tests**: servicios, orquestación
-- **Infrastructure.Tests**: repositorio, EF Core
-- **Integration.Tests**: API endpoint a BD (flujo completo)
+**Estrategia de testing por capa:**
+
+| Capa | Tipo de test | Aislamiento | Ejemplo |
+|------|-------------|-------------|---------|
+| **Domain** | Unit | Total (sin dependencias) | `AsignaturaEntity.ValidarDuracion()` |
+| **Application** | Unit | Parcial (mock repositories) | `CreateAsignaturaService` con `Mock<IAsignaturaRepository>` |
+| **Infrastructure** | Unit | Parcial (in-memory BD) | `AsignaturaRepository` con `DbContext` en memoria |
+| **API** | Integration | Completo (API → BD real/fake) | `POST /api/asignaturas` con `DatabaseFixture` |
+| **Engines** | Integration | Parcial (entrada/salida) | `GenerateScheduleService` invocando 3 engines |
+
+**Regla de oro:** 
+- Tests de Domain no importan nada de Application, Infrastructure, ni Engines
+- Tests de Application mockean todas las dependencias de Infrastructure
+- Tests de Infrastructure usan EF Core en memoria
+- Tests de API usan DatabaseFixture (BD real o in-memory)
+
+---
+
+## APÉNDICE: Clean Architecture vs Vertical Slice
+
+Este documento describe **Clean Architecture**, no Vertical Slice Architecture. Es importante entender la diferencia:
+
+### Clean Architecture (SOEA)
+- **Organización:** Por **CAPAS concéntricas** (Domain, Application, Infrastructure, API)
+- **Flujo de dependencias:** Siempre hacia adentro: `API → Application → Domain ← Infrastructure`
+- **Features en Application:** Agrupan servicios relacionados, pero la entidad vive en Domain (compartida)
+- **Testabilidad:** Interfaces en Domain; Application depende de abstracciones, no de implementaciones
+- **Ventaja:** Aislamiento extremo del dominio; independencia de frameworks
+
+**Diagrama:**
+```
+┌─────────────────────────────────┐
+│      API (Controllers)          │  ← Capa externa
+│  (requests/responses)           │
+└────────────┬────────────────────┘
+             │ depende
+             ▼
+┌─────────────────────────────────┐
+│   Application (Services)        │  ← Casos de uso
+│  (coordina, orquesta)           │
+└────────────┬────────────────────┘
+             │ depende
+             ▼
+┌─────────────────────────────────┐
+│  Domain (Entities, Interfaces)  │  ← Núcleo puro
+│  (reglas de negocio)            │
+└────────────▲────────────────────┘
+             │ implementa
+             │
+┌─────────────┴────────────────────┐
+│     Infrastructure              │  ← Externa
+│  (Repositories, EF Core)        │
+└─────────────────────────────────┘
+```
+
+### Vertical Slice Architecture (NO es SOEA)
+- **Organización:** Por **FEATURES** que cruzan todas las capas
+- **Flujo:** Cada slice es independiente: `Feature A: API → Service → Domain → Repository`
+- **Features:** Contienen todo: controller, service, entity, repository, DTOs
+- **Testabilidad:** Cada feature es un módulo autocontenido
+- **Ventaja:** Minimiza cambios entre features; fácil de replicar
+
+**Diagrama:**
+```
+┌─────────────────────────┐  ┌─────────────────────────┐
+│    Feature: Asignatura  │  │    Feature: Docente     │
+├─────────────────────────┤  ├─────────────────────────┤
+│ Controller              │  │ Controller              │
+│ Service                 │  │ Service                 │
+│ Entity                  │  │ Entity                  │
+│ Repository              │  │ Repository              │
+│ DTOs                    │  │ DTOs                    │
+└─────────────────────────┘  └─────────────────────────┘
+```
+
+### Comparación: SOEA usa Clean Architecture
+
+| Aspecto | Clean Arch (SOEA) | Vertical Slice |
+|---------|------------------|-----------------|
+| **Entity Asignatura** | Domain/Entities/ (compartida) | Features/Asignatura/Entities/ |
+| **Service CreateAsignatura** | Application/Features/Asignaturas/ | Features/Asignatura/Services/ |
+| **Repository** | Infrastructure.Data/Repositories/ | Features/Asignatura/Repositories/ |
+| **Dependencias** | API → App → Domain ← Infra | Feature es autocontenido |
+| **Cambio en Rule** | Afecta solo Domain | Afecta solo la Feature |
+| **Compartir lógica** | Fácil (Domain es compartido) | Requiere extracción manual |
+
+### Conclusión
+
+SOEA **es Clean Architecture** porque:
+1. ✅ Cada capa tiene responsabilidades claras y separadas
+2. ✅ Domain es independiente de frameworks
+3. ✅ Las dependencias siempre apuntan hacia adentro
+4. ✅ Features en Application no son rodajas verticales, son contenedores lógicos de servicios
+5. ✅ Las Entities viven en Domain y son compartidas por todos los servicios
+
+**No es Vertical Slice** porque:
+- ❌ Las entities no se replican por feature
+- ❌ Los límites son POR CAPAS, no por features
+- ❌ Infrastructure no está dentro de Features
 

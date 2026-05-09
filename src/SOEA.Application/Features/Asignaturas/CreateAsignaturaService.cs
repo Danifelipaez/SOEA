@@ -1,29 +1,9 @@
-using SOEA.Application.Interfaces;
+using SOEA.Domain.Interfaces;
 using SOEA.Domain.Entities;
-using SOEA.Domain.Enums;
+using SOEA.Application.Features.Asignaturas.Requests;
+using SOEA.Application.Features.Asignaturas.Responses;
 
-public class CreateAsignaturaRequest
-{
-    public string Nombre { get; set; }
-    public string Codigo { get; set; }
-    public int BloquesSemanales { get; set; }
-    public bool RequiereLab { get; set; }
-    public TipoAlternancia Alternancia { get; set; }
-    public Guid ProgramaId { get; set; }
-
-}
-
-public class AsignaturaResponse
-{
-    public Guid Id { get; set; }
-    public string Nombre { get; set; }="";
-    public string Codigo { get; set; }="";
-    public int BloquesSemanales { get; set; }
-    public bool RequiereLab { get; set; }
-    public TipoAlternancia Alternancia { get; set; }
-    public Guid ProgramaId { get; set; }
-    
-}
+namespace SOEA.Application.Features.Asignaturas;
 public class CreateAsignaturaService
 {
     private readonly IAsignaturaRepository _repository;
