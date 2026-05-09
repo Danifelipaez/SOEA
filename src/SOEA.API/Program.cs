@@ -1,41 +1,38 @@
-var generador = WebApplication.CreateBuilder(args);
+using Microsoft.EntityFrameworkCore;
+using SOEA.Domain.Interfaces;
+using SOEA.Application.Features.Asignaturas;
+using SOEA.Infrastructure.Data.Context;
+using SOEA.Infrastructure.Data.Repositories;
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-generador.Services.AddOpenApi();
 
-var aplicacion = generador.Build();
+//constructor
+var builder = WebApplication.CreateBuilder(args);
 
-// Configure the HTTP request pipeline.
-if (aplicacion.Environment.IsDevelopment())
+//DbContext + Postgresql
+var ConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+builder.Services.AddDbContext<SOEABdContext>(options =>
+    options.UseNpgsql(ConnectionString));
+
+//Inyeccion de dependencias
+builder.Services.AddScoped<IAsignaturaRepository, AsignaturaRepository>();
+builder.Services.AddScoped<CreateAsignaturaService>();
+builder.Services.AddScoped<GetAsignaturaByIdService>();
+builder.Services.AddScoped<GetAsignaturasService>();
+builder.Services.AddScoped<DeleteAsignaturaService>();
+
+//OpenAPI + Controladores
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddOpenApi();
+
+var app = builder.Build();
+
+if(app.Environment.IsDevelopment())
 {
-    aplicacion.MapOpenApi();
+    app.MapOpenApi();
 }
+app.UseHttpsRedirection();
+app.UseAuthorization();
+app.MapControllers();
+app.Run();
 
-aplicacion.UseHttpsRedirection();
-
-var resumenesClima = new[]
-{
-    "Congelado", "Helado", "Frio", "Fresco", "Templado", "Calido", "Tibio", "Caluroso", "Asfixiante", "Abrasador"
-};
-
-aplicacion.MapGet("/pronostico-clima", () =>
-{
-    var pronostico = Enumerable.Range(1, 5).Select(indice =>
-        new PronosticoClima
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(indice)),
-            Random.Shared.Next(-20, 55),
-            resumenesClima[Random.Shared.Next(resumenesClima.Length)]
-        ))
-        .ToArray();
-    return pronostico;
-})
-.WithName("ObtenerPronosticoClima");
-
-aplicacion.Run();
-
-record PronosticoClima(DateOnly Fecha, int TemperaturaC, string? Resumen)
-{
-    public int TemperaturaF => 32 + (int)(TemperaturaC / 0.5556);
-}
