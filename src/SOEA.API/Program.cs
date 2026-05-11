@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using SOEA.Application.Interfaces;
+using SOEA.Domain.Interfaces;
 using SOEA.Application.Features.Asignaturas;
 using SOEA.Infrastructure.Data.Context;
 using SOEA.Infrastructure.Data.Repositories;
@@ -16,6 +16,9 @@ builder.Services.AddDbContext<SOEABdContext>(options =>
 //Inyeccion de dependencias
 builder.Services.AddScoped<IAsignaturaRepository, AsignaturaRepository>();
 builder.Services.AddScoped<CreateAsignaturaService>();
+builder.Services.AddScoped<GetAsignaturaByIdService>();
+builder.Services.AddScoped<GetAsignaturasService>();
+builder.Services.AddScoped<DeleteAsignaturaService>();
 
 //OpenAPI + Controladores
 builder.Services.AddControllers();
