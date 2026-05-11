@@ -23,7 +23,8 @@ namespace SOEA.Domain.Entities
                 throw new ArgumentException("El código de la asignatura no puede estar vacío.");
             if(bloquesSemanales <= 0)
                 throw new ArgumentException("El número de bloques semanales debe ser un valor positivo.");
-
+            // TODO: Definir BloquesSemanales máximo con stakeholders
+            // TODO: Código de asignatura: longitud/formato específicos?
 
             Id = id;
             Nombre = nombre;
@@ -34,9 +35,6 @@ namespace SOEA.Domain.Entities
             ProgramaId = programaId;
 
         }
-        public abstract class BaseEntity
-        {
-            public Guid Id { get; protected set; }
-        }
+        
     }
 }
