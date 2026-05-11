@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SOEA.Domain\SOEA.Domain.csproj" />
-    <ProjectReference Include="..\SOEA.Application\SOEA.Application.csproj" />
 
   </ItemGroup>
 
