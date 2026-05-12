@@ -4,7 +4,7 @@ using SOEA.Domain.Entities;
 
 namespace SOEA.Domain.Interfaces
 {
-    public interface IScheduleRepository
+    public interface IHorarioRepositorio
     {
         Task<Horario?> GetByIdAsync(Guid id);
         Task<Horario?> GetBySemestreAsync(string semestre);

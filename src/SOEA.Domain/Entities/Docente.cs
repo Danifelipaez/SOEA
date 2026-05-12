@@ -8,7 +8,7 @@ namespace SOEA.Domain.Entities
     /// Docente que imparte sesiones académicas.
     /// Valida: correo único, disponibilidad horaria, máximo de horas semanales contratadas.
     /// </summary>
-    public class Docente : BaseEntity
+    public class Docente : EntidadBase
     {
         public string Nombre { get; private set; } = "";
         public string Apellido { get; private set; } = "";

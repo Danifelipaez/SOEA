@@ -7,7 +7,7 @@ namespace SOEA.Domain.Entities
     /// Grupo de estudiantes para una asignatura en un semestre.
     /// Valida: nombre no vacío, semestre ∈ [1,10], estudiantes inscritos > 0.
     /// </summary>
-    public class Grupo : BaseEntity
+    public class Grupo : EntidadBase
     {
         public string Nombre { get; private set; } = "";
         public Guid ProgramaId { get; private set; }
