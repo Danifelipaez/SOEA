@@ -2,21 +2,12 @@ using SOEA.Domain.Entities;
 
 namespace SOEA.Domain.Interfaces
 {
-    public interface IAsignaturaRepository
+    /// <summary>
+    /// Repositorio de Asignatura. Hereda CRUD base de IRepository.
+    /// Agregar aquí solo métodos específicos de Asignatura (ej: GetByCodigoAsync).
+    /// </summary>
+    public interface IAsignaturaRepository : IRepository<Asignatura>
     {
-        // Agrega nueva Asignatura a la DB
-        Task AddAsync(Asignatura asignatura);
-        
-        // Obtiene una Asignatura por su ID
-        Task<Asignatura?> GetByIdAsync(Guid id);
-        
-        // Obtiene todas las Asignaturas
-        Task<List<Asignatura>> GetAllAsync();
-        
-        // Actualiza una Asignatura existente
-        Task UpdateAsync(Asignatura asignatura);
-        
-        // Elimina una Asignatura por su ID
-        Task DeleteAsync(Guid id);
+        Task<Asignatura?> GetByCodigoAsync(string codigo);
     }
 }
