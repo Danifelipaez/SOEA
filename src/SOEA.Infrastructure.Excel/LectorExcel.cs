@@ -6,22 +6,27 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace SOEA.Infrastructure.Excel
 {
     public class LectorExcel : ILectorExcel
     {
-        public LectorExcel()
+        private readonly ILogger<LectorExcel> _logger;
+
+        public LectorExcel(ILogger<LectorExcel> logger)
         {
+            _logger = logger;
             // La licencia se configura en el DependencyInjection
         }
 
-        public async Task<IEnumerable<Asignatura>> LeerCurriculumAsync(Stream excelStream)
+        public async Task<IEnumerable<Asignatura>> LeerCurriculumAsync(Stream flujoExcel)
         {
+            _logger.LogInformation("Iniciando lectura del currículum (Asignaturas) desde archivo Excel.");
             var asignaturas = new List<Asignatura>();
 
-            using var paquete = new ExcelPackage(excelStream);
-            await paquete.LoadAsync(excelStream);
+            using var paquete = new ExcelPackage(flujoExcel);
+            await paquete.LoadAsync(flujoExcel);
 
             var hojaTrabajo = paquete.Workbook.Worksheets[0]; // Asumimos la primera hoja
             var cantidadFilas = hojaTrabajo.Dimension?.Rows ?? 0;
@@ -47,15 +52,17 @@ namespace SOEA.Infrastructure.Excel
                 asignaturas.Add(asignatura);
             }
 
+            _logger.LogInformation("Lectura finalizada. Se encontraron {Cantidad} asignaturas válidas.", asignaturas.Count);
             return asignaturas;
         }
 
-        public async Task<IEnumerable<Docente>> LeerDisponibilidadDocentesAsync(Stream excelStream)
+        public async Task<IEnumerable<Docente>> LeerDisponibilidadDocentesAsync(Stream flujoExcel)
         {
+            _logger.LogInformation("Iniciando lectura de disponibilidad de docentes desde archivo Excel.");
             var docentes = new List<Docente>();
 
-            using var paquete = new ExcelPackage(excelStream);
-            await paquete.LoadAsync(excelStream);
+            using var paquete = new ExcelPackage(flujoExcel);
+            await paquete.LoadAsync(flujoExcel);
 
             var hojaTrabajo = paquete.Workbook.Worksheets[0];
             var cantidadFilas = hojaTrabajo.Dimension?.Rows ?? 0;
@@ -78,15 +85,17 @@ namespace SOEA.Infrastructure.Excel
                 docentes.Add(docente);
             }
 
+            _logger.LogInformation("Lectura finalizada. Se encontraron {Cantidad} docentes válidos.", docentes.Count);
             return docentes;
         }
 
-        public async Task<IEnumerable<Espacio>> LeerInventarioEspaciosAsync(Stream excelStream)
+        public async Task<IEnumerable<Espacio>> LeerInventarioEspaciosAsync(Stream flujoExcel)
         {
+            _logger.LogInformation("Iniciando lectura del inventario de espacios físicos desde archivo Excel.");
             var espacios = new List<Espacio>();
 
-            using var paquete = new ExcelPackage(excelStream);
-            await paquete.LoadAsync(excelStream);
+            using var paquete = new ExcelPackage(flujoExcel);
+            await paquete.LoadAsync(flujoExcel);
 
             var hojaTrabajo = paquete.Workbook.Worksheets[0];
             var cantidadFilas = hojaTrabajo.Dimension?.Rows ?? 0;
@@ -111,6 +120,7 @@ namespace SOEA.Infrastructure.Excel
                 espacios.Add(espacio);
             }
 
+            _logger.LogInformation("Lectura finalizada. Se encontraron {Cantidad} espacios válidos.", espacios.Count);
             return espacios;
         }
     }
