@@ -23,7 +23,7 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasMaxLength(50)
                 .IsRequired();
 
-            builder.Property(h => h.GeneratedAt)
+            builder.Property(h => h.GeneradoEn)
                 .HasColumnName("generated_at")
                 .IsRequired();
 
@@ -39,12 +39,12 @@ namespace SOEA.Infrastructure.Data.Configurations
                     v => System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new())
                 .IsRequired();
 
-            builder.Property(h => h.HardConstraintViolations)
+            builder.Property(h => h.ViolacionesRestriccionesDuras)
                 .HasColumnName("hard_constraint_violations")
                 .IsRequired()
                 .HasDefaultValue(0);
 
-            builder.Property(h => h.SoftConstraintFitnessScore)
+            builder.Property(h => h.PuntajeFitness)
                 .HasColumnName("soft_constraint_fitness_score")
                 .HasPrecision(10, 4)
                 .IsRequired()
@@ -57,7 +57,7 @@ namespace SOEA.Infrastructure.Data.Configurations
             builder.HasIndex(h => h.Estado)
                 .HasDatabaseName("ix_horario_estado");
 
-            builder.HasIndex(h => h.GeneratedAt)
+            builder.HasIndex(h => h.GeneradoEn)
                 .HasDatabaseName("ix_horario_generated_at");
         }
     }

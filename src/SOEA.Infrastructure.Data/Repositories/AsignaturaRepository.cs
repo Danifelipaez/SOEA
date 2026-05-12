@@ -5,7 +5,7 @@ using SOEA.Infrastructure.Data.Context;
 
 namespace SOEA.Infrastructure.Data.Repositories
 {
-    public class AsignaturaRepository : BaseRepository<Asignatura>, IAsignaturaRepository
+    public class AsignaturaRepository : BaseRepository<Asignatura>, IAsignaturaRepositorio
     {
         public AsignaturaRepository(SOEABdContext context) : base(context) { }
 

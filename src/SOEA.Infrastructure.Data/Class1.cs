@@ -1,4 +1,4 @@
-﻿namespace SOEA.Infrastructure.Data;
+namespace SOEA.Infrastructure.Data;
 
 public class BaseInfraestructuraDatos
 {

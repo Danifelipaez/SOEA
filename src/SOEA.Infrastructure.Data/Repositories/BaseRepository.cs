@@ -9,11 +9,11 @@ using System.Threading.Tasks;
 namespace SOEA.Infrastructure.Data.Repositories
 {
     /// <summary>
-    /// Implementación base de IRepository<T> con EF Core.
+    /// Implementación base de IRepositorio<T> con EF Core.
     /// Todos los repositorios de SOEA heredan de aquí.
     /// Para agregar métodos específicos: sobrescribir o agregar en el repositorio hijo.
     /// </summary>
-    public abstract class BaseRepository<T> : IRepository<T> where T : BaseEntity
+    public abstract class BaseRepository<T> : IRepositorio<T> where T : EntidadBase
     {
         protected readonly SOEABdContext _context;
         protected readonly DbSet<T> _dbSet;

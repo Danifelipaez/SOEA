@@ -1,4 +1,4 @@
-﻿namespace SOEA.Tests;
+namespace SOEA.Tests;
 
 public class PruebaInicial
 {

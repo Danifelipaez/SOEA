@@ -1,4 +1,4 @@
-﻿namespace SOEA.Engine.ConstraintProg;
+namespace SOEA.Engine.ConstraintProg;
 
 public class BaseProgramacionRestricciones
 {

@@ -1,4 +1,4 @@
-﻿namespace SOEA.Engine.Genetic;
+namespace SOEA.Engine.Genetic;
 
 public class BaseMotorGenetico
 {

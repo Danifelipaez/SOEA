@@ -1,4 +1,4 @@
-﻿namespace SOEA.Engine.GraphColoring;
+namespace SOEA.Engine.GraphColoring;
 
 public class BaseColoracionGrafica
 {
