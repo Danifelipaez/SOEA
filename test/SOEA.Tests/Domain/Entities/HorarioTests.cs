@@ -21,8 +21,8 @@ namespace SOEA.Tests.Domain.Entities
             Assert.Equal(_validId, horario.Id);
             Assert.Equal("2024-I", horario.Semestre);
             Assert.Equal(_validSesionIds, horario.SesioneIds);
-            Assert.Equal(0, horario.HardConstraintViolations);
-            Assert.Equal(85.5m, horario.SoftConstraintFitnessScore);
+            Assert.Equal(0, horario.ViolacionesRestriccionesDuras);
+            Assert.Equal(85.5m, horario.PuntajeFitness);
             Assert.Equal(EstadoHorario.Borrador, horario.Estado);
         }
 
@@ -104,7 +104,7 @@ namespace SOEA.Tests.Domain.Entities
             horario.ActualizarFitnessScore(95.75m);
 
             // Assert
-            Assert.Equal(95.75m, horario.SoftConstraintFitnessScore);
+            Assert.Equal(95.75m, horario.PuntajeFitness);
         }
 
         [Theory]
@@ -164,7 +164,7 @@ namespace SOEA.Tests.Domain.Entities
             var afterCreation = DateTime.UtcNow;
 
             // Assert
-            Assert.True(beforeCreation <= horario.GeneratedAt && horario.GeneratedAt <= afterCreation);
+            Assert.True(beforeCreation <= horario.GeneradoEn && horario.GeneradoEn <= afterCreation);
         }
 
         [Fact]
@@ -184,8 +184,8 @@ namespace SOEA.Tests.Domain.Entities
             var horario = new Horario(_validId, "2024-I", _validSesionIds);
 
             // Assert
-            Assert.Equal(0, horario.HardConstraintViolations);
-            Assert.Equal(0m, horario.SoftConstraintFitnessScore);
+            Assert.Equal(0, horario.ViolacionesRestriccionesDuras);
+            Assert.Equal(0m, horario.PuntajeFitness);
         }
     }
 }

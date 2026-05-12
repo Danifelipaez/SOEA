@@ -7,7 +7,7 @@ namespace SOEA.Domain.Entities
     /// Sesión académica: ocurrencia de una asignatura para un grupo/cohorte en un bloque de tiempo.
     /// Persistida como relación entre Asignatura, Docente, BloqueTiempo, Espacio (nullable), Grupo (nullable).
     /// </summary>
-    public class Sesion : BaseEntity
+    public class Sesion : EntidadBase
     {
         public Guid AsignaturaId { get; private set; }
         public Guid DocenteId { get; private set; }

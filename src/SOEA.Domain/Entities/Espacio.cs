@@ -8,7 +8,7 @@ namespace SOEA.Domain.Entities
     /// Valida: capacidad > 0, tipo de espacio.
     /// Sesiones virtuales: SpaceId = null, sin fila persistida en Espacio.
     /// </summary>
-    public class Espacio : BaseEntity
+    public class Espacio : EntidadBase
     {
         public string Nombre { get; private set; } = "";
         public TipoEspacio Tipo { get; private set; }

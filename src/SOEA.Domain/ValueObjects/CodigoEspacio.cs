@@ -6,11 +6,11 @@ namespace SOEA.Domain.ValueObjects
     /// Objeto de valor que representa el código de un espacio físico (aula, laboratorio, etc.).
     /// Encapsula la validación y el formato.
     /// </summary>
-    public record SpaceCode
+    public record CodigoEspacio
     {
         public string Value { get; init; }
 
-        public SpaceCode(string value)
+        public CodigoEspacio(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
                 throw new ArgumentException("El código de espacio no puede estar vacío o compuesto solo por espacios.", nameof(value));

@@ -8,7 +8,7 @@ namespace SOEA.Domain.Entities
     /// Representa un intervalo de tiempo en un día específico (ej: lunes 09:00-11:00).
     /// Validado: horaInicio < horaFin, ambas dentro de rango institucional [07:00-21:30].
     /// </summary>
-    public class BloqueTiempo : BaseEntity
+    public class BloqueTiempo : EntidadBase
     {
         public DiaDeSemana Dia { get; private set; }
         public TimeOnly HoraInicio { get; private set; }

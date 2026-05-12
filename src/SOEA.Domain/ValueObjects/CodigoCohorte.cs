@@ -6,11 +6,11 @@ namespace SOEA.Domain.ValueObjects
     /// Objeto de valor que representa el código de una cohorte o grupo.
     /// Encapsula las reglas de formato y validación para asegurar que siempre tenga un estado válido.
     /// </summary>
-    public record CohortCode
+    public record CodigoCohorte
     {
         public string Value { get; init; }
 
-        public CohortCode(string value)
+        public CodigoCohorte(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
                 throw new ArgumentException("El código de la cohorte no puede estar vacío o compuesto solo por espacios.", nameof(value));

@@ -6,7 +6,7 @@ namespace SOEA.Domain.Interfaces
     /// Repositorio de Asignatura. Hereda CRUD base de IRepository.
     /// Agregar aquí solo métodos específicos de Asignatura (ej: GetByCodigoAsync).
     /// </summary>
-    public interface IAsignaturaRepository : IRepository<Asignatura>
+    public interface IAsignaturaRepositorio : IRepositorio<Asignatura>
     {
         Task<Asignatura?> GetByCodigoAsync(string codigo);
     }

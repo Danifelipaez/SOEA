@@ -2,7 +2,7 @@ using SOEA.Domain.Enums;
 
 namespace SOEA.Domain.ValueObjects
 {
-    public class TimeSlop
+    public class IntervaloTiempo
     {
         // Constantes de restricción de tiempo
         private static readonly TimeOnly EmpiezaHraLabor = new(7, 0);      // 07:00
@@ -13,10 +13,10 @@ namespace SOEA.Domain.ValueObjects
         public DiaDeSemana Dia { get; private set; }
         public TimeOnly HoraInicio { get; private set; }
         public TimeOnly HoraFin { get; private set; }
-        private TimeSlop() { } //EF Core
+        private IntervaloTiempo() { } //EF Core
         
         
-        public TimeSlop(Guid id, DiaDeSemana dia, TimeOnly horaInicio, TimeOnly horaFin)
+        public IntervaloTiempo(Guid id, DiaDeSemana dia, TimeOnly horaInicio, TimeOnly horaFin)
         {
             // HC-T01: Las sesiones deben estar dentro del horario de operación
             if (horaInicio < EmpiezaHraLabor)
@@ -45,7 +45,7 @@ namespace SOEA.Domain.ValueObjects
             var duracion = HoraFin - HoraInicio;
             return (decimal)duracion.TotalHours;
         }
-        public bool SuperponeCon(TimeSlop otraFranja)
+        public bool SuperponeCon(IntervaloTiempo otraFranja)
         {
             if (otraFranja == null) throw new ArgumentNullException(nameof(otraFranja));
             if (this.Dia != otraFranja.Dia) return false; // Solo se superponen si son el mismo día
@@ -77,7 +77,7 @@ namespace SOEA.Domain.ValueObjects
         }
         public override bool Equals(object? obj)
         {
-            if (obj is not TimeSlop other)
+            if (obj is not IntervaloTiempo other)
                 return false;
 
             return this.Id == other.Id

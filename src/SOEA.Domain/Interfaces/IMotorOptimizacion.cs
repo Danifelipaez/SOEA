@@ -3,7 +3,7 @@ using SOEA.Domain.Entities;
 
 namespace SOEA.Domain.Interfaces
 {
-    public interface IOptimizationEngine
+    public interface IMotorOptimizacion
     {
         /// <summary>
         /// Ejecuta el proceso de optimización para generar un horario.

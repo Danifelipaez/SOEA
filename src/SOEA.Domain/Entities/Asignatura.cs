@@ -7,7 +7,7 @@ namespace SOEA.Domain.Entities
     /// Asignatura académica de la malla curricular.
     /// Duración fija: el algoritmo la lee, nunca la modifica (decisión inamovible).
     /// </summary>
-    public class Asignatura : BaseEntity
+    public class Asignatura : EntidadBase
     {
         public string Nombre { get; private set; } = "";
         public string Codigo { get; private set; } = "";

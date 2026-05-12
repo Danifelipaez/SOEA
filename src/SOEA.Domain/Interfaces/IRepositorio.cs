@@ -9,7 +9,7 @@ namespace SOEA.Domain.Interfaces
     /// Contrato base para todos los repositorios del dominio.
     /// Cada entidad implementa este contrato y puede extenderlo con métodos específicos.
     /// </summary>
-    public interface IRepository<T> where T : BaseEntity
+    public interface IRepositorio<T> where T : EntidadBase
     {
         Task AddAsync(T entity);
         Task<T?> GetByIdAsync(Guid id);
