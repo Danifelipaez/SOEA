@@ -4,9 +4,9 @@ namespace SOEA.Application.Features.Asignaturas
 {
     public class DeleteAsignaturaService
     {
-        private readonly IAsignaturaRepository _repository;
+        private readonly IAsignaturaRepositorio _repository;
 
-        public DeleteAsignaturaService(IAsignaturaRepository repository)
+        public DeleteAsignaturaService(IAsignaturaRepositorio repository)
         {
             _repository = repository;
         }

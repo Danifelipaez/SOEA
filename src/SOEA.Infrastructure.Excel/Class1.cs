@@ -1,4 +1,4 @@
-﻿namespace SOEA.Infrastructure.Excel;
+namespace SOEA.Infrastructure.Excel;
 
 public class BaseInfraestructuraExcel
 {
