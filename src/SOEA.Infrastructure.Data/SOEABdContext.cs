@@ -12,7 +12,7 @@ namespace SOEA.Infrastructure.Data.Context
         public DbSet<Sesion>     Sesiones    { get; set; }
         public DbSet<BloqueTiempo> BloqueTiempos { get; set; }
         public DbSet<Horario>    Horarios    { get; set; }
-        // Grupo se agrega en el siguiente ciclo cuando la entidad esté completa
+        public DbSet<Grupo>      Grupos      { get; set; }
 
         public SOEABdContext(DbContextOptions<SOEABdContext> options) : base(options) { }
 
@@ -27,7 +27,7 @@ namespace SOEA.Infrastructure.Data.Context
             modelBuilder.ApplyConfiguration(new BloqueTiempoConfiguration());
             modelBuilder.ApplyConfiguration(new SesionConfiguration());
             modelBuilder.ApplyConfiguration(new HorarioConfiguration());
-            // Agregar aquí: GrupoConfiguration, etc.
+            modelBuilder.ApplyConfiguration(new GrupoConfiguration());
         }
     }
 }
