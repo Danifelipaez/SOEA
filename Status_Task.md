@@ -50,8 +50,8 @@ El proyecto SOEA se encuentra en desarrollo con una **estructura de Clean Archit
   - Objetos de valor (`TimeSlop`, `CohortCode`, `SpaceCode`) (Completado)
 
 - [x] **Interfaces de dominio (puertos)**
-  - [x] `IScheduleRepository`
-  - [x] `IOptimizationEngine`
+  - [x] `IHorarioRepositorio`
+  - [x] `IMotorOptimizacion`
   - [ ] Otras interfaces necesarias
 
 - [ ] **Pruebas unitarias del dominio**
@@ -61,10 +61,10 @@ El proyecto SOEA se encuentra en desarrollo con una **estructura de Clean Archit
 
 ### Fase 2 - Ingesta de Datos
 - [ ] `SOEA.Infrastructure.Data` - No creado aún (solo esqueleto)
-- [ ] `SOEA.Infrastructure.Excel` - Solo `Class1.cs`
-  - [ ] `CurriculumExcelReader`
-  - [ ] `InstructorAvailabilityReader`
-  - [ ] `SpaceInventoryReader`
+- [ ] `SOEA.Infrastructure.Excel` - Implementación inicial
+  - [ ] `LectorCurriculumExcel`
+  - [ ] `LectorDisponibilidadDocentes`
+  - [ ] `LectorInventarioEspacios`
   - [ ] Mapeadores Excel → Dominio
   - [ ] Validaciones de ingesta
 
@@ -84,22 +84,22 @@ El proyecto SOEA se encuentra en desarrollo con una **estructura de Clean Archit
   - [ ] Codificación de restricciones duras
 
 - [ ] `SOEA.Engine.Genetic` - Solo `Class1.cs`
-  - [ ] `ScheduleChromosome`
-  - [ ] `FitnessEvaluator`
-  - [ ] `GeneticScheduleOptimizer`
+  - [ ] `CromosomaHorario`
+  - [ ] `EvaluadorFitness`
+  - [ ] `OptimizadorGeneticoHorario`
 
 ### Fase 6 - Application
 - [ ] `SOEA.Application` - Solo esqueletos
-  - [ ] `GenerateScheduleCommand` + Handler
-  - [ ] `ScheduleOptimizationPipeline`
-  - [ ] `ConstraintValidator`
-  - [ ] `IngestExcelCommand` + Handler
-  - [ ] DTOs (`HorarioDto`, `SessionDto`, etc.)
+  - [ ] `GenerarHorarioCommand` + Handler
+  - [ ] `PipelineOptimizacionHorario`
+  - [ ] `ValidadorRestricciones`
+  - [ ] `IngestarExcelCommand` + Handler
+  - [ ] DTOs (`HorarioDto`, `SesionDto`, etc.)
 
 ### Fase 7 - API
 - [ ] `SOEA.API` - Solo controlador skeleton
-  - [ ] `ScheduleController`
-  - [ ] `IngestionController`
+  - [ ] `HorarioController`
+  - [ ] `IngestaController`
   - [ ] JWT + Autorización basada en roles
   - [ ] Swagger/OpenAPI
 
@@ -145,8 +145,8 @@ El proyecto SOEA se encuentra en desarrollo con una **estructura de Clean Archit
    - `SpaceCode` - Código de espacio
 
 3. **Definir interfaces de dominio (puertos)**
-   - `IScheduleRepository` 
-   - `IOptimizationEngine`
+   - `IHorarioRepositorio` 
+   - `IMotorOptimizacion`
 
 4. **Escribir pruebas unitarias**
    - Tests para cada invariante de entidad

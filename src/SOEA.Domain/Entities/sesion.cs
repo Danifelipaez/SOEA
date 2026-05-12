@@ -52,6 +52,20 @@ namespace SOEA.Domain.Entities
             Estado = EstadoSesion.Pendiente;
         }
 
+        public void AsignarBloqueTiempo(Guid bloqueTiempoId)
+        {
+            if (bloqueTiempoId == Guid.Empty)
+                throw new ArgumentException("El bloque de tiempo asignado no puede ser vacío.");
+            
+            BloqueTiempoId = bloqueTiempoId;
+            Estado = EstadoSesion.Asignada;
+        }
+
+        public void MarcarConConflicto()
+        {
+            Estado = EstadoSesion.Conflicto;
+        }
+
         private static void Validar(Guid asignaturaId, Guid docenteId, Guid bloqueId, decimal duracionHoras, bool esBloque, bool estaDividida)
         {
             if (asignaturaId == Guid.Empty)
