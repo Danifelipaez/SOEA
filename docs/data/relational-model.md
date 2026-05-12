@@ -28,7 +28,7 @@ Todas las tablas del esquema de base de datos de producción.
 | `Name` | nvarchar(200) | NOT NULL |
 | `Code` | nvarchar(20) | NOT NULL, UNIQUE |
 
-### `Cohorts`
+### `Groups`
 | Columna | Tipo | Restricciones |
 |---|---|---|
 | `Id` | uniqueidentifier | PK |
@@ -90,7 +90,7 @@ Las sesiones virtuales se representan con `Session.SpaceId = NULL`; no requieren
 | `Id` | uniqueidentifier | PK |
 | `ScheduleId` | uniqueidentifier | FK → Schedules.Id |
 | `SubjectId` | uniqueidentifier | FK → Subjects.Id |
-| `CohortId` | uniqueidentifier | FK → Cohorts.Id |
+| `GrupoId` | uniqueidentifier | NULL, FK → Groups.Id |
 | `InstructorId` | uniqueidentifier | FK → Instructors.Id |
 | `SpaceId` | uniqueidentifier | NULL, FK → Spaces.Id |
 | `TimeSlotId` | uniqueidentifier | FK → TimeSlots.Id |
@@ -104,10 +104,10 @@ Las sesiones virtuales se representan con `Session.SpaceId = NULL`; no requieren
 
 ## Índices
 
-- `Sessions(CohortId, TimeSlotId)` — detección de conflictos
+- `Sessions(GrupoId, TimeSlotId)` — detección de conflictos
 - `Sessions(InstructorId, TimeSlotId)` — detección de conflictos
 - `Sessions(SpaceId, TimeSlotId)` — detección de conflictos
-- `Cohorts(ProgramId)` — consultas por programa
+- `Groups(ProgramId)` — consultas por programa
 - `Subjects(ProgramId)` — consultas de malla curricular
 
 ---

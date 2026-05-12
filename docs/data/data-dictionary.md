@@ -18,7 +18,7 @@ La unidad programable central: una ocurrencia de una asignatura para una cohorte
 |---|---|---|---|---|
 | `Id` | GUID | Sí | Identificador único | Generado automáticamente |
 | `SubjectId` | GUID | Sí | Referencia a Subject | Debe existir en la tabla Subject |
-| `CohortId` | GUID | Sí | Referencia a Cohort | Debe existir en la tabla Cohort |
+| `GrupoId` | GUID | No | Referencia a Grupo (null para sesiones de todo el programa) | Debe existir en la tabla Grupo, o null |
 | `InstructorId` | GUID | Sí | Referencia a Instructor | Debe existir en la tabla Instructor |
 | `SpaceId` | GUID | No | Espacio asignado (null si es virtual) | Debe existir en la tabla Space |
 | `TimeSlotId` | GUID | Sí | Espacio de tiempo asignado | Debe existir en la tabla TimeSlot |
@@ -31,14 +31,15 @@ La unidad programable central: una ocurrencia de una asignatura para una cohorte
 
 ---
 
-## Cohorte
+## Grupo
 
-Grupo de estudiantes inscritos en el mismo programa y semestre.
+Agrupación opcional de estudiantes para programación de sesiones (piloto de química).
+Las sesiones pueden asignarse a un Grupo específico o a todo el programa (GrupoId = null).
 
 | Campo | Tipo | Requerido | Descripción | Valores permitidos |
 |---|---|---|---|---|
 | `Id` | GUID | Sí | Identificador único | Generado automáticamente |
-| `Name` | string | Sí | Nombre visible de la cohorte | Por ejemplo, "Systems Engineering — Sem 3" |
+| `Name` | string | Sí | Nombre visible del grupo | Por ejemplo, "Química Lab A", "Grupo 1" |
 | `ProgramId` | GUID | Sí | Programa académico | Debe existir en la tabla Program |
 | `Semester` | int | Sí | Número de semestre académico | 1–10 |
 | `EnrolledStudents` | int | Sí | Número de estudiantes inscritos | > 0 |

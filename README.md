@@ -76,7 +76,7 @@ Empieza aquí cuando trabajes en una nueva funcionalidad o le pidas ayuda a Copi
 
 ### `SOEA.Domain`
 Conceptos centrales del negocio sin dependencias externas.
-- Entidades: `Sesion`, `Cohorte`, `Espacio`, `Docente`, `TimeSlot`, `Horario`
+- Entidades: `Sesion`, `Grupo`, `Espacio`, `Docente`, `BloqueTiempo`, `Horario`
 - Objetos de valor y enumeraciones: `TipoAlternancia`, `ConstraintWeight`, `EstadoSesion`
 - Interfaces de dominio (puertos) implementadas por Infrastructure
 - Invariantes de negocio (por ejemplo, una sesión no puede exceder su duración permitida)

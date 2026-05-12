@@ -73,6 +73,24 @@ Contiene:
 
 ---
 
+## Patrón BaseRepository
+
+Todos los repositorios de SOEA heredan de `BaseRepository<T>`.  
+Para agregar un nuevo repositorio:
+
+1. Crear interfaz `I[Entidad]Repository : IRepository<[Entidad]>` en `SOEA.Domain/Interfaces/`
+2. Crear clase `[Entidad]Repository : BaseRepository<[Entidad]>, I[Entidad]Repository` en `SOEA.Infrastructure.Data/Repositories/`
+3. Registrar en `Program.cs`: `builder.Services.AddScoped<I[Entidad]Repository, [Entidad]Repository>()`
+4. Crear `[Entidad]Configuration : IEntityTypeConfiguration<[Entidad]>` en `SOEA.Infrastructure.Data/Configurations/`
+5. Aplicar en `SOEABdContext.OnModelCreating`: `modelBuilder.ApplyConfiguration(new [Entidad]Configuration())`
+
+**Ventajas:**
+- CRUD base centralizado en `BaseRepository<T>`
+- Interfaces genéricas `IRepository<T>` reutilizables
+- Métodos específicos de cada entidad se definen solo en repositorios hijo
+
+---
+
 ### `SOEA.Infrastructure.Excel`
 **Ruta**: `src/SOEA.Infrastructure.Excel/`
 **Responsabilidad**: Leer datos institucionales desde archivos Excel usando EPPlus.
