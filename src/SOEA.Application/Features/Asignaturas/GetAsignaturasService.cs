@@ -5,9 +5,9 @@ namespace SOEA.Application.Features.Asignaturas
 {
     public class GetAsignaturasService
     {
-        private readonly IAsignaturaRepository _repository;
+        private readonly IAsignaturaRepositorio _repository;
 
-        public GetAsignaturasService(IAsignaturaRepository repository)
+        public GetAsignaturasService(IAsignaturaRepositorio repository)
         {
             _repository = repository;
         }

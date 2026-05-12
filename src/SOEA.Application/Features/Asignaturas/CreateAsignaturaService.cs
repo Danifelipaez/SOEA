@@ -6,8 +6,8 @@ using SOEA.Application.Features.Asignaturas.Responses;
 namespace SOEA.Application.Features.Asignaturas;
 public class CreateAsignaturaService
 {
-    private readonly IAsignaturaRepository _repository;
-    public CreateAsignaturaService(IAsignaturaRepository repository)
+    private readonly IAsignaturaRepositorio _repository;
+    public CreateAsignaturaService(IAsignaturaRepositorio repository)
     {
         _repository = repository;
     }
