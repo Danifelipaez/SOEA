@@ -69,8 +69,8 @@ namespace SOEA.Domain.ValueObjects
         }
         public bool EsValidaParaLaboratorio()
         {
-            // HC-T02: Las sesiones en laboratorio no pueden extenderse más allá de las 19:30
-            if (HoraFin > MaxHraEnLab)
+            // HC-T02: Las sesiones en laboratorio no pueden comenzar después de las 19:30
+            if (HoraInicio > MaxHraEnLab)
                 return false;
 
             return EsValida(); // También debe cumplir con las validaciones generales

@@ -14,7 +14,7 @@ builder.Services.AddDbContext<SOEABdContext>(options =>
     options.UseNpgsql(ConnectionString));
 
 //Inyeccion de dependencias
-builder.Services.AddScoped<IAsignaturaRepository, AsignaturaRepository>();
+builder.Services.AddScoped<IAsignaturaRepositorio, AsignaturaRepository>();
 builder.Services.AddScoped<CreateAsignaturaService>();
 builder.Services.AddScoped<GetAsignaturaByIdService>();
 builder.Services.AddScoped<GetAsignaturasService>();
