@@ -47,11 +47,11 @@ El proyecto SOEA se encuentra en desarrollo con una **estructura de Clean Archit
   - Lógica de validación robusta
   - Propiedades navegacionales y relaciones
   - Métodos de comportamiento
-  - Objetos de valor (p. ej., `TimeRange`, `CohortCode`)
+  - Objetos de valor (`TimeSlop`, `CohortCode`, `SpaceCode`) (Completado)
 
-- [ ] **Interfaces de dominio (puertos)**
-  - [ ] `IScheduleRepository`
-  - [ ] `IOptimizationEngine`
+- [x] **Interfaces de dominio (puertos)**
+  - [x] `IScheduleRepository`
+  - [x] `IOptimizationEngine`
   - [ ] Otras interfaces necesarias
 
 - [ ] **Pruebas unitarias del dominio**
@@ -113,7 +113,7 @@ El proyecto SOEA se encuentra en desarrollo con una **estructura de Clean Archit
 | Fase | Tarea | % Completado | Prioridad |
 |------|-------|-------------|-----------|
 | 0 | Configuración | 90% | - |
-| 1 | Modelo de Dominio | 15% | 🔴 **CRÍTICA** |
+| 1 | Modelo de Dominio | 60% | 🔴 **CRÍTICA** |
 | 2 | Ingesta de Datos | 0% | 🔴 **CRÍTICA** |
 | 3-5 | Motores | 0% | 🟡 **ALTA** |
 | 6 | Application | 5% | 🟡 **ALTA** |
@@ -121,7 +121,7 @@ El proyecto SOEA se encuentra en desarrollo con una **estructura de Clean Archit
 | 8 | Frontend | 0% | 🟡 **MEDIA** |
 | 9 | Validación Piloto | 0% | 🟡 **MEDIA** |
 
-**Estimado Total**: ~15% del proyecto
+**Estimado Total**: ~20% del proyecto
 
 ---
 
