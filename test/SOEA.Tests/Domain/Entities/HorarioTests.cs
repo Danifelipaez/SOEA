@@ -41,7 +41,7 @@ namespace SOEA.Tests.Domain.Entities
         {
             // Act & Assert
             var ex = Assert.Throws<ArgumentException>(() =>
-                new Horario(_validId, "2024-I", null));
+                new Horario(_validId, "2024-I", null!));
             
             Assert.Contains("sesión", ex.Message.ToLower());
         }

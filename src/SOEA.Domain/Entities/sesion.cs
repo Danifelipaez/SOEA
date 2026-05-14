@@ -37,7 +37,7 @@ namespace SOEA.Domain.Entities
             bool esBloque,
             bool estaDividida) : base(id)
         {
-            Validar(asignaturaId, docenteId, bloqueId, duracionHoras, esBloque, estaDividida);
+            Validar(asignaturaId, docenteId, duracionHoras, esBloque, estaDividida);
 
             AsignaturaId = asignaturaId;
             DocenteId = docenteId;
@@ -66,14 +66,12 @@ namespace SOEA.Domain.Entities
             Estado = EstadoSesion.Conflicto;
         }
 
-        private static void Validar(Guid asignaturaId, Guid docenteId, Guid bloqueId, decimal duracionHoras, bool esBloque, bool estaDividida)
+        private static void Validar(Guid asignaturaId, Guid docenteId, decimal duracionHoras, bool esBloque, bool estaDividida)
         {
             if (asignaturaId == Guid.Empty)
                 throw new ArgumentException("El ID de la asignatura no puede ser vacío.");
             if (docenteId == Guid.Empty)
                 throw new ArgumentException("El ID del docente no puede ser vacío.");
-            if (bloqueId == Guid.Empty)
-                throw new ArgumentException("El ID del bloque de tiempo no puede ser vacío.");
             if (duracionHoras <= 0 || duracionHoras > 8)
                 throw new ArgumentException("La duración debe estar entre 0 y 8 horas.");
             if (esBloque && estaDividida)

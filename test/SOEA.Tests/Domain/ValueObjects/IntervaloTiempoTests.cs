@@ -110,26 +110,6 @@ namespace SOEA.Tests.Domain.ValueObjects
 
             // Act & Assert
             Assert.False(slot1.SuperponeCon(slot2));
-        }
-
-        [Fact]
-        public void EsValidaParaLaboratorio_InicioAntesDe1930_RetornaTrue()
-        {
-            // Arrange
-            var timeSlot = new IntervaloTiempo(Guid.NewGuid(), DiaDeSemana.Viernes, new TimeOnly(18, 0), new TimeOnly(21, 30));
-
-            // Act & Assert
-            Assert.True(timeSlot.EsValidaParaLaboratorio());
-        }
-
-        [Fact]
-        public void EsValidaParaLaboratorio_InicioDespuesDe1930_RetornaFalse()
-        {
-            // Arrange
-            var timeSlot = new IntervaloTiempo(Guid.NewGuid(), DiaDeSemana.Viernes, new TimeOnly(19, 31), new TimeOnly(21, 30));
-
-            // Act & Assert
-            Assert.False(timeSlot.EsValidaParaLaboratorio());
-        }
+        }  
     }
 }

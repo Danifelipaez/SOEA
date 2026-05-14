@@ -51,7 +51,7 @@ namespace SOEA.Tests.Domain.Entities
         {
             // Act & Assert
             Assert.Throws<ArgumentException>(() =>
-                new Docente(_validId, nombre, _validApellido, _validCorreo, _validMaxHoras, _validDisponibilidad));
+                new Docente(_validId, nombre!, _validApellido, _validCorreo, _validMaxHoras, _validDisponibilidad));
         }
 
         public static IEnumerable<object?[]> InvalidApellidoCases => new[]
@@ -87,7 +87,7 @@ namespace SOEA.Tests.Domain.Entities
         {
             // Act & Assert — correo con formato inválido sigue lanzando
             Assert.Throws<ArgumentException>(() =>
-                new Docente(_validId, _validNombre, _validApellido, correo, _validMaxHoras, _validDisponibilidad));
+                new Docente(_validId, _validNombre, _validApellido, correo!, _validMaxHoras, _validDisponibilidad));
         }
 
         [Theory]

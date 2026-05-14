@@ -52,9 +52,9 @@ namespace SOEA.Domain.Entities
         {
             Validar(nombre, apellido, correo, maximoHorasSemanales, Disponibilidad);
 
-            Nombre = nombre;
-            Apellido = apellido;
-            Correo = correo;
+            Nombre = nombre!;
+            Apellido = apellido ?? "";
+            Correo = correo ?? "";
             MaximoHorasSemanales = maximoHorasSemanales;
         }
 

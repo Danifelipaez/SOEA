@@ -87,6 +87,17 @@ namespace SOEA.Infrastructure.Excel
 
                 // 3. Obtener o crear Asignatura (deduplicar por nombre + programa)
                 int duracion = int.TryParse(txtDuracion, out var d) && d > 0 ? d : 2;
+
+                // Si la duración no se especificó claramente y la hora viene en formato rango, inferimos la duración
+                if (string.IsNullOrWhiteSpace(txtDuracion) && (txtHora.Contains('-') || txtHora.Contains('–') || txtHora.Contains('—')))
+                {
+                    if (TryParseRangoHora(txtHora, 2, out var hIni, out var hFin))
+                    {
+                        var dif = (hFin - hIni).TotalHours;
+                        if (dif > 0) duracion = (int)Math.Round(dif);
+                    }
+                }
+
                 var claveAsignatura = (txtAsignatura.ToUpperInvariant(), programa.Id);
 
                 if (!asignaturasDict.ContainsKey(claveAsignatura))
@@ -164,13 +175,12 @@ namespace SOEA.Infrastructure.Excel
                 return null;
             }
 
-            if (!TryParseHora(txtHora, out var horaInicio))
+            if (!TryParseRangoHora(txtHora, duracionHoras, out var horaInicio, out var horaFin))
             {
                 _logger.LogWarning("Fila {Fila}: no se pudo parsear la hora '{Hora}'.", fila, txtHora);
                 return null;
             }
 
-            var horaFin = horaInicio.AddHours(duracionHoras);
             return new BloqueTiempo(Guid.NewGuid(), dia, horaInicio, horaFin);
         }
 
@@ -195,18 +205,43 @@ namespace SOEA.Infrastructure.Excel
             return (int)dia >= 0;
         }
 
-        private static bool TryParseHora(string texto, out TimeOnly hora)
+        private static bool TryParseRangoHora(string texto, int duracionFallback, out TimeOnly horaInicio, out TimeOnly horaFin)
+        {
+            horaInicio = TimeOnly.MinValue;
+            horaFin = TimeOnly.MinValue;
+
+            if (string.IsNullOrWhiteSpace(texto)) return false;
+
+            var partes = texto.Split(new[] { '-', '–', '—' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (partes.Length == 0) return false;
+
+            if (!TryParseHoraUnica(partes[0], out horaInicio))
+                return false;
+
+            if (partes.Length > 1 && TryParseHoraUnica(partes[1], out var hFin))
+            {
+                horaFin = hFin;
+            }
+            else
+            {
+                horaFin = horaInicio.AddHours(duracionFallback);
+            }
+
+            return true;
+        }
+
+        private static bool TryParseHoraUnica(string texto, out TimeOnly hora)
         {
             hora = TimeOnly.MinValue;
             if (string.IsNullOrWhiteSpace(texto)) return false;
 
             // Intentar formatos comunes
-            string[] formatos = { "H:mm", "HH:mm", "h:mm tt", "hh:mm tt", "H", "HH" };
-            if (TimeOnly.TryParseExact(texto.Trim(), formatos, CultureInfo.InvariantCulture, DateTimeStyles.None, out hora))
+            string[] formatos = { "H:mm", "HH:mm", "h:mm tt", "hh:mm tt" };
+            if (TimeOnly.TryParseExact(texto, formatos, CultureInfo.InvariantCulture, DateTimeStyles.None, out hora))
                 return true;
 
             // Último recurso: solo número de hora (ej. "7")
-            if (int.TryParse(texto.Trim(), out var soloHora) && soloHora >= 0 && soloHora <= 23)
+            if (int.TryParse(texto, out var soloHora) && soloHora >= 0 && soloHora <= 23)
             {
                 hora = new TimeOnly(soloHora, 0);
                 return true;

@@ -5,9 +5,8 @@ namespace SOEA.Domain.ValueObjects
     public class IntervaloTiempo
     {
         // Constantes de restricción de tiempo
-        private static readonly TimeOnly EmpiezaHraLabor = new(7, 0);      // 07:00
-        private static readonly TimeOnly TerminaHraLabor = new(21, 30);      // 21:30
-        private static readonly TimeOnly MaxHraEnLab = new(19, 30);     // 19:30 (HC-T02)
+        private static readonly TimeOnly EmpiezaHraLabor = new(6, 0);      // 06:00
+        private static readonly TimeOnly TerminaHraLabor = new(22, 00);      // 22:00
 
         public Guid Id { get; private set; }
         public DiaDeSemana Dia { get; private set; }
@@ -67,14 +66,7 @@ namespace SOEA.Domain.ValueObjects
 
             return true;
         }
-        public bool EsValidaParaLaboratorio()
-        {
-            // HC-T02: Las sesiones en laboratorio no pueden comenzar después de las 19:30
-            if (HoraInicio > MaxHraEnLab)
-                return false;
-
-            return EsValida(); // También debe cumplir con las validaciones generales
-        }
+        
         public override bool Equals(object? obj)
         {
             if (obj is not IntervaloTiempo other)
