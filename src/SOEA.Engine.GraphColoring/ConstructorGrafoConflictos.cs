@@ -47,8 +47,9 @@ namespace SOEA.Engine.GraphColoring
                 return true;
 
             // 2. Mismo Grupo (Cohorte)
-            if (s1.GrupoId.HasValue && s1.GrupoId != Guid.Empty && s1.GrupoId == s2.GrupoId)
-                return true;
+            // Desactivado temporalmente para el piloto (no hay datos de grupo).
+            // if (s1.GrupoId.HasValue && s1.GrupoId != Guid.Empty && s1.GrupoId == s2.GrupoId)
+            //    return true;
 
             // 3. Conflictos de Alternancia (si aplican al mismo espacio físico o lógica compartida)
             // Aquí se valida: TipoA + TipoA chocan. TipoB + TipoB chocan. SinAlternancia choca con cualquiera.

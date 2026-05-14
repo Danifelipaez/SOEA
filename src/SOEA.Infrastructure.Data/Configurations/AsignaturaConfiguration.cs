@@ -50,9 +50,9 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .IsRequired();
 
             // Indexes
-            builder.HasIndex(a => a.Codigo)
+            builder.HasIndex(a => new { a.Codigo, a.ProgramaId })
                 .IsUnique()
-                .HasDatabaseName("ix_asignaturas_codigo");
+                .HasDatabaseName("ix_asignaturas_codigo_programa");
 
             builder.HasIndex(a => a.ProgramaId)
                 .HasDatabaseName("ix_asignaturas_programa_id");

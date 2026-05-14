@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using SOEA.Domain.Enums;
 
 namespace SOEA.Domain.Entities
@@ -42,6 +43,13 @@ namespace SOEA.Domain.Entities
             int sesionesLaboratorioSemestre,
             Guid programaId) : base(id)
         {
+            if (string.IsNullOrWhiteSpace(codigo))
+            {
+                // Generar código dummy único temporal
+                var prefix = string.IsNullOrWhiteSpace(nombre) ? "UNK" : nombre.Substring(0, Math.Min(nombre.Length, 3)).ToUpperInvariant();
+                codigo = $"{prefix}-{Guid.NewGuid().ToString().Substring(0, 5)}";
+            }
+
             Validar(nombre, codigo, horasPorSesion, sesionesPorSemana, programaId);
 
             Nombre = nombre;
@@ -49,7 +57,7 @@ namespace SOEA.Domain.Entities
             HorasPorSesion = horasPorSesion;
             SesionesPorSemana = sesionesPorSemana;
             SesionesLaboratorioSemestre = sesionesLaboratorioSemestre;
-            Alternancia = DeterminarAlternancia(sesionesLaboratorioSemestre);
+            Alternancia = DeterminarAlternancia(nombre);
             ProgramaId = programaId;
         }
 
@@ -64,17 +72,21 @@ namespace SOEA.Domain.Entities
             
             Nombre = nombre;
             SesionesLaboratorioSemestre = sesionesLaboratorioSemestre;
-            Alternancia = DeterminarAlternancia(sesionesLaboratorioSemestre);
+            Alternancia = DeterminarAlternancia(nombre);
         }
 
-        private static TipoAlternancia DeterminarAlternancia(int sesionesLabSemestre)
+        private static TipoAlternancia DeterminarAlternancia(string nombre)
         {
-            if (sesionesLabSemestre == 8)
-                return TipoAlternancia.TipoA;
-            if (sesionesLabSemestre > 8)
+            if (string.IsNullOrWhiteSpace(nombre))
                 return TipoAlternancia.TipoB;
+
+            // Ignorar mayúsculas, minúsculas y tildes (acentos)
+            if (string.Compare(nombre.Trim(), "quimica general", CultureInfo.InvariantCulture, CompareOptions.IgnoreNonSpace | CompareOptions.IgnoreCase) == 0)
+            {
+                return TipoAlternancia.TipoA;
+            }
             
-            return TipoAlternancia.SinAlternancia;
+            return TipoAlternancia.TipoB;
         }
 
         private static void Validar(string nombre, string codigo, int horasPorSesion, int sesionesPorSemana, Guid programaId)
