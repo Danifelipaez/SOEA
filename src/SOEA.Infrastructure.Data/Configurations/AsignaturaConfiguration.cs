@@ -28,12 +28,16 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasMaxLength(50)
                 .IsRequired();
 
-            builder.Property(a => a.BloquesSemanales)
-                .HasColumnName("bloques_semanales")
+            builder.Property(a => a.HorasPorSesion)
+                .HasColumnName("horas_por_sesion")
                 .IsRequired();
 
-            builder.Property(a => a.RequiereLab)
-                .HasColumnName("requiere_lab")
+            builder.Property(a => a.SesionesPorSemana)
+                .HasColumnName("sesiones_por_semana")
+                .IsRequired();
+
+            builder.Property(a => a.SesionesLaboratorioSemestre)
+                .HasColumnName("sesiones_laboratorio_semestre")
                 .IsRequired();
 
             builder.Property(a => a.Alternancia)

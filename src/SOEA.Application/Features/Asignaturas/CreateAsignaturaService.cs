@@ -18,9 +18,9 @@ public class CreateAsignaturaService
             Guid.NewGuid(),
             request.Nombre,
             request.Codigo,
-            request.BloquesSemanales,
-            request.RequiereLab,
-            request.Alternancia,
+            request.HorasPorSesion,
+            request.SesionesPorSemana,
+            request.SesionesLaboratorioSemestre,
             request.ProgramaId
         );
 
@@ -35,8 +35,9 @@ public class CreateAsignaturaService
             Id = asignatura.Id,
             Nombre = asignatura.Nombre,
             Codigo = asignatura.Codigo,
-            BloquesSemanales = asignatura.BloquesSemanales,
-            RequiereLab = asignatura.RequiereLab,
+            HorasPorSesion = asignatura.HorasPorSesion,
+            SesionesPorSemana = asignatura.SesionesPorSemana,
+            SesionesLaboratorioSemestre = asignatura.SesionesLaboratorioSemestre,
             Alternancia = asignatura.Alternancia,
             ProgramaId = asignatura.ProgramaId
         };
