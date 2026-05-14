@@ -46,18 +46,12 @@ namespace SOEA.Engine.GraphColoring
             if (s1.DocenteId != Guid.Empty && s1.DocenteId == s2.DocenteId)
                 return true;
 
-            // 2. Mismo Grupo (Cohorte)
-            // Desactivado temporalmente para el piloto (no hay datos de grupo).
-            // if (s1.GrupoId.HasValue && s1.GrupoId != Guid.Empty && s1.GrupoId == s2.GrupoId)
-            //    return true;
-
-            // 3. Conflictos de Alternancia (si aplican al mismo espacio físico o lógica compartida)
-            // Aquí se valida: TipoA + TipoA chocan. TipoB + TipoB chocan. SinAlternancia choca con cualquiera.
-            // La única excepción es TipoA + TipoB que pueden convivir.
-            if (s1.Alternancia == s2.Alternancia)
+            // 2. Mismo Espacio (Laboratorio/Salón)
+            if (s1.EspacioId.HasValue && s1.EspacioId != Guid.Empty && s1.EspacioId == s2.EspacioId)
                 return true;
 
-            if (s1.Alternancia == TipoAlternancia.SinAlternancia || s2.Alternancia == TipoAlternancia.SinAlternancia)
+            // 3. Misma Asignatura (Para evitar que la misma materia se dicte a la misma hora en dos lugares distintos)
+            if (s1.AsignaturaId != Guid.Empty && s1.AsignaturaId == s2.AsignaturaId)
                 return true;
 
             return false;

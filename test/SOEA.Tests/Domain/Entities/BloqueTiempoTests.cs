@@ -37,7 +37,7 @@ namespace SOEA.Tests.Domain.Entities
         public void Constructor_WithStartTimeBeforeAllowedRange_ThrowsArgumentException()
         {
             // Arrange
-            var beforeMinTime = new TimeOnly(6, 59);
+            var beforeMinTime = new TimeOnly(5, 59);
 
             // Act & Assert
             Assert.Throws<ArgumentException>(() =>
@@ -48,7 +48,7 @@ namespace SOEA.Tests.Domain.Entities
         public void Constructor_WithEndTimeAfterAllowedRange_ThrowsArgumentException()
         {
             // Arrange
-            var afterMaxTime = new TimeOnly(21, 31);
+            var afterMaxTime = new TimeOnly(22, 1);
 
             // Act & Assert
             Assert.Throws<ArgumentException>(() =>
@@ -113,8 +113,8 @@ namespace SOEA.Tests.Domain.Entities
         public void Constructor_WithMinimumAllowedRange_CreatesSuccessfully()
         {
             // Arrange
-            var minHora = new TimeOnly(7, 0);
-            var maxHora = new TimeOnly(7, 30);
+            var minHora = new TimeOnly(6, 0);
+            var maxHora = new TimeOnly(6, 30);
 
             // Act
             var bloque = new BloqueTiempo(_validId, _validDia, minHora, maxHora);
@@ -128,11 +128,37 @@ namespace SOEA.Tests.Domain.Entities
         public void Constructor_WithMaximumAllowedRange_CreatesSuccessfully()
         {
             // Arrange
-            var minHora = new TimeOnly(21, 0);
-            var maxHora = new TimeOnly(21, 30);
+            var minHora = new TimeOnly(21, 30);
+            var maxHora = new TimeOnly(22, 0);
 
             // Act
             var bloque = new BloqueTiempo(_validId, _validDia, minHora, maxHora);
+
+            // Assert
+            Assert.Equal(minHora, bloque.HoraInicio);
+            Assert.Equal(maxHora, bloque.HoraFin);
+        }
+
+        [Fact]
+        public void Constructor_WithEndTimeAfterAllowedRangeSaturday_ThrowsArgumentException()
+        {
+            // Arrange
+            var afterMaxTime = new TimeOnly(14, 1);
+
+            // Act & Assert
+            Assert.Throws<ArgumentException>(() =>
+                new BloqueTiempo(_validId, DiaDeSemana.Sábado, new TimeOnly(13, 0), afterMaxTime));
+        }
+
+        [Fact]
+        public void Constructor_WithMaximumAllowedRangeSaturday_CreatesSuccessfully()
+        {
+            // Arrange
+            var minHora = new TimeOnly(13, 30);
+            var maxHora = new TimeOnly(14, 0);
+
+            // Act
+            var bloque = new BloqueTiempo(_validId, DiaDeSemana.Sábado, minHora, maxHora);
 
             // Assert
             Assert.Equal(minHora, bloque.HoraInicio);
