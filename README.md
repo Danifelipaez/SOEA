@@ -134,6 +134,32 @@ SPA en Angular basada en roles:
 
 ---
 
+## Cómo probar el proyecto desde la terminal
+
+Puedes verificar y ejecutar el sistema localmente utilizando la CLI de .NET:
+
+1. **Compilar la solución:**
+   ```bash
+   dotnet build
+   ```
+
+2. **Ejecutar las pruebas (xUnit):**
+   ```bash
+   dotnet test
+   ```
+
+3. **Ejecutar la API para verificación manual:**
+   ```bash
+   dotnet run --project src/SOEA.API/SOEA.API.csproj
+   ```
+
+4. **Ejecutar el pipeline de pruebas (ConsoleRunner):**
+   ```bash
+   dotnet run --project src/SOEA.ConsoleRunner/SOEA.ConsoleRunner.csproj
+   ```
+
+---
+
 ## Cómo usar este repositorio con Copilot
 
 1. **Abre primero el documento relevante** antes de pedirle a Copilot que genere código.
