@@ -44,13 +44,13 @@ namespace SOEA.Domain.Entities
 
         private static void Validar(TimeOnly horaInicio, TimeOnly horaFin)
         {
-            var minHora = new TimeOnly(7, 0);
-            var maxHora = new TimeOnly(21, 30);
+            var minHora = new TimeOnly(6, 00);
+            var maxHora = new TimeOnly(22, 00);
 
             if (horaInicio < minHora)
-                throw new ArgumentException("La hora de inicio debe ser >= 07:00.");
+                throw new ArgumentException("La hora de inicio debe ser >= 06:00.");
             if (horaFin > maxHora)
-                throw new ArgumentException("La hora de fin debe ser <= 21:30.");
+                throw new ArgumentException("La hora de fin debe ser <= 22:00.");
             if (horaInicio >= horaFin)
                 throw new ArgumentException("La hora de inicio debe ser menor que la hora de fin.");
         }

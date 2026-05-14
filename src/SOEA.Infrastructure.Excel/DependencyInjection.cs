@@ -9,9 +9,7 @@ namespace SOEA.Infrastructure.Excel
         public static IServiceCollection AddExcelInfrastructure(this IServiceCollection services)
         {
             // Configurar EPPlus para uso no comercial
-#pragma warning disable CS0618 // Type or member is obsolete
-            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-#pragma warning restore CS0618 // Type or member is obsolete
+            ExcelPackage.License.SetNonCommercialPersonal("SOEA Project");
 
             services.AddScoped<ILectorExcel, LectorExcel>();
 
