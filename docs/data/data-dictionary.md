@@ -98,10 +98,11 @@ Una asignatura o curso académico de la malla curricular.
 | `Id` | GUID | Sí | Identificador único | Generado automáticamente |
 | `Nombre` | string | Sí | Nombre de la asignatura | — |
 | `Codigo` | string | Sí | Código institucional de la asignatura | Alfanumérico |
-| `HorasSemanales` | decimal | Sí | Horas por semana por cohorte | > 0 |
-| `RequiereLab` | bool | Sí | Indica si las sesiones deben ser en un laboratorio | — |
-| `SinAlternancia` | bool | Sí | Indica si las sesiones ocurren todas las semanas (no alternan) | — |
-| `ProgramaId` | GUID | Sí | Programa académico al que pertenece la asignatura | — |
+| `HorasPorSesion` | int | Sí | Duración de cada sesión en horas | > 0 |
+| `SesionesPorSemana` | int | Sí | Número de veces que se dicta a la semana | > 0 |
+| `SesionesLaboratorioSemestre` | int | Sí | Cantidad de sesiones de lab en el semestre | ≥ 0 |
+| `Alternancia` | Enum | Calculado | Derivado de SesionesLab (8=TipoA, >8=TipoB) | `TipoA`, `TipoB`, `SinAlternancia` |
+| `ProgramaId` | GUID | Sí | Programa académico al que pertenece | — |
 
 ---
 

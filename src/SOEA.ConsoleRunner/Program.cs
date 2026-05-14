@@ -80,23 +80,26 @@ namespace SOEA.ConsoleRunner
 
                 foreach (var asignatura in asignaturas)
                 {
-                    // Crear una sesión por asignatura, asignando docentes aleatoriamente para la prueba
+                    // Crear múltiples sesiones por asignatura según SesionesPorSemana
                     var docenteAsignado = docenteList.Count > 0 ? docenteList[docenteIdx % docenteList.Count] : null;
                     
-                    var sesion = new Sesion(
-                        Guid.NewGuid(),
-                        asignatura.Id,
-                        docenteAsignado?.Id ?? Guid.NewGuid(),
-                        Guid.Empty, // Bloque vacío inicial (será asignado por Welsh-Powell)
-                        null,
-                        null, // Grupo
-                        asignatura.Alternancia == TipoAlternancia.SinAlternancia ? TipoAlternancia.SinAlternancia : TipoAlternancia.TipoA, // Opcional
-                        Modalidad.Presencial,
-                        asignatura.BloquesSemanales > 0 ? (decimal)asignatura.BloquesSemanales : 2m,
-                        false,
-                        false
-                    );
-                    sesiones.Add(sesion);
+                    for (int i = 0; i < asignatura.SesionesPorSemana; i++)
+                    {
+                        var sesion = new Sesion(
+                            Guid.NewGuid(),
+                            asignatura.Id,
+                            docenteAsignado?.Id ?? Guid.NewGuid(),
+                            Guid.Empty, // Bloque vacío inicial (será asignado por Welsh-Powell)
+                            null,
+                            null, // Grupo
+                            asignatura.Alternancia == TipoAlternancia.SinAlternancia ? TipoAlternancia.SinAlternancia : TipoAlternancia.TipoA, // Opcional
+                            Modalidad.Presencial,
+                            asignatura.HorasPorSesion > 0 ? (decimal)asignatura.HorasPorSesion : 2m,
+                            false,
+                            false
+                        );
+                        sesiones.Add(sesion);
+                    }
                     docenteIdx++;
                 }
 

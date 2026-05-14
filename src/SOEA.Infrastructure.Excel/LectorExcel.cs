@@ -36,19 +36,19 @@ namespace SOEA.Infrastructure.Excel
             {
                 var nombre = hojaTrabajo.Cells[fila, 1].Text;
                 var codigo = hojaTrabajo.Cells[fila, 2].Text;
-                var creditosTexto = hojaTrabajo.Cells[fila, 3].Text; // Usaremos creditos para inferir horas, o si hay columna de horas.
-                var horasTexto = hojaTrabajo.Cells[fila, 4].Text;
-                var requiereLabTexto = hojaTrabajo.Cells[fila, 5].Text;
+                var horasPorSesionTexto = hojaTrabajo.Cells[fila, 3].Text;
+                var sesionesPorSemanaTexto = hojaTrabajo.Cells[fila, 4].Text;
+                var sesionesLabSemestreTexto = hojaTrabajo.Cells[fila, 5].Text;
 
                 if (string.IsNullOrWhiteSpace(nombre) || string.IsNullOrWhiteSpace(codigo))
                     continue;
 
-                int creditos = int.TryParse(creditosTexto, out var c) ? c : 3;
-                int horasSemanales = int.TryParse(horasTexto, out var h) ? h : 4;
-                bool requiereLab = bool.TryParse(requiereLabTexto, out var r) ? r : false;
+                int horasPorSesion = int.TryParse(horasPorSesionTexto, out var hps) && hps > 0 ? hps : 2;
+                int sesionesPorSemana = int.TryParse(sesionesPorSemanaTexto, out var sps) && sps > 0 ? sps : 2;
+                int sesionesLabSemestre = int.TryParse(sesionesLabSemestreTexto, out var sls) && sls >= 0 ? sls : 0;
 
                 // Creamos un Asignatura básico (sin programaId de momento, asumiendo un Guid genérico si es necesario)
-                var asignatura = new Asignatura(Guid.NewGuid(), nombre, codigo, horasSemanales, requiereLab, TipoAlternancia.SinAlternancia, Guid.Empty);
+                var asignatura = new Asignatura(Guid.NewGuid(), nombre, codigo, horasPorSesion, sesionesPorSemana, sesionesLabSemestre, Guid.Empty);
                 asignaturas.Add(asignatura);
             }
 
