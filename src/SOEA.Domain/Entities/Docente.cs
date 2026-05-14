@@ -11,27 +11,31 @@ namespace SOEA.Domain.Entities
     public class Docente : EntidadBase
     {
         public string Nombre { get; private set; } = "";
+        /// <summary>Apellido opcional; puede estar vacío cuando el nombre completo viene en un solo campo.</summary>
         public string Apellido { get; private set; } = "";
+        /// <summary>Correo institucional; opcional para el piloto (no siempre disponible en el Excel).</summary>
         public string Correo { get; private set; } = "";
         public decimal MaximoHorasSemanales { get; private set; }
         public List<FranjaHoraria> Disponibilidad { get; private set; } = new();
+        /// <summary>Bloques de tiempo en los que el docente ya tiene clases (extraídos del horario existente).</summary>
+        public List<BloqueTiempo> BloquesDisponibles { get; private set; } = new();
 
         // Constructor privado para EF Core
         private Docente() : base() { }
 
         public Docente(
             Guid id,
-            string? nombre,
-            string? apellido,
-            string? correo,
+            string nombre,
+            string apellido,
+            string correo,
             decimal maximoHorasSemanales,
             List<FranjaHoraria> disponibilidad) : base(id)
         {
             Validar(nombre, apellido, correo, maximoHorasSemanales, disponibilidad);
 
             Nombre = nombre;
-            Apellido = apellido;
-            Correo = correo;
+            Apellido = apellido ?? "";
+            Correo = correo ?? "";
             MaximoHorasSemanales = maximoHorasSemanales;
             Disponibilidad = disponibilidad ?? new();
         }
@@ -65,6 +69,18 @@ namespace SOEA.Domain.Entities
         }
 
         /// <summary>
+        /// Agrega un bloque de tiempo a la disponibilidad del docente (extraído del Excel del horario existente).
+        /// Evita duplicados por día + hora de inicio.
+        /// </summary>
+        public void AgregarBloqueDisponibilidad(BloqueTiempo bloque)
+        {
+            if (bloque is null) throw new ArgumentNullException(nameof(bloque));
+            bool duplicado = BloquesDisponibles.Exists(b => b.Dia == bloque.Dia && b.HoraInicio == bloque.HoraInicio);
+            if (!duplicado)
+                BloquesDisponibles.Add(bloque);
+        }
+
+        /// <summary>
         /// Actualiza el máximo de horas semanales contratadas.
         /// </summary>
         public void ActualizarMaximoHoras(decimal maxHoras)
@@ -78,11 +94,9 @@ namespace SOEA.Domain.Entities
         {
             if (string.IsNullOrWhiteSpace(nombre))
                 throw new ArgumentException("El nombre del docente no puede estar vacío.");
-            if (string.IsNullOrWhiteSpace(apellido))
-                throw new ArgumentException("El apellido del docente no puede estar vacío.");
-            if (string.IsNullOrWhiteSpace(correo))
-                throw new ArgumentException("El correo del docente no puede estar vacío.");
-            if (!EsCorreoValido(correo))
+            // Apellido y correo son opcionales en el piloto (pueden venir vacíos cuando el nombre completo
+            // llega en un solo campo desde el Excel del horario).
+            if (!string.IsNullOrWhiteSpace(correo) && !EsCorreoValido(correo))
                 throw new ArgumentException("El correo no tiene un formato válido.");
             if (maximoHoras <= 0)
                 throw new ArgumentException("El máximo de horas semanales debe ser un valor positivo.");

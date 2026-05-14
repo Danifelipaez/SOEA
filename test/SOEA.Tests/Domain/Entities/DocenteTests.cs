@@ -61,20 +61,21 @@ namespace SOEA.Tests.Domain.Entities
             new object?[] { "   " }
         };
 
+        // Apellido es opcional en el piloto (puede venir vacío cuando el nombre completo llega en un solo campo).
+        // Se mantiene el test documentando el nuevo comportamiento esperado.
         [Theory]
         [MemberData(nameof(InvalidApellidoCases))]
-        public void Constructor_WithEmptyApellido_ThrowsArgumentException(string? apellido)
+        public void Constructor_WithEmptyApellido_DoesNotThrow(string? apellido)
         {
-            // Act & Assert
-            Assert.Throws<ArgumentException>(() =>
-                new Docente(_validId, _validNombre, apellido, _validCorreo, _validMaxHoras, _validDisponibilidad));
+            // Act — no debe lanzar excepción (apellido es opcional en el piloto)
+            var docente = new Docente(_validId, _validNombre, apellido ?? "", _validCorreo, _validMaxHoras, _validDisponibilidad);
+            Assert.NotNull(docente);
         }
 
+        // null, vacío o solo espacios ya no lanzan excepción (correo opcional en el piloto).
+        // Solo correos con formato claramente inválido pero no vacíos siguen lanzando.
         public static IEnumerable<object?[]> InvalidCorreoCases => new[]
         {
-            new object?[] { null },
-            new object?[] { "" },
-            new object?[] { "   " },
             new object?[] { "invalid-email" },
             new object?[] { "@example.com" },
             new object?[] { "juan@" }
@@ -84,7 +85,7 @@ namespace SOEA.Tests.Domain.Entities
         [MemberData(nameof(InvalidCorreoCases))]
         public void Constructor_WithInvalidCorreo_ThrowsArgumentException(string? correo)
         {
-            // Act & Assert
+            // Act & Assert — correo con formato inválido sigue lanzando
             Assert.Throws<ArgumentException>(() =>
                 new Docente(_validId, _validNombre, _validApellido, correo, _validMaxHoras, _validDisponibilidad));
         }
@@ -189,8 +190,7 @@ namespace SOEA.Tests.Domain.Entities
         public static IEnumerable<object?[]> InvalidActualizarDatosCases => new[]
         {
             new object?[] { null, "Gómez", "ana.gomez@example.com", 30m },
-            new object?[] { "Ana", null, "ana.gomez@example.com", 30m },
-            new object?[] { "Ana", "Gómez", null, 30m },
+            // apellido null ya es aceptado — se omite ese caso
             new object?[] { "Ana", "Gómez", "invalid-email", 30m },
             new object?[] { "Ana", "Gómez", "ana.gomez@example.com", 0m }
         };

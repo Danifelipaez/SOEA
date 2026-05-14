@@ -5,12 +5,39 @@ using SOEA.Domain.Entities;
 
 namespace SOEA.Domain.Interfaces
 {
+    /// <summary>
+    /// Resultado completo de la lectura del Excel de horario/currículum.
+    /// Agrupa todas las entidades derivadas en un solo objeto de retorno.
+    /// </summary>
+    public class CurriculumExcelResult
+    {
+        public IReadOnlyList<Facultad> Facultades { get; }
+        public IReadOnlyList<Programa> Programas { get; }
+        public IReadOnlyList<Asignatura> Asignaturas { get; }
+        public IReadOnlyList<Docente> Docentes { get; }
+
+        public CurriculumExcelResult(
+            IReadOnlyList<Facultad> facultades,
+            IReadOnlyList<Programa> programas,
+            IReadOnlyList<Asignatura> asignaturas,
+            IReadOnlyList<Docente> docentes)
+        {
+            Facultades = facultades;
+            Programas = programas;
+            Asignaturas = asignaturas;
+            Docentes = docentes;
+        }
+    }
+
     public interface ILectorExcel
     {
-        Task<IEnumerable<Asignatura>> LeerCurriculumAsync(Stream excelStream);
+        /// <summary>
+        /// Lee el Excel del horario existente (columnas A-J) y extrae la jerarquía completa:
+        /// Facultades, Programas, Asignaturas y Docentes con su disponibilidad.
+        /// </summary>
+        Task<CurriculumExcelResult> LeerCurriculumAsync(Stream excelStream);
+
         Task<IEnumerable<Docente>> LeerDisponibilidadDocentesAsync(Stream excelStream);
         Task<IEnumerable<Espacio>> LeerInventarioEspaciosAsync(Stream excelStream);
-        // Si hay otros archivos como grupos también se pueden leer,
-        // pero estos son los 3 base definidos en los requerimientos.
     }
 }
