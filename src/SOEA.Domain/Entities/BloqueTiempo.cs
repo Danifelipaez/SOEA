@@ -23,7 +23,7 @@ namespace SOEA.Domain.Entities
             TimeOnly horaInicio,
             TimeOnly horaFin) : base(id)
         {
-            Validar(horaInicio, horaFin);
+            Validar(dia, horaInicio, horaFin);
 
             Dia = dia;
             HoraInicio = horaInicio;
@@ -42,15 +42,15 @@ namespace SOEA.Domain.Entities
             }
         }
 
-        private static void Validar(TimeOnly horaInicio, TimeOnly horaFin)
+        private static void Validar(DiaDeSemana dia, TimeOnly horaInicio, TimeOnly horaFin)
         {
             var minHora = new TimeOnly(6, 00);
-            var maxHora = new TimeOnly(22, 00);
+            var maxHora = dia == DiaDeSemana.Sábado ? new TimeOnly(14, 00) : new TimeOnly(22, 00);
 
             if (horaInicio < minHora)
                 throw new ArgumentException("La hora de inicio debe ser >= 06:00.");
             if (horaFin > maxHora)
-                throw new ArgumentException("La hora de fin debe ser <= 22:00.");
+                throw new ArgumentException($"La hora de fin debe ser <= {maxHora:HH\\:mm} para el día {dia}.");
             if (horaInicio >= horaFin)
                 throw new ArgumentException("La hora de inicio debe ser menor que la hora de fin.");
         }

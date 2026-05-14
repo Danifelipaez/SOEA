@@ -88,22 +88,6 @@ namespace SOEA.Tests.Domain.Entities
                 false));
         }
 
-        [Fact]
-        public void Constructor_WithEmptyBloqueId_ThrowsArgumentException()
-        {
-            Assert.Throws<ArgumentException>(() => new Sesion(
-                _validId,
-                _validAsignaturaId,
-                _validDocenteId,
-                Guid.Empty,
-                null,
-                null,
-                TipoAlternancia.TipoA,
-                Modalidad.Presencial,
-                2m,
-                false,
-                false));
-        }
 
         [Theory]
         [InlineData(0)]

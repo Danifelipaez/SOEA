@@ -27,7 +27,7 @@ namespace SOEA.Tests.Domain.ValueObjects
         public void Constructor_InicioAntesDeHorasOperacion_LanzaExcepcion()
         {
             // Arrange
-            var invalidStart = new TimeOnly(6, 59); // Antes de 07:00
+            var invalidStart = new TimeOnly(5, 59); // Antes de 06:00
             var validEnd = new TimeOnly(8, 0);
 
             // Act & Assert
@@ -41,11 +41,24 @@ namespace SOEA.Tests.Domain.ValueObjects
         {
             // Arrange
             var validStart = new TimeOnly(20, 0);
-            var invalidEnd = new TimeOnly(21, 31); // Después de 21:30
+            var invalidEnd = new TimeOnly(22, 1); // Después de 22:00
 
             // Act & Assert
             var ex = Assert.Throws<ArgumentException>(
                 () => new IntervaloTiempo(Guid.NewGuid(), DiaDeSemana.Viernes, validStart, invalidEnd));
+            Assert.Contains("HC-T01", ex.Message);
+        }
+
+        [Fact]
+        public void Constructor_FinDespuesDeHorasOperacionSabado_LanzaExcepcion()
+        {
+            // Arrange
+            var validStart = new TimeOnly(13, 0);
+            var invalidEnd = new TimeOnly(14, 1); // Después de 14:00 en Sabado
+
+            // Act & Assert
+            var ex = Assert.Throws<ArgumentException>(
+                () => new IntervaloTiempo(Guid.NewGuid(), DiaDeSemana.Sábado, validStart, invalidEnd));
             Assert.Contains("HC-T01", ex.Message);
         }
 

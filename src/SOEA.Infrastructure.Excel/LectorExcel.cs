@@ -42,6 +42,9 @@ namespace SOEA.Infrastructure.Excel
             // Docentes con su disponibilidad extraída del día/hora del Excel
             var docentesDict = new Dictionary<string, Docente>(StringComparer.OrdinalIgnoreCase);
 
+            var espaciosDict = new Dictionary<string, Espacio>(StringComparer.OrdinalIgnoreCase);
+            var sesionesPredefinidas = new List<Sesion>();
+
             using var paquete = new ExcelPackage(excelStream);
             await paquete.LoadAsync(excelStream);
 
@@ -55,7 +58,9 @@ namespace SOEA.Infrastructure.Excel
                 var txtAsignatura = hoja.Cells[fila, 3].Text.Trim();
                 var txtCodigo     = hoja.Cells[fila, 4].Text.Trim(); // Puede estar vacío
                 // Col E: Tipo de espacio (para uso futuro)
-                // Col F: Espacio específico (para uso futuro)
+                var txtTipoEspacio = hoja.Cells[fila, 5].Text.Trim();
+                // Col F: Espacio específico
+                var txtEspacioEspecifico = hoja.Cells[fila, 6].Text.Trim();
                 var txtDuracion   = hoja.Cells[fila, 7].Text.Trim();
                 var txtDia        = hoja.Cells[fila, 8].Text.Trim();
                 var txtHora       = hoja.Cells[fila, 9].Text.Trim();
@@ -143,21 +148,61 @@ namespace SOEA.Infrastructure.Excel
                         }
                     }
                 }
+
+                // 5. Obtener o crear Espacio
+                Espacio espacioAsignado = null;
+                if (!string.IsNullOrWhiteSpace(txtEspacioEspecifico))
+                {
+                    if (!espaciosDict.TryGetValue(txtEspacioEspecifico, out var espacio))
+                    {
+                        var tipo = TipoEspacio.Salon;
+                        if (txtTipoEspacio.Contains("Laboratorio", StringComparison.OrdinalIgnoreCase)) tipo = TipoEspacio.Laboratorio;
+                        
+                        espacio = new Espacio(Guid.NewGuid(), txtEspacioEspecifico, tipo, 30, "", null);
+                        espaciosDict[txtEspacioEspecifico] = espacio;
+                        _logger.LogDebug("Nuevo Espacio detectado: {Espacio}", txtEspacioEspecifico);
+                    }
+                    espacioAsignado = espacio;
+                }
+
+                // 6. Crear la Sesión correspondiente a esta fila
+                if (!string.IsNullOrWhiteSpace(txtDocente) && docentesDict.TryGetValue(txtDocente, out var docenteFinal))
+                {
+                    var asignaturaFinal = asignaturasDict[claveAsignatura];
+                    var sesion = new Sesion(
+                        id: Guid.NewGuid(),
+                        asignaturaId: asignaturaFinal.Id,
+                        docenteId: docenteFinal.Id,
+                        bloqueId: Guid.Empty,
+                        espacioId: espacioAsignado?.Id,
+                        grupoId: null,
+                        alternancia: asignaturaFinal.Alternancia,
+                        modalidad: Modalidad.Presencial,
+                        duracionHoras: duracion,
+                        esBloque: false,
+                        estaDividida: false
+                    );
+                    sesionesPredefinidas.Add(sesion);
+                }
             }
 
             var resultado = new CurriculumExcelResult(
                 facultades:  facultadesDict.Values.ToList().AsReadOnly(),
                 programas:   programasDict.Values.ToList().AsReadOnly(),
                 asignaturas: asignaturasDict.Values.ToList().AsReadOnly(),
-                docentes:    docentesDict.Values.ToList().AsReadOnly()
+                docentes:    docentesDict.Values.ToList().AsReadOnly(),
+                sesionesPredefinidas: sesionesPredefinidas.AsReadOnly(),
+                espacios: espaciosDict.Values.ToList().AsReadOnly()
             );
 
             _logger.LogInformation(
-                "Lectura finalizada. Facultades: {F}, Programas: {P}, Asignaturas: {A}, Docentes: {D}.",
+                "Lectura finalizada. Facultades: {F}, Programas: {P}, Asignaturas: {A}, Docentes: {D}, Sesiones: {S}, Espacios: {E}.",
                 resultado.Facultades.Count,
                 resultado.Programas.Count,
                 resultado.Asignaturas.Count,
-                resultado.Docentes.Count
+                resultado.Docentes.Count,
+                resultado.SesionesPredefinidas.Count,
+                resultado.Espacios.Count
             );
 
             return resultado;
@@ -199,6 +244,7 @@ namespace SOEA.Infrastructure.Excel
                 var s when s.StartsWith("mie") || s.StartsWith("wed") => DiaDeSemana.Miercoles,
                 var s when s.StartsWith("jue") || s.StartsWith("thu") => DiaDeSemana.Jueves,
                 var s when s.StartsWith("vie") || s.StartsWith("fri") => DiaDeSemana.Viernes,
+                var s when s.StartsWith("sab") || s.StartsWith("sat") => DiaDeSemana.Sábado,
                 _ => (DiaDeSemana)(-1)
             };
 

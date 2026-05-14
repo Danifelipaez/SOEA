@@ -20,6 +20,7 @@ namespace SOEA.Domain.Entities
         public decimal DuracionHoras { get; private set; }
         public bool EsBloque { get; private set; }
         public bool EstaDividida { get; private set; }
+        public string MotivoConflicto { get; private set; } = string.Empty;
 
         // Constructor privado para EF Core
         private Sesion() : base() { }
@@ -61,9 +62,10 @@ namespace SOEA.Domain.Entities
             Estado = EstadoSesion.Asignada;
         }
 
-        public void MarcarConConflicto()
+        public void MarcarConConflicto(string motivo = "")
         {
             Estado = EstadoSesion.Conflicto;
+            MotivoConflicto = motivo;
         }
 
         private static void Validar(Guid asignaturaId, Guid docenteId, decimal duracionHoras, bool esBloque, bool estaDividida)

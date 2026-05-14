@@ -15,17 +15,23 @@ namespace SOEA.Domain.Interfaces
         public IReadOnlyList<Programa> Programas { get; }
         public IReadOnlyList<Asignatura> Asignaturas { get; }
         public IReadOnlyList<Docente> Docentes { get; }
+        public IReadOnlyList<Sesion> SesionesPredefinidas { get; }
+        public IReadOnlyList<Espacio> Espacios { get; }
 
         public CurriculumExcelResult(
             IReadOnlyList<Facultad> facultades,
             IReadOnlyList<Programa> programas,
             IReadOnlyList<Asignatura> asignaturas,
-            IReadOnlyList<Docente> docentes)
+            IReadOnlyList<Docente> docentes,
+            IReadOnlyList<Sesion> sesionesPredefinidas,
+            IReadOnlyList<Espacio> espacios)
         {
             Facultades = facultades;
             Programas = programas;
             Asignaturas = asignaturas;
             Docentes = docentes;
+            SesionesPredefinidas = sesionesPredefinidas;
+            Espacios = espacios;
         }
     }
 

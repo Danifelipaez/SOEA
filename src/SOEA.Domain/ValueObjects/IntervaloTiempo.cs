@@ -17,15 +17,17 @@ namespace SOEA.Domain.ValueObjects
         
         public IntervaloTiempo(Guid id, DiaDeSemana dia, TimeOnly horaInicio, TimeOnly horaFin)
         {
+            var terminaHraLaborDia = dia == DiaDeSemana.Sábado ? new TimeOnly(14, 0) : TerminaHraLabor;
+
             // HC-T01: Las sesiones deben estar dentro del horario de operación
             if (horaInicio < EmpiezaHraLabor)
                 throw new ArgumentException(
                     $"La hora de inicio ({horaInicio}) no puede ser anterior a {EmpiezaHraLabor}. (HC-T01)",
                     nameof(horaInicio));
 
-            if (horaFin > TerminaHraLabor)
+            if (horaFin > terminaHraLaborDia)
                 throw new ArgumentException(
-                    $"La hora de fin ({horaFin}) no puede ser posterior a {TerminaHraLabor}. (HC-T01)",
+                    $"La hora de fin ({horaFin}) no puede ser posterior a {terminaHraLaborDia} para el día {dia}. (HC-T01)",
                     nameof(horaFin));
 
             // Validación base: HoraFin > horaInicio
@@ -56,8 +58,10 @@ namespace SOEA.Domain.ValueObjects
 
         public bool EsValida()
         {
+            var terminaHraLaborDia = Dia == DiaDeSemana.Sábado ? new TimeOnly(14, 0) : TerminaHraLabor;
+
             // HC-T01: Las sesiones deben estar dentro del horario de operación
-            if (HoraInicio < EmpiezaHraLabor || HoraFin > TerminaHraLabor)
+            if (HoraInicio < EmpiezaHraLabor || HoraFin > terminaHraLaborDia)
                 return false;
 
             // Validación base: HoraFin > horaInicio

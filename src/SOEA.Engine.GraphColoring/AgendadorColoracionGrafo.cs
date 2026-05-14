@@ -92,7 +92,7 @@ namespace SOEA.Engine.GraphColoring
                 {
                     // Si no hay bloques disponibles para esta sesión, la marcamos como Conflicto.
                     // Será tratada posteriormente por la Fase 2 (CP-SAT)
-                    sesion.MarcarConConflicto();
+                    sesion.MarcarConConflicto("No se encontró un bloque de tiempo sin conflictos de Docente, Espacio o Asignatura.");
                     enConflicto++;
                 }
             }

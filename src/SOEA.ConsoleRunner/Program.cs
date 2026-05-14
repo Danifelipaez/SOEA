@@ -63,35 +63,10 @@ namespace SOEA.ConsoleRunner
                 var asignaturas = curriculum.Asignaturas;
                 var docentes    = curriculum.Docentes;
 
-                // 2. Preparación de Sesiones (una por cada SesionesPorSemana de la Asignatura)
-                logger.LogInformation("Preparando sesiones para ser agendadas basadas en las asignaturas...");
-                var sesiones = new List<Sesion>();
-                var docenteList = docentes.ToList();
-                int docenteIdx = 0;
+                // 2. Usar las Sesiones Predefinidas leídas exactamente del Excel
+                logger.LogInformation("Preparando sesiones para ser agendadas basadas en las asignaturas y docentes del Excel...");
+                var sesiones = curriculum.SesionesPredefinidas.ToList();
 
-                foreach (var asignatura in asignaturas)
-                {
-                    var docenteAsignado = docenteList.Count > 0 ? docenteList[docenteIdx % docenteList.Count] : null;
-
-                    for (int i = 0; i < asignatura.SesionesPorSemana; i++)
-                    {
-                        var sesion = new Sesion(
-                            Guid.NewGuid(),
-                            asignatura.Id,
-                            docenteAsignado?.Id ?? Guid.NewGuid(),
-                            Guid.Empty, // Bloque vacío inicial (será asignado por Welsh-Powell)
-                            null,
-                            null, // Grupo — desactivado para el piloto
-                            asignatura.Alternancia,
-                            Modalidad.Presencial,
-                            asignatura.HorasPorSesion > 0 ? (decimal)asignatura.HorasPorSesion : 2m,
-                            false,
-                            false
-                        );
-                        sesiones.Add(sesion);
-                    }
-                    docenteIdx++;
-                }
 
                 // Bloques de tiempo: usando los bloques de disponibilidad extraídos del Excel,
                 // o un set ficticio si no hay docentes con disponibilidad registrada.
@@ -131,6 +106,58 @@ namespace SOEA.ConsoleRunner
                 Console.WriteLine($"Sesiones Agendadas Exitosamente : {asignadas}");
                 Console.WriteLine($"Sesiones Sin Bloque (Conflicto) : {conflictos}");
                 Console.WriteLine("=====================================================");
+
+                bool exitMenu = false;
+                while (!exitMenu)
+                {
+                    Console.WriteLine("\n--- MENÚ INTERACTIVO ---");
+                    Console.WriteLine("1. Ver Asignaturas");
+                    Console.WriteLine("2. Ver Docentes");
+                    Console.WriteLine("3. Ver Todas las Sesiones");
+                    Console.WriteLine("4. Ver Sesiones con Conflicto");
+                    Console.WriteLine("5. Salir");
+                    Console.Write("Selecciona una opción: ");
+                    var opcion = Console.ReadLine();
+
+                    switch (opcion)
+                    {
+                        case "1":
+                            Console.WriteLine("\n--- Asignaturas ---");
+                            foreach(var a in asignaturas) Console.WriteLine($"- {a.Nombre} (Código: {a.Codigo})");
+                            break;
+                        case "2":
+                            Console.WriteLine("\n--- Docentes ---");
+                            foreach(var d in docentes) Console.WriteLine($"- {d.NombreCompleto}");
+                            break;
+                        case "3":
+                            Console.WriteLine("\n--- Todas las Sesiones ---");
+                            foreach(var s in sesionesColoreadas)
+                            {
+                                var a = asignaturas.FirstOrDefault(x => x.Id == s.AsignaturaId)?.Nombre ?? "Desconocida";
+                                var d = docentes.FirstOrDefault(x => x.Id == s.DocenteId)?.NombreCompleto ?? "Desconocido";
+                                var e = curriculum.Espacios.FirstOrDefault(x => x.Id == s.EspacioId)?.Nombre ?? "Sin asignar";
+                                Console.WriteLine($"- Asignatura: {a} | Docente: {d} | Espacio: {e} | Estado: {s.Estado}");
+                            }
+                            break;
+                        case "4":
+                            Console.WriteLine("\n--- Sesiones con Conflicto ---");
+                            var conConflicto = sesionesColoreadas.Where(s => s.Estado == EstadoSesion.Conflicto).ToList();
+                            if(!conConflicto.Any()) Console.WriteLine("No hay sesiones con conflicto.");
+                            foreach(var s in conConflicto)
+                            {
+                                var a = asignaturas.FirstOrDefault(x => x.Id == s.AsignaturaId)?.Nombre ?? "Desconocida";
+                                var d = docentes.FirstOrDefault(x => x.Id == s.DocenteId)?.NombreCompleto ?? "Desconocido";
+                                Console.WriteLine($"- Asignatura: {a} | Docente: {d} | Motivo: {s.MotivoConflicto}");
+                            }
+                            break;
+                        case "5":
+                            exitMenu = true;
+                            break;
+                        default:
+                            Console.WriteLine("Opción no válida.");
+                            break;
+                    }
+                }
             }
             catch (Exception ex)
             {
