@@ -39,26 +39,89 @@ namespace SOEA.ConsoleRunner
             Console.WriteLine("   SOEA - PIPELINE DE AGENDAMIENTO (TEST TERMINAL)   ");
             Console.WriteLine("=====================================================");
 
-            Console.WriteLine();
-            Console.Write("Por favor, ingresa la ruta del archivo Excel de Asignaturas (Currículum): ");
-            var rutaAsignaturas = Console.ReadLine();
-
-            if (string.IsNullOrWhiteSpace(rutaAsignaturas) || !File.Exists(rutaAsignaturas))
-            {
-                logger.LogError("El archivo de asignaturas no existe o la ruta es inválida: {Ruta}", rutaAsignaturas);
-                return;
-            }
-
             var lectorExcel = host.Services.GetRequiredService<ILectorExcel>();
             var motorColoracion = host.Services.GetRequiredService<IMotorColoracionGrafo>();
+
+            string rutaModo1 = null;
+            string rutaModo2Asignaturas = null;
+            string rutaModo2Docentes = null;
+
+            while (true)
+            {
+                Console.WriteLine();
+                Console.WriteLine("--- MODO DE INGRESO DE DATOS ---");
+                Console.WriteLine($"1. Ingresar Excel de Horario Funcional (Ruta actual: {rutaModo1 ?? "Ninguna"})");
+                Console.WriteLine($"2. Ingresar Excel de Asignaturas (Modo 2) (Ruta actual: {rutaModo2Asignaturas ?? "Ninguna"})");
+                Console.WriteLine($"3. Ingresar Excel Disponibilidad Docentes (Modo 2) (Ruta actual: {rutaModo2Docentes ?? "Ninguna"})");
+                Console.WriteLine("4. Ejecutar Pipeline");
+                Console.WriteLine("5. Salir");
+                Console.Write("Selecciona una opción: ");
+                var opcionMenu = Console.ReadLine();
+
+                if (opcionMenu == "1")
+                {
+                    Console.Write("Ruta: ");
+                    rutaModo1 = Console.ReadLine()?.Replace("\"", "");
+                }
+                else if (opcionMenu == "2")
+                {
+                    Console.Write("Ruta: ");
+                    rutaModo2Asignaturas = Console.ReadLine()?.Replace("\"", "");
+                }
+                else if (opcionMenu == "3")
+                {
+                    Console.Write("Ruta: ");
+                    rutaModo2Docentes = Console.ReadLine()?.Replace("\"", "");
+                }
+                else if (opcionMenu == "5")
+                {
+                    return;
+                }
+                else if (opcionMenu == "4")
+                {
+                    if (string.IsNullOrWhiteSpace(rutaModo1) && (string.IsNullOrWhiteSpace(rutaModo2Asignaturas) || string.IsNullOrWhiteSpace(rutaModo2Docentes)))
+                    {
+                        Console.WriteLine("Por favor, ingresa la ruta 1 O las rutas 2 y 3 antes de ejecutar.");
+                        continue;
+                    }
+                    break;
+                }
+            }
 
             try
             {
                 logger.LogInformation("Iniciando Pipeline de Procesamiento...");
+                CurriculumExcelResult curriculum = null;
 
-                // 1. Ingesta de Datos desde el Excel del horario existente
-                using var streamAsignaturas = new FileStream(rutaAsignaturas, FileMode.Open, FileAccess.Read);
-                var curriculum = await lectorExcel.LeerCurriculumAsync(streamAsignaturas);
+                if (!string.IsNullOrWhiteSpace(rutaModo1))
+                {
+                    if (!File.Exists(rutaModo1)) { logger.LogError("Archivo no encontrado: {Ruta}", rutaModo1); return; }
+                    logger.LogInformation("Usando Modo 1: Horario Funcional Completo");
+                    using var stream = new FileStream(rutaModo1, FileMode.Open, FileAccess.Read);
+                    curriculum = await lectorExcel.LeerCurriculumAsync(stream);
+                }
+                else
+                {
+                    if (!File.Exists(rutaModo2Asignaturas)) { logger.LogError("Archivo no encontrado: {Ruta}", rutaModo2Asignaturas); return; }
+                    if (!File.Exists(rutaModo2Docentes)) { logger.LogError("Archivo no encontrado: {Ruta}", rutaModo2Docentes); return; }
+                    
+                    logger.LogInformation("Usando Modo 2: Archivos Separados");
+                    using var streamAsig = new FileStream(rutaModo2Asignaturas, FileMode.Open, FileAccess.Read);
+                    curriculum = await lectorExcel.LeerAsignaturasModo2Async(streamAsig);
+
+                    using var streamDoc = new FileStream(rutaModo2Docentes, FileMode.Open, FileAccess.Read);
+                    var docentesConDisp = await lectorExcel.LeerDisponibilidadDocentesAsync(streamDoc, curriculum.Docentes);
+                    
+                    // Recrear CurriculumExcelResult con los docentes que ahora tienen disponibilidad real
+                    curriculum = new CurriculumExcelResult(
+                        curriculum.Facultades,
+                        curriculum.Programas,
+                        curriculum.Asignaturas,
+                        docentesConDisp.ToList().AsReadOnly(),
+                        curriculum.SesionesPredefinidas,
+                        curriculum.Espacios
+                    );
+                }
 
                 var asignaturas = curriculum.Asignaturas;
                 var docentes    = curriculum.Docentes;

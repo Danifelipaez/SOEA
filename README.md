@@ -17,6 +17,25 @@ SOEA es un sistema de horario académico universitario (UCTP) diseñado para aut
 
 ---
 
+## Formatos de Ingesta (Excel)
+
+El sistema soporta la ingesta de datos a través de archivos Excel con estructuras predefinidas. Es fundamental que la primera fila contenga los siguientes encabezados (el orden importa):
+
+### Formato 1: Horario Funcional Completo
+Usado para cargar un horario ya establecido.
+`FACULTAD | PROGRAMA | ASIGNATURA | CODIGO | TIPO ESPACIO | ESPACIO | DURACION | DÍA | HORA | DOCENTE`
+
+### Formato 2: Asignaturas a Programar
+Usado para cargar la malla curricular que el algoritmo debe resolver (sin tiempos asignados).
+`FACULTAD | PROGRAMA | ASIGNATURA | CODIGO | TIPO ESPACIO | ESPACIO | DURACION | DOCENTE`
+
+### Formato 3: Disponibilidad de Docentes
+Usado en conjunto con el Formato 2 para definir cuándo pueden dictar clases los docentes.
+`DOCENTE | CORREO | MAX_HORAS | DIAS_DISPONIBLES | FRANJAS_HORARIAS`
+*(Ejemplo de DIAS_DISPONIBLES: `Lunes,Martes` | Ejemplo de FRANJAS_HORARIAS: `Matutino,Vespertino`)*
+
+---
+
 ## Estructura del Repositorio
 
 ```text
