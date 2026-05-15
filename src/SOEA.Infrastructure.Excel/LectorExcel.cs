@@ -367,7 +367,7 @@ namespace SOEA.Infrastructure.Excel
                 }
 
                 // 5. Espacio
-                Espacio espacioAsignado = null;
+                Espacio? espacioAsignado = null;
                 if (!string.IsNullOrWhiteSpace(txtEspacio))
                 {
                     if (!espaciosDict.TryGetValue(txtEspacio, out var espacio))
@@ -484,9 +484,11 @@ namespace SOEA.Infrastructure.Excel
                 }
 
                 // Generar Bloques de Tiempo Ficticios para las Franjas/Días indicados para alimentar a Welsh-Powell
-                // Matutino: 6 a 12 | Vespertino: 12 a 18 | Nocturno: 18 a 22 (Si existe)
+                // Matutino: 6 a 12 | Vespertino: 12 a 18 (Sábado solo hasta 14:00)
                 foreach(var dia in diasDocente)
                 {
+                    var horaLimiteDia = dia == DiaDeSemana.Sábado ? new TimeOnly(14, 0) : new TimeOnly(22, 0);
+
                     if (franjasDocente.Contains(FranjaHoraria.Matutino))
                     {
                         docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(6,0), new TimeOnly(8,0)));
@@ -495,9 +497,12 @@ namespace SOEA.Infrastructure.Excel
                     }
                     if (franjasDocente.Contains(FranjaHoraria.Vespertino))
                     {
-                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(12,0), new TimeOnly(14,0)));
-                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(14,0), new TimeOnly(16,0)));
-                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(16,0), new TimeOnly(18,0)));
+                        if (new TimeOnly(14,0) <= horaLimiteDia)
+                            docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(12,0), new TimeOnly(14,0)));
+                        if (new TimeOnly(16,0) <= horaLimiteDia)
+                            docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(14,0), new TimeOnly(16,0)));
+                        if (new TimeOnly(18,0) <= horaLimiteDia)
+                            docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(16,0), new TimeOnly(18,0)));
                     }
                 }
             }

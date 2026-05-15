@@ -10,6 +10,8 @@ using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 using SOEA.Engine.GraphColoring;
+using SOEA.Engine.ConstraintProg;
+using SOEA.Engine.Genetic;
 using SOEA.Infrastructure.Excel;
 
 namespace SOEA.ConsoleRunner
@@ -28,8 +30,12 @@ namespace SOEA.ConsoleRunner
                 {
                     // Registrar Infraestructura Excel
                     services.AddExcelInfrastructure();
-                    // Registrar Motor de Coloración de Grafos
+                    // Registrar Motor de Coloración de Grafos (Fase 1)
                     services.AddGraphColoringEngine();
+                    // Registrar Motor CP-SAT (Fase 2)
+                    services.AddConstraintProgEngine();
+                    // Registrar Motor Genético (Fase 3)
+                    services.AddGeneticEngine();
                 })
                 .Build();
 
@@ -41,10 +47,12 @@ namespace SOEA.ConsoleRunner
 
             var lectorExcel = host.Services.GetRequiredService<ILectorExcel>();
             var motorColoracion = host.Services.GetRequiredService<IMotorColoracionGrafo>();
+            var motorCP = host.Services.GetRequiredService<IMotorConstraintProgramming>();
+            var motorGenetico = host.Services.GetRequiredService<IMotorGenetico>();
 
-            string rutaModo1 = null;
-            string rutaModo2Asignaturas = null;
-            string rutaModo2Docentes = null;
+            string rutaModo1 = "";
+            string rutaModo2Asignaturas = "";
+            string rutaModo2Docentes = "";
 
             while (true)
             {
@@ -170,15 +178,55 @@ namespace SOEA.ConsoleRunner
                 Console.WriteLine($"Sesiones Sin Bloque (Conflicto) : {conflictos}");
                 Console.WriteLine("=====================================================");
 
+                // 4. Fase 2 — Constraint Programming (CP-SAT)
+                Console.WriteLine();
+                Console.WriteLine("--- FASE 2: CONSTRAINT PROGRAMMING (CP-SAT) ---");
+                var resultadoCP = await motorCP.ResolverFactibilidadAsync(
+                    sesionesColoreadas, bloquesDisponibles, curriculum.Espacios, docentes);
+
+                IEnumerable<Sesion> sesionesFase2 = resultadoCP.SesionesResueltas;
+                if (resultadoCP.EsFactible)
+                {
+                    Console.WriteLine($"Fase 2: FACTIBLE — {resultadoCP.SesionesResueltas.Count} sesiones resueltas.");
+                }
+                else
+                {
+                    Console.WriteLine($"Fase 2: NO FACTIBLE — {resultadoCP.MensajeError}");
+                    Console.WriteLine("Se continuará con la asignación de la Fase 1.");
+                    sesionesFase2 = sesionesColoreadas;
+                }
+
+                // 5. Fase 3 — Algoritmo Genético
+                Console.WriteLine();
+                Console.WriteLine("--- FASE 3: ALGORITMO GENÉTICO ---");
+                var resultadoGA = await motorGenetico.OptimizarAsync(
+                    sesionesFase2, bloquesDisponibles, curriculum.Espacios, docentes);
+
+                Console.WriteLine($"Fase 3: Fitness final = {resultadoGA.PuntajeFitness} | Generaciones = {resultadoGA.Generaciones}");
+
+                var sesionesFinales = resultadoGA.SesionesOptimizadas;
+                var asignadasFinal = sesionesFinales.Count(s => s.Estado == EstadoSesion.Asignada);
+                var conflictosFinal = sesionesFinales.Count(s => s.Estado == EstadoSesion.Conflicto);
+
+                Console.WriteLine();
+                Console.WriteLine("=====================================================");
+                Console.WriteLine("            RESULTADOS FINALES DEL PIPELINE          ");
+                Console.WriteLine("=====================================================");
+                Console.WriteLine($"Sesiones Asignadas (Final)      : {asignadasFinal}");
+                Console.WriteLine($"Sesiones en Conflicto (Final)   : {conflictosFinal}");
+                Console.WriteLine($"Puntaje Fitness (Fase 3)        : {resultadoGA.PuntajeFitness}");
+                Console.WriteLine("=====================================================");
+
                 bool exitMenu = false;
                 while (!exitMenu)
                 {
                     Console.WriteLine("\n--- MENÚ INTERACTIVO ---");
                     Console.WriteLine("1. Ver Asignaturas");
                     Console.WriteLine("2. Ver Docentes");
-                    Console.WriteLine("3. Ver Todas las Sesiones");
+                    Console.WriteLine("3. Ver Todas las Sesiones (Final)");
                     Console.WriteLine("4. Ver Sesiones con Conflicto");
-                    Console.WriteLine("5. Salir");
+                    Console.WriteLine("5. Ver Resultados por Fase");
+                    Console.WriteLine("6. Salir");
                     Console.Write("Selecciona una opción: ");
                     var opcion = Console.ReadLine();
 
@@ -193,18 +241,20 @@ namespace SOEA.ConsoleRunner
                             foreach(var d in docentes) Console.WriteLine($"- {d.NombreCompleto}");
                             break;
                         case "3":
-                            Console.WriteLine("\n--- Todas las Sesiones ---");
-                            foreach(var s in sesionesColoreadas)
+                            Console.WriteLine("\n--- Todas las Sesiones (Post Fase 3) ---");
+                            foreach(var s in sesionesFinales)
                             {
                                 var a = asignaturas.FirstOrDefault(x => x.Id == s.AsignaturaId)?.Nombre ?? "Desconocida";
                                 var d = docentes.FirstOrDefault(x => x.Id == s.DocenteId)?.NombreCompleto ?? "Desconocido";
                                 var e = curriculum.Espacios.FirstOrDefault(x => x.Id == s.EspacioId)?.Nombre ?? "Sin asignar";
-                                Console.WriteLine($"- Asignatura: {a} | Docente: {d} | Espacio: {e} | Estado: {s.Estado}");
+                                var bloque = bloquesDisponibles.FirstOrDefault(b => b.Id == s.BloqueTiempoId);
+                                var bloqueStr = bloque != null ? $"{bloque.Dia} {bloque.HoraInicio}-{bloque.HoraFin}" : "Sin bloque";
+                                Console.WriteLine($"- {a} | {d} | {e} | {bloqueStr} | {s.Estado}");
                             }
                             break;
                         case "4":
                             Console.WriteLine("\n--- Sesiones con Conflicto ---");
-                            var conConflicto = sesionesColoreadas.Where(s => s.Estado == EstadoSesion.Conflicto).ToList();
+                            var conConflicto = sesionesFinales.Where(s => s.Estado == EstadoSesion.Conflicto).ToList();
                             if(!conConflicto.Any()) Console.WriteLine("No hay sesiones con conflicto.");
                             foreach(var s in conConflicto)
                             {
@@ -214,6 +264,12 @@ namespace SOEA.ConsoleRunner
                             }
                             break;
                         case "5":
+                            Console.WriteLine("\n--- Resultados por Fase ---");
+                            Console.WriteLine($"Fase 1 (Graph Coloring): {asignadas} asignadas, {conflictos} en conflicto");
+                            Console.WriteLine($"Fase 2 (CP-SAT): {(resultadoCP.EsFactible ? "FACTIBLE" : "NO FACTIBLE")}");
+                            Console.WriteLine($"Fase 3 (Genético): Fitness = {resultadoGA.PuntajeFitness}, Generaciones = {resultadoGA.Generaciones}");
+                            break;
+                        case "6":
                             exitMenu = true;
                             break;
                         default:
