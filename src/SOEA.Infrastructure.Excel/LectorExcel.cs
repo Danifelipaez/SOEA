@@ -302,10 +302,15 @@ namespace SOEA.Infrastructure.Excel
             return new string(normalizado.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark).ToArray());
         }
 
-        public async Task<IEnumerable<Docente>> LeerDisponibilidadDocentesAsync(Stream excelStream)
+        public async Task<CurriculumExcelResult> LeerAsignaturasModo2Async(Stream excelStream)
         {
-            _logger.LogInformation("Iniciando lectura del Excel secundario de disponibilidad de docentes.");
-            var docentes = new List<Docente>();
+            _logger.LogInformation("Iniciando lectura de Asignaturas (Modo 2).");
+            var facultadesDict = new Dictionary<string, Facultad>(StringComparer.OrdinalIgnoreCase);
+            var programasDict = new Dictionary<string, Programa>(StringComparer.OrdinalIgnoreCase);
+            var asignaturasDict = new Dictionary<(string nombre, Guid programaId), Asignatura>();
+            var docentesDict = new Dictionary<string, Docente>(StringComparer.OrdinalIgnoreCase);
+            var espaciosDict = new Dictionary<string, Espacio>(StringComparer.OrdinalIgnoreCase);
+            var sesionesPredefinidas = new List<Sesion>();
 
             using var paquete = new ExcelPackage(excelStream);
             await paquete.LoadAsync(excelStream);
@@ -315,24 +320,190 @@ namespace SOEA.Infrastructure.Excel
 
             for (int fila = 2; fila <= totalFilas; fila++)
             {
-                var nombreCompleto = hoja.Cells[fila, 1].Text.Trim();
-                var correo         = hoja.Cells[fila, 2].Text.Trim();
-                var txtMaxHoras    = hoja.Cells[fila, 3].Text.Trim();
+                var txtFacultad   = hoja.Cells[fila, 1].Text.Trim();
+                var txtPrograma   = hoja.Cells[fila, 2].Text.Trim();
+                var txtAsignatura = hoja.Cells[fila, 3].Text.Trim();
+                var txtCodigo     = hoja.Cells[fila, 4].Text.Trim();
+                var txtTipoEspacio= hoja.Cells[fila, 5].Text.Trim();
+                var txtEspacio    = hoja.Cells[fila, 6].Text.Trim();
+                var txtDuracion   = hoja.Cells[fila, 7].Text.Trim();
+                var txtDocente    = hoja.Cells[fila, 8].Text.Trim();
 
-                if (string.IsNullOrWhiteSpace(nombreCompleto) || string.IsNullOrWhiteSpace(correo))
+                if (string.IsNullOrWhiteSpace(txtFacultad) || string.IsNullOrWhiteSpace(txtPrograma) || string.IsNullOrWhiteSpace(txtAsignatura))
                     continue;
+
+                // 1. Facultad
+                if (!facultadesDict.TryGetValue(txtFacultad, out var facultad))
+                {
+                    facultad = new Facultad(Guid.NewGuid(), txtFacultad);
+                    facultadesDict[txtFacultad] = facultad;
+                }
+
+                // 2. Programa
+                var clavePrograma = $"{txtFacultad}|{txtPrograma}";
+                if (!programasDict.TryGetValue(clavePrograma, out var programa))
+                {
+                    programa = new Programa(Guid.NewGuid(), txtPrograma, facultad.Id);
+                    programasDict[clavePrograma] = programa;
+                }
+
+                // 3. Asignatura
+                int duracion = int.TryParse(txtDuracion, out var d) && d > 0 ? d : 2;
+                var claveAsignatura = (txtAsignatura.ToUpperInvariant(), programa.Id);
+                if (!asignaturasDict.ContainsKey(claveAsignatura))
+                {
+                    var asignatura = new Asignatura(Guid.NewGuid(), txtAsignatura, txtCodigo, duracion, 2, 0, programa.Id);
+                    asignaturasDict[claveAsignatura] = asignatura;
+                }
+
+                // 4. Docente (Solo creación básica, la disponibilidad se cargará con el Excel 3)
+                if (!string.IsNullOrWhiteSpace(txtDocente))
+                {
+                    if (!docentesDict.TryGetValue(txtDocente, out var docente))
+                    {
+                        docente = new Docente(Guid.NewGuid(), txtDocente, "", "", 40m, new List<FranjaHoraria> { FranjaHoraria.Matutino });
+                        docentesDict[txtDocente] = docente;
+                    }
+                }
+
+                // 5. Espacio
+                Espacio espacioAsignado = null;
+                if (!string.IsNullOrWhiteSpace(txtEspacio))
+                {
+                    if (!espaciosDict.TryGetValue(txtEspacio, out var espacio))
+                    {
+                        var tipo = txtTipoEspacio.Contains("Laboratorio", StringComparison.OrdinalIgnoreCase) ? TipoEspacio.Laboratorio : TipoEspacio.Salon;
+                        espacio = new Espacio(Guid.NewGuid(), txtEspacio, tipo, 30, "", null);
+                        espaciosDict[txtEspacio] = espacio;
+                    }
+                    espacioAsignado = espacio;
+                }
+
+                // 6. Sesión
+                if (!string.IsNullOrWhiteSpace(txtDocente) && docentesDict.TryGetValue(txtDocente, out var docenteFinal))
+                {
+                    var asignaturaFinal = asignaturasDict[claveAsignatura];
+                    var sesion = new Sesion(
+                        Guid.NewGuid(), asignaturaFinal.Id, docenteFinal.Id, Guid.Empty, espacioAsignado?.Id,
+                        null, asignaturaFinal.Alternancia, Modalidad.Presencial, duracion, false, false);
+                    sesionesPredefinidas.Add(sesion);
+                }
+            }
+
+            return new CurriculumExcelResult(
+                facultadesDict.Values.ToList().AsReadOnly(),
+                programasDict.Values.ToList().AsReadOnly(),
+                asignaturasDict.Values.ToList().AsReadOnly(),
+                docentesDict.Values.ToList().AsReadOnly(),
+                sesionesPredefinidas.AsReadOnly(),
+                espaciosDict.Values.ToList().AsReadOnly()
+            );
+        }
+
+        public async Task<IEnumerable<Docente>> LeerDisponibilidadDocentesAsync(Stream excelStream, IEnumerable<Docente> docentesExistentes)
+        {
+            _logger.LogInformation("Iniciando lectura del Excel secundario de disponibilidad de docentes.");
+            var docentes = new List<Docente>();
+            var docentesDict = docentesExistentes.ToDictionary(d => d.Nombre, StringComparer.OrdinalIgnoreCase);
+
+            using var paquete = new ExcelPackage(excelStream);
+            await paquete.LoadAsync(excelStream);
+
+            var hoja = paquete.Workbook.Worksheets[0];
+            var totalFilas = hoja.Dimension?.Rows ?? 0;
+
+            for (int fila = 2; fila <= totalFilas; fila++)
+            {
+                var txtDocente    = hoja.Cells[fila, 1].Text.Trim();
+                var correo        = hoja.Cells[fila, 2].Text.Trim();
+                var txtMaxHoras   = hoja.Cells[fila, 3].Text.Trim();
+                var txtDias       = hoja.Cells[fila, 4].Text.Trim();
+                var txtFranjas    = hoja.Cells[fila, 5].Text.Trim();
+
+                if (string.IsNullOrWhiteSpace(txtDocente)) continue;
+
+                // Parsear Dias
+                var diasDocente = new List<DiaDeSemana>();
+                if (!string.IsNullOrWhiteSpace(txtDias))
+                {
+                    var partesDias = txtDias.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    foreach (var pd in partesDias)
+                    {
+                        if (TryParseDia(pd, out var d)) diasDocente.Add(d);
+                    }
+                }
+                if (!diasDocente.Any()) 
+                {
+                    // Si no especifica, asume toda la semana hábil
+                    diasDocente.AddRange(new[] { DiaDeSemana.Lunes, DiaDeSemana.Martes, DiaDeSemana.Miercoles, DiaDeSemana.Jueves, DiaDeSemana.Viernes });
+                }
+
+                // Parsear Franjas
+                var franjasDocente = new List<FranjaHoraria>();
+                if (!string.IsNullOrWhiteSpace(txtFranjas))
+                {
+                    var partesFranjas = txtFranjas.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    foreach (var pf in partesFranjas)
+                    {
+                        if (Enum.TryParse<FranjaHoraria>(pf, true, out var f)) franjasDocente.Add(f);
+                    }
+                }
+                if (!franjasDocente.Any())
+                {
+                    // Si no especifica, asume Matutino
+                    franjasDocente.Add(FranjaHoraria.Matutino);
+                }
 
                 decimal maxHoras = decimal.TryParse(txtMaxHoras, out var m) ? m : 40m;
 
-                var docente = new Docente(
-                    Guid.NewGuid(), nombreCompleto, "", correo, maxHoras,
-                    new List<FranjaHoraria> { FranjaHoraria.Matutino }
-                );
-                docentes.Add(docente);
+                // Validación simple de correo para no reventar la entidad
+                string correoFinal = "";
+                if (!string.IsNullOrWhiteSpace(correo))
+                {
+                    try { var addr = new System.Net.Mail.MailAddress(correo); correoFinal = addr.Address == correo ? correo : ""; }
+                    catch { correoFinal = ""; }
+                }
+
+                if (!docentesDict.TryGetValue(txtDocente, out var docente))
+                {
+                    // Si el docente no existía en la carga de asignaturas, se crea (aunque no dicte nada)
+                    docente = new Docente(Guid.NewGuid(), txtDocente, "", correoFinal, maxHoras, franjasDocente);
+                    docentesDict[txtDocente] = docente;
+                    docentes.Add(docente);
+                }
+                else
+                {
+                    // Actualizamos correo y horas si están vacíos
+                    docente.ActualizarDatos(docente.Nombre, docente.Apellido, string.IsNullOrWhiteSpace(docente.Correo) ? correoFinal : docente.Correo, maxHoras);
+                    
+                    // Acumulamos las franjas si hay múltiples filas para el mismo docente
+                    var franjasAcumuladas = docente.Disponibilidad.Union(franjasDocente).Distinct().ToList();
+                    docente.ActualizarDisponibilidad(franjasAcumuladas);
+
+                    if (!docentes.Contains(docente)) docentes.Add(docente);
+                }
+
+                // Generar Bloques de Tiempo Ficticios para las Franjas/Días indicados para alimentar a Welsh-Powell
+                // Matutino: 6 a 12 | Vespertino: 12 a 18 | Nocturno: 18 a 22 (Si existe)
+                foreach(var dia in diasDocente)
+                {
+                    if (franjasDocente.Contains(FranjaHoraria.Matutino))
+                    {
+                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(6,0), new TimeOnly(8,0)));
+                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(8,0), new TimeOnly(10,0)));
+                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(10,0), new TimeOnly(12,0)));
+                    }
+                    if (franjasDocente.Contains(FranjaHoraria.Vespertino))
+                    {
+                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(12,0), new TimeOnly(14,0)));
+                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(14,0), new TimeOnly(16,0)));
+                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(16,0), new TimeOnly(18,0)));
+                    }
+                }
             }
 
-            _logger.LogInformation("Lectura finalizada. Se encontraron {Cantidad} docentes.", docentes.Count);
-            return docentes;
+            _logger.LogInformation("Lectura finalizada. Se procesaron {Cantidad} docentes.", docentes.Count);
+            return docentesDict.Values;
         }
 
         public async Task<IEnumerable<Espacio>> LeerInventarioEspaciosAsync(Stream excelStream)
