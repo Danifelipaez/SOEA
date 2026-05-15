@@ -1,9 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\SOEA.Domain\SOEA.Domain.csproj" />
     <ProjectReference Include="..\SOEA.Infrastructure.Excel\SOEA.Infrastructure.Excel.csproj" />
     <ProjectReference Include="..\SOEA.Engine.GraphColoring\SOEA.Engine.GraphColoring.csproj" />
+    <ProjectReference Include="..\SOEA.Engine.ConstraintProg\SOEA.Engine.ConstraintProg.csproj" />
+    <ProjectReference Include="..\SOEA.Engine.Genetic\SOEA.Engine.Genetic.csproj" />
     <ProjectReference Include="..\SOEA.Infrastructure.Data\SOEA.Infrastructure.Data.csproj" />
   </ItemGroup>
 
