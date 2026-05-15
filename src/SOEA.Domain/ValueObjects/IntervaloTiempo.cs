@@ -5,9 +5,8 @@ namespace SOEA.Domain.ValueObjects
     public class IntervaloTiempo
     {
         // Constantes de restricción de tiempo
-        private static readonly TimeOnly EmpiezaHraLabor = new(7, 0);      // 07:00
-        private static readonly TimeOnly TerminaHraLabor = new(21, 30);      // 21:30
-        private static readonly TimeOnly MaxHraEnLab = new(19, 30);     // 19:30 (HC-T02)
+        private static readonly TimeOnly EmpiezaHraLabor = new(6, 0);      // 06:00
+        private static readonly TimeOnly TerminaHraLabor = new(22, 00);      // 22:00
 
         public Guid Id { get; private set; }
         public DiaDeSemana Dia { get; private set; }
@@ -18,15 +17,17 @@ namespace SOEA.Domain.ValueObjects
         
         public IntervaloTiempo(Guid id, DiaDeSemana dia, TimeOnly horaInicio, TimeOnly horaFin)
         {
+            var terminaHraLaborDia = dia == DiaDeSemana.Sábado ? new TimeOnly(14, 0) : TerminaHraLabor;
+
             // HC-T01: Las sesiones deben estar dentro del horario de operación
             if (horaInicio < EmpiezaHraLabor)
                 throw new ArgumentException(
                     $"La hora de inicio ({horaInicio}) no puede ser anterior a {EmpiezaHraLabor}. (HC-T01)",
                     nameof(horaInicio));
 
-            if (horaFin > TerminaHraLabor)
+            if (horaFin > terminaHraLaborDia)
                 throw new ArgumentException(
-                    $"La hora de fin ({horaFin}) no puede ser posterior a {TerminaHraLabor}. (HC-T01)",
+                    $"La hora de fin ({horaFin}) no puede ser posterior a {terminaHraLaborDia} para el día {dia}. (HC-T01)",
                     nameof(horaFin));
 
             // Validación base: HoraFin > horaInicio
@@ -57,8 +58,10 @@ namespace SOEA.Domain.ValueObjects
 
         public bool EsValida()
         {
+            var terminaHraLaborDia = Dia == DiaDeSemana.Sábado ? new TimeOnly(14, 0) : TerminaHraLabor;
+
             // HC-T01: Las sesiones deben estar dentro del horario de operación
-            if (HoraInicio < EmpiezaHraLabor || HoraFin > TerminaHraLabor)
+            if (HoraInicio < EmpiezaHraLabor || HoraFin > terminaHraLaborDia)
                 return false;
 
             // Validación base: HoraFin > horaInicio
@@ -67,14 +70,7 @@ namespace SOEA.Domain.ValueObjects
 
             return true;
         }
-        public bool EsValidaParaLaboratorio()
-        {
-            // HC-T02: Las sesiones en laboratorio no pueden comenzar después de las 19:30
-            if (HoraInicio > MaxHraEnLab)
-                return false;
-
-            return EsValida(); // También debe cumplir con las validaciones generales
-        }
+        
         public override bool Equals(object? obj)
         {
             if (obj is not IntervaloTiempo other)

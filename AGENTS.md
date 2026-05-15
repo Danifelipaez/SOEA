@@ -9,6 +9,13 @@ Usa esta guía del workspace para cualquier tarea de programación en SOEA. Mant
 - Usa [docs/architecture/architecture-overview.md](docs/architecture/architecture-overview.md) para entender la estructura del sistema.
 - Usa [docs/requirements/glossary.md](docs/requirements/glossary.md) para mantener consistentes los términos del dominio.
 
+## Modos de Ingesta de Información
+
+El proyecto está diseñado para soportar 3 vías principales de entrada de datos:
+1. **Frontend en Angular** (Futuro): La vía principal, donde se ingresará materia por materia sin especificar horario, y la disponibilidad de los docentes, para que el algoritmo arme el horario.
+2. **Excel de Horario Funcional** (Opción 1): Se lee un Excel con un horario ya construido (Malla completa) para validación o optimización.
+3. **Excels Separados** (Opciones 2 y 3): Funciona igual que el frontend pero cargando la información desde 2 archivos: un Excel con las Asignaturas/Carga (sin horas asignadas) y otro Excel con la Disponibilidad de los Docentes.
+
 ## Reglas de trabajo
 
 - Mantén la lógica de dominio en `SOEA.Domain`; la orquestación en `SOEA.Application`; las integraciones en el proyecto de infraestructura o motor correspondiente.

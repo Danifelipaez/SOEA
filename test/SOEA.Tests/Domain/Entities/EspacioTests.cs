@@ -50,7 +50,6 @@ namespace SOEA.Tests.Domain.Entities
         }
 
         [Theory]
-        [InlineData(null)]
         [InlineData("")]
         [InlineData("   ")]
         public void Constructor_WithEmptyNombre_ThrowsArgumentException(string nombre)

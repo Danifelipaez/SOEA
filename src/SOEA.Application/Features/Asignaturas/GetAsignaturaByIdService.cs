@@ -29,8 +29,9 @@ namespace SOEA.Application.Features.Asignaturas
                 Id = asignatura.Id,
                 Nombre = asignatura.Nombre,
                 Codigo = asignatura.Codigo,
-                BloquesSemanales = asignatura.BloquesSemanales,
-                RequiereLab = asignatura.RequiereLab,
+                HorasPorSesion = asignatura.HorasPorSesion,
+                SesionesPorSemana = asignatura.SesionesPorSemana,
+                SesionesLaboratorioSemestre = asignatura.SesionesLaboratorioSemestre,
                 Alternancia = asignatura.Alternancia,
                 ProgramaId = asignatura.ProgramaId
             };

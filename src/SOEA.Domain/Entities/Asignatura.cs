@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using SOEA.Domain.Enums;
 
 namespace SOEA.Domain.Entities
@@ -13,11 +14,20 @@ namespace SOEA.Domain.Entities
         public string Codigo { get; private set; } = "";
 
         /// <summary>
-        /// Número de bloques semanales (1 bloque = 2h o 3h según malla, dato de entrada fijo).
+        /// Duración de cada sesión en horas (ej: 2 o 3 horas).
         /// </summary>
-        public int BloquesSemanales { get; private set; }
+        public int HorasPorSesion { get; private set; }
 
-        public bool RequiereLab { get; private set; }
+        /// <summary>
+        /// Número de veces que se dicta la asignatura a la semana.
+        /// </summary>
+        public int SesionesPorSemana { get; private set; }
+
+        /// <summary>
+        /// Cantidad de sesiones de laboratorio que requiere en el semestre.
+        /// </summary>
+        public int SesionesLaboratorioSemestre { get; private set; }
+
         public TipoAlternancia Alternancia { get; private set; }
         public Guid ProgramaId { get; private set; }
 
@@ -28,42 +38,67 @@ namespace SOEA.Domain.Entities
             Guid id,
             string nombre,
             string codigo,
-            int bloquesSemanales,
-            bool requiereLab,
-            TipoAlternancia alternancia,
+            int horasPorSesion,
+            int sesionesPorSemana,
+            int sesionesLaboratorioSemestre,
             Guid programaId) : base(id)
         {
-            Validar(nombre, codigo, bloquesSemanales, programaId);
+            if (string.IsNullOrWhiteSpace(codigo))
+            {
+                // Generar código dummy único temporal
+                var prefix = string.IsNullOrWhiteSpace(nombre) ? "UNK" : nombre.Substring(0, Math.Min(nombre.Length, 3)).ToUpperInvariant();
+                codigo = $"{prefix}-{Guid.NewGuid().ToString().Substring(0, 5)}";
+            }
+
+            Validar(nombre, codigo, horasPorSesion, sesionesPorSemana, programaId);
 
             Nombre = nombre;
             Codigo = codigo;
-            BloquesSemanales = bloquesSemanales;
-            RequiereLab = requiereLab;
-            Alternancia = alternancia;
+            HorasPorSesion = horasPorSesion;
+            SesionesPorSemana = sesionesPorSemana;
+            SesionesLaboratorioSemestre = sesionesLaboratorioSemestre;
+            Alternancia = DeterminarAlternancia(nombre);
             ProgramaId = programaId;
         }
 
         /// <summary>
         /// Actualiza datos editables. Usado por UpdateAsync en Infrastructure.
-        /// La duración (BloquesSemanales) es inmutable una vez creada (hard constraint).
+        /// La duración (HorasPorSesion y SesionesPorSemana) es inmutable una vez creada (hard constraint).
         /// </summary>
-        public void ActualizarDatos(string nombre, bool requiereLab, TipoAlternancia alternancia)
+        public void ActualizarDatos(string nombre, int sesionesLaboratorioSemestre)
         {
             if (string.IsNullOrWhiteSpace(nombre))
                 throw new ArgumentException("El nombre no puede estar vacío.");
+            
             Nombre = nombre;
-            RequiereLab = requiereLab;
-            Alternancia = alternancia;
+            SesionesLaboratorioSemestre = sesionesLaboratorioSemestre;
+            Alternancia = DeterminarAlternancia(nombre);
         }
 
-        private static void Validar(string nombre, string codigo, int bloquesSemanales, Guid programaId)
+        private static TipoAlternancia DeterminarAlternancia(string nombre)
+        {
+            if (string.IsNullOrWhiteSpace(nombre))
+                return TipoAlternancia.TipoB;
+
+            // Ignorar mayúsculas, minúsculas y tildes (acentos)
+            if (string.Compare(nombre.Trim(), "quimica general", CultureInfo.InvariantCulture, CompareOptions.IgnoreNonSpace | CompareOptions.IgnoreCase) == 0)
+            {
+                return TipoAlternancia.TipoA;
+            }
+            
+            return TipoAlternancia.TipoB;
+        }
+
+        private static void Validar(string nombre, string codigo, int horasPorSesion, int sesionesPorSemana, Guid programaId)
         {
             if (string.IsNullOrWhiteSpace(nombre))
                 throw new ArgumentException("El nombre de la asignatura no puede estar vacío.");
             if (string.IsNullOrWhiteSpace(codigo))
                 throw new ArgumentException("El código de la asignatura no puede estar vacío.");
-            if (bloquesSemanales <= 0)
-                throw new ArgumentException("Los bloques semanales deben ser un valor positivo.");
+            if (horasPorSesion <= 0)
+                throw new ArgumentException("Las horas por sesión deben ser un valor positivo.");
+            if (sesionesPorSemana <= 0)
+                throw new ArgumentException("Las sesiones por semana deben ser un valor positivo.");
             if (programaId == Guid.Empty)
                 throw new ArgumentException("El ID del programa no puede ser vacío.");
         }
