@@ -1,0 +1,32 @@
+@import '@angular/material/prebuilt-themes/azure-blue.css';
+
+html, body { height: 100%; margin: 0; }
+body { font-family: Roboto, "Helvetica Neue", sans-serif; background-color: #ffffff; color: #424242; }
+
+/* Global utility classes based on guidelines */
+.text-primary { color: #007bff; }
+.bg-primary { background-color: #007bff; color: white; }
+.text-error { color: #dc3545; }
+.bg-error { background-color: #dc3545; color: white; }
+.text-success { color: #28a745; }
+.bg-success { background-color: #28a745; color: white; }
+
+/* Flat design, remove shadows from material */
+.mat-mdc-card {
+  box-shadow: none !important;
+  border: 1px solid #e0e0e0;
+}
+
+.mat-mdc-button:not(:disabled) {
+  box-shadow: none !important;
+}
+
+.primary-button {
+  background-color: #007bff !important;
+  color: white !important;
+  border-radius: 4px;
+}
+
+.primary-button:hover {
+  background-color: #0069d9 !important;
+}
