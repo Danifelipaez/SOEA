@@ -50,6 +50,15 @@ namespace SOEA.Engine.ConstraintProg
             _logger.LogInformation("Fase 2 (CP-SAT): Construyendo modelo con {S} sesiones, {B} bloques, {E} espacios, {D} docentes.",
                 sesiones.Count, bloques.Count, espacios.Count, docentes.Count);
 
+            int capacidadTotal = espacios.Count * bloques.Count;
+            _logger.LogInformation("Fase 2 (CP-SAT) Debug: Capacidad teórica calculada = {E} espacios x {B} bloques = {C} slots.", 
+                espacios.Count, bloques.Count, capacidadTotal);
+            if (sesiones.Count > capacidadTotal)
+            {
+                _logger.LogWarning("¡ALERTA MATEMÁTICA! El número de sesiones ({S}) supera la capacidad total ({C}) dada por los bloques y espacios disponibles. El modelo será lógicamente infactible bajo la regla HC-S01.", 
+                    sesiones.Count, capacidadTotal);
+            }
+
             var model = new CpModel();
 
             // --- Índices ---
@@ -123,11 +132,19 @@ namespace SOEA.Engine.ConstraintProg
                 }
             }
 
-            // HC-I03: Max Horas Semanales del Docente
+            // HC-I03: Max Horas Semanales del Docente y Capacidad de Disponibilidad
             foreach (var grupo in sesionesPorDocente)
             {
                 if (docenteDict.TryGetValue(grupo.Key, out var docente))
                 {
+                    var sesionesAsignadas = grupo.Count();
+                    var bloquesDisponibles = docente.BloquesDisponibles.Count();
+                    if (sesionesAsignadas > bloquesDisponibles && bloquesDisponibles > 0)
+                    {
+                        _logger.LogError("¡INFACTIBILIDAD DETECTADA ANTES DEL SOLVER! El docente {Nombre} tiene {Sesiones} sesiones asignadas, pero solo {Disponibles} bloques de disponibilidad. Imposible agendar sin empalmes.",
+                            docente.NombreCompleto, sesionesAsignadas, bloquesDisponibles);
+                    }
+
                     var totalHoras = grupo.Sum(s => (int)s.DuracionHoras);
                     if (totalHoras > (int)docente.MaximoHorasSemanales)
                     {
@@ -197,8 +214,19 @@ namespace SOEA.Engine.ConstraintProg
             }
 
             // --- RESOLVER ---
+            try
+            {
+                System.IO.File.WriteAllText("cp_model_debug.txt", model.Model.ToString());
+                _logger.LogInformation("Modelo CP-SAT exportado a cp_model_debug.txt para inspección de restricciones.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo exportar el modelo CP-SAT.");
+            }
+
             var solver = new CpSolver();
-            solver.StringParameters = $"max_time_in_seconds:{TimeoutSegundos}";
+            // log_search_progress:true activa la salida de OR-Tools a la consola para ver qué contradicciones encuentra
+            solver.StringParameters = $"max_time_in_seconds:{TimeoutSegundos},log_search_progress:true";
 
             _logger.LogInformation("Resolviendo modelo CP-SAT (timeout: {T}s)...", TimeoutSegundos);
             var status = solver.Solve(model);

@@ -38,12 +38,22 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasPrecision(5, 2)
                 .IsRequired();
 
+            // Disponibilidad JSON
             builder.Property(d => d.Disponibilidad)
                 .HasColumnName("disponibilidad")
                 .HasConversion(
                     v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
                     v => System.Text.Json.JsonSerializer.Deserialize<List<SOEA.Domain.Enums.FranjaHoraria>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new())
                 .IsRequired();
+
+            // Relación Muchos a Muchos con BloqueTiempo
+            builder.HasMany(d => d.BloquesDisponibles)
+                .WithMany()
+                .UsingEntity<Dictionary<string, object>>(
+                    "DisponibilidadDocente",
+                    j => j.HasOne<BloqueTiempo>().WithMany().HasForeignKey("BloqueTiempoId"),
+                    j => j.HasOne<Docente>().WithMany().HasForeignKey("DocenteId")
+                );
 
             // Indexes
             builder.HasIndex(d => d.Correo)

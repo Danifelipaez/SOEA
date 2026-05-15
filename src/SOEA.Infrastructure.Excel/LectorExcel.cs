@@ -45,7 +45,7 @@ namespace SOEA.Infrastructure.Excel
             var espaciosDict = new Dictionary<string, Espacio>(StringComparer.OrdinalIgnoreCase);
             var sesionesPredefinidas = new List<Sesion>();
 
-            using var paquete = new ExcelPackage(excelStream);
+            using var paquete = new ExcelPackage();
             await paquete.LoadAsync(excelStream);
 
             var hoja = paquete.Workbook.Worksheets[0];
@@ -312,7 +312,7 @@ namespace SOEA.Infrastructure.Excel
             var espaciosDict = new Dictionary<string, Espacio>(StringComparer.OrdinalIgnoreCase);
             var sesionesPredefinidas = new List<Sesion>();
 
-            using var paquete = new ExcelPackage(excelStream);
+            using var paquete = new ExcelPackage();
             await paquete.LoadAsync(excelStream);
 
             var hoja = paquete.Workbook.Worksheets[0];
@@ -406,7 +406,7 @@ namespace SOEA.Infrastructure.Excel
             var docentes = new List<Docente>();
             var docentesDict = docentesExistentes.ToDictionary(d => d.Nombre, StringComparer.OrdinalIgnoreCase);
 
-            using var paquete = new ExcelPackage(excelStream);
+            using var paquete = new ExcelPackage();
             await paquete.LoadAsync(excelStream);
 
             var hoja = paquete.Workbook.Worksheets[0];
@@ -516,7 +516,7 @@ namespace SOEA.Infrastructure.Excel
             _logger.LogInformation("Iniciando lectura del inventario de espacios físicos.");
             var espacios = new List<Espacio>();
 
-            using var paquete = new ExcelPackage(excelStream);
+            using var paquete = new ExcelPackage();
             await paquete.LoadAsync(excelStream);
 
             var hoja = paquete.Workbook.Worksheets[0];
