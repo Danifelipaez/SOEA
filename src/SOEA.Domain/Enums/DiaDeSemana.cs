@@ -6,6 +6,7 @@ namespace SOEA.Domain.Enums
         Martes,
         Miercoles,
         Jueves,
-        Viernes
+        Viernes,
+        Sábado
     }
 }

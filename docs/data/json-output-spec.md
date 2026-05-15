@@ -14,16 +14,16 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 
 ```json
 {
-  "scheduleId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "semesterLabel": "2025-1",
-  "generatedAt": "2025-03-01T10:30:00Z",
-  "status": "Published",
-  "summary": {
-    "totalSessions": 180,
-    "hardConstraintViolations": 0,
-    "softConstraintFitnessScore": 12.5
+  "horarioId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "semestreLabel": "2025-1",
+  "generadoEn": "2025-03-01T10:30:00Z",
+  "estado": "Publicado",
+  "resumen": {
+    "totalSesiones": 180,
+    "violacionesRestriccionesDuras": 0,
+    "puntajeFitness": 12.5
   },
-  "sessions": [ ... ]
+  "sesiones": [ ... ]
 }
 ```
 
@@ -33,38 +33,38 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 
 ```json
 {
-  "sessionId": "a1b2c3d4-...",
-  "subject": {
+  "sesionId": "a1b2c3d4-...",
+  "asignatura": {
     "id": "...",
-    "name": "Algoritmos y Programación",
-    "code": "ICSW-301"
+    "nombre": "Algoritmos y Programación",
+    "codigo": "ICSW-301"
   },
-  "cohort": {
+  "grupo": {
     "id": "...",
-    "name": "Systems Engineering — Sem 3",
-    "alternanciaType": "TypeA",
-    "enrolledStudents": 28
+    "nombre": "Systems Engineering — Sem 3",
+    "alternancia": "TipoA",
+    "estudiantesInscritos": 28
   },
-  "instructor": {
+  "docente": {
     "id": "...",
-    "fullName": "Dra. Ana López",
-    "email": "ana.lopez@university.edu.co"
+    "nombreCompleto": "Dra. Ana López",
+    "correo": "ana.lopez@university.edu.co"
   },
-  "space": {
+  "espacio": {
     "id": "...",
-    "name": "Aula 204",
-    "type": "Classroom",
-    "capacity": 35
+    "nombre": "Aula 204",
+    "tipo": "Salon",
+    "capacidad": 35
   },
-  "timeSlot": {
-    "dayOfWeek": "Monday",
-    "startTime": "07:00",
-    "endTime": "09:00"
+  "bloqueTiempo": {
+    "diaDeSemana": "Lunes",
+    "horaInicio": "07:00",
+    "horaFin": "09:00"
   },
-  "modality": "InPerson",
-  "durationHours": 2.0,
-  "isBlock": false,
-  "isSplitBlock": false
+  "modalidad": "Presencial",
+  "horasDuracion": 2.0,
+  "esBloque": false,
+  "esBloqueDividido": false
 }
 ```
 
@@ -74,18 +74,18 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 
 | Campo | Tipo | Descripción |
 |---|---|---|
-| `scheduleId` | string (UUID) | Identificador único de esta versión del horario |
-| `semesterLabel` | string | Por ejemplo, "2025-1" o "2025-2" |
-| `generatedAt` | string (ISO 8601) | Marca temporal UTC de generación |
-| `status` | string | `Draft`, `Published` o `Archived` |
-| `summary.totalSessions` | int | Cantidad total de sesiones en la salida |
-| `summary.hardConstraintViolations` | int | Debe ser 0 en un horario publicado válido |
-| `summary.softConstraintFitnessScore` | decimal | Puntuación ponderada de violaciones blandas (más bajo = mejor) |
-| `session.space` | object or null | Null cuando la modalidad es "Virtual" |
-| `session.modality` | string | `InPerson` o `Virtual` |
-| `session.timeSlot.dayOfWeek` | string | `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday` |
-| `session.timeSlot.startTime` | string | Formato `HH:mm` (24 horas) |
-| `session.timeSlot.endTime` | string | Formato `HH:mm` (24 horas) |
+| `horarioId` | string (UUID) | Identificador único de esta versión del horario |
+| `semestreLabel` | string | Por ejemplo, "2025-1" o "2025-2" |
+| `generadoEn` | string (ISO 8601) | Marca temporal UTC de generación |
+| `estado` | string | `Borrador`, `Publicado` o `Archivado` |
+| `resumen.totalSesiones` | int | Cantidad total de sesiones en la salida |
+| `resumen.violacionesRestriccionesDuras` | int | Debe ser 0 en un horario publicado válido |
+| `resumen.puntajeFitness` | decimal | Puntuación ponderada de violaciones blandas (más bajo = mejor) |
+| `sesion.espacio` | object or null | Null cuando la modalidad es "Virtual" |
+| `sesion.modalidad` | string | `Presencial` o `Virtual` |
+| `sesion.bloqueTiempo.diaDeSemana` | string | `Lunes`, `Martes`, `Miercoles`, `Jueves`, `Viernes` |
+| `sesion.bloqueTiempo.horaInicio` | string | Formato `HH:mm` (24 horas) |
+| `sesion.bloqueTiempo.horaFin` | string | Formato `HH:mm` (24 horas) |
 
 ---
 
@@ -93,39 +93,39 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 
 ```json
 {
-  "scheduleId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "semesterLabel": "2025-1",
-  "generatedAt": "2025-03-01T10:30:00Z",
-  "status": "Published",
-  "summary": {
-    "totalSessions": 2,
-    "hardConstraintViolations": 0,
-    "softConstraintFitnessScore": 0.0
+  "horarioId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "semestreLabel": "2025-1",
+  "generadoEn": "2025-03-01T10:30:00Z",
+  "estado": "Publicado",
+  "resumen": {
+    "totalSesiones": 2,
+    "violacionesRestriccionesDuras": 0,
+    "puntajeFitness": 0.0
   },
-  "sessions": [
+  "sesiones": [
     {
-      "sessionId": "a1b2c3d4-0001-0001-0001-000000000001",
-      "subject": { "id": "b1b2c3d4-1111-1111-1111-111111111111", "name": "Cálculo I", "code": "MAT-101" },
-      "cohort": { "id": "c1c2c3d4-2222-2222-2222-222222222222", "name": "Engineering — Sem 1", "alternanciaType": "TypeA", "enrolledStudents": 30 },
-      "instructor": { "id": "d1d2d3d4-3333-3333-3333-333333333333", "fullName": "Prof. Carlos Ruiz", "email": "c.ruiz@uni.edu.co" },
-      "space": { "id": "e1e2e3e4-4444-4444-4444-444444444444", "name": "Aula 101", "type": "Classroom", "capacity": 40 },
-      "timeSlot": { "dayOfWeek": "Monday", "startTime": "07:00", "endTime": "09:00" },
-      "modality": "InPerson",
-      "durationHours": 2.0,
-      "isBlock": false,
-      "isSplitBlock": false
+      "sesionId": "a1b2c3d4-0001-0001-0001-000000000001",
+      "asignatura": { "id": "b1b2c3d4-1111-1111-1111-111111111111", "nombre": "Cálculo I", "codigo": "MAT-101" },
+      "grupo": { "id": "c1c2c3d4-2222-2222-2222-222222222222", "nombre": "Engineering — Sem 1", "alternancia": "TipoA", "estudiantesInscritos": 30 },
+      "docente": { "id": "d1d2d3d4-3333-3333-3333-333333333333", "nombreCompleto": "Prof. Carlos Ruiz", "correo": "c.ruiz@uni.edu.co" },
+      "espacio": { "id": "e1e2e3e4-4444-4444-4444-444444444444", "nombre": "Aula 101", "tipo": "Salon", "capacidad": 40 },
+      "bloqueTiempo": { "diaDeSemana": "Lunes", "horaInicio": "07:00", "horaFin": "09:00" },
+      "modalidad": "Presencial",
+      "horasDuracion": 2.0,
+      "esBloque": false,
+      "esBloqueDividido": false
     },
     {
-      "sessionId": "a1b2c3d4-0001-0001-0001-000000000002",
-      "subject": { "id": "b1b2c3d4-1111-1111-1111-111111111112", "name": "Química Orgánica", "code": "QUI-201" },
-      "cohort": { "id": "c1c2c3d4-2222-2222-2222-222222222223", "name": "Chemical Eng — Sem 2", "alternanciaType": "TypeB", "enrolledStudents": 22 },
-      "instructor": { "id": "d1d2d3d4-3333-3333-3333-333333333334", "fullName": "Dra. María Torres", "email": "m.torres@uni.edu.co" },
-      "space": null,
-      "timeSlot": { "dayOfWeek": "Tuesday", "startTime": "09:00", "endTime": "11:00" },
-      "modality": "Virtual",
-      "durationHours": 2.0,
-      "isBlock": false,
-      "isSplitBlock": false
+      "sesionId": "a1b2c3d4-0001-0001-0001-000000000002",
+      "asignatura": { "id": "b1b2c3d4-1111-1111-1111-111111111112", "nombre": "Química Orgánica", "codigo": "QUI-201" },
+      "grupo": { "id": "c1c2c3d4-2222-2222-2222-222222222223", "nombre": "Chemical Eng — Sem 2", "alternancia": "TipoB", "estudiantesInscritos": 22 },
+      "docente": { "id": "d1d2d3d4-3333-3333-3333-333333333334", "nombreCompleto": "Dra. María Torres", "correo": "m.torres@uni.edu.co" },
+      "espacio": null,
+      "bloqueTiempo": { "diaDeSemana": "Martes", "horaInicio": "09:00", "horaFin": "11:00" },
+      "modalidad": "Virtual",
+      "horasDuracion": 2.0,
+      "esBloque": false,
+      "esBloqueDividido": false
     }
   ]
 }
@@ -136,7 +136,7 @@ La salida JSON canónica del pipeline de optimización (FR-05 en `docs/requireme
 ## Uso posterior
 
 - **Aplicación frontend Angular**: consume este JSON para renderizar rejillas de horarios
-- **UI de revisión del coordinador**: usa `summary.hardConstraintViolations` para marcar borradores inválidos
+- **UI de revisión del coordinador**: usa `resumen.violacionesRestriccionesDuras` para marcar borradores inválidos
 - **Trazabilidad de auditoría**: el JSON completo se almacena en la base de datos por cada versión del horario
 
 ---

@@ -17,6 +17,25 @@ SOEA es un sistema de horario académico universitario (UCTP) diseñado para aut
 
 ---
 
+## Formatos de Ingesta (Excel)
+
+El sistema soporta la ingesta de datos a través de archivos Excel con estructuras predefinidas. Es fundamental que la primera fila contenga los siguientes encabezados (el orden importa):
+
+### Formato 1: Horario Funcional Completo
+Usado para cargar un horario ya establecido.
+`FACULTAD | PROGRAMA | ASIGNATURA | CODIGO | TIPO ESPACIO | ESPACIO | DURACION | DÍA | HORA | DOCENTE`
+
+### Formato 2: Asignaturas a Programar
+Usado para cargar la malla curricular que el algoritmo debe resolver (sin tiempos asignados).
+`FACULTAD | PROGRAMA | ASIGNATURA | CODIGO | TIPO ESPACIO | ESPACIO | DURACION | DOCENTE`
+
+### Formato 3: Disponibilidad de Docentes
+Usado en conjunto con el Formato 2 para definir cuándo pueden dictar clases los docentes.
+`DOCENTE | CORREO | MAX_HORAS | DIAS_DISPONIBLES | FRANJAS_HORARIAS`
+*(Ejemplo de DIAS_DISPONIBLES: `Lunes,Martes` | Ejemplo de FRANJAS_HORARIAS: `Matutino,Vespertino`)*
+
+---
+
 ## Estructura del Repositorio
 
 ```text
@@ -131,6 +150,32 @@ SPA en Angular basada en roles:
 - **Administrador**: configura espacios, carga datos de Excel y lanza la optimización
 - **Coordinador**: revisa y valida los horarios generados
 - **Docente / Estudiante**: ve su horario personal
+
+---
+
+## Cómo probar el proyecto desde la terminal
+
+Puedes verificar y ejecutar el sistema localmente utilizando la CLI de .NET:
+
+1. **Compilar la solución:**
+   ```bash
+   dotnet build
+   ```
+
+2. **Ejecutar las pruebas (xUnit):**
+   ```bash
+   dotnet test
+   ```
+
+3. **Ejecutar la API para verificación manual:**
+   ```bash
+   dotnet run --project src/SOEA.API/SOEA.API.csproj
+   ```
+
+4. **Ejecutar el pipeline de pruebas (ConsoleRunner):**
+   ```bash
+   dotnet run --project src/SOEA.ConsoleRunner/SOEA.ConsoleRunner.csproj
+   ```
 
 ---
 
