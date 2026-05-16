@@ -18,6 +18,9 @@
     <ProjectReference Include="..\SOEA.Application\SOEA.Application.csproj" />
     <ProjectReference Include="..\SOEA.Infrastructure.Data\SOEA.Infrastructure.Data.csproj" />
     <ProjectReference Include="..\SOEA.Infrastructure.Excel\SOEA.Infrastructure.Excel.csproj" />
+    <ProjectReference Include="..\SOEA.Engine.GraphColoring\SOEA.Engine.GraphColoring.csproj" />
+    <ProjectReference Include="..\SOEA.Engine.ConstraintProg\SOEA.Engine.ConstraintProg.csproj" />
+    <ProjectReference Include="..\SOEA.Engine.Genetic\SOEA.Engine.Genetic.csproj" />
   </ItemGroup>
 
 </Project>

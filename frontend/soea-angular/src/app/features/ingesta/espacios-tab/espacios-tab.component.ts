@@ -87,7 +87,7 @@ export class EspaciosTabComponent {
           this.state.updateEspacio({ ...espacio, ...result });
           this.snackBar.open('Espacio actualizado', 'Cerrar', { duration: 3000 });
         } else {
-          this.state.addEspacio({ id: Math.random().toString(), ...result });
+          this.state.addEspacio({ id: crypto.randomUUID(), ...result });
           this.snackBar.open('Espacio agregado', 'Cerrar', { duration: 3000 });
         }
       }

@@ -10,6 +10,7 @@ import {
 } from '@angular/cdk/drag-drop';
 import { RouterModule } from '@angular/router';
 import { StateService } from '../../core/state.service';
+import { HorarioApiService } from '../../core/horario-api.service';
 import { Espacio, Sesion } from '../../core/models';
 
 /**
@@ -158,9 +159,10 @@ import { Espacio, Sesion } from '../../core/models';
   `]
 })
 export class HorarioComponent {
-  state = inject(StateService);
-  dialog = inject(MatDialog);
-  snackBar = inject(MatSnackBar);
+  state     = inject(StateService);
+  dialog    = inject(MatDialog);
+  snackBar  = inject(MatSnackBar);
+  horarioApi = inject(HorarioApiService);
 
   dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
   franjas = [
@@ -306,18 +308,37 @@ export class HorarioComponent {
 
     const dialogRef = this.dialog.open(ProgressDialogComponent, { disableClose: true, width: '500px' });
 
-    setTimeout(() => { dialogRef.componentInstance.phase = 2; }, 2000);
-    setTimeout(() => { dialogRef.componentInstance.phase = 3; }, 4000);
-    setTimeout(() => {
-      dialogRef.close();
-      // TODO: llamar al backend API cuando esté disponible.
-      // Por ahora, informar al usuario que el backend es necesario.
-      this.snackBar.open(
-        'La generación automática requiere el backend SOEA.API en ejecución.',
-        'Cerrar',
-        { duration: 6000 }
-      );
-    }, 6000);
+    this.horarioApi
+      .generarHorario(
+        this.state.asignaturas(),
+        this.state.docentes(),
+        this.state.espacios()
+      )
+      .subscribe({
+        next: (respuesta) => {
+          dialogRef.close();
+          const sesiones = this.horarioApi.mapearSesiones(respuesta.sesiones);
+          this.state.setSesiones(sesiones);
+          this.state.setExecutionLogs(respuesta.logs || []);
+          this.snackBar.open(
+            `✅ Horario generado: ${sesiones.length} sesiones (fitness: ${respuesta.puntajeFitness.toFixed(2)}).`,
+            'Cerrar',
+            { duration: 6000 }
+          );
+        },
+        error: (err: any) => {
+          dialogRef.close();
+          const mensaje = err.mensajeError || err.message || err.error || 'Error desconocido';
+          if (err.logs && Array.isArray(err.logs)) {
+             this.state.setExecutionLogs(err.logs);
+          }
+          this.snackBar.open(
+            `❌ ${mensaje}`,
+            'Cerrar',
+            { duration: 8000, panelClass: ['snack-error'] }
+          );
+        }
+      });
   }
 }
 

@@ -62,6 +62,14 @@ namespace SOEA.Domain.Entities
             Estado = EstadoSesion.Asignada;
         }
 
+        public void AsignarEspacio(Guid espacioId)
+        {
+            if (espacioId == Guid.Empty)
+                throw new ArgumentException("El espacio asignado no puede ser vacío.");
+            
+            EspacioId = espacioId;
+        }
+
         public void MarcarConConflicto(string motivo = "")
         {
             Estado = EstadoSesion.Conflicto;
