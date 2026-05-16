@@ -97,7 +97,7 @@ export class DocentesTabComponent {
           this.state.updateDocente({ ...docente, ...result });
           this.snackBar.open('Docente actualizado', 'Cerrar', { duration: 3000 });
         } else {
-          this.state.addDocente({ id: Math.random().toString(), ...result });
+          this.state.addDocente({ id: crypto.randomUUID(), ...result });
           this.snackBar.open('Docente agregado', 'Cerrar', { duration: 3000 });
         }
       }

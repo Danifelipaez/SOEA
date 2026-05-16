@@ -40,9 +40,12 @@ export class StateService {
   /** Reemplaza el listado completo (útil para importación masiva desde Excel). */
   setAsignaturas(list: Asignatura[]) { this.asignaturas.set(list); }
 
-  // ── Sesiones (resultado del algoritmo) ───────────────────────────────────────
+  // ── Sesiones y Logs (resultado del algoritmo) ──────────────────────────────
+  executionLogs = signal<string[]>([]);
+
   setSesiones(s: Sesion[])       { this.sesiones.set(s); }
   updateSesion(s: Sesion)        { this.sesiones.update(v => v.map(x => x.id === s.id ? s : x)); }
+  setExecutionLogs(logs: string[]) { this.executionLogs.set(logs); }
 
   // ── Helpers derivados ────────────────────────────────────────────────────────
   getFacultadById(id: string): Facultad | undefined {

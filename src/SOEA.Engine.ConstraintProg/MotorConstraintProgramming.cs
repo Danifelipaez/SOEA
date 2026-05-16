@@ -78,7 +78,8 @@ namespace SOEA.Engine.ConstraintProg
             {
                 timeVars[sesion.Id] = model.NewIntVar(0, bloques.Count - 1, $"time_{sesion.Id}");
 
-                if (espacios.Any())
+                // Si la sesión requiere espacio físico, creamos variable
+                if (espacios.Any() && sesion.Modalidad != Modalidad.Virtual)
                     spaceVars[sesion.Id] = model.NewIntVar(0, espacios.Count - 1, $"space_{sesion.Id}");
             }
 
@@ -247,8 +248,8 @@ namespace SOEA.Engine.ConstraintProg
                         var espacioIdx = (int)solver.Value(spaceVars[sesion.Id]);
                         if (espacioIdx < espacios.Count)
                         {
-                            // Actualizar EspacioId en la sesión si es diferente
-                            // (La sesión ya tiene EspacioId, pero CP-SAT pudo reasignarlo)
+                            var espacioAsignado = espacios[espacioIdx];
+                            sesion.AsignarEspacio(espacioAsignado.Id);
                         }
                     }
                 }

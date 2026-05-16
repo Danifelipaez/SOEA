@@ -7,6 +7,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSliderModule } from '@angular/material/slider';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { StateService } from '../../core/state.service';
 
 @Component({
   selector: 'app-dashboard-developer',
@@ -164,21 +165,9 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 export class DashboardDeveloperComponent implements OnDestroy {
   fb = inject(FormBuilder);
   snackBar = inject(MatSnackBar);
+  state = inject(StateService);
 
-  logs = signal<string[]>([
-    '[INFO] Iniciando pipeline de optimización...',
-    '[INFO] Fase 1: Pre-procesamiento (coloración de grafos) iniciada.',
-    '[INFO] Fase 1 completada en 120ms.',
-    '[INFO] Fase 2: Viabilidad (CP-SAT) iniciada.',
-    '[WARN] Infactibilidad encontrada: Conflicto de espacio en franja 10:00-12:00 Lunes.',
-    '[INFO] Resolviendo infactibilidad mediante relajación de prioridades.',
-    '[INFO] Fase 2 completada en 2300ms.',
-    '[INFO] Fase 3: Algoritmo genético iniciado. Población: 100, Generaciones: 500.',
-    '[INFO] Gen 1 | Fitness: 0.45',
-    '[INFO] Gen 50 | Fitness: 0.72 | Posible cuello de botella: Mutación lenta.',
-    '[INFO] Gen 500 | Fitness: 0.94',
-    '[INFO] Fase 3 completada en 8400ms.'
-  ]);
+  logs = this.state.executionLogs;
 
   configForm: FormGroup;
   valChangeSub: any;
