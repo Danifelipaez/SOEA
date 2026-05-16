@@ -214,102 +214,123 @@ export class AsignaturasTabComponent {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-        // Encabezados esperados (fila 0): Facultad | Programa | Código | Nombre | HorasPorSesion | SesionesPorSemana | SesionesLabSemestre
-        const headerRow = rows[0]?.map((h: any) => String(h).trim().toLowerCase()) ?? [];
-        const col = (name: string) => headerRow.findIndex((h: string) => h.includes(name));
-
-        const iFacultad  = col('facultad');
-        const iPrograma  = col('programa');
-        const iCodigo    = col('c\u00f3digo') !== -1 ? col('c\u00f3digo') : col('codigo');
-        const iNombre    = col('nombre');
-        const iHoras     = col('horas');
-        const iSesiones  = col('sesiones/sem') !== -1 ? col('sesiones/sem') : col('sesionesp');
-        const iLab       = col('lab');
-
-        if (iFacultad < 0 || iPrograma < 0 || iNombre < 0) {
-          this.snackBar.open('El Excel no tiene las columnas esperadas (Facultad, Programa, Nombre)', 'Cerrar', { duration: 5000 });
+        if (rows.length < 2) {
+          this.snackBar.open('El archivo Excel no tiene datos.', 'Cerrar', { duration: 4000 });
           return;
         }
 
-        // Índices de columnnas por nombre flexible
-        const getCol = (r: any[], idx: number) => idx >= 0 ? String(r[idx] ?? '').trim() : '';
-        const getNum = (r: any[], idx: number, def = 2) => idx >= 0 ? (Number(r[idx]) || def) : def;
+        // ── Columnas fijas (igual que LectorExcel.cs) ──────────────────────
+        // A(0)=FACULTAD  B(1)=PROGRAMA  C(2)=ASIGNATURA  D(3)=CODIGO
+        // E(4)=TIPO_ESPACIO  F(5)=ESPACIO  G(6)=DURACION[h]
+        // Modo 1 (horario ya armado): H(7)=DIA  I(8)=HORA  J(9)=DOCENTE
+        // Modo 2 (solo asignaturas):  H(7)=DOCENTE
+        // ──────────────────────────────────────────────────────────────────
+        const PREFIJOS_DIA = ['lun','mar','mie','jue','vie','sab','mon','tue','wed','thu','fri','sat'];
+        const esDia = (v: any) => {
+          const t = String(v ?? '').trim().toLowerCase();
+          return PREFIJOS_DIA.some(p => t.startsWith(p));
+        };
+        const esModo1 = esDia(rows[1]?.[7]);
+
+        const str = (row: any[], i: number) => String(row[i] ?? '').trim();
+        const num = (row: any[], i: number, def = 2) => { const n = Number(row[i]); return n > 0 ? Math.round(n) : def; };
 
         const nuevasFacultades: Facultad[] = [...this.state.facultades()];
-        const nuevosProgamas: Programa[] = [...this.state.programas()];
+        const nuevosProgamas:   Programa[] = [...this.state.programas()];
         const nuevasAsignaturas: Asignatura[] = [...this.state.asignaturas()];
+        const nuevosDocentes: any[] = [...this.state.docentes()];
+        const nuevosEspacios: any[] = [...this.state.espacios()];
 
-        const getOrCreateFacultad = (nombre: string): string => {
-          const existing = nuevasFacultades.find(f => f.nombre.toLowerCase() === nombre.toLowerCase());
-          if (existing) return existing.id;
-          const id = crypto.randomUUID();
-          nuevasFacultades.push({ id, nombre });
-          return id;
+        const upsert = <T extends {id:string}>(list: T[], match: (x:T)=>boolean, build: ()=>T): string => {
+          const found = list.find(match);
+          if (found) return found.id;
+          const item = build(); list.push(item); return item.id;
         };
 
-        const getOrCreatePrograma = (nombre: string, facultadId: string): string => {
-          const existing = nuevosProgamas.find(p =>
-            p.nombre.toLowerCase() === nombre.toLowerCase() && p.facultadId === facultadId
-          );
-          if (existing) return existing.id;
-          const id = crypto.randomUUID();
-          nuevosProgamas.push({ id, nombre, facultadId });
-          return id;
-        };
-
-        let added = 0;
-        let skipped = 0;
+        let added = 0, skipped = 0;
 
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i];
-          const nombreFac = getCol(row, iFacultad);
-          const nombreProg = getCol(row, iPrograma);
-          const codigo = getCol(row, iCodigo) || `IMPORT-${i}`;
-          const nombre = getCol(row, iNombre);
-          if (!nombre) { skipped++; continue; }
+          const nombreFac  = str(row, 0);
+          const nombreProg = str(row, 1);
+          const nombreAsig = str(row, 2);
 
-          const horasPorSesion = getNum(row, iHoras, 2);
-          const sesionesPorSemana = getNum(row, iSesiones, 2);
-          const sesionesLab = getNum(row, iLab, 0);
+          // Saltar filas sin datos esenciales (mismo criterio que el backend)
+          if (!nombreFac || !nombreProg || !nombreAsig) { skipped++; continue; }
 
-          const facultadId = getOrCreateFacultad(nombreFac || 'Sin Facultad');
-          const programaId = getOrCreatePrograma(nombreProg || 'Sin Programa', facultadId);
+          const codigo      = str(row, 3) || `IMP-${i}`;
+          const tipoEspStr  = str(row, 4);
+          const nombreEsp   = str(row, 5);
+          const duracion    = num(row, 6, 2);
+          // En Modo 1 el docente está en col J(9); en Modo 2 en col H(7)
+          const nombreDoc   = esModo1 ? str(row, 9) : str(row, 7);
 
-          // Una asignatura puede repetirse en distintos programas (business rule)
-          // El ID único es (codigo, programaId)
+          // 1. Facultad
+          const facultadId = upsert(nuevasFacultades,
+            f => f.nombre.toLowerCase() === nombreFac.toLowerCase(),
+            () => ({ id: crypto.randomUUID(), nombre: nombreFac }));
+
+          // 2. Programa (clave compuesta facultad|programa)
+          const programaId = upsert(nuevosProgamas,
+            p => p.nombre.toLowerCase() === nombreProg.toLowerCase() && p.facultadId === facultadId,
+            () => ({ id: crypto.randomUUID(), nombre: nombreProg, facultadId }));
+
+          // 3. Asignatura (deduplicada por nombre+programa, igual que el backend)
           const existeEnPrograma = nuevasAsignaturas.some(
-            a => a.codigo === codigo && a.programaId === programaId
+            a => a.nombre.toLowerCase() === nombreAsig.toLowerCase() && a.programaId === programaId
           );
-
           if (!existeEnPrograma) {
-            const alternancia = sesionesLab === 8 ? 'TipoA' : sesionesLab > 8 ? 'TipoB' : 'SinAlternancia';
+            // Replica DeterminarAlternancia del backend:
+            // Solo 'Quimica General' es TipoA; el resto TipoB
+            const normalized = nombreAsig.trim().toLowerCase()
+              .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const alternancia: 'TipoA'|'TipoB'|'SinAlternancia' =
+              normalized === 'quimica general' ? 'TipoA' : 'TipoB';
             nuevasAsignaturas.push({
-              id: crypto.randomUUID(),
-              codigo,
-              nombre,
-              alternancia: alternancia as any,
-              horasPorSesion,
-              sesionesPorSemana,
-              sesionesLaboratorioSemestre: sesionesLab,
-              programaId
+              id: crypto.randomUUID(), codigo, nombre: nombreAsig,
+              alternancia, horasPorSesion: duracion,
+              sesionesPorSemana: 2, sesionesLaboratorioSemestre: 0, programaId
             });
             added++;
-          } else {
-            skipped++;
+          } else { skipped++; }
+
+          // 4. Docente (creacion basica)
+          if (nombreDoc) {
+            upsert(nuevosDocentes,
+              d => d.nombre.toLowerCase() === nombreDoc.toLowerCase(),
+              () => ({ id: crypto.randomUUID(), nombre: nombreDoc, cedula: '', maxHoras: 40, disponibilidad: {} }));
+          }
+
+          // 5. Espacio (creacion basica)
+          if (nombreEsp) {
+            upsert(nuevosEspacios,
+              e => e.nombre.toLowerCase() === nombreEsp.toLowerCase(),
+              () => ({
+                id: crypto.randomUUID(), nombre: nombreEsp,
+                tipo: tipoEspStr.toLowerCase().includes('laboratorio') ? 'Laboratorio' : 'Sal\u00f3n',
+                capacidad: 30
+              }));
           }
         }
 
         this.state.facultades.set(nuevasFacultades);
         this.state.programas.set(nuevosProgamas);
         this.state.setAsignaturas(nuevasAsignaturas);
-        this.snackBar.open(`Importación completada: ${added} asignaturas agregadas, ${skipped} omitidas.`, 'Cerrar', { duration: 5000 });
+        this.state.docentes.set(nuevosDocentes);
+        this.state.espacios.set(nuevosEspacios);
+
+        const modo = esModo1 ? 'Modo 1 (horario existente)' : 'Modo 2 (asignaturas)';
+        this.snackBar.open(
+          `${modo}: ${added} asignaturas importadas, ${skipped} omitidas. ` +
+          `Docentes: ${nuevosDocentes.length} · Espacios: ${nuevosEspacios.length}`,
+          'Cerrar', { duration: 6000 }
+        );
       } catch (err) {
         console.error(err);
-        this.snackBar.open('Error al leer el archivo Excel.', 'Cerrar', { duration: 5000 });
+        this.snackBar.open('Error al leer el archivo Excel. Verifica el formato.', 'Cerrar', { duration: 5000 });
       }
     };
     reader.readAsArrayBuffer(file);
-    // Reset para permitir reimportar el mismo archivo
     (event.target as HTMLInputElement).value = '';
   }
 
