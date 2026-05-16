@@ -1,30 +1,63 @@
-import { Injectable, signal } from '@angular/core';
-import { Espacio, Docente, Asignatura, Sesion } from './models';
+import { Injectable, signal, computed } from '@angular/core';
+import { Facultad, Programa, Espacio, Docente, Asignatura, Sesion } from './models';
 
 @Injectable({
   providedIn: 'root'
 })
 export class StateService {
-  espacios = signal<Espacio[]>([]);
-  docentes = signal<Docente[]>([]);
+  // ── Entidades maestras ───────────────────────────────────────────────────────
+  facultades = signal<Facultad[]>([]);
+  programas  = signal<Programa[]>([]);
+  espacios   = signal<Espacio[]>([]);
+  docentes   = signal<Docente[]>([]);
   asignaturas = signal<Asignatura[]>([]);
-  sesiones = signal<Sesion[]>([]); // generated schedule
+  sesiones   = signal<Sesion[]>([]);
 
-  constructor() {
-    // Initial mock data if empty
+  // ── Facultades ───────────────────────────────────────────────────────────────
+  addFacultad(f: Facultad)      { this.facultades.update(v => [...v, f]); }
+  updateFacultad(f: Facultad)   { this.facultades.update(v => v.map(x => x.id === f.id ? f : x)); }
+  deleteFacultad(id: string)    { this.facultades.update(v => v.filter(x => x.id !== id)); }
+
+  // ── Programas ────────────────────────────────────────────────────────────────
+  addPrograma(p: Programa)      { this.programas.update(v => [...v, p]); }
+  updatePrograma(p: Programa)   { this.programas.update(v => v.map(x => x.id === p.id ? p : x)); }
+  deletePrograma(id: string)    { this.programas.update(v => v.filter(x => x.id !== id)); }
+
+  // ── Espacios ─────────────────────────────────────────────────────────────────
+  addEspacio(e: Espacio)        { this.espacios.update(v => [...v, e]); }
+  updateEspacio(e: Espacio)     { this.espacios.update(v => v.map(x => x.id === e.id ? e : x)); }
+  deleteEspacio(id: string)     { this.espacios.update(v => v.filter(x => x.id !== id)); }
+
+  // ── Docentes ─────────────────────────────────────────────────────────────────
+  addDocente(d: Docente)        { this.docentes.update(v => [...v, d]); }
+  updateDocente(d: Docente)     { this.docentes.update(v => v.map(x => x.id === d.id ? d : x)); }
+  deleteDocente(id: string)     { this.docentes.update(v => v.filter(x => x.id !== id)); }
+
+  // ── Asignaturas ──────────────────────────────────────────────────────────────
+  addAsignatura(a: Asignatura)      { this.asignaturas.update(v => [...v, a]); }
+  updateAsignatura(a: Asignatura)   { this.asignaturas.update(v => v.map(x => x.id === a.id ? a : x)); }
+  deleteAsignatura(id: string)      { this.asignaturas.update(v => v.filter(x => x.id !== id)); }
+  /** Reemplaza el listado completo (útil para importación masiva desde Excel). */
+  setAsignaturas(list: Asignatura[]) { this.asignaturas.set(list); }
+
+  // ── Sesiones (resultado del algoritmo) ───────────────────────────────────────
+  setSesiones(s: Sesion[])       { this.sesiones.set(s); }
+  updateSesion(s: Sesion)        { this.sesiones.update(v => v.map(x => x.id === s.id ? s : x)); }
+
+  // ── Helpers derivados ────────────────────────────────────────────────────────
+  getFacultadById(id: string): Facultad | undefined {
+    return this.facultades().find(f => f.id === id);
   }
 
-  addEspacio(e: Espacio) { this.espacios.update(v => [...v, e]); }
-  updateEspacio(e: Espacio) { this.espacios.update(v => v.map(x => x.id === e.id ? e : x)); }
-  deleteEspacio(id: string) { this.espacios.update(v => v.filter(x => x.id !== id)); }
+  getProgramaById(id: string): Programa | undefined {
+    return this.programas().find(p => p.id === id);
+  }
 
-  addDocente(d: Docente) { this.docentes.update(v => [...v, d]); }
-  updateDocente(d: Docente) { this.docentes.update(v => v.map(x => x.id === d.id ? d : x)); }
-  deleteDocente(id: string) { this.docentes.update(v => v.filter(x => x.id !== id)); }
+  getProgramasByFacultad(facultadId: string): Programa[] {
+    return this.programas().filter(p => p.facultadId === facultadId);
+  }
 
-  addAsignatura(a: Asignatura) { this.asignaturas.update(v => [...v, a]); }
-  updateAsignatura(a: Asignatura) { this.asignaturas.update(v => v.map(x => x.id === a.id ? a : x)); }
-  deleteAsignatura(id: string) { this.asignaturas.update(v => v.filter(x => x.id !== id)); }
-  
-  setSesiones(s: Sesion[]) { this.sesiones.set(s); }
+  getAsignaturasByPrograma(programaId: string): Asignatura[] {
+    return this.asignaturas().filter(a => a.programaId === programaId);
+  }
 }
