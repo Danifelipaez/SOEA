@@ -48,11 +48,15 @@ namespace SOEA.Engine.GraphColoring
 
             // 2. Mismo Espacio (Laboratorio/Salón)
             if (s1.EspacioId.HasValue && s1.EspacioId != Guid.Empty && s1.EspacioId == s2.EspacioId)
+            {
+                // Regla ALT-01: TipoA y TipoB pueden compartir espacio
+                if ((s1.Alternancia == TipoAlternancia.TipoA && s2.Alternancia == TipoAlternancia.TipoB) ||
+                    (s1.Alternancia == TipoAlternancia.TipoB && s2.Alternancia == TipoAlternancia.TipoA))
+                {
+                    return false;
+                }
                 return true;
-
-            // 3. Misma Asignatura (Para evitar que la misma materia se dicte a la misma hora en dos lugares distintos)
-            if (s1.AsignaturaId != Guid.Empty && s1.AsignaturaId == s2.AsignaturaId)
-                return true;
+            }
 
             return false;
         }
