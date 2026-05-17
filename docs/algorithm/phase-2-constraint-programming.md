@@ -1,4 +1,5 @@
 # Fase 2 — Programación por restricciones (CP-SAT)
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Describir cómo SOEA usa Google OR-Tools CP-SAT para imponer todas las restricciones duras y producir

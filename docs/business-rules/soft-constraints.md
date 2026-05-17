@@ -1,4 +1,5 @@
 # Restricciones blandas
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Listar las preferencias de programación que el sistema debe optimizar, pero que puede relajar cuando

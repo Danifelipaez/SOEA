@@ -1,4 +1,5 @@
 # Criterios de aceptación
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Definir las condiciones que deben cumplirse para considerar que SOEA está listo para el despliegue piloto

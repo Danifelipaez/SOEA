@@ -1,4 +1,5 @@
 # Fase 3 — Algoritmo genético
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Describir el algoritmo genético usado en la Fase 3 para optimizar restricciones blandas en el horario
