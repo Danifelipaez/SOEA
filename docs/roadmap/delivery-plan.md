@@ -1,4 +1,5 @@
 # Plan de entrega
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Esbozar la hoja de ruta de desarrollo de SOEA: fases, hitos y orden de trabajo recomendado.

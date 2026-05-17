@@ -1,4 +1,5 @@
 # Reglas de alternancia
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Definir el modelo de programación de alternancia (híbrido) usado por la institución. Este documento es la

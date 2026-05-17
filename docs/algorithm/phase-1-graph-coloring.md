@@ -1,4 +1,5 @@
 # Fase 1 — coloreado de grafos
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Describir el enfoque de coloreado de grafos usado en la primera fase del pipeline de optimización de SOEA.

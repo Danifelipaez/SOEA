@@ -1,4 +1,5 @@
 # Límites del piloto
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Definir el alcance y las restricciones del despliegue inicial piloto de SOEA.

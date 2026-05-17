@@ -1,4 +1,5 @@
 # Definición del problema — University Course Timetabling Problem (UCTP)
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Definir formalmente el problema de programación de SOEA como una variante de UCTP. Copilot usa este documento

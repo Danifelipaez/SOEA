@@ -1,4 +1,5 @@
 # Glosario
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Definir cada término del dominio usado en el código, la documentación y la interfaz de SOEA para que todos los colaboradores (y Copilot) usen un lenguaje consistente. En caso de duda, consulta este archivo antes de nombrar una clase, variable o endpoint.
