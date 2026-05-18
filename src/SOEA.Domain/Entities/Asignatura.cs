@@ -78,15 +78,17 @@ namespace SOEA.Domain.Entities
         private static TipoAlternancia DeterminarAlternancia(string nombre)
         {
             if (string.IsNullOrWhiteSpace(nombre))
-                return TipoAlternancia.TipoB;
+                return TipoAlternancia.SinAlternancia;
 
-            // Ignorar mayúsculas, minúsculas y tildes (acentos)
-            if (string.Compare(nombre.Trim(), "quimica general", CultureInfo.InvariantCulture, CompareOptions.IgnoreNonSpace | CompareOptions.IgnoreCase) == 0)
+            // Fix #11: only the one known alternating course maps to TipoA; everything else
+            // has no alternation scheme rather than defaulting to TipoB.
+            if (string.Compare(nombre.Trim(), "quimica general", CultureInfo.InvariantCulture,
+                    CompareOptions.IgnoreNonSpace | CompareOptions.IgnoreCase) == 0)
             {
                 return TipoAlternancia.TipoA;
             }
-            
-            return TipoAlternancia.TipoB;
+
+            return TipoAlternancia.SinAlternancia;
         }
 
         private static void Validar(string nombre, string codigo, int horasPorSesion, int sesionesPorSemana, Guid programaId)

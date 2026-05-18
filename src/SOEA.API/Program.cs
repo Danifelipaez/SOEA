@@ -28,6 +28,9 @@ builder.Services.AddDbContext<SOEABdContext>(options =>
 // ── Repositorios ──────────────────────────────────────────────────────────────
 builder.Services.AddScoped<IAsignaturaRepositorio, AsignaturaRepository>();
 builder.Services.AddScoped<IHorarioRepositorio, HorarioRepositorio>();
+builder.Services.AddScoped<ISesionRepositorio, SesionRepositorio>();
+builder.Services.AddScoped<IDocenteRepositorio, DocenteRepositorio>();
+builder.Services.AddScoped<IEspacioRepositorio, EspacioRepositorio>();
 
 // ── Motores de scheduling ─────────────────────────────────────────────────────
 builder.Services.AddGraphColoringEngine();

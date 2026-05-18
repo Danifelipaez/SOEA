@@ -12,9 +12,11 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatChipsModule } from '@angular/material/chips';
 import { StateService } from '../../../core/state.service';
+import { PersistenciaService } from '../../../core/persistencia.service';
 import { Asignatura, Facultad, Programa } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import * as XLSX from 'xlsx';
+import { forkJoin } from 'rxjs';
 
 // ─── Columnas del Excel esperadas (modo asignaturas separadas) ──────────────────
 // Facultad | Programa | Código | Nombre | HorasPorSesion | SesionesPorSemana | SesionesLabSemestre
@@ -39,6 +41,10 @@ import * as XLSX from 'xlsx';
         <div class="btn-group">
           <button mat-stroked-button (click)="importarExcel()" matTooltip="Importar desde Excel (.xlsx)">
             <mat-icon>upload_file</mat-icon> Importar Excel
+          </button>
+          <button mat-stroked-button (click)="cargarDesdeBD()" [disabled]="saving()">Cargar desde BD</button>
+          <button mat-stroked-button color="accent" (click)="guardarEnBD()" [disabled]="saving()">
+            {{ saving() ? 'Guardando...' : 'Guardar en BD' }}
           </button>
           <button mat-flat-button color="primary" class="primary-button" (click)="openDialog()">
             <mat-icon>add</mat-icon> Agregar asignatura
@@ -147,8 +153,10 @@ export class AsignaturasTabComponent {
   state = inject(StateService);
   dialog = inject(MatDialog);
   snackBar = inject(MatSnackBar);
+  persistencia = inject(PersistenciaService);
 
   displayedColumns = ['facultad', 'programa', 'codigo', 'nombre', 'alternancia', 'horas', 'sesiones', 'docente', 'acciones'];
+  saving = signal(false);
   filterStr = signal('');
 
   filteredAsignaturas = computed(() => {
@@ -275,31 +283,33 @@ export class AsignaturasTabComponent {
             p => p.nombre.toLowerCase() === nombreProg.toLowerCase() && p.facultadId === facultadId,
             () => ({ id: crypto.randomUUID(), nombre: nombreProg, facultadId }));
 
-          // 3. Asignatura (deduplicada por nombre+programa, igual que el backend)
+          // 3. Docente (creacion basica) — must come before asignatura so we can link its ID
+          let docenteIdParaAsig: string | undefined;
+          if (nombreDoc) {
+            docenteIdParaAsig = upsert(nuevosDocentes,
+              d => d.nombre.toLowerCase() === nombreDoc.toLowerCase(),
+              () => ({ id: crypto.randomUUID(), nombre: nombreDoc, cedula: '', maxHoras: 40, disponibilidad: {} }));
+          }
+
+          // 4. Asignatura (deduplicada por nombre+programa, igual que el backend)
           const existeEnPrograma = nuevasAsignaturas.some(
             a => a.nombre.toLowerCase() === nombreAsig.toLowerCase() && a.programaId === programaId
           );
           if (!existeEnPrograma) {
             // Replica DeterminarAlternancia del backend:
-            // Solo 'Quimica General' es TipoA; el resto TipoB
+            // Solo 'Quimica General' es TipoA; el resto SinAlternancia
             const normalized = nombreAsig.trim().toLowerCase()
               .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
             const alternancia: 'TipoA'|'TipoB'|'SinAlternancia' =
-              normalized === 'quimica general' ? 'TipoA' : 'TipoB';
+              normalized === 'quimica general' ? 'TipoA' : 'SinAlternancia';
             nuevasAsignaturas.push({
               id: crypto.randomUUID(), codigo, nombre: nombreAsig,
               alternancia, horasPorSesion: duracion,
-              sesionesPorSemana: 2, sesionesLaboratorioSemestre: 0, programaId
+              sesionesPorSemana: 2, sesionesLaboratorioSemestre: 0, programaId,
+              docenteId: docenteIdParaAsig
             });
             added++;
           } else { skipped++; }
-
-          // 4. Docente (creacion basica)
-          if (nombreDoc) {
-            upsert(nuevosDocentes,
-              d => d.nombre.toLowerCase() === nombreDoc.toLowerCase(),
-              () => ({ id: crypto.randomUUID(), nombre: nombreDoc, cedula: '', maxHoras: 40, disponibilidad: {} }));
-          }
 
           // 5. Espacio (creacion basica)
           if (nombreEsp) {
@@ -353,6 +363,55 @@ export class AsignaturasTabComponent {
   delete(asignatura: Asignatura) {
     this.state.deleteAsignatura(asignatura.id);
     this.snackBar.open('Asignatura eliminada', 'Cerrar', { duration: 3000 });
+  }
+
+  guardarEnBD() {
+    const asignaturas = this.state.asignaturas();
+    if (asignaturas.length === 0) {
+      this.snackBar.open('No hay asignaturas para guardar.', 'Cerrar', { duration: 3000 });
+      return;
+    }
+    this.saving.set(true);
+    const calls = asignaturas.map(a => this.persistencia.guardarAsignatura(a));
+    forkJoin(calls).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.snackBar.open(`${asignaturas.length} asignatura(s) guardadas en la BD.`, 'Cerrar', { duration: 4000 });
+      },
+      error: (err) => {
+        this.saving.set(false);
+        this.snackBar.open(`Error al guardar: ${err?.error || err?.message || 'desconocido'}`, 'Cerrar', { duration: 5000 });
+      }
+    });
+  }
+
+  cargarDesdeBD() {
+    this.saving.set(true);
+    this.persistencia.cargarAsignaturas().subscribe({
+      next: (list) => {
+        this.saving.set(false);
+        list.forEach((a: any) => {
+          const mapped: Asignatura = {
+            id: a.id,
+            nombre: a.nombre,
+            codigo: a.codigo,
+            horasPorSesion: a.horasPorSesion,
+            sesionesPorSemana: a.sesionesPorSemana,
+            sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
+            alternancia: a.alternancia ?? 'SinAlternancia',
+            programaId: a.programaId
+          };
+          const existing = this.state.asignaturas().find(x => x.id === a.id);
+          if (existing) this.state.updateAsignatura(mapped);
+          else this.state.addAsignatura(mapped);
+        });
+        this.snackBar.open(`${list.length} asignatura(s) cargadas desde la BD.`, 'Cerrar', { duration: 4000 });
+      },
+      error: () => {
+        this.saving.set(false);
+        this.snackBar.open('Error al cargar desde la BD.', 'Cerrar', { duration: 4000 });
+      }
+    });
   }
 }
 

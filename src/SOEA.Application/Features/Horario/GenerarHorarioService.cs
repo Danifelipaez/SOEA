@@ -18,17 +18,20 @@ namespace SOEA.Application.Features.Horario
         private readonly IMotorConstraintProgramming  _fase2;
         private readonly IMotorGenetico              _fase3;
         private readonly IHorarioRepositorio         _horarioRepo;
+        private readonly ISesionRepositorio          _sesionRepo;
 
         public GenerarHorarioService(
             IMotorColoracionGrafo       fase1,
             IMotorConstraintProgramming  fase2,
             IMotorGenetico              fase3,
-            IHorarioRepositorio         horarioRepo)
+            IHorarioRepositorio         horarioRepo,
+            ISesionRepositorio          sesionRepo)
         {
             _fase1       = fase1;
             _fase2       = fase2;
             _fase3       = fase3;
             _horarioRepo = horarioRepo;
+            _sesionRepo  = sesionRepo;
         }
 
         public async Task<GenerarHorarioResponse> EjecutarAsync(GenerarHorarioRequest request)
@@ -47,8 +50,8 @@ namespace SOEA.Application.Features.Horario
 
             // ── 1. Convertir DTOs del frontend a entidades de dominio ───────────
             var espacios  = MapearEspacios(request.Espacios);
-            var docentes  = MapearDocentes(request.Docentes);
             var bloques   = GenerarBloquesTiempo();
+            var docentes  = MapearDocentes(request.Docentes, bloques);
 
             var sesiones = MapearSesionesIniciales(request.Asignaturas, docentes);
             logs.Add($"[INFO] Sesiones creadas a partir de asignaturas: {sesiones.Count}.");
@@ -92,7 +95,9 @@ namespace SOEA.Application.Features.Horario
 
             var sesionesFinales = resultadoOptimizacion.SesionesOptimizadas.ToList();
 
-            // ── 5. Persistir Horario en la base de datos ──────────────────────
+            // ── 5. Persistir sesiones y Horario en la base de datos ───────────
+            await _sesionRepo.AddRangeAsync(sesionesFinales);
+
             var horario = new Domain.Entities.Horario(
                 id: Guid.NewGuid(),
                 semestre: request.Semestre,
@@ -130,25 +135,105 @@ namespace SOEA.Application.Features.Horario
                 capacidad: dto.Capacidad > 0 ? dto.Capacidad : 30
             )).ToList();
 
-        private static List<Docente> MapearDocentes(List<DocenteDto> dtos) =>
-            dtos.Select(dto =>
+        private static List<Docente> MapearDocentes(List<DocenteDto> dtos, List<BloqueTiempo> bloques)
+        {
+            return dtos.Select(dto =>
             {
                 var id = Guid.TryParse(dto.Id, out var did) ? did : Guid.NewGuid();
-                // Disponibilidad: si el docente tiene días marcados como disponibles,
-                // usamos Matutino+Vespertino; en cualquier caso se necesita al menos uno.
-                var disponibilidad = new List<FranjaHoraria>
+                var maxHoras = dto.MaxHoras.HasValue && dto.MaxHoras > 0 ? dto.MaxHoras.Value : 20m;
+
+                var franjas = new HashSet<FranjaHoraria>();
+                var bloquesDisponibles = new List<BloqueTiempo>();
+
+                foreach (var (diaNombre, dispDia) in dto.Disponibilidad)
                 {
-                    FranjaHoraria.Matutino,
-                    FranjaHoraria.Vespertino
-                };
-                return new Docente(
+                    if (dispDia.NoDisponible) continue;
+
+                    var dia = ParseDiaSemana(diaNombre);
+                    if (dia == null) continue;
+
+                    TimeOnly? desde = null;
+                    TimeOnly? hasta = null;
+
+                    if (!string.IsNullOrWhiteSpace(dispDia.Desde) && TimeOnly.TryParse(dispDia.Desde, out var d))
+                        desde = d;
+                    if (!string.IsNullOrWhiteSpace(dispDia.Hasta) && TimeOnly.TryParse(dispDia.Hasta, out var h))
+                        hasta = h;
+
+                    if (desde == null && hasta == null && !string.IsNullOrWhiteSpace(dispDia.FranjaGeneral))
+                    {
+                        // Frontend sends the full label, e.g. "Matutino (6:00–12:00)".
+                        // Use StartsWith so both the short key and the full label match.
+                        if (dispDia.FranjaGeneral.StartsWith("Matutino", StringComparison.OrdinalIgnoreCase))
+                        {
+                            desde = new TimeOnly(6, 0);
+                            hasta = new TimeOnly(13, 0);
+                            franjas.Add(FranjaHoraria.Matutino);
+                        }
+                        else if (dispDia.FranjaGeneral.StartsWith("Vespertino", StringComparison.OrdinalIgnoreCase))
+                        {
+                            desde = new TimeOnly(13, 0);
+                            hasta = new TimeOnly(20, 0);
+                            franjas.Add(FranjaHoraria.Vespertino);
+                        }
+                        else if (dispDia.FranjaGeneral.StartsWith("Nocturno", StringComparison.OrdinalIgnoreCase))
+                        {
+                            desde = new TimeOnly(18, 0);
+                            hasta = new TimeOnly(20, 0);
+                            franjas.Add(FranjaHoraria.Vespertino);
+                        }
+                        else
+                        {
+                            franjas.Add(FranjaHoraria.Matutino);
+                            franjas.Add(FranjaHoraria.Vespertino);
+                        }
+                    }
+                    else
+                    {
+                        franjas.Add(FranjaHoraria.Matutino);
+                        franjas.Add(FranjaHoraria.Vespertino);
+                    }
+
+                    var bloquesDia = bloques.Where(b => b.Dia == dia.Value);
+                    if (desde.HasValue) bloquesDia = bloquesDia.Where(b => b.HoraInicio >= desde.Value);
+                    if (hasta.HasValue) bloquesDia = bloquesDia.Where(b => b.HoraFin <= hasta.Value);
+
+                    foreach (var bloque in bloquesDia)
+                        bloquesDisponibles.Add(bloque);
+                }
+
+                // If the DTO sends no availability data, fall back to unrestricted (both franjas).
+                var disponibilidadFinal = franjas.Count > 0
+                    ? franjas.ToList()
+                    : new List<FranjaHoraria> { FranjaHoraria.Matutino, FranjaHoraria.Vespertino };
+
+                var docente = new Docente(
                     id: id,
                     nombre: dto.Nombre,
                     apellido: string.Empty,
                     correo: $"docente-{id}@soea.edu",
-                    maximoHorasSemanales: 20,
-                    disponibilidad: disponibilidad);
+                    maximoHorasSemanales: maxHoras,
+                    disponibilidad: disponibilidadFinal);
+
+                foreach (var bloque in bloquesDisponibles)
+                    docente.AgregarBloqueDisponibilidad(bloque);
+
+                return docente;
             }).ToList();
+        }
+
+        private static DiaDeSemana? ParseDiaSemana(string dia) => dia.Trim().ToLowerInvariant() switch
+        {
+            "lunes"      => DiaDeSemana.Lunes,
+            "martes"     => DiaDeSemana.Martes,
+            "miercoles"  => DiaDeSemana.Miercoles,
+            "miércoles"  => DiaDeSemana.Miercoles,
+            "jueves"     => DiaDeSemana.Jueves,
+            "viernes"    => DiaDeSemana.Viernes,
+            "sabado"     => DiaDeSemana.Sábado,
+            "sábado"     => DiaDeSemana.Sábado,
+            _            => null
+        };
 
         private static List<Sesion> MapearSesionesIniciales(
             List<AsignaturaDto> asignaturasDtos,
@@ -157,6 +242,8 @@ namespace SOEA.Application.Features.Horario
             var sesiones = new List<Sesion>();
             // Bloque placeholder — Fase 1 lo reemplazará
             var bloqueTemp = Guid.NewGuid();
+
+            int roundRobinIdx = 0;
 
             foreach (var dto in asignaturasDtos)
             {
@@ -170,23 +257,49 @@ namespace SOEA.Application.Features.Horario
                 {
                     docenteId = docId;
                 }
+                else if (docentes.Count > 0)
+                {
+                    // Round-robin across available docentes to avoid piling all unassigned
+                    // sessions onto the first one and blowing past their weekly hour limit.
+                    docenteId = docentes[roundRobinIdx % docentes.Count].Id;
+                    roundRobinIdx++;
+                }
                 else
                 {
-                    docenteId = docentes.FirstOrDefault()?.Id ?? Guid.NewGuid();
+                    docenteId = Guid.NewGuid();
                 }
 
-                var alternancia = dto.Alternancia switch
+                // Fix #5: case-insensitive alternancia matching
+                var alternancia = dto.Alternancia?.Trim().ToLowerInvariant() switch
                 {
-                    "TipoA" => TipoAlternancia.TipoA,
-                    "TipoB" => TipoAlternancia.TipoB,
-                    _ => TipoAlternancia.SinAlternancia
+                    "tipoa"          => TipoAlternancia.TipoA,
+                    "tipob"          => TipoAlternancia.TipoB,
+                    "sinalternancia" => TipoAlternancia.SinAlternancia,
+                    _                => TipoAlternancia.SinAlternancia
                 };
 
-                var modalidad  = dto.EsVirtual ? Modalidad.Virtual : Modalidad.Presencial;
-                var horas      = dto.HorasSemanales > 0 ? dto.HorasSemanales : 2m;
-                if (horas > 8) horas = 8m;
+                var modalidad = dto.EsVirtual ? Modalidad.Virtual : Modalidad.Presencial;
 
-                int sesionesASolicitar = (int)Math.Ceiling(horas / 2m);
+                // Prefer explicit HorasPorSesion/SesionesPorSemana when the frontend sends them;
+                // fall back to deriving from HorasSemanales (÷2) for backwards compatibility.
+                int sesionesASolicitar;
+                decimal duracionPorSesion;
+
+                if (dto.HorasPorSesion > 0 && dto.SesionesPorSemana > 0)
+                {
+                    sesionesASolicitar = dto.SesionesPorSemana;
+                    duracionPorSesion  = dto.HorasPorSesion;
+                }
+                else
+                {
+                    var horas = dto.HorasSemanales > 0 ? dto.HorasSemanales
+                              : dto.Creditos > 0       ? (decimal)dto.Creditos
+                              : 2m;
+                    if (horas > 8) horas = 8m;
+                    sesionesASolicitar = (int)Math.Ceiling(horas / 2m);
+                    duracionPorSesion  = Math.Round(horas / sesionesASolicitar, 1);
+                }
+
                 for (int i = 0; i < sesionesASolicitar; i++)
                 {
                     sesiones.Add(new Sesion(
@@ -194,11 +307,12 @@ namespace SOEA.Application.Features.Horario
                         asignaturaId: asigId,
                         docenteId: docenteId,
                         bloqueId: bloqueTemp,
-                        espacioId: dto.EsVirtual ? null : (Guid?)Guid.Empty,
+                        // Fix #8: null means "not yet assigned" — Phase 2 will assign rooms
+                        espacioId: null,
                         grupoId: null,
                         alternancia: alternancia,
                         modalidad: modalidad,
-                        duracionHoras: Math.Min(horas, 2m),
+                        duracionHoras: duracionPorSesion,
                         esBloque: false,
                         estaDividida: false));
                 }
@@ -208,7 +322,7 @@ namespace SOEA.Application.Features.Horario
 
         /// <summary>
         /// Genera la grilla canónica de bloques de tiempo institucional.
-        /// Lunes–Viernes 07:00–20:00 en bloques de 1 hora; Sábado 07:00–14:00.
+        /// Lunes–Viernes 06:00–22:00 en bloques de 1 hora; Sábado 06:00–13:00.
         /// </summary>
         private static List<BloqueTiempo> GenerarBloquesTiempo()
         {
@@ -218,7 +332,7 @@ namespace SOEA.Application.Features.Horario
 
             foreach (var dia in dias)
             {
-                for (int h = 7; h < 20; h++)
+                for (int h = 6; h < 22; h++)
                 {
                     bloques.Add(new BloqueTiempo(
                         Guid.NewGuid(), dia,
@@ -226,8 +340,8 @@ namespace SOEA.Application.Features.Horario
                 }
             }
 
-            // Sábado: 07:00–14:00
-            for (int h = 7; h < 14; h++)
+            // Sábado: 06:00–13:00
+            for (int h = 6; h < 13; h++)
             {
                 bloques.Add(new BloqueTiempo(
                     Guid.NewGuid(), DiaDeSemana.Sábado,

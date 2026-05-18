@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed } from '@angular/core';
+import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule, MatDialog, MatDialogRef } from '@angular/material/dialog';
@@ -165,9 +165,10 @@ export class HorarioComponent {
   horarioApi = inject(HorarioApiService);
 
   dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+  // Mon–Fri 06:00–22:00, Sat 06:00–13:00. Last valid start = 21:00 (block 21:00–22:00).
   franjas = [
     '06:00','07:00','08:00','09:00','10:00','11:00','12:00',
-    '13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','20:30'
+    '13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'
   ];
 
   activeSpace = signal<Espacio | null>(null);
@@ -197,14 +198,17 @@ export class HorarioComponent {
   }
 
   isOutOfHours(dia: string, franja: string): boolean {
-    if (dia === 'sabado' && this.franjas.indexOf(franja) >= this.franjas.indexOf('14:00')) return true;
+    // Saturday closes at 13:00 — last valid block starts at 12:00.
+    if (dia === 'sabado' && this.franjas.indexOf(franja) >= this.franjas.indexOf('13:00')) return true;
     return false;
   }
 
   getCellSesiones(dia: string, franja: string): Sesion[] {
     const spaceId = this.activeSpace()?.id;
     return this.state.sesiones().filter(s =>
-      s.espacioId === spaceId && s.dia === dia && s.horaInicio === franja
+      s.dia === dia && s.horaInicio === franja &&
+      // Virtual sessions have no room — show them in every space view.
+      (s.virtual || s.espacioId === spaceId)
     );
   }
 
@@ -292,8 +296,15 @@ export class HorarioComponent {
       return;
     }
 
-    // Aplicar movimiento
-    const updated: Sesion = { ...sesion, dia: targetDia, horaInicio: targetFranja };
+    // Recalculate horaFin by preserving the original session duration.
+    const [origH, origM] = sesion.horaInicio.split(':').map(Number);
+    const [finH, finM]   = sesion.horaFin.split(':').map(Number);
+    const durMinutes = (finH * 60 + finM) - (origH * 60 + origM);
+    const [tH, tM] = targetFranja.split(':').map(Number);
+    const newFinTotal = tH * 60 + tM + durMinutes;
+    const newHoraFin = `${String(Math.floor(newFinTotal / 60)).padStart(2, '0')}:${String(newFinTotal % 60).padStart(2, '0')}`;
+
+    const updated: Sesion = { ...sesion, dia: targetDia, horaInicio: targetFranja, horaFin: newHoraFin };
     this.state.updateSesion(updated);
     this.snackBar.open('Sesión movida correctamente.', '', { duration: 2000 });
   }
@@ -301,8 +312,8 @@ export class HorarioComponent {
   // ── Generación de horario ────────────────────────────────────────────────────
 
   generarHorario() {
-    if (this.state.asignaturas().length === 0 || this.state.espacios().length === 0) {
-      this.snackBar.open('Carga asignaturas y espacios antes de generar el horario.', 'Cerrar', { duration: 4000 });
+    if (this.state.asignaturas().length === 0 || this.state.espacios().length === 0 || this.state.docentes().length === 0) {
+      this.snackBar.open('Carga asignaturas, docentes y espacios antes de generar el horario.', 'Cerrar', { duration: 4000 });
       return;
     }
 
@@ -378,6 +389,18 @@ export class HorarioComponent {
     .icon-done, .icon-pending { font-weight: bold; width: 20px; text-align: center; }
   `]
 })
-export class ProgressDialogComponent {
+export class ProgressDialogComponent implements OnInit, OnDestroy {
   phase = 1;
+  private timers: ReturnType<typeof setTimeout>[] = [];
+
+  ngOnInit() {
+    // Advance phases with estimated timings so the dialog reflects real progress.
+    // Phase 1 (graph coloring) is fast; phases 2 and 3 take longer.
+    this.timers.push(setTimeout(() => { if (this.phase === 1) this.phase = 2; }, 2000));
+    this.timers.push(setTimeout(() => { if (this.phase === 2) this.phase = 3; }, 10000));
+  }
+
+  ngOnDestroy() {
+    this.timers.forEach(t => clearTimeout(t));
+  }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using SOEA.Domain.Entities;
+using SOEA.Domain.Enums;
 
 namespace SOEA.Engine.Genetic
 {
@@ -75,7 +76,7 @@ namespace SOEA.Engine.Genetic
         }
 
         /// <summary>
-        /// Mutación: para cada gen, con cierta probabilidad lo reasigna a un bloque aleatorio.
+        /// Mutación: para cada gen, con cierta probabilidad lo reasigna a un bloque y espacio aleatorios.
         /// </summary>
         public void Mutar(CromosomaHorario cromosoma, double probabilidadPorGen = 0.05)
         {
@@ -84,40 +85,80 @@ namespace SOEA.Engine.Genetic
                 if (_rng.NextDouble() < probabilidadPorGen)
                 {
                     cromosoma.BloqueIndices[i] = _rng.Next(_maxBloques);
+                    // Fix #3: keep room assignment consistent with block mutation
+                    if (_maxEspacios > 0)
+                        cromosoma.EspacioIndices[i] = _rng.Next(_maxEspacios);
                 }
             }
         }
 
         /// <summary>
-        /// Operador de reparación: verifica restricciones duras básicas
-        /// (conflicto de docente por bloque) y repara intercambiando a otro bloque libre.
+        /// Operador de reparación: verifica HC-I01 (conflicto de docente) y HC-S01 (conflicto de espacio)
+        /// y repara asignando bloques/espacios alternativos libres.
         /// </summary>
         public void Reparar(CromosomaHorario cromosoma)
         {
-            // Reparar HC-I01: mismo docente, mismo bloque
-            var asignaciones = new Dictionary<(Guid docenteId, int bloqueIdx), int>(); // value = gene index
+            // HC-I01: mismo docente, mismo bloque
+            var asignacionesDocente = new Dictionary<(Guid docenteId, int bloqueIdx), int>();
 
             for (int i = 0; i < cromosoma.CantidadGenes; i++)
             {
                 var clave = (_sesiones[i].DocenteId, cromosoma.BloqueIndices[i]);
-                if (asignaciones.ContainsKey(clave))
+                if (asignacionesDocente.ContainsKey(clave))
                 {
-                    // Conflicto: reasignar este gen a otro bloque aleatorio
                     for (int intento = 0; intento < 10; intento++)
                     {
                         var nuevoBloque = _rng.Next(_maxBloques);
                         var nuevaClave = (_sesiones[i].DocenteId, nuevoBloque);
-                        if (!asignaciones.ContainsKey(nuevaClave))
+                        if (!asignacionesDocente.ContainsKey(nuevaClave))
                         {
                             cromosoma.BloqueIndices[i] = nuevoBloque;
-                            asignaciones[nuevaClave] = i;
+                            asignacionesDocente[nuevaClave] = i;
                             break;
                         }
                     }
+                    // Register whatever ended up assigned (repair may have failed after 10 attempts)
+                    asignacionesDocente.TryAdd((_sesiones[i].DocenteId, cromosoma.BloqueIndices[i]), i);
                 }
                 else
                 {
-                    asignaciones[clave] = i;
+                    asignacionesDocente[clave] = i;
+                }
+            }
+
+            // Fix #4 — HC-S01: mismo espacio, mismo bloque (solo sesiones presenciales)
+            if (_maxEspacios > 0)
+            {
+                var asignacionesEspacio = new Dictionary<(int espacioIdx, int bloqueIdx), int>();
+
+                for (int i = 0; i < cromosoma.CantidadGenes; i++)
+                {
+                    if (_sesiones[i].Modalidad == Modalidad.Virtual) continue;
+
+                    var clave = (cromosoma.EspacioIndices[i], cromosoma.BloqueIndices[i]);
+                    if (asignacionesEspacio.ContainsKey(clave))
+                    {
+                        // Try reassigning to a different space in the same block
+                        bool reparado = false;
+                        for (int intento = 0; intento < 10; intento++)
+                        {
+                            var nuevoEspacio = _rng.Next(_maxEspacios);
+                            var nuevaClave = (nuevoEspacio, cromosoma.BloqueIndices[i]);
+                            if (!asignacionesEspacio.ContainsKey(nuevaClave))
+                            {
+                                cromosoma.EspacioIndices[i] = nuevoEspacio;
+                                asignacionesEspacio[nuevaClave] = i;
+                                reparado = true;
+                                break;
+                            }
+                        }
+                        if (!reparado)
+                            asignacionesEspacio.TryAdd((cromosoma.EspacioIndices[i], cromosoma.BloqueIndices[i]), i);
+                    }
+                    else
+                    {
+                        asignacionesEspacio[clave] = i;
+                    }
                 }
             }
         }

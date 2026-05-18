@@ -86,7 +86,7 @@ namespace SOEA.Engine.Genetic
 
             for (int i = 1; i < TamañoPoblacion; i++)
             {
-                var perturbado = semilla.ClonarYPerturbar(rng, bloques.Count, perturbaciones: 2 + rng.Next(3));
+                var perturbado = semilla.ClonarYPerturbar(rng, bloques.Count, espacios.Count, perturbaciones: 2 + rng.Next(3));
                 operadores.Reparar(perturbado);
                 poblacion.Add((perturbado, evaluador.Evaluar(perturbado)));
             }
@@ -159,8 +159,14 @@ namespace SOEA.Engine.Genetic
             {
                 var bloqueIdx = mejorCromosoma.BloqueIndices[i];
                 if (bloqueIdx >= 0 && bloqueIdx < bloques.Count)
-                {
                     sesiones[i].AsignarBloqueTiempo(bloques[bloqueIdx].Id);
+
+                // Fix #3: also write back room assignments from the evolved chromosome
+                if (sesiones[i].Modalidad != Modalidad.Virtual && espacios.Count > 0)
+                {
+                    var espacioIdx = mejorCromosoma.EspacioIndices[i];
+                    if (espacioIdx >= 0 && espacioIdx < espacios.Count)
+                        sesiones[i].AsignarEspacio(espacios[espacioIdx].Id);
                 }
             }
 

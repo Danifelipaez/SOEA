@@ -20,6 +20,8 @@ export interface AsignaturaApiDto {
   docenteId?: string;
   creditos: number;
   horasSemanales: number;
+  horasPorSesion: number;
+  sesionesPorSemana: number;
   programaId?: string;
   alternancia?: string;
   esVirtual: boolean;
@@ -28,12 +30,14 @@ export interface AsignaturaApiDto {
 export interface DocenteApiDto {
   id: string;
   nombre: string;
+  maxHoras: number;
   disponibilidad: Record<string, DisponibilidadDiaDto>;
 }
 
 export interface DisponibilidadDiaDto {
   noDisponible: boolean;
   tipo?: string;
+  franjaGeneral?: string;
   desde?: string;
   hasta?: string;
 }
@@ -96,6 +100,8 @@ export class HorarioApiService {
         docenteId: a.docenteId,
         creditos: a.sesionesPorSemana * a.horasPorSesion,
         horasSemanales: a.horasPorSesion * a.sesionesPorSemana,
+        horasPorSesion: a.horasPorSesion,
+        sesionesPorSemana: a.sesionesPorSemana,
         programaId: a.programaId,
         alternancia: a.alternancia,
         esVirtual: false
@@ -103,6 +109,7 @@ export class HorarioApiService {
       docentes: docentes.map(d => ({
         id: d.id,
         nombre: d.nombre,
+        maxHoras: d.maxHoras,
         disponibilidad: d.disponibilidad ?? {}
       })),
       espacios: espacios.map(e => ({

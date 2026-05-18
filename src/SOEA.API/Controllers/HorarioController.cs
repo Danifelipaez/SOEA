@@ -38,6 +38,9 @@ namespace SOEA.API.Controllers
             if (request.Asignaturas.Count == 0)
                 return BadRequest("Debe incluir al menos una asignatura en el request.");
 
+            if (request.Docentes.Count == 0)
+                return BadRequest("Debe incluir al menos un docente en el request.");
+
             if (request.Espacios.Count == 0)
                 return BadRequest("Debe incluir al menos un espacio en el request.");
 

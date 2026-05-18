@@ -23,7 +23,7 @@ import { StateService } from '../../core/state.service';
             <div class="logs-actions">
               <button mat-stroked-button (click)="limpiarLogs()">Limpiar logs</button>
               <button mat-stroked-button (click)="exportarLogs()">Exportar logs (.txt)</button>
-              <span class="run-info">Última ejecución: 2024-05-15 10:30 (Duración: 12.4s)</span>
+              <span class="run-info">{{ logs().length > 0 ? logs().length + ' líneas de log' : 'Sin ejecución aún' }}</span>
             </div>
             <div class="logs-panel">
               <pre *ngFor="let log of logs()"><span [class.log-error]="log.includes('cuello de botella') || log.includes('Infactibilidad')">{{log}}</span></pre>

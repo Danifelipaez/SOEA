@@ -133,25 +133,27 @@ namespace SOEA.Engine.ConstraintProg
                 }
             }
 
-            // HC-I03: Max Horas Semanales del Docente y Capacidad de Disponibilidad
+            // HC-I03: Max Horas Semanales — pre-solve hard check (session durations are fixed,
+            // so the solver cannot reduce hours; we must reject before running CP-SAT).
             foreach (var grupo in sesionesPorDocente)
             {
-                if (docenteDict.TryGetValue(grupo.Key, out var docente))
-                {
-                    var sesionesAsignadas = grupo.Count();
-                    var bloquesDisponibles = docente.BloquesDisponibles.Count();
-                    if (sesionesAsignadas > bloquesDisponibles && bloquesDisponibles > 0)
-                    {
-                        _logger.LogError("¡INFACTIBILIDAD DETECTADA ANTES DEL SOLVER! El docente {Nombre} tiene {Sesiones} sesiones asignadas, pero solo {Disponibles} bloques de disponibilidad. Imposible agendar sin empalmes.",
-                            docente.NombreCompleto, sesionesAsignadas, bloquesDisponibles);
-                    }
+                if (!docenteDict.TryGetValue(grupo.Key, out var docente)) continue;
 
-                    var totalHoras = grupo.Sum(s => (int)s.DuracionHoras);
-                    if (totalHoras > (int)docente.MaximoHorasSemanales)
-                    {
-                        _logger.LogWarning("Docente {Nombre} tiene {Total}h asignadas, excede su máximo de {Max}h. Se reportará como restricción.",
-                            docente.NombreCompleto, totalHoras, docente.MaximoHorasSemanales);
-                    }
+                var sesionesAsignadas   = grupo.Count();
+                var bloquesDisponibles  = docente.BloquesDisponibles.Count;
+                if (bloquesDisponibles > 0 && sesionesAsignadas > bloquesDisponibles)
+                {
+                    var msg = $"Docente {docente.NombreCompleto} tiene {sesionesAsignadas} sesiones pero solo {bloquesDisponibles} bloques disponibles — imposible agendar sin solapamientos.";
+                    _logger.LogError(msg);
+                    return new ResultadoFactibilidad(false, sesiones.AsReadOnly(), msg);
+                }
+
+                var totalHoras = grupo.Sum(s => s.DuracionHoras);
+                if (totalHoras > docente.MaximoHorasSemanales)
+                {
+                    var msg = $"Docente {docente.NombreCompleto} tiene {totalHoras}h asignadas, excede su máximo de {docente.MaximoHorasSemanales}h semanales.";
+                    _logger.LogError(msg);
+                    return new ResultadoFactibilidad(false, sesiones.AsReadOnly(), msg);
                 }
             }
 

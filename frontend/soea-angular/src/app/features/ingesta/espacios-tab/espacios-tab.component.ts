@@ -8,8 +8,10 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { StateService } from '../../../core/state.service';
+import { PersistenciaService } from '../../../core/persistencia.service';
 import { Espacio } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { forkJoin } from 'rxjs';
 
 @Component({
   selector: 'app-espacios-tab',
@@ -22,7 +24,13 @@ import { MatSnackBar } from '@angular/material/snack-bar';
           <mat-label>Buscar...</mat-label>
           <input matInput (keyup)="applyFilter($event)" placeholder="Ej. Laboratorio A" #input>
         </mat-form-field>
-        <button mat-flat-button color="primary" class="primary-button" (click)="openDialog()">Agregar espacio</button>
+        <div class="btn-group">
+          <button mat-stroked-button (click)="cargarDesdeBD()" [disabled]="saving()">Cargar desde BD</button>
+          <button mat-stroked-button color="accent" (click)="guardarEnBD()" [disabled]="saving()">
+            {{ saving() ? 'Guardando...' : 'Guardar en BD' }}
+          </button>
+          <button mat-flat-button color="primary" class="primary-button" (click)="openDialog()">Agregar espacio</button>
+        </div>
       </div>
       <table mat-table [dataSource]="filteredEspacios()" class="mat-elevation-z0 border-table">
         <ng-container matColumnDef="nombre">
@@ -56,6 +64,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
     .tab-content { padding: 24px 0; }
     .actions-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .filter-input { width: 300px; }
+    .btn-group { display: flex; gap: 8px; align-items: center; }
     .border-table { border: 1px solid #e0e0e0; border-bottom: 0; }
   `]
 })
@@ -63,9 +72,11 @@ export class EspaciosTabComponent {
   state = inject(StateService);
   dialog = inject(MatDialog);
   snackBar = inject(MatSnackBar);
-  
+  persistencia = inject(PersistenciaService);
+
   displayedColumns = ['nombre', 'capacidad', 'tipo', 'acciones'];
   filterStr = signal('');
+  saving = signal(false);
   
   filteredEspacios = computed(() => {
     const f = this.filterStr().toLowerCase();
@@ -98,6 +109,46 @@ export class EspaciosTabComponent {
     this.state.deleteEspacio(espacio.id);
     this.snackBar.open('Espacio eliminado', 'Cerrar', { duration: 3000 });
   }
+
+  guardarEnBD() {
+    const espacios = this.state.espacios();
+    if (espacios.length === 0) {
+      this.snackBar.open('No hay espacios para guardar.', 'Cerrar', { duration: 3000 });
+      return;
+    }
+    this.saving.set(true);
+    const calls = espacios.map(e => this.persistencia.guardarEspacio(e));
+    forkJoin(calls).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.snackBar.open(`${espacios.length} espacio(s) guardados en la BD.`, 'Cerrar', { duration: 4000 });
+      },
+      error: (err) => {
+        this.saving.set(false);
+        const msg = err?.error || err?.message || 'Error al guardar';
+        this.snackBar.open(`Error: ${msg}`, 'Cerrar', { duration: 5000 });
+      }
+    });
+  }
+
+  cargarDesdeBD() {
+    this.saving.set(true);
+    this.persistencia.cargarEspacios().subscribe({
+      next: (espacios) => {
+        this.saving.set(false);
+        espacios.forEach(e => {
+          const existing = this.state.espacios().find(x => x.id === e.id);
+          if (existing) this.state.updateEspacio(e);
+          else this.state.addEspacio(e);
+        });
+        this.snackBar.open(`${espacios.length} espacio(s) cargados desde la BD.`, 'Cerrar', { duration: 4000 });
+      },
+      error: () => {
+        this.saving.set(false);
+        this.snackBar.open('Error al cargar desde la BD.', 'Cerrar', { duration: 4000 });
+      }
+    });
+  }
 }
 
 @Component({
@@ -123,6 +174,7 @@ export class EspaciosTabComponent {
           <mat-select formControlName="tipo" required>
             <mat-option value="Laboratorio">Laboratorio</mat-option>
             <mat-option value="Salón">Salón</mat-option>
+            <mat-option value="Auditorio">Auditorio</mat-option>
           </mat-select>
           <mat-error *ngIf="form.get('tipo')?.hasError('required')">Requerido</mat-error>
         </mat-form-field>
