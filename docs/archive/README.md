@@ -1,7 +1,8 @@
 # Archivo
+**Última actualización:** 2026-05-16
 
 Esta carpeta contiene documentos de referencia y materiales de origen que se utilizaron para derivar la
-documentación activa bajo `docs/`.
+documentación activa bajo `docs`.
 
 ## Propósito
 Almacenar la base de conocimiento original y cualquier archivo de referencia grande sin saturar las

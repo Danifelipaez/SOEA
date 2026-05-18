@@ -1,4 +1,5 @@
 # Visión general de la arquitectura
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Describir la arquitectura de alto nivel de SOEA para que Copilot y los colaboradores puedan
