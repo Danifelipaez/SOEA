@@ -17,6 +17,7 @@ namespace SOEA.Domain.Interfaces
         public IReadOnlyList<Docente> Docentes { get; }
         public IReadOnlyList<Sesion> SesionesPredefinidas { get; }
         public IReadOnlyList<Espacio> Espacios { get; }
+        public IReadOnlyList<Grupo> Grupos { get; }
 
         public CurriculumExcelResult(
             IReadOnlyList<Facultad> facultades,
@@ -24,7 +25,8 @@ namespace SOEA.Domain.Interfaces
             IReadOnlyList<Asignatura> asignaturas,
             IReadOnlyList<Docente> docentes,
             IReadOnlyList<Sesion> sesionesPredefinidas,
-            IReadOnlyList<Espacio> espacios)
+            IReadOnlyList<Espacio> espacios,
+            IReadOnlyList<Grupo> grupos)
         {
             Facultades = facultades;
             Programas = programas;
@@ -32,6 +34,7 @@ namespace SOEA.Domain.Interfaces
             Docentes = docentes;
             SesionesPredefinidas = sesionesPredefinidas;
             Espacios = espacios;
+            Grupos = grupos;
         }
     }
 

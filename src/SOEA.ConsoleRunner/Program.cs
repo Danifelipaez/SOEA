@@ -127,7 +127,8 @@ namespace SOEA.ConsoleRunner
                         curriculum.Asignaturas,
                         docentesConDisp.ToList().AsReadOnly(),
                         curriculum.SesionesPredefinidas,
-                        curriculum.Espacios
+                        curriculum.Espacios,
+                        curriculum.Grupos
                     );
                 }
 

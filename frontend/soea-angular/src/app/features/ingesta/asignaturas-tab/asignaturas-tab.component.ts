@@ -256,6 +256,7 @@ export class AsignaturasTabComponent {
         };
 
         let added = 0, skipped = 0;
+        const skippedDetails: { fila: number; razon: string; row: any }[] = [];
 
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i];
@@ -264,7 +265,7 @@ export class AsignaturasTabComponent {
           const nombreAsig = str(row, 2);
 
           // Saltar filas sin datos esenciales (mismo criterio que el backend)
-          if (!nombreFac || !nombreProg || !nombreAsig) { skipped++; continue; }
+          if (!nombreFac || !nombreProg || !nombreAsig) { skipped++; skippedDetails.push({ fila: i + 1, razon: 'Facultad/Programa/Asignatura vacío', row }); continue; }
 
           const codigo      = str(row, 3) || `IMP-${i}`;
           const tipoEspStr  = str(row, 4);
@@ -309,7 +310,7 @@ export class AsignaturasTabComponent {
               docenteId: docenteIdParaAsig
             });
             added++;
-          } else { skipped++; }
+          } else { skipped++; skippedDetails.push({ fila: i + 1, razon: 'Asignatura duplicada en mismo programa', row }); }
 
           // 5. Espacio (creacion basica)
           if (nombreEsp) {
@@ -332,9 +333,15 @@ export class AsignaturasTabComponent {
         const modo = esModo1 ? 'Modo 1 (horario existente)' : 'Modo 2 (asignaturas)';
         this.snackBar.open(
           `${modo}: ${added} asignaturas importadas, ${skipped} omitidas. ` +
-          `Docentes: ${nuevosDocentes.length} · Espacios: ${nuevosEspacios.length}`,
-          'Cerrar', { duration: 6000 }
+          `Docentes: ${nuevosDocentes.length} · Espacios: ${nuevosEspacios.length} — Ver consola para detalles.`,
+          'Cerrar', { duration: 8000 }
         );
+
+        if (skippedDetails.length > 0) {
+          console.group('Import: filas omitidas');
+          console.table(skippedDetails.slice(0, 200));
+          console.groupEnd();
+        }
       } catch (err) {
         console.error(err);
         this.snackBar.open('Error al leer el archivo Excel. Verifica el formato.', 'Cerrar', { duration: 5000 });

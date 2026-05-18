@@ -44,6 +44,8 @@ namespace SOEA.Infrastructure.Excel
 
             var espaciosDict = new Dictionary<string, Espacio>(StringComparer.OrdinalIgnoreCase);
             var sesionesPredefinidas = new List<Sesion>();
+            var gruposDict = new Dictionary<(string nombre, Guid programaId), List<Grupo>>();
+            var grupos = new List<Grupo>();
 
             using var paquete = new ExcelPackage();
             await paquete.LoadAsync(excelStream);
@@ -121,6 +123,19 @@ namespace SOEA.Infrastructure.Excel
                     _logger.LogDebug("Nueva Asignatura detectada: {Asignatura} (Programa: {Programa})", txtAsignatura, txtPrograma);
                 }
 
+                // Crear o recuperar lista de grupos para esta asignatura y programa
+                if (!gruposDict.TryGetValue(claveAsignatura, out var listaGrupos))
+                {
+                    listaGrupos = new List<Grupo>();
+                    gruposDict[claveAsignatura] = listaGrupos;
+                }
+                var asignaturaParaGrupo = asignaturasDict[claveAsignatura];
+                var numeroGrupo = listaGrupos.Count + 1;
+                var nombreGrupo = $"{txtAsignatura} - Grupo {numeroGrupo}";
+                var nuevoGrupo = new Grupo(Guid.NewGuid(), nombreGrupo, programa.Id, 1, 30, asignaturaParaGrupo.Alternancia);
+                listaGrupos.Add(nuevoGrupo);
+                grupos.Add(nuevoGrupo);
+
                 // 4. Obtener o crear Docente y cargar disponibilidad desde la columna H (día) e I (hora)
                 if (!string.IsNullOrWhiteSpace(txtDocente))
                 {
@@ -175,7 +190,7 @@ namespace SOEA.Infrastructure.Excel
                         docenteId: docenteFinal.Id,
                         bloqueId: Guid.Empty,
                         espacioId: espacioAsignado?.Id,
-                        grupoId: null,
+                        grupoId: nuevoGrupo.Id,
                         alternancia: asignaturaFinal.Alternancia,
                         modalidad: Modalidad.Presencial,
                         duracionHoras: duracion,
@@ -192,7 +207,8 @@ namespace SOEA.Infrastructure.Excel
                 asignaturas: asignaturasDict.Values.ToList().AsReadOnly(),
                 docentes:    docentesDict.Values.ToList().AsReadOnly(),
                 sesionesPredefinidas: sesionesPredefinidas.AsReadOnly(),
-                espacios: espaciosDict.Values.ToList().AsReadOnly()
+                espacios: espaciosDict.Values.ToList().AsReadOnly(),
+                grupos: grupos.AsReadOnly()
             );
 
             _logger.LogInformation(
@@ -311,6 +327,8 @@ namespace SOEA.Infrastructure.Excel
             var docentesDict = new Dictionary<string, Docente>(StringComparer.OrdinalIgnoreCase);
             var espaciosDict = new Dictionary<string, Espacio>(StringComparer.OrdinalIgnoreCase);
             var sesionesPredefinidas = new List<Sesion>();
+            var gruposDict = new Dictionary<(string nombre, Guid programaId), List<Grupo>>();
+            var grupos = new List<Grupo>();
 
             using var paquete = new ExcelPackage();
             await paquete.LoadAsync(excelStream);
@@ -356,6 +374,19 @@ namespace SOEA.Infrastructure.Excel
                     asignaturasDict[claveAsignatura] = asignatura;
                 }
 
+                // Crear un Grupo incremental por cada fila (aunque la asignatura sea única)
+                if (!gruposDict.TryGetValue(claveAsignatura, out var listaGrupos))
+                {
+                    listaGrupos = new List<Grupo>();
+                    gruposDict[claveAsignatura] = listaGrupos;
+                }
+                var asignaturaParaGrupo = asignaturasDict[claveAsignatura];
+                var numeroGrupo = listaGrupos.Count + 1;
+                var nombreGrupo = $"{txtAsignatura} - Grupo {numeroGrupo}";
+                var nuevoGrupo = new Grupo(Guid.NewGuid(), nombreGrupo, programa.Id, 1, 30, asignaturaParaGrupo.Alternancia);
+                listaGrupos.Add(nuevoGrupo);
+                grupos.Add(nuevoGrupo);
+
                 // 4. Docente (Solo creación básica, la disponibilidad se cargará con el Excel 3)
                 if (!string.IsNullOrWhiteSpace(txtDocente))
                 {
@@ -385,7 +416,7 @@ namespace SOEA.Infrastructure.Excel
                     var asignaturaFinal = asignaturasDict[claveAsignatura];
                     var sesion = new Sesion(
                         Guid.NewGuid(), asignaturaFinal.Id, docenteFinal.Id, Guid.Empty, espacioAsignado?.Id,
-                        null, asignaturaFinal.Alternancia, Modalidad.Presencial, duracion, false, false);
+                        nuevoGrupo.Id, asignaturaFinal.Alternancia, Modalidad.Presencial, duracion, false, false);
                     sesionesPredefinidas.Add(sesion);
                 }
             }
@@ -396,7 +427,8 @@ namespace SOEA.Infrastructure.Excel
                 asignaturasDict.Values.ToList().AsReadOnly(),
                 docentesDict.Values.ToList().AsReadOnly(),
                 sesionesPredefinidas.AsReadOnly(),
-                espaciosDict.Values.ToList().AsReadOnly()
+                espaciosDict.Values.ToList().AsReadOnly(),
+                grupos.AsReadOnly()
             );
         }
 
