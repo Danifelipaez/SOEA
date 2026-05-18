@@ -1,4 +1,5 @@
 # Especificación de salida JSON
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Definir la estructura exacta del documento JSON que SOEA produce como salida de horario.

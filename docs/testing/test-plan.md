@@ -1,4 +1,5 @@
 # Plan de pruebas
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Definir la estrategia de pruebas para SOEA: qué tipos de pruebas existen, qué cubren y cómo

@@ -1,4 +1,5 @@
 # Resumen de pseudocódigo
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Proporcionar pseudocódigo de alto nivel para cada fase del pipeline de optimización de SOEA.

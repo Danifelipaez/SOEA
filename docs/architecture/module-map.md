@@ -1,4 +1,5 @@
 # Mapa de módulos
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Enumerar cada proyecto/ensamblado de la solución SOEA, describir su responsabilidad única

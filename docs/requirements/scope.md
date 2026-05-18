@@ -1,4 +1,5 @@
 # Alcance
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Definir qué es SOEA, qué problema resuelve y qué no cubre explícitamente.
