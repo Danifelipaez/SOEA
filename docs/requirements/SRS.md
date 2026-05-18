@@ -1,4 +1,5 @@
 # Especificación de Requisitos de Software (SRS)
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Requisitos funcionales y no funcionales de alto nivel para SOEA.

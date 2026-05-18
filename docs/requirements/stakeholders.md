@@ -1,4 +1,5 @@
 # Partes interesadas
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Identificar quién usa SOEA, qué rol desempeña y qué le corresponde validar.

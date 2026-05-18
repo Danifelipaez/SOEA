@@ -1,4 +1,5 @@
 # SOEA — Estructura de Carpetas y Archivos
+**Última actualización:** 2026-05-16
 
 ## Patrón: Clean Architecture
 

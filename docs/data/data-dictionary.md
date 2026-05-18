@@ -1,4 +1,5 @@
 # Diccionario de datos
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Definir cada campo de datos del modelo de dominio de SOEA: nombre, tipo, descripción, si es obligatorio/opcional

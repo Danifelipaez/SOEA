@@ -1,4 +1,5 @@
 # Despliegue
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Describir cómo se despliega SOEA, qué infraestructura requiere y en qué se diferencian los entornos.
