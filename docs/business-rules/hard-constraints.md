@@ -1,4 +1,5 @@
 # Restricciones duras
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Listar todas las reglas que el horario generado debe cumplir sin excepción.

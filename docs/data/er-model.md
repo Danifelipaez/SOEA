@@ -1,4 +1,5 @@
 # Modelo Entidad-Relación
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Describir las relaciones entre las entidades principales de SOEA a nivel conceptual.

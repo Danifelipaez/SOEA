@@ -1,4 +1,5 @@
 # Modelo relacional
+**Última actualización:** 2026-05-16
 
 ## Propósito
 Definir las tablas físicas de la base de datos, columnas, claves primarias/foráneas e índices de SOEA.
