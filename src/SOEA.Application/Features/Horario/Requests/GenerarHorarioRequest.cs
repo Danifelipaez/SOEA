@@ -21,13 +21,13 @@ namespace SOEA.Application.Features.Horario.Requests
         public string Id           { get; set; } = string.Empty;
         public string Nombre       { get; set; } = string.Empty;
         public string? DocenteId   { get; set; }
-        public int    Creditos     { get; set; }
+        public int?    Creditos     { get; set; }
         /// <summary>Horas semanales totales a asignar.</summary>
-        public decimal HorasSemanales { get; set; }
-        /// <summary>Duración de cada sesión en horas (2 o 3). 0 = no enviado (usar fallback).</summary>
-        public int HorasPorSesion  { get; set; }
-        /// <summary>Número de sesiones por semana. 0 = no enviado (derivar de HorasSemanales).</summary>
-        public int SesionesPorSemana { get; set; }
+        public decimal? HorasSemanales { get; set; }
+        /// <summary>Duración de cada sesión en horas (2 o 3). Null = no enviado (usar fallback).</summary>
+        public int? HorasPorSesion  { get; set; }
+        /// <summary>Número de sesiones por semana. Null = no enviado (derivar de HorasSemanales).</summary>
+        public int? SesionesPorSemana { get; set; }
         public string? ProgramaId  { get; set; }
         public string? Alternancia { get; set; }
         public bool   EsVirtual    { get; set; }

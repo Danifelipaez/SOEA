@@ -3,10 +3,42 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { Asignatura, Docente, Espacio } from './models';
 
+export interface ImportMapping {
+  tempId: string;
+  newId: string;
+}
+
+export interface ImportSummary {
+  facultades: number;
+  programas: number;
+  asignaturas: number;
+  grupos: number;
+  docentes: number;
+}
+
+export interface ImportResult {
+  facultades: ImportMapping[];
+  programas: ImportMapping[];
+  asignaturas: ImportMapping[];
+  grupos: ImportMapping[];
+  docentes: ImportMapping[];
+  summary: ImportSummary;
+}
+
 @Injectable({ providedIn: 'root' })
 export class PersistenciaService {
   private http = inject(HttpClient);
   private base = 'http://localhost:5066/api';
+
+  // ── Facultades y Programas ─────────────────────────────────────────────────────
+
+  cargarFacultades(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.base}/facultades`);
+  }
+
+  cargarProgramas(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.base}/programas`);
+  }
 
   // ── Docentes ───────────────────────────────────────────────────────────────────
 
@@ -54,14 +86,11 @@ export class PersistenciaService {
     return this.http.get<any[]>(`${this.base}/asignaturas`);
   }
 
-  guardarAsignatura(a: Asignatura): Observable<any> {
-    return this.http.post<any>(`${this.base}/asignaturas`, {
-      nombre: a.nombre,
-      codigo: a.codigo || `${a.nombre.substring(0, 3).toUpperCase()}-AUTO`,
-      horasPorSesion: a.horasPorSesion,
-      sesionesPorSemana: a.sesionesPorSemana,
-      sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
-      programaId: a.programaId || '00000000-0000-0000-0000-000000000001'
-    });
+  eliminarAsignatura(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/asignaturas/${id}`);
+  }
+
+  importarCurriculum(payload: any): Observable<ImportResult> {
+    return this.http.post<ImportResult>(`${this.base}/import/curriculum`, payload);
   }
 }

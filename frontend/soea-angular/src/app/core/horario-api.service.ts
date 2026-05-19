@@ -98,8 +98,8 @@ export class HorarioApiService {
         id: a.id,
         nombre: a.nombre,
         docenteId: a.docenteId,
-        creditos: a.sesionesPorSemana * a.horasPorSesion,
-        horasSemanales: a.horasPorSesion * a.sesionesPorSemana,
+        creditos: (a.sesionesPorSemana || 0) * (a.horasPorSesion || 0),
+        horasSemanales: (a.horasPorSesion || 0) * (a.sesionesPorSemana || 0),
         horasPorSesion: a.horasPorSesion,
         sesionesPorSemana: a.sesionesPorSemana,
         programaId: a.programaId,
@@ -141,11 +141,19 @@ export class HorarioApiService {
   }
 
   private manejarError(err: HttpErrorResponse): Observable<never> {
-    // Si el backend devolvió el DTO GenerarHorarioResponse (con status 422)
+    if (err.status === 400) {
+      const errors = err.error?.errors;
+      if (errors && typeof errors === 'object') {
+        const msgs = (Object.values(errors) as string[][]).flat().join('; ');
+        return throwError(() => new Error(msgs || 'Datos inválidos enviados al servidor.'));
+      }
+      const title = err.error?.title ?? err.error?.message ?? 'Solicitud inválida (400).';
+      return throwError(() => new Error(title));
+    }
+    // 422: backend devolvió GenerarHorarioResponse con EsFactible=false
     if (err.error && typeof err.error === 'object') {
       return throwError(() => err.error);
     }
-    const mensaje = err.message ?? 'Error desconocido al conectar con el API.';
-    return throwError(() => new Error(mensaje));
+    return throwError(() => new Error(err.message ?? 'Error desconocido al conectar con el API.'));
   }
 }

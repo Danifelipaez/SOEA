@@ -31,6 +31,7 @@ builder.Services.AddScoped<IHorarioRepositorio, HorarioRepositorio>();
 builder.Services.AddScoped<ISesionRepositorio, SesionRepositorio>();
 builder.Services.AddScoped<IDocenteRepositorio, DocenteRepositorio>();
 builder.Services.AddScoped<IEspacioRepositorio, EspacioRepositorio>();
+builder.Services.AddScoped<IGrupoRepositorio, GrupoRepositorio>();
 
 // ── Motores de scheduling ─────────────────────────────────────────────────────
 builder.Services.AddGraphColoringEngine();
@@ -47,7 +48,10 @@ builder.Services.AddScoped<DeleteAsignaturaService>();
 builder.Services.AddScoped<GenerarHorarioService>();
 
 // ── OpenAPI + Controladores ───────────────────────────────────────────────────
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(opts =>
+        opts.JsonSerializerOptions.Converters.Add(
+            new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 

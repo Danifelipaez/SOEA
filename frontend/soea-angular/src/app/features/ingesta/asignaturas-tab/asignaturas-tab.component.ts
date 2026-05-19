@@ -1,3 +1,4 @@
+import { forkJoin } from 'rxjs';
 import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
@@ -16,7 +17,7 @@ import { PersistenciaService } from '../../../core/persistencia.service';
 import { Asignatura, Facultad, Programa } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import * as XLSX from 'xlsx';
-import { forkJoin } from 'rxjs';
+import { ImportResult } from '../../../core/persistencia.service';
 
 // ─── Columnas del Excel esperadas (modo asignaturas separadas) ──────────────────
 // Facultad | Programa | Código | Nombre | HorasPorSesion | SesionesPorSemana | SesionesLabSemestre
@@ -158,6 +159,7 @@ export class AsignaturasTabComponent {
   displayedColumns = ['facultad', 'programa', 'codigo', 'nombre', 'alternancia', 'horas', 'sesiones', 'docente', 'acciones'];
   saving = signal(false);
   filterStr = signal('');
+  private bdIds = new Set<string>();
 
   filteredAsignaturas = computed(() => {
     const f = this.filterStr().toLowerCase();
@@ -292,25 +294,40 @@ export class AsignaturasTabComponent {
               () => ({ id: crypto.randomUUID(), nombre: nombreDoc, cedula: '', maxHoras: 40, disponibilidad: {} }));
           }
 
-          // 4. Asignatura (deduplicada por nombre+programa, igual que el backend)
-          const existeEnPrograma = nuevasAsignaturas.some(
-            a => a.nombre.toLowerCase() === nombreAsig.toLowerCase() && a.programaId === programaId
+          // 4. Lógica de grupos:
+          //    - Mismo docente + misma asignatura+programa -> sesión adicional del mismo grupo (sesionesPorSemana++)
+          //    - Docente diferente + misma asignatura+programa -> grupo nuevo (grupoNumero + 1)
+          const normalized = nombreAsig.trim().toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          const alternancia: 'TipoA'|'TipoB'|'SinAlternancia' =
+            normalized === 'quimica general' ? 'TipoA' : 'SinAlternancia';
+
+          const mismoGrupoIdx = nuevasAsignaturas.findIndex(
+            a => a.nombre.toLowerCase() === nombreAsig.toLowerCase()
+              && a.programaId === programaId
+              && a.docenteId === docenteIdParaAsig
           );
-          if (!existeEnPrograma) {
-            // Replica DeterminarAlternancia del backend:
-            // Solo 'Quimica General' es TipoA; el resto SinAlternancia
-            const normalized = nombreAsig.trim().toLowerCase()
-              .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-            const alternancia: 'TipoA'|'TipoB'|'SinAlternancia' =
-              normalized === 'quimica general' ? 'TipoA' : 'SinAlternancia';
+
+          if (mismoGrupoIdx >= 0) {
+            // Mismo docente: sesión adicional del mismo grupo
+            nuevasAsignaturas[mismoGrupoIdx] = {
+              ...nuevasAsignaturas[mismoGrupoIdx],
+              sesionesPorSemana: nuevasAsignaturas[mismoGrupoIdx].sesionesPorSemana + 1
+            };
+          } else {
+            // Docente diferente (o primera aparición) -> nuevo grupo
+            const gruposExistentes = nuevasAsignaturas.filter(
+              a => a.nombre.toLowerCase() === nombreAsig.toLowerCase() && a.programaId === programaId
+            ).length;
             nuevasAsignaturas.push({
               id: crypto.randomUUID(), codigo, nombre: nombreAsig,
               alternancia, horasPorSesion: duracion,
-              sesionesPorSemana: 2, sesionesLaboratorioSemestre: 0, programaId,
-              docenteId: docenteIdParaAsig
+              sesionesPorSemana: 1, sesionesLaboratorioSemestre: 0, programaId,
+              docenteId: docenteIdParaAsig,
+              grupoNumero: gruposExistentes + 1
             });
             added++;
-          } else { skipped++; skippedDetails.push({ fila: i + 1, razon: 'Asignatura duplicada en mismo programa', row }); }
+          }
 
           // 5. Espacio (creacion basica)
           if (nombreEsp) {
@@ -330,10 +347,13 @@ export class AsignaturasTabComponent {
         this.state.docentes.set(nuevosDocentes);
         this.state.espacios.set(nuevosEspacios);
 
+        const merged = (rows.length - 1) - skipped - added;
         const modo = esModo1 ? 'Modo 1 (horario existente)' : 'Modo 2 (asignaturas)';
         this.snackBar.open(
-          `${modo}: ${added} asignaturas importadas, ${skipped} omitidas. ` +
-          `Docentes: ${nuevosDocentes.length} · Espacios: ${nuevosEspacios.length} — Ver consola para detalles.`,
+          `${modo}: ${added} grupos nuevos` +
+          (merged > 0 ? `, ${merged} filas fusionadas en grupos existentes` : '') +
+          (skipped > 0 ? `, ${skipped} omitidas` : '') +
+          ` · Docentes: ${nuevosDocentes.length} · Espacios: ${nuevosEspacios.length}`,
           'Cerrar', { duration: 8000 }
         );
 
@@ -368,51 +388,128 @@ export class AsignaturasTabComponent {
   }
 
   delete(asignatura: Asignatura) {
-    this.state.deleteAsignatura(asignatura.id);
-    this.snackBar.open('Asignatura eliminada', 'Cerrar', { duration: 3000 });
+    if (this.bdIds.has(asignatura.id)) {
+      this.persistencia.eliminarAsignatura(asignatura.id).subscribe({
+        next: () => {
+          this.bdIds.delete(asignatura.id);
+          this.state.deleteAsignatura(asignatura.id);
+          this.snackBar.open('Asignatura eliminada de la BD.', 'Cerrar', { duration: 3000 });
+        },
+        error: () => this.snackBar.open('Error al eliminar de la BD.', 'Cerrar', { duration: 4000 })
+      });
+    } else {
+      this.state.deleteAsignatura(asignatura.id);
+      this.snackBar.open('Asignatura eliminada localmente.', 'Cerrar', { duration: 3000 });
+    }
   }
 
   guardarEnBD() {
+    // Usar el endpoint de importación masiva solo para la parte curricular de este tab.
     const asignaturas = this.state.asignaturas();
+    const facultades = this.state.facultades();
+    const programas = this.state.programas();
+
     if (asignaturas.length === 0) {
       this.snackBar.open('No hay asignaturas para guardar.', 'Cerrar', { duration: 3000 });
       return;
     }
+
     this.saving.set(true);
-    const calls = asignaturas.map(a => this.persistencia.guardarAsignatura(a));
-    forkJoin(calls).subscribe({
-      next: () => {
+    const docentes = this.state.docentes();
+    const payload = {
+      Facultades: facultades.map(f => ({ id: f.id, nombre: f.nombre })),
+      Programas: programas.map(p => ({ id: p.id, nombre: p.nombre, facultadId: p.facultadId })),
+      Docentes: docentes.map(d => ({ id: d.id, nombre: d.nombre, cedula: d.cedula, maxHoras: d.maxHoras })),
+      Asignaturas: asignaturas.map(a => ({
+        id: a.id, nombre: a.nombre, codigo: a.codigo,
+        horasPorSesion: a.horasPorSesion, sesionesPorSemana: a.sesionesPorSemana,
+        sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
+        alternancia: a.alternancia, programaId: a.programaId,
+        grupoNumero: a.grupoNumero,
+        docenteId: a.docenteId ?? null
+      })),
+    };
+
+    this.persistencia.importarCurriculum(payload).subscribe({
+      next: (result: ImportResult) => {
+        const facultadIdMap = new Map(result.facultades.map(m => [m.tempId, m.newId]));
+        const programaIdMap = new Map(result.programas.map(m => [m.tempId, m.newId]));
+        const asignaturaIdMap = new Map(result.asignaturas.map(m => [m.tempId, m.newId]));
+        const docenteIdMap = new Map((result.docentes ?? []).map(m => [m.tempId, m.newId]));
+
+        const facultadesActualizadas = this.state.facultades().map(f => ({
+          ...f,
+          id: facultadIdMap.get(f.id) ?? f.id
+        }));
+
+        const programasActualizados = this.state.programas().map(p => ({
+          ...p,
+          id: programaIdMap.get(p.id) ?? p.id,
+          facultadId: facultadIdMap.get(p.facultadId) ?? p.facultadId
+        }));
+
+        const docentesActualizados = this.state.docentes().map(d => ({
+          ...d,
+          id: docenteIdMap.get(d.id) ?? d.id
+        }));
+
+        const asignaturasActualizadas = this.state.asignaturas().map(a => ({
+          ...a,
+          id: asignaturaIdMap.get(a.id) ?? a.id,
+          programaId: programaIdMap.get(a.programaId) ?? a.programaId,
+          docenteId: a.docenteId ? (docenteIdMap.get(a.docenteId) ?? a.docenteId) : a.docenteId
+        }));
+
+        this.state.facultades.set(facultadesActualizadas);
+        this.state.programas.set(programasActualizados);
+        this.state.docentes.set(docentesActualizados);
+        this.state.setAsignaturas(asignaturasActualizadas);
+
+        // Sincronización final desde BD para quedar 100% alineados con lo persistido
+        this.cargarDesdeBD();
         this.saving.set(false);
-        this.snackBar.open(`${asignaturas.length} asignatura(s) guardadas en la BD.`, 'Cerrar', { duration: 4000 });
+        this.snackBar.open(
+          `${asignaturas.length} asignatura(s) importadas. ` +
+          `IDs sincronizados (A:${result.summary.asignaturas}, G:${result.summary.grupos}).`,
+          'Cerrar',
+          { duration: 5000 }
+        );
       },
       error: (err) => {
         this.saving.set(false);
-        this.snackBar.open(`Error al guardar: ${err?.error || err?.message || 'desconocido'}`, 'Cerrar', { duration: 5000 });
+        this.snackBar.open(`Error al importar: ${err?.error || err?.message || 'desconocido'}`, 'Cerrar', { duration: 5000 });
       }
     });
   }
 
   cargarDesdeBD() {
     this.saving.set(true);
-    this.persistencia.cargarAsignaturas().subscribe({
-      next: (list) => {
+    forkJoin({
+      facultades: this.persistencia.cargarFacultades(),
+      programas:  this.persistencia.cargarProgramas(),
+      asignaturas: this.persistencia.cargarAsignaturas()
+    }).subscribe({
+      next: ({ facultades, programas, asignaturas }) => {
         this.saving.set(false);
-        list.forEach((a: any) => {
-          const mapped: Asignatura = {
-            id: a.id,
-            nombre: a.nombre,
-            codigo: a.codigo,
-            horasPorSesion: a.horasPorSesion,
-            sesionesPorSemana: a.sesionesPorSemana,
-            sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
-            alternancia: a.alternancia ?? 'SinAlternancia',
-            programaId: a.programaId
-          };
-          const existing = this.state.asignaturas().find(x => x.id === a.id);
-          if (existing) this.state.updateAsignatura(mapped);
-          else this.state.addAsignatura(mapped);
-        });
-        this.snackBar.open(`${list.length} asignatura(s) cargadas desde la BD.`, 'Cerrar', { duration: 4000 });
+
+        this.state.facultades.set(facultades.map((f: any) => ({ id: f.id, nombre: f.nombre })));
+        this.state.programas.set(programas.map((p: any) => ({ id: p.id, nombre: p.nombre, facultadId: p.facultadId })));
+
+        this.bdIds = new Set(asignaturas.map((a: any) => a.id as string));
+        const mapped: Asignatura[] = asignaturas.map((a: any) => ({
+          id: a.id,
+          nombre: a.nombre,
+          codigo: a.codigo,
+          horasPorSesion: a.horasPorSesion,
+          sesionesPorSemana: a.sesionesPorSemana,
+          sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
+          alternancia: a.alternancia ?? 'SinAlternancia',
+          programaId: a.programaId,
+          docenteId: a.docenteId ?? undefined
+        }));
+        this.state.setAsignaturas(mapped);
+
+        this.snackBar.open(`${asignaturas.length} asignatura(s) cargadas desde la BD.`, 'Cerrar', { duration: 4000 });
       },
       error: () => {
         this.saving.set(false);

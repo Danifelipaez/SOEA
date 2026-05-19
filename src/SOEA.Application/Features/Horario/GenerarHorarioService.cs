@@ -285,15 +285,15 @@ namespace SOEA.Application.Features.Horario
                 int sesionesASolicitar;
                 decimal duracionPorSesion;
 
-                if (dto.HorasPorSesion > 0 && dto.SesionesPorSemana > 0)
+                if (dto.HorasPorSesion.GetValueOrDefault() > 0 && dto.SesionesPorSemana.GetValueOrDefault() > 0)
                 {
-                    sesionesASolicitar = dto.SesionesPorSemana;
-                    duracionPorSesion  = dto.HorasPorSesion;
+                    sesionesASolicitar = dto.SesionesPorSemana.GetValueOrDefault();
+                    duracionPorSesion  = dto.HorasPorSesion.GetValueOrDefault();
                 }
                 else
                 {
-                    var horas = dto.HorasSemanales > 0 ? dto.HorasSemanales
-                              : dto.Creditos > 0       ? (decimal)dto.Creditos
+                    var horas = dto.HorasSemanales.GetValueOrDefault() > 0 ? dto.HorasSemanales.GetValueOrDefault()
+                              : dto.Creditos.GetValueOrDefault() > 0       ? (decimal)dto.Creditos.GetValueOrDefault()
                               : 2m;
                     if (horas > 8) horas = 8m;
                     sesionesASolicitar = (int)Math.Ceiling(horas / 2m);

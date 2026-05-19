@@ -1,6 +1,6 @@
 import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ReactiveFormsModule, FormBuilder, Validators, FormGroup, FormArray } from '@angular/forms';
+import { ReactiveFormsModule, FormBuilder, Validators, FormGroup } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
@@ -8,16 +8,18 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatIconModule } from '@angular/material/icon';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
 import { Docente } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { forkJoin } from 'rxjs';
+import { forkJoin, of } from 'rxjs';
+import { map, catchError } from 'rxjs/operators';
 
 @Component({
   selector: 'app-docentes-tab',
   standalone: true,
-  imports: [CommonModule, MatTableModule, MatButtonModule, MatDialogModule, MatFormFieldModule, MatInputModule],
+  imports: [CommonModule, MatTableModule, MatButtonModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatIconModule],
   template: `
     <div class="tab-content">
       <div class="actions-row">
@@ -82,7 +84,8 @@ export class DocentesTabComponent {
   displayedColumns = ['nombre', 'cedula', 'maxHoras', 'disponibilidad', 'acciones'];
   filterStr = signal('');
   saving = signal(false);
-  
+  private bdIds = new Set<string>();
+
   filteredDocentes = computed(() => {
     const f = this.filterStr().toLowerCase();
     const all = this.state.docentes();
@@ -116,8 +119,19 @@ export class DocentesTabComponent {
   }
 
   delete(docente: Docente) {
-    this.state.deleteDocente(docente.id);
-    this.snackBar.open('Docente eliminado', 'Cerrar', { duration: 3000 });
+    if (this.bdIds.has(docente.id)) {
+      this.persistencia.eliminarDocenteBD(docente.id).subscribe({
+        next: () => {
+          this.bdIds.delete(docente.id);
+          this.state.deleteDocente(docente.id);
+          this.snackBar.open('Docente eliminado de la BD.', 'Cerrar', { duration: 3000 });
+        },
+        error: () => this.snackBar.open('Error al eliminar de la BD.', 'Cerrar', { duration: 4000 })
+      });
+    } else {
+      this.state.deleteDocente(docente.id);
+      this.snackBar.open('Docente eliminado localmente.', 'Cerrar', { duration: 3000 });
+    }
   }
 
   guardarEnBD() {
@@ -126,18 +140,37 @@ export class DocentesTabComponent {
       this.snackBar.open('No hay docentes para guardar.', 'Cerrar', { duration: 3000 });
       return;
     }
+
+    const paraActualizar = docentes.filter(d => this.bdIds.has(d.id));
+    const paraCrear      = docentes.filter(d => !this.bdIds.has(d.id));
+
     this.saving.set(true);
-    const calls = docentes.map(d => this.persistencia.guardarDocente(d));
-    forkJoin(calls).subscribe({
-      next: () => {
-        this.saving.set(false);
-        this.snackBar.open(`${docentes.length} docente(s) guardados en la BD.`, 'Cerrar', { duration: 4000 });
-      },
-      error: (err) => {
-        this.saving.set(false);
-        const msg = err?.error || err?.message || 'Error al guardar';
-        this.snackBar.open(`Error: ${msg}`, 'Cerrar', { duration: 5000 });
-      }
+
+    const updateCalls$ = paraActualizar.map(d =>
+      this.persistencia.actualizarDocente(d).pipe(
+        map(() => ({ ok: true, nombre: d.nombre, tipo: 'actualizado' as const })),
+        catchError(() => of({ ok: false, nombre: d.nombre, tipo: 'actualizado' as const }))
+      )
+    );
+    const createCalls$ = paraCrear.map(d =>
+      this.persistencia.guardarDocente(d).pipe(
+        map(() => { this.bdIds.add(d.id); return { ok: true, nombre: d.nombre, tipo: 'nuevo' as const }; }),
+        catchError(() => of({ ok: false, nombre: d.nombre, tipo: 'nuevo' as const }))
+      )
+    );
+
+    const all$ = [...updateCalls$, ...createCalls$];
+    if (all$.length === 0) { this.saving.set(false); return; }
+
+    forkJoin(all$).subscribe(results => {
+      this.saving.set(false);
+      const nuevos       = results.filter(r => r.ok && r.tipo === 'nuevo').map(r => r.nombre);
+      const actualizados = results.filter(r => r.ok && r.tipo === 'actualizado').map(r => r.nombre);
+      const errores      = results.filter(r => !r.ok).map(r => r.nombre);
+      this.dialog.open(GuardadoResultadoDialogComponent, {
+        width: '420px',
+        data: { entidad: 'docentes', nuevos, actualizados, errores }
+      });
     });
   }
 
@@ -146,6 +179,7 @@ export class DocentesTabComponent {
     this.persistencia.cargarDocentes().subscribe({
       next: (docentes) => {
         this.saving.set(false);
+        this.bdIds = new Set(docentes.map(d => d.id));
         docentes.forEach(d => {
           const existing = this.state.docentes().find(x => x.id === d.id);
           if (existing) this.state.updateDocente(d);
@@ -354,4 +388,52 @@ export class DocenteDialogComponent {
     });
     this.dialogRef.close({ ...this.form.value, disponibilidad });
   }
+}
+
+// ─── Dialog de resultado del guardado ────────────────────────────────────────
+
+interface GuardadoResultado {
+  entidad: string;
+  nuevos: string[];
+  actualizados: string[];
+  errores: string[];
+}
+
+@Component({
+  selector: 'app-guardado-resultado-dialog',
+  standalone: true,
+  imports: [CommonModule, MatDialogModule, MatButtonModule, MatIconModule],
+  template: `
+    <h2 mat-dialog-title>Resultado: Guardar en BD</h2>
+    <mat-dialog-content>
+      <div *ngIf="data.nuevos.length > 0" class="section">
+        <p class="section-title ok"><mat-icon>check_circle</mat-icon> Nuevos guardados ({{data.nuevos.length}})</p>
+        <ul><li *ngFor="let n of data.nuevos">{{n}}</li></ul>
+      </div>
+      <div *ngIf="data.actualizados.length > 0" class="section">
+        <p class="section-title info"><mat-icon>sync</mat-icon> Ya estaban en BD — actualizados ({{data.actualizados.length}})</p>
+        <ul><li *ngFor="let n of data.actualizados">{{n}}</li></ul>
+      </div>
+      <div *ngIf="data.errores.length > 0" class="section">
+        <p class="section-title err"><mat-icon>error</mat-icon> Errores ({{data.errores.length}})</p>
+        <ul><li *ngFor="let n of data.errores">{{n}}</li></ul>
+      </div>
+      <p *ngIf="!data.nuevos.length && !data.actualizados.length && !data.errores.length" class="empty">
+        No había cambios que guardar.
+      </p>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-flat-button mat-dialog-close color="primary">Aceptar</button>
+    </mat-dialog-actions>
+  `,
+  styles: [`
+    .section { margin-bottom: 14px; }
+    .section-title { display: flex; align-items: center; gap: 6px; font-weight: 500; margin: 0 0 4px; }
+    .ok   { color: #2e7d32; } .info { color: #1565c0; } .err { color: #c62828; }
+    ul { margin: 0 0 0 28px; padding: 0; font-size: 14px; }
+    .empty { color: #757575; font-style: italic; }
+  `]
+})
+export class GuardadoResultadoDialogComponent {
+  data = inject(MAT_DIALOG_DATA) as GuardadoResultado;
 }

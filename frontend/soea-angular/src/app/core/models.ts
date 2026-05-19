@@ -37,6 +37,8 @@ export interface Asignatura {
   nombre: string;
   /** TipoA = 8 sesiones de lab (semanas impares presencial), TipoB = más de 8 (flexible), SinAlternancia */
   alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia';
+  /** Número de grupo dentro de la asignatura (1..N). Opcional; usado en importaciones para diferenciar repeticiones */
+  grupoNumero?: number;
   horasPorSesion: number;    // 2 o 3 horas
   sesionesPorSemana: number;
   sesionesLaboratorioSemestre: number;

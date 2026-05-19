@@ -30,6 +30,7 @@ namespace SOEA.Domain.Entities
 
         public TipoAlternancia Alternancia { get; private set; }
         public Guid ProgramaId { get; private set; }
+        public Guid? DocenteId { get; private set; }
 
         // Constructor privado para EF Core
         private Asignatura() : base() { }
@@ -59,6 +60,11 @@ namespace SOEA.Domain.Entities
             SesionesLaboratorioSemestre = sesionesLaboratorioSemestre;
             Alternancia = DeterminarAlternancia(nombre);
             ProgramaId = programaId;
+        }
+
+        public void AsignarDocente(Guid? docenteId)
+        {
+            DocenteId = docenteId;
         }
 
         /// <summary>

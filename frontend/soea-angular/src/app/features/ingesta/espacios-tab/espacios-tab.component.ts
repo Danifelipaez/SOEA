@@ -11,7 +11,9 @@ import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
 import { Espacio } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { forkJoin } from 'rxjs';
+import { forkJoin, of } from 'rxjs';
+import { map, catchError } from 'rxjs/operators';
+import { MatIconModule } from '@angular/material/icon';
 
 @Component({
   selector: 'app-espacios-tab',
@@ -77,7 +79,8 @@ export class EspaciosTabComponent {
   displayedColumns = ['nombre', 'capacidad', 'tipo', 'acciones'];
   filterStr = signal('');
   saving = signal(false);
-  
+  private bdIds = new Set<string>();
+
   filteredEspacios = computed(() => {
     const f = this.filterStr().toLowerCase();
     const all = this.state.espacios();
@@ -106,8 +109,19 @@ export class EspaciosTabComponent {
   }
 
   delete(espacio: Espacio) {
-    this.state.deleteEspacio(espacio.id);
-    this.snackBar.open('Espacio eliminado', 'Cerrar', { duration: 3000 });
+    if (this.bdIds.has(espacio.id)) {
+      this.persistencia.eliminarEspacioBD(espacio.id).subscribe({
+        next: () => {
+          this.bdIds.delete(espacio.id);
+          this.state.deleteEspacio(espacio.id);
+          this.snackBar.open('Espacio eliminado de la BD.', 'Cerrar', { duration: 3000 });
+        },
+        error: () => this.snackBar.open('Error al eliminar de la BD.', 'Cerrar', { duration: 4000 })
+      });
+    } else {
+      this.state.deleteEspacio(espacio.id);
+      this.snackBar.open('Espacio eliminado localmente.', 'Cerrar', { duration: 3000 });
+    }
   }
 
   guardarEnBD() {
@@ -116,18 +130,37 @@ export class EspaciosTabComponent {
       this.snackBar.open('No hay espacios para guardar.', 'Cerrar', { duration: 3000 });
       return;
     }
+
+    const paraActualizar = espacios.filter(e => this.bdIds.has(e.id));
+    const paraCrear      = espacios.filter(e => !this.bdIds.has(e.id));
+
     this.saving.set(true);
-    const calls = espacios.map(e => this.persistencia.guardarEspacio(e));
-    forkJoin(calls).subscribe({
-      next: () => {
-        this.saving.set(false);
-        this.snackBar.open(`${espacios.length} espacio(s) guardados en la BD.`, 'Cerrar', { duration: 4000 });
-      },
-      error: (err) => {
-        this.saving.set(false);
-        const msg = err?.error || err?.message || 'Error al guardar';
-        this.snackBar.open(`Error: ${msg}`, 'Cerrar', { duration: 5000 });
-      }
+
+    const updateCalls$ = paraActualizar.map(e =>
+      this.persistencia.actualizarEspacio(e).pipe(
+        map(() => ({ ok: true, nombre: e.nombre, tipo: 'actualizado' as const })),
+        catchError(() => of({ ok: false, nombre: e.nombre, tipo: 'actualizado' as const }))
+      )
+    );
+    const createCalls$ = paraCrear.map(e =>
+      this.persistencia.guardarEspacio(e).pipe(
+        map(() => { this.bdIds.add(e.id); return { ok: true, nombre: e.nombre, tipo: 'nuevo' as const }; }),
+        catchError(() => of({ ok: false, nombre: e.nombre, tipo: 'nuevo' as const }))
+      )
+    );
+
+    const all$ = [...updateCalls$, ...createCalls$];
+    if (all$.length === 0) { this.saving.set(false); return; }
+
+    forkJoin(all$).subscribe(results => {
+      this.saving.set(false);
+      const nuevos       = results.filter(r => r.ok && r.tipo === 'nuevo').map(r => r.nombre);
+      const actualizados = results.filter(r => r.ok && r.tipo === 'actualizado').map(r => r.nombre);
+      const errores      = results.filter(r => !r.ok).map(r => r.nombre);
+      this.dialog.open(GuardadoResultadoDialogComponent, {
+        width: '420px',
+        data: { entidad: 'espacios', nuevos, actualizados, errores }
+      });
     });
   }
 
@@ -136,6 +169,7 @@ export class EspaciosTabComponent {
     this.persistencia.cargarEspacios().subscribe({
       next: (espacios) => {
         this.saving.set(false);
+        this.bdIds = new Set(espacios.map(e => e.id));
         espacios.forEach(e => {
           const existing = this.state.espacios().find(x => x.id === e.id);
           if (existing) this.state.updateEspacio(e);
@@ -203,4 +237,52 @@ export class EspacioDialogComponent {
       this.dialogRef.close(this.form.value);
     }
   }
+}
+
+// ─── Dialog de resultado del guardado ────────────────────────────────────────
+
+interface GuardadoResultado {
+  entidad: string;
+  nuevos: string[];
+  actualizados: string[];
+  errores: string[];
+}
+
+@Component({
+  selector: 'app-guardado-resultado-espacios-dialog',
+  standalone: true,
+  imports: [CommonModule, MatDialogModule, MatButtonModule, MatIconModule],
+  template: `
+    <h2 mat-dialog-title>Resultado: Guardar en BD</h2>
+    <mat-dialog-content>
+      <div *ngIf="data.nuevos.length > 0" class="section">
+        <p class="section-title ok"><mat-icon>check_circle</mat-icon> Nuevos guardados ({{data.nuevos.length}})</p>
+        <ul><li *ngFor="let n of data.nuevos">{{n}}</li></ul>
+      </div>
+      <div *ngIf="data.actualizados.length > 0" class="section">
+        <p class="section-title info"><mat-icon>sync</mat-icon> Ya estaban en BD — actualizados ({{data.actualizados.length}})</p>
+        <ul><li *ngFor="let n of data.actualizados">{{n}}</li></ul>
+      </div>
+      <div *ngIf="data.errores.length > 0" class="section">
+        <p class="section-title err"><mat-icon>error</mat-icon> Errores ({{data.errores.length}})</p>
+        <ul><li *ngFor="let n of data.errores">{{n}}</li></ul>
+      </div>
+      <p *ngIf="!data.nuevos.length && !data.actualizados.length && !data.errores.length" class="empty">
+        No había cambios que guardar.
+      </p>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-flat-button mat-dialog-close color="primary">Aceptar</button>
+    </mat-dialog-actions>
+  `,
+  styles: [`
+    .section { margin-bottom: 14px; }
+    .section-title { display: flex; align-items: center; gap: 6px; font-weight: 500; margin: 0 0 4px; }
+    .ok   { color: #2e7d32; } .info { color: #1565c0; } .err { color: #c62828; }
+    ul { margin: 0 0 0 28px; padding: 0; font-size: 14px; }
+    .empty { color: #757575; font-style: italic; }
+  `]
+})
+export class GuardadoResultadoDialogComponent {
+  data = inject(MAT_DIALOG_DATA) as GuardadoResultado;
 }
