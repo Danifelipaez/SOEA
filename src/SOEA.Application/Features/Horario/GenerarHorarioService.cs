@@ -207,6 +207,12 @@ namespace SOEA.Application.Features.Horario
                     ? franjas.ToList()
                     : new List<FranjaHoraria> { FranjaHoraria.Matutino, FranjaHoraria.Vespertino };
 
+                // No blocks were mapped (empty dict or all days set to NoDisponible).
+                // Treat as fully available so schedule generation can still proceed.
+                // Users should configure availability in the UI to restrict specific docentes.
+                if (bloquesDisponibles.Count == 0)
+                    bloquesDisponibles.AddRange(bloques);
+
                 var docente = new Docente(
                     id: id,
                     nombre: dto.Nombre,

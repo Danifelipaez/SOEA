@@ -117,31 +117,49 @@ namespace SOEA.Engine.ConstraintProg
             // HC-I02: Disponibilidad del Docente — sesión solo en bloques donde el docente está disponible
             foreach (var sesion in sesiones)
             {
-                if (docenteDict.TryGetValue(sesion.DocenteId, out var docente) && docente.BloquesDisponibles.Any())
-                {
-                    var indicesPermitidos = docente.BloquesDisponibles
-                        .Where(b => bloqueIndex.ContainsKey(b.Id))
-                        .Select(b => (long)bloqueIndex[b.Id])
-                        .ToArray();
+                if (!docenteDict.TryGetValue(sesion.DocenteId, out var docente)) continue;
 
-                    if (indicesPermitidos.Any())
-                    {
-                        model.AddLinearExpressionInDomain(
-                            timeVars[sesion.Id],
-                            CpDomain.FromValues(indicesPermitidos));
-                    }
+                var bloquesDocente = docente.BloquesDisponibles;
+                if (bloquesDocente.Count == 0)
+                {
+                    // GenerarHorarioService should have rejected this before reaching CP-SAT.
+                    _logger.LogWarning("HC-I02: Docente {D} sin bloques disponibles — no se aplica restricción de disponibilidad.", docente.NombreCompleto);
+                    continue;
+                }
+
+                var indicesPermitidos = bloquesDocente
+                    .Where(b => bloqueIndex.ContainsKey(b.Id))
+                    .Select(b => (long)bloqueIndex[b.Id])
+                    .ToArray();
+
+                if (indicesPermitidos.Any())
+                {
+                    model.AddLinearExpressionInDomain(
+                        timeVars[sesion.Id],
+                        CpDomain.FromValues(indicesPermitidos));
+                }
+                else
+                {
+                    _logger.LogWarning("HC-I02: Docente {D} — ningún bloque disponible coincide con bloques canónicos del modelo.", docente.NombreCompleto);
                 }
             }
 
-            // HC-I03: Max Horas Semanales — pre-solve hard check (session durations are fixed,
-            // so the solver cannot reduce hours; we must reject before running CP-SAT).
+            // HC-I03: Max Horas Semanales — pre-solve hard checks (session durations are fixed).
             foreach (var grupo in sesionesPorDocente)
             {
                 if (!docenteDict.TryGetValue(grupo.Key, out var docente)) continue;
 
-                var sesionesAsignadas   = grupo.Count();
-                var bloquesDisponibles  = docente.BloquesDisponibles.Count;
-                if (bloquesDisponibles > 0 && sesionesAsignadas > bloquesDisponibles)
+                var sesionesAsignadas  = grupo.Count();
+                var bloquesDisponibles = docente.BloquesDisponibles.Count;
+
+                if (bloquesDisponibles == 0)
+                {
+                    var msg = $"Docente {docente.NombreCompleto} no tiene disponibilidad definida — no puede recibir sesiones.";
+                    _logger.LogError(msg);
+                    return new ResultadoFactibilidad(false, sesiones.AsReadOnly(), msg);
+                }
+
+                if (sesionesAsignadas > bloquesDisponibles)
                 {
                     var msg = $"Docente {docente.NombreCompleto} tiene {sesionesAsignadas} sesiones pero solo {bloquesDisponibles} bloques disponibles — imposible agendar sin solapamientos.";
                     _logger.LogError(msg);

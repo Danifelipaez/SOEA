@@ -65,7 +65,7 @@ namespace SOEA.API.Controllers
             if (existing is null) return NotFound();
             try
             {
-                existing.ActualizarDatos(dto.Nombre, "", null, (decimal)dto.MaxHoras);
+                existing.ActualizarDatos(dto.Nombre, "", existing.Correo, (decimal)dto.MaxHoras);
                 existing.ActualizarPersistenciaUi(dto.Cedula, dto.Disponibilidad?.GetRawText());
                 await _repo.UpdateAsync(existing);
                 return Ok(MapToDto(existing));
