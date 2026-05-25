@@ -248,9 +248,9 @@ namespace SOEA.Engine.ConstraintProg
                         litPorSesionEspacio[(sesion.Id, e)] = lit;
                         literales.Add(lit);
 
-                        // Vincular literal ↔ spaceVar
+                        // Vincular literal → spaceVar (solo cuando está activo; AddExactlyOne
+                        // garantiza exclusividad, no se necesita el sentido negado "!= e").
                         model.Add(spaceVars[sesion.Id] == e).OnlyEnforceIf(lit);
-                        model.Add(spaceVars[sesion.Id] != e).OnlyEnforceIf(lit.Not());
 
                         // Intervalo opcional para NoOverlap por espacio
                         var optInt = model.NewOptionalIntervalVar(
