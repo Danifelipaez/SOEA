@@ -148,13 +148,20 @@ export class DocentesTabComponent {
 
     const updateCalls$ = paraActualizar.map(d =>
       this.persistencia.actualizarDocente(d).pipe(
-        map(() => ({ ok: true, nombre: d.nombre, tipo: 'actualizado' as const })),
+        map((updated) => {
+          this.state.updateDocente(updated);
+          return { ok: true, nombre: updated.nombre, tipo: 'actualizado' as const };
+        }),
         catchError(() => of({ ok: false, nombre: d.nombre, tipo: 'actualizado' as const }))
       )
     );
     const createCalls$ = paraCrear.map(d =>
       this.persistencia.guardarDocente(d).pipe(
-        map(() => { this.bdIds.add(d.id); return { ok: true, nombre: d.nombre, tipo: 'nuevo' as const }; }),
+        map((created) => {
+          this.bdIds.add(created.id);
+          this.state.updateDocente(created);
+          return { ok: true, nombre: created.nombre, tipo: 'nuevo' as const };
+        }),
         catchError(() => of({ ok: false, nombre: d.nombre, tipo: 'nuevo' as const }))
       )
     );
@@ -244,10 +251,11 @@ export class DocentesTabComponent {
               <select class="native-select"
                       [value]="getDisp(dia, 'tipo')"
                       (change)="setDisp(dia, 'tipo', $any($event.target).value)">
-                <option value="todo">Todo el día</option>
-                <option value="matutino">Matutino (06:00–13:00)</option>
-                <option value="vespertino">Vespertino (13:00–19:00)</option>
-                <option value="nocturno">Nocturno (19:00–22:00)</option>
+                <option value="todo">Todo el día (06:00–22:00)</option>
+                <option value="oficina">Horario de oficina (06:00–18:00)</option>
+                <option value="matutino">Matutino (06:00–12:00)</option>
+                <option value="vespertino">Vespertino (12:00–18:00)</option>
+                <option value="nocturno">Nocturno (18:00–22:00)</option>
                 <option value="especifico">Franja específica</option>
               </select>
             </span>
@@ -257,12 +265,12 @@ export class DocentesTabComponent {
               <label class="time-label">De
                 <input class="time-input" type="time" min="06:00" max="22:00"
                        [value]="getDisp(dia, 'desde')"
-                       (change)="setDisp(dia, 'desde', $any($event.target).value)">
+                    (input)="setDisp(dia, 'desde', $any($event.target).value)">
               </label>
               <label class="time-label">A
                 <input class="time-input" type="time" min="06:00" max="22:00"
                        [value]="getDisp(dia, 'hasta')"
-                       (change)="setDisp(dia, 'hasta', $any($event.target).value)">
+                    (input)="setDisp(dia, 'hasta', $any($event.target).value)">
               </label>
             </span>
             <span class="col-times summary-text"
@@ -328,13 +336,35 @@ export class DocenteDialogComponent {
   disp: Record<string, any> = {};
 
   constructor() {
+    const generalToTipo: Record<string, string> = {
+      'Todo el día': 'todo',
+      'Todo el día (06:00–22:00)': 'todo',
+      'Horario de oficina (06:00–18:00)': 'oficina',
+      'Matutino (06:00–12:00)': 'matutino',
+      'Matutino (6:00–12:00)': 'matutino',
+      'Matutino (06:00–13:00)': 'matutino',
+      'Vespertino (12:00–18:00)': 'vespertino',
+      'Vespertino (13:00–19:00)': 'vespertino',
+      'Nocturno (18:00–22:00)': 'nocturno',
+      'Nocturno (19:00–22:00)': 'nocturno',
+      'Nocturno (18:00–21:30)': 'nocturno'
+    };
+
     this.dias.forEach(dia => {
       const d = this.data?.disponibilidad?.[dia] ?? {};
+      const tipoRaw = d.tipo ?? 'todo';
+      let tipo = tipoRaw;
+      if (tipoRaw === 'Franja específica') {
+        tipo = 'especifico';
+      } else if (tipoRaw === 'Franja general') {
+        tipo = generalToTipo[d.franjaGeneral] ?? 'todo';
+      }
+
       this.disp[dia] = {
         noDisponible: d.noDisponible ?? false,
-        tipo:         d.tipo ?? 'todo',
-        desde:        d.desde ?? '06:00',
-        hasta:        d.hasta ?? '22:00'
+        tipo,
+        desde: d.desde ?? '06:00',
+        hasta: d.hasta ?? '22:00'
       };
     });
 
@@ -357,9 +387,10 @@ export class DocenteDialogComponent {
     const tipo = this.disp[dia]?.tipo;
     switch (tipo) {
       case 'todo':       return '06:00 – 22:00';
-      case 'matutino':   return '06:00 – 13:00';
-      case 'vespertino': return '13:00 – 19:00';
-      case 'nocturno':   return '19:00 – 22:00';
+      case 'oficina':    return '06:00 – 18:00';
+      case 'matutino':   return '06:00 – 12:00';
+      case 'vespertino': return '12:00 – 18:00';
+      case 'nocturno':   return '18:00 – 22:00';
       default:           return '';
     }
   }
@@ -370,20 +401,21 @@ export class DocenteDialogComponent {
     const disponibilidad: Record<string, any> = {};
     this.dias.forEach(dia => {
       const d = this.disp[dia];
-      if (d.tipo === 'especifico') {
-        disponibilidad[dia] = { noDisponible: d.noDisponible, tipo: 'Franja específica',
-                                desde: d.desde, hasta: d.hasta };
-      } else if (d.noDisponible) {
+      if (d.noDisponible) {
         disponibilidad[dia] = { noDisponible: true };
+      } else if (d.tipo === 'especifico') {
+        disponibilidad[dia] = { noDisponible: false, tipo: 'Franja específica',
+                                desde: d.desde, hasta: d.hasta };
       } else {
         const franjaMap: Record<string, string> = {
-          todo:       'Todo el día',
-          matutino:   'Matutino (6:00–12:00)',
+          todo:       'Todo el día (06:00–22:00)',
+          oficina:    'Horario de oficina (06:00–18:00)',
+          matutino:   'Matutino (06:00–12:00)',
           vespertino: 'Vespertino (12:00–18:00)',
-          nocturno:   'Nocturno (18:00–21:30)'
+          nocturno:   'Nocturno (18:00–22:00)'
         };
         disponibilidad[dia] = { noDisponible: false, tipo: 'Franja general',
-                                franjaGeneral: franjaMap[d.tipo] ?? 'Todo el día' };
+                                franjaGeneral: franjaMap[d.tipo] ?? 'Todo el día (06:00–22:00)' };
       }
     });
     this.dialogRef.close({ ...this.form.value, disponibilidad });

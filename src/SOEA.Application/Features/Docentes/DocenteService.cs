@@ -38,7 +38,7 @@ namespace SOEA.Application.Features.Docentes
         private const string TipoFranjaGeneral = "Franja general";
         private const string TipoFranjaEspecifica = "Franja específica";
 
-        private const string LabelTodo = "Todo el día";
+        private const string LabelTodo = "Todo el día (06:00–22:00)";
         private const string LabelOffice = "Horario de oficina (06:00–18:00)";
         private const string LabelMatutino = "Matutino (06:00–12:00)";
         private const string LabelVespertino = "Vespertino (12:00–18:00)";
