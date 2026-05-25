@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
-using SOEA.Infrastructure.Data.Context;
-using SOEA.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
 using SOEA.Domain.Enums;
+using SOEA.Domain.Entities;
+using SOEA.Domain.Interfaces;
+using SOEA.Domain.ValueObjects;
+using SOEA.Infrastructure.Data.Context;
 using System.Globalization;
 
 namespace SOEA.API.Controllers
@@ -11,10 +14,252 @@ namespace SOEA.API.Controllers
     public class ImportController : ControllerBase
     {
         private readonly SOEABdContext _context;
+        private readonly ILectorExcel _lectorExcel;
 
-        public ImportController(SOEABdContext context)
+        public ImportController(SOEABdContext context, ILectorExcel lectorExcel)
         {
             _context = context;
+            _lectorExcel = lectorExcel;
+        }
+
+        /// <summary>
+        /// Importa el Excel de horario/currículum directamente desde el archivo.
+        /// Detecta columnas por cabecera, normaliza nombres de docentes y persiste todo
+        /// en una transacción: facultades, programas, docentes (con disponibilidad),
+        /// espacios, asignaturas, grupos y sesiones predefinidas con BloqueTiempoId real.
+        /// </summary>
+        [HttpPost("excel")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> ImportarExcel(IFormFile archivo)
+        {
+            if (archivo == null || archivo.Length == 0)
+                return BadRequest("No se recibió ningún archivo.");
+
+            if (!archivo.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) &&
+                !archivo.FileName.EndsWith(".xls", StringComparison.OrdinalIgnoreCase))
+                return BadRequest("El archivo debe ser .xlsx o .xls.");
+
+            // Cargar catálogo de bloques seeded (1-hora, Lun-Vie 06-22h, Sáb 06-13h)
+            var bloquesCatalogo = await _context.BloqueTiempos
+                .AsNoTracking()
+                .ToListAsync();
+
+            // Agrupar por (Dia, HoraInicio) para lookup O(1)
+            var catalogoLookup = bloquesCatalogo
+                .GroupBy(b => (b.Dia, b.HoraInicio))
+                .ToDictionary(g => g.Key, g => g.First())
+                as IReadOnlyDictionary<(DiaDeSemana, TimeOnly), BloqueTiempo>;
+
+            CurriculumExcelResult resultado;
+            try
+            {
+                using var stream = archivo.OpenReadStream();
+                resultado = await _lectorExcel.LeerCurriculumAsync(stream, catalogoLookup);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Error al leer el Excel: {ex.Message}");
+            }
+
+            var stats = new ImportExcelStatsDto();
+            await using var tx = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var facultadIdMap  = new Dictionary<Guid, Guid>();
+                var programaIdMap  = new Dictionary<Guid, Guid>();
+                var docenteIdMap   = new Dictionary<Guid, Guid>();
+                var asignaturaIdMap = new Dictionary<Guid, Guid>();
+
+                // ── Facultades ────────────────────────────────────────────────────────
+                foreach (var f in resultado.Facultades)
+                {
+                    var norm = NormalizadorTexto.Normalizar(f.Nombre);
+                    var existe = await _context.Facultades
+                        .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, f.Nombre));
+                    if (existe == null)
+                    {
+                        var nueva = new Facultad(Guid.NewGuid(), f.Nombre);
+                        _context.Facultades.Add(nueva);
+                        await _context.SaveChangesAsync();
+                        facultadIdMap[f.Id] = nueva.Id;
+                        stats.FacultadesCreadas++;
+                    }
+                    else
+                    {
+                        facultadIdMap[f.Id] = existe.Id;
+                    }
+                }
+
+                // ── Programas ─────────────────────────────────────────────────────────
+                foreach (var p in resultado.Programas)
+                {
+                    var facRealId = facultadIdMap.TryGetValue(p.FacultadId, out var fid) ? fid : p.FacultadId;
+                    var existe = await _context.Programas
+                        .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, p.Nombre) && x.FacultadId == facRealId);
+                    if (existe == null)
+                    {
+                        var nuevo = new Programa(Guid.NewGuid(), p.Nombre, facRealId);
+                        _context.Programas.Add(nuevo);
+                        await _context.SaveChangesAsync();
+                        programaIdMap[p.Id] = nuevo.Id;
+                        stats.ProgramasCreados++;
+                    }
+                    else
+                    {
+                        programaIdMap[p.Id] = existe.Id;
+                    }
+                }
+
+                // ── Docentes (con disponibilidad) ─────────────────────────────────────
+                // Los BloquesDisponibles en el resultado YA usan IDs del catálogo (porque
+                // pasamos catalogoLookup al lector). Usamos Attach para que EF no intente
+                // insertar los bloques otra vez — solo crea las filas en DisponibilidadDocente.
+                foreach (var d in resultado.Docentes)
+                {
+                    var nombreNorm = NormalizadorTexto.Normalizar(d.Nombre);
+                    var existe = await _context.Docentes
+                        .Include(x => x.BloquesDisponibles)
+                        .FirstOrDefaultAsync(x => EF.Functions.ILike(
+                            x.Nombre.Trim().ToLower(), d.Nombre.Trim().ToLower()));
+
+                    if (existe == null)
+                    {
+                        // Correo único generado cuando no viene en el Excel
+                        var correoFinal = string.IsNullOrWhiteSpace(d.Correo)
+                            ? $"{Guid.NewGuid()}@soea.local"
+                            : d.Correo;
+                        var nuevo = new Docente(Guid.NewGuid(), d.Nombre, d.Apellido,
+                            correoFinal, d.MaximoHorasSemanales, d.Disponibilidad.ToList());
+
+                        // Adjuntar bloques del catálogo (ya existen en BD)
+                        foreach (var bloque in d.BloquesDisponibles)
+                        {
+                            var bloqueTracked = await _context.BloqueTiempos.FindAsync(bloque.Id);
+                            if (bloqueTracked != null) nuevo.AgregarBloqueDisponibilidad(bloqueTracked);
+                        }
+
+                        _context.Docentes.Add(nuevo);
+                        await _context.SaveChangesAsync();
+                        docenteIdMap[d.Id] = nuevo.Id;
+                        stats.DocentesCreados++;
+                    }
+                    else
+                    {
+                        // Actualizar disponibilidad: agregar bloques nuevos sin duplicar
+                        foreach (var bloque in d.BloquesDisponibles)
+                        {
+                            if (!existe.BloquesDisponibles.Any(b => b.Id == bloque.Id))
+                            {
+                                var bloqueTracked = await _context.BloqueTiempos.FindAsync(bloque.Id);
+                                if (bloqueTracked != null) existe.AgregarBloqueDisponibilidad(bloqueTracked);
+                            }
+                        }
+                        await _context.SaveChangesAsync();
+                        docenteIdMap[d.Id] = existe.Id;
+                        stats.DocentesActualizados++;
+                    }
+                }
+
+                // ── Espacios ──────────────────────────────────────────────────────────
+                foreach (var e in resultado.Espacios)
+                {
+                    var existe = await _context.Espacios
+                        .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, e.Nombre));
+                    if (existe == null)
+                    {
+                        _context.Espacios.Add(new Espacio(Guid.NewGuid(), e.Nombre, e.Tipo, e.Capacidad, e.Edificio, e.Piso));
+                        stats.EspaciosCreados++;
+                    }
+                }
+                await _context.SaveChangesAsync();
+
+                // ── Asignaturas ───────────────────────────────────────────────────────
+                foreach (var a in resultado.Asignaturas)
+                {
+                    var progRealId = programaIdMap.TryGetValue(a.ProgramaId, out var pid) ? pid : a.ProgramaId;
+                    var docenteRealId = a.DocenteId.HasValue && docenteIdMap.TryGetValue(a.DocenteId.Value, out var did)
+                        ? did : a.DocenteId;
+
+                    var existe = await _context.Asignaturas
+                        .FirstOrDefaultAsync(x => x.Codigo == a.Codigo && x.ProgramaId == progRealId);
+                    if (existe == null)
+                    {
+                        existe = await _context.Asignaturas
+                            .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, a.Nombre) && x.ProgramaId == progRealId && x.DocenteId == docenteRealId);
+                    }
+
+                    if (existe == null)
+                    {
+                        var nueva = new Asignatura(Guid.NewGuid(), a.Nombre, a.Codigo,
+                            a.HorasPorSesion, a.SesionesPorSemana, a.SesionesLaboratorioSemestre, progRealId);
+                        nueva.AsignarDocente(docenteRealId);
+                        _context.Asignaturas.Add(nueva);
+                        asignaturaIdMap[a.Id] = nueva.Id;
+                        stats.AsignaturasCreadas++;
+                    }
+                    else
+                    {
+                        existe.AsignarDocente(docenteRealId);
+                        asignaturaIdMap[a.Id] = existe.Id;
+                        stats.AsignaturasActualizadas++;
+                    }
+                }
+                await _context.SaveChangesAsync();
+
+                // ── Grupos ────────────────────────────────────────────────────────────
+                foreach (var g in resultado.Grupos)
+                {
+                    var progRealId = programaIdMap.TryGetValue(g.ProgramaId, out var pid2) ? pid2 : g.ProgramaId;
+                    var existe = await _context.Grupos
+                        .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, g.Nombre) && x.ProgramaId == progRealId);
+                    if (existe == null)
+                    {
+                        _context.Grupos.Add(new Grupo(Guid.NewGuid(), g.Nombre, progRealId, 1, 30, g.Alternancia));
+                        stats.GruposCreados++;
+                    }
+                }
+                await _context.SaveChangesAsync();
+
+                // ── Sesiones predefinidas ─────────────────────────────────────────────
+                foreach (var s in resultado.SesionesPredefinidas)
+                {
+                    if (s.BloqueTiempoId == Guid.Empty) continue; // sin día/hora → se omite
+
+                    var asigRealId = asignaturaIdMap.TryGetValue(s.AsignaturaId, out var asid) ? asid : s.AsignaturaId;
+                    var docRealId  = docenteIdMap.TryGetValue(s.DocenteId, out var sdid) ? sdid : s.DocenteId;
+
+                    var asig = await _context.Asignaturas.FindAsync(asigRealId);
+                    if (asig == null) continue;
+
+                    // Evitar duplicados exactos (misma asig+docente+bloque)
+                    bool yaExiste = await _context.Sesiones.AnyAsync(x =>
+                        x.AsignaturaId == asigRealId &&
+                        x.DocenteId    == docRealId  &&
+                        x.BloqueTiempoId == s.BloqueTiempoId);
+                    if (yaExiste) continue;
+
+                    var sesion = new Sesion(
+                        Guid.NewGuid(), asigRealId, docRealId,
+                        s.BloqueTiempoId, s.EspacioId, s.GrupoId,
+                        s.Alternancia, Modalidad.Presencial, s.DuracionHoras,
+                        esBloque: false, estaDividida: false);
+                    _context.Sesiones.Add(sesion);
+                    stats.SesionesPersistidas++;
+                }
+                await _context.SaveChangesAsync();
+
+                await tx.CommitAsync();
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return StatusCode(500, $"Error al persistir: {ex.Message}");
+            }
+
+            stats.AsignaturasSinDocente = resultado.Asignaturas.Count(a => !a.DocenteId.HasValue);
+            stats.Advertencias = resultado.Advertencias.ToList();
+
+            return Ok(stats);
         }
 
         [HttpGet("/api/facultades")]
@@ -392,5 +637,21 @@ namespace SOEA.API.Controllers
         public List<MappingDto> Grupos { get; set; } = new();
         public List<MappingDto> Docentes { get; set; } = new();
         public ImportSummaryDto Summary { get; set; } = new();
+    }
+
+    /// <summary>Resumen del resultado de POST /api/import/excel.</summary>
+    public class ImportExcelStatsDto
+    {
+        public int FacultadesCreadas { get; set; }
+        public int ProgramasCreados { get; set; }
+        public int DocentesCreados { get; set; }
+        public int DocentesActualizados { get; set; }
+        public int EspaciosCreados { get; set; }
+        public int AsignaturasCreadas { get; set; }
+        public int AsignaturasActualizadas { get; set; }
+        public int GruposCreados { get; set; }
+        public int SesionesPersistidas { get; set; }
+        public int AsignaturasSinDocente { get; set; }
+        public List<string> Advertencias { get; set; } = new();
     }
 }

@@ -93,4 +93,24 @@ export class PersistenciaService {
   importarCurriculum(payload: any): Observable<ImportResult> {
     return this.http.post<ImportResult>(`${this.base}/import/curriculum`, payload);
   }
+
+  importarExcel(file: File): Observable<ImportExcelStatsDto> {
+    const form = new FormData();
+    form.append('archivo', file, file.name);
+    return this.http.post<ImportExcelStatsDto>(`${this.base}/import/excel`, form);
+  }
+}
+
+export interface ImportExcelStatsDto {
+  facultadesCreadas: number;
+  programasCreados: number;
+  docentesCreados: number;
+  docentesActualizados: number;
+  espaciosCreados: number;
+  asignaturasCreadas: number;
+  asignaturasActualizadas: number;
+  gruposCreados: number;
+  sesionesPersistidas: number;
+  asignaturasSinDocente: number;
+  advertencias: string[];
 }

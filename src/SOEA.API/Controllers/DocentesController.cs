@@ -3,6 +3,7 @@ using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace SOEA.API.Controllers
 {
@@ -83,14 +84,58 @@ namespace SOEA.API.Controllers
             return NoContent();
         }
 
+        private static readonly Dictionary<DiaDeSemana, string> _diaKey = new()
+        {
+            { DiaDeSemana.Lunes,     "lunes"     },
+            { DiaDeSemana.Martes,    "martes"    },
+            { DiaDeSemana.Miercoles, "miercoles" },
+            { DiaDeSemana.Jueves,    "jueves"    },
+            { DiaDeSemana.Viernes,   "viernes"   },
+            { DiaDeSemana.Sábado,    "sabado"    },
+        };
+
         private static DocenteDto MapToDto(Docente d)
         {
             JsonElement? disp = null;
+
+            // Prefer the hand-edited UI JSON; fall back to deriving it from imported blocks.
             if (!string.IsNullOrEmpty(d.DisponibilidadUiJson))
             {
                 try { disp = JsonSerializer.Deserialize<JsonElement>(d.DisponibilidadUiJson); }
-                catch { /* ignore malformed stored JSON */ }
+                catch { /* ignore malformed */ }
             }
+            else if (d.BloquesDisponibles.Count > 0)
+            {
+                // Build per-day disponibilidad from the 1-hour catalog blocks imported from Excel.
+                // For each day: find earliest HoraInicio and latest HoraFin among all blocks.
+                var porDia = d.BloquesDisponibles
+                    .GroupBy(b => b.Dia)
+                    .ToDictionary(g => g.Key, g => (
+                        desde: g.Min(b => b.HoraInicio),
+                        hasta: g.Max(b => b.HoraFin)
+                    ));
+
+                var obj = new JsonObject();
+                foreach (var (dia, key) in _diaKey)
+                {
+                    if (porDia.TryGetValue(dia, out var rango))
+                    {
+                        obj[key] = new JsonObject
+                        {
+                            ["noDisponible"] = false,
+                            ["tipo"]         = "especifico",
+                            ["desde"]        = rango.desde.ToString("HH:mm"),
+                            ["hasta"]        = rango.hasta.ToString("HH:mm")
+                        };
+                    }
+                    else
+                    {
+                        obj[key] = new JsonObject { ["noDisponible"] = true };
+                    }
+                }
+                disp = JsonSerializer.Deserialize<JsonElement>(obj.ToJsonString());
+            }
+
             return new DocenteDto
             {
                 Id = d.Id,

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OfficeOpenXml;  // EPPlus 8 license
 using SOEA.Application.Features.Asignaturas;
 using SOEA.Application.Features.Horario;
 using SOEA.Domain.Interfaces;
@@ -8,6 +9,10 @@ using SOEA.Engine.GraphColoring;
 using SOEA.Infrastructure.Data;
 using SOEA.Infrastructure.Data.Context;
 using SOEA.Infrastructure.Data.Repositories;
+using SOEA.Infrastructure.Data.Seeding;
+using SOEA.Infrastructure.Excel;
+
+ExcelPackage.License.SetNonCommercialPersonal("SOEA");
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,6 +37,10 @@ builder.Services.AddScoped<ISesionRepositorio, SesionRepositorio>();
 builder.Services.AddScoped<IDocenteRepositorio, DocenteRepositorio>();
 builder.Services.AddScoped<IEspacioRepositorio, EspacioRepositorio>();
 builder.Services.AddScoped<IGrupoRepositorio, GrupoRepositorio>();
+builder.Services.AddScoped<IBloqueTiempoRepositorio, BloqueTiempoRepositorio>();
+
+// ── Excel reader ──────────────────────────────────────────────────────────────
+builder.Services.AddScoped<ILectorExcel, LectorExcel>();
 
 // ── Motores de scheduling ─────────────────────────────────────────────────────
 builder.Services.AddGraphColoringEngine();
@@ -56,6 +65,14 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
+
+// ── Migraciones automáticas + seed del catálogo de bloques ───────────────────
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<SOEABdContext>();
+    db.Database.Migrate();
+    await BloqueTiempoSeeder.SeedAsync(db);
+}
 
 if (app.Environment.IsDevelopment())
 {
