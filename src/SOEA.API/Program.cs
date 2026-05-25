@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;  // EPPlus 8 license
 using SOEA.Application.Features.Asignaturas;
+using SOEA.Application.Features.Docentes;
 using SOEA.Application.Features.Horario;
 using SOEA.Domain.Interfaces;
 using SOEA.Engine.ConstraintProg;
@@ -53,6 +54,8 @@ builder.Services.AddScoped<CreateAsignaturaService>();
 builder.Services.AddScoped<GetAsignaturaByIdService>();
 builder.Services.AddScoped<GetAsignaturasService>();
 builder.Services.AddScoped<DeleteAsignaturaService>();
+// CRUD Docentes
+builder.Services.AddScoped<DocenteService>();
 // Generación de horario
 builder.Services.AddScoped<GenerarHorarioService>();
 
