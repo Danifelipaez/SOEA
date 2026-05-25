@@ -54,6 +54,8 @@ export interface Sesion {
   dia: string;           // 'lunes' | 'martes' | ...
   horaInicio: string;    // "07:00"
   horaFin: string;       // "09:00"
+  /** Duración real de la sesión en horas (input fijo desde el backend). */
+  duracionHoras: number;
   espacioId?: string;    // null si virtual
   virtual: boolean;
   alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia';

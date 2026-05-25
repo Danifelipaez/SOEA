@@ -360,17 +360,31 @@ namespace SOEA.Application.Features.Horario
         private static SesionGeneradaDto MapearSesionDto(Sesion s, List<BloqueTiempo> bloques)
         {
             var bloque = bloques.FirstOrDefault(b => b.Id == s.BloqueTiempoId);
+
+            string horaInicio = "07:00";
+            string horaFin    = "09:00";
+            string dia        = "lunes";
+
+            if (bloque != null)
+            {
+                dia        = DiaToString(bloque.Dia);
+                horaInicio = bloque.HoraInicio.ToString("HH:mm");
+                // HoraFin = HoraInicio + DuracionHoras (la duración es input fijo, no la del bloque atómico).
+                horaFin    = bloque.HoraInicio.AddHours((double)s.DuracionHoras).ToString("HH:mm");
+            }
+
             return new SesionGeneradaDto
             {
-                Id           = s.Id.ToString(),
-                AsignaturaId = s.AsignaturaId.ToString(),
-                DocenteId    = s.DocenteId.ToString(),
-                EspacioId    = s.EspacioId?.ToString(),
-                Dia          = bloque != null ? DiaToString(bloque.Dia) : "lunes",
-                HoraInicio   = bloque != null ? bloque.HoraInicio.ToString("HH:mm") : "07:00",
-                HoraFin      = bloque != null ? bloque.HoraFin.ToString("HH:mm")    : "09:00",
-                Alternancia  = s.Alternancia.ToString(),
-                Virtual      = s.Modalidad == Modalidad.Virtual
+                Id            = s.Id.ToString(),
+                AsignaturaId  = s.AsignaturaId.ToString(),
+                DocenteId     = s.DocenteId.ToString(),
+                EspacioId     = s.EspacioId?.ToString(),
+                Dia           = dia,
+                HoraInicio    = horaInicio,
+                HoraFin       = horaFin,
+                DuracionHoras = s.DuracionHoras,
+                Alternancia   = s.Alternancia.ToString(),
+                Virtual       = s.Modalidad == Modalidad.Virtual
             };
         }
 

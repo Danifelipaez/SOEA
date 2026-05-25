@@ -68,6 +68,7 @@ export interface SesionApiDto {
   dia: string;
   horaInicio: string;
   horaFin: string;
+  duracionHoras: number;
   alternancia: string;
   virtual: boolean;
 }
@@ -134,10 +135,17 @@ export class HorarioApiService {
       dia: s.dia,
       horaInicio: s.horaInicio,
       horaFin: s.horaFin,
+      duracionHoras: s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin),
       espacioId: s.espacioId,
       virtual: s.virtual,
       alternancia: (s.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia'
     }));
+  }
+
+  private diffHoras(horaInicio: string, horaFin: string): number {
+    const [hi, mi] = horaInicio.split(':').map(Number);
+    const [hf, mf] = horaFin.split(':').map(Number);
+    return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60);
   }
 
   private manejarError(err: HttpErrorResponse): Observable<never> {

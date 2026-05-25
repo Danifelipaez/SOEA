@@ -77,8 +77,8 @@ namespace SOEA.Engine.Genetic
 
             var semilla = new CromosomaHorario(sesionIds, bloqueIndices, espacioIndices);
 
-            var evaluador = new EvaluadorFitness(sesiones, bloques, docentes);
-            var operadores = new OperadoresGeneticos(sesiones, bloques.Count, espacios.Count, rng);
+            var evaluador  = new EvaluadorFitness(sesiones, bloques, docentes);
+            var operadores = new OperadoresGeneticos(sesiones, bloques, espacios.Count, rng);
 
             // Inicializar población
             var poblacion = new List<(CromosomaHorario cromosoma, decimal fitness)>();
@@ -86,7 +86,7 @@ namespace SOEA.Engine.Genetic
 
             for (int i = 1; i < TamañoPoblacion; i++)
             {
-                var perturbado = semilla.ClonarYPerturbar(rng, bloques.Count, espacios.Count, perturbaciones: 2 + rng.Next(3));
+                var perturbado = operadores.ClonarYPerturbar(semilla, perturbaciones: 2 + rng.Next(3));
                 operadores.Reparar(perturbado);
                 poblacion.Add((perturbado, evaluador.Evaluar(perturbado)));
             }
