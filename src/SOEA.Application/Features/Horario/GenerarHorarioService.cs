@@ -179,7 +179,7 @@ namespace SOEA.Application.Features.Horario
                         else if (dispDia.FranjaGeneral.StartsWith("Nocturno", StringComparison.OrdinalIgnoreCase))
                         {
                             desde = new TimeOnly(18, 0);
-                            hasta = new TimeOnly(20, 0);
+                            hasta = new TimeOnly(22, 0);
                             franjas.Add(FranjaHoraria.Vespertino);
                         }
                         else
