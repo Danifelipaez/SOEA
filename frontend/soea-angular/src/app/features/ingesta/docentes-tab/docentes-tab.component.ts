@@ -104,7 +104,11 @@ export class DocentesTabComponent {
   }
 
   openDialog(docente?: Docente) {
-    const dialogRef = this.dialog.open(DocenteDialogComponent, { width: '800px', data: docente });
+    const dialogRef = this.dialog.open(DocenteDialogComponent, {
+      width: '1000px',
+      maxWidth: '95vw',
+      data: docente
+    });
     dialogRef.afterClosed().subscribe(result => {
       if (result) {
         if (docente) {
@@ -290,7 +294,7 @@ export class DocentesTabComponent {
   `,
   styles: [`
     .dialog-scroll { max-height: 70vh; overflow-y: auto; }
-    .dialog-form  { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; min-width: 640px; }
+    .dialog-form  { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; min-width: 860px; }
     .form-row     { display: flex; gap: 16px; }
     .form-row > * { flex: 1; }
     .section-label { margin: 8px 0 4px; font-weight: 500; font-size: 15px; color: #424242; }
