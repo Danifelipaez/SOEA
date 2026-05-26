@@ -8,16 +8,12 @@
       "Bash(dotnet format *)",
       "Bash(npm test*)",
       "Bash(npm run *)",
-<<<<<<< HEAD
       "Bash(ng *)",
       "Bash(python *)",
       "Bash(pip install *)",
       "Bash(uv tool install *)",
       "Bash(uv tool dir*)",
       "PowerShell(python *)"
-=======
-      "Bash(ng *)"
->>>>>>> 9cb7fe8214ddaa0985ea442d261553b840dd0f28
     ]
   },
   "hooks": {
@@ -41,7 +37,6 @@
             "command": "powershell -NoProfile -NonInteractive -File .claude/hooks/block-appsettings.ps1"
           }
         ]
-<<<<<<< HEAD
       },
       {
         "matcher": "Bash",
@@ -54,10 +49,42 @@
       }
     ]
   }
-}
-=======
+};
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build *)",
+      "Bash(dotnet test *)",
+      "Bash(dotnet run *)",
+      "Bash(dotnet ef *)",
+      "Bash(dotnet format *)",
+      "Bash(npm test*)",
+      "Bash(npm run *)",
+      "Bash(ng *)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -NonInteractive -File .claude/hooks/format-csharp.ps1"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -NonInteractive -File .claude/hooks/block-appsettings.ps1"
+          }
+        ]
       }
     ]
   }
 }
->>>>>>> 9cb7fe8214ddaa0985ea442d261553b840dd0f28
