@@ -13,10 +13,10 @@ import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { Espacio, Sesion } from '../../core/models';
 
-/** Grupo de sesiones de 1-hora consecutivas para la misma asignatura/día. */
+/** Representación visual de una sesión atómica multi-slot. */
 interface MergedSesion {
   key: string;
-  sesiones: Sesion[];     // sorted by horaInicio
+  sesiones: Sesion[];     // siempre length=1 con el nuevo backend; se conserva la forma para drag-drop
   dia: string;
   horaInicio: string;
   horaFin: string;
@@ -197,20 +197,18 @@ export class HorarioComponent {
   // ── Merged session computation ────────────────────────────────────────────────
 
   /**
-   * Merges consecutive 1-hour sessions for the same (dia, asignaturaId, alternancia)
-   * into visual blocks. A block at 08:00–09:00 and one at 09:00–10:00 become a single
-   * MergedSesion with duracionSlots=2.
-   *
-   * Keyed by cellId(dia, horaInicio) so template lookups are O(1).
+   * Cada sesión es atómica y trae su duración real desde el backend.
+   * `duracionSlots` proviene de `sesion.duracionHoras` (1, 2, 3 horas, ...).
+   * Si por error vinieran dos sesiones consecutivas legítimas, se renderizan como
+   * cards separados — NO se fusionan (eso era el bug visual viejo).
    */
   private computeMergedMap(spaceId: string | undefined, allSesiones: Sesion[]): Map<string, MergedSesion[]> {
     const map = new Map<string, MergedSesion[]>();
 
     const visible = allSesiones.filter(s => s.virtual || s.espacioId === spaceId);
 
-    // Group by (dia, asignaturaId, alternancia) — these are the chains to merge
-    const chains = new Map<string, Sesion[]>();
     for (const s of visible) {
+<<<<<<< HEAD
       const k = `${s.dia}||${s.asignaturaId}||${s.alternancia}`;
       if (!chains.has(k)) chains.set(k, []);
       chains.get(k)!.push(s);
@@ -249,9 +247,34 @@ export class HorarioComponent {
         map.get(cid)!.push(merged);
         i = j + 1;
       }
+=======
+      const dur = Math.max(1, Math.round(s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin)));
+      const merged: MergedSesion = {
+        key:           s.id,
+        sesiones:      [s],
+        dia:           s.dia,
+        horaInicio:    s.horaInicio,
+        horaFin:       s.horaFin,
+        duracionSlots: dur,
+        virtual:       s.virtual,
+        alternancia:   s.alternancia,
+        asignaturaId:  s.asignaturaId,
+        docenteId:     s.docenteId,
+        espacioId:     s.espacioId,
+      };
+      const cid = this.cellId(s.dia, s.horaInicio);
+      if (!map.has(cid)) map.set(cid, []);
+      map.get(cid)!.push(merged);
+>>>>>>> 9cb7fe8214ddaa0985ea442d261553b840dd0f28
     }
 
     return map;
+  }
+
+  private diffHoras(horaInicio: string, horaFin: string): number {
+    const [hi, mi] = horaInicio.split(':').map(Number);
+    const [hf, mf] = horaFin.split(':').map(Number);
+    return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60);
   }
 
   mergedByCell = computed(() =>
@@ -387,19 +410,21 @@ export class HorarioComponent {
       }
     }
 
-    // Move all constituent 1-hour sessions maintaining their relative order
-    merged.sesiones.forEach((s, i) => {
-      const newStart = this.franjas[targetStartIdx + i];
-      const newEnd   = this.franjas[targetStartIdx + i + 1] ?? this.nextHour(newStart);
-      this.state.updateSesion({ ...s, dia: targetDia, horaInicio: newStart, horaFin: newEnd });
-    });
+    // La sesión es atómica: mover su inicio y recalcular su fin desde la duración.
+    const sesion = merged.sesiones[0];
+    const newStart = this.franjas[targetStartIdx];
+    const endIdx   = targetStartIdx + merged.duracionSlots;
+    const newEnd   = endIdx < this.franjas.length
+      ? this.franjas[endIdx]
+      : this.addHours(newStart, merged.duracionSlots);
+    this.state.updateSesion({ ...sesion, dia: targetDia, horaInicio: newStart, horaFin: newEnd });
 
     this.snackBar.open('Sesión movida correctamente.', '', { duration: 2000 });
   }
 
-  private nextHour(franja: string): string {
+  private addHours(franja: string, horas: number): string {
     const [h, m] = franja.split(':').map(Number);
-    return `${String(h + 1).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    return `${String(h + horas).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
   // ── Generación de horario ────────────────────────────────────────────────────

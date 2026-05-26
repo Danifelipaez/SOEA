@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# Claude Code — MCP config contains DB credentials, keep local only
+.mcp.json
+
 # User-specific files
 *.rsuser
 *.suo
