@@ -8,12 +8,16 @@
       "Bash(dotnet format *)",
       "Bash(npm test*)",
       "Bash(npm run *)",
+<<<<<<< HEAD
       "Bash(ng *)",
       "Bash(python *)",
       "Bash(pip install *)",
       "Bash(uv tool install *)",
       "Bash(uv tool dir*)",
       "PowerShell(python *)"
+=======
+      "Bash(ng *)"
+>>>>>>> 9cb7fe8214ddaa0985ea442d261553b840dd0f28
     ]
   },
   "hooks": {
@@ -37,6 +41,7 @@
             "command": "powershell -NoProfile -NonInteractive -File .claude/hooks/block-appsettings.ps1"
           }
         ]
+<<<<<<< HEAD
       },
       {
         "matcher": "Bash",
@@ -50,3 +55,9 @@
     ]
   }
 }
+=======
+      }
+    ]
+  }
+}
+>>>>>>> 9cb7fe8214ddaa0985ea442d261553b840dd0f28

@@ -14,8 +14,10 @@ import { HorarioApiService } from '../../core/horario-api.service';
 import { Espacio, Sesion } from '../../core/models';
 
 /** Representación visual de una sesión atómica multi-slot. */
+/** Representación visual de una sesión atómica multi-slot. */
 interface MergedSesion {
   key: string;
+  sesiones: Sesion[];     // siempre length=1 con el nuevo backend; se conserva la forma para drag-drop
   sesiones: Sesion[];     // siempre length=1 con el nuevo backend; se conserva la forma para drag-drop
   dia: string;
   horaInicio: string;
@@ -201,6 +203,10 @@ export class HorarioComponent {
    * `duracionSlots` proviene de `sesion.duracionHoras` (1, 2, 3 horas, ...).
    * Si por error vinieran dos sesiones consecutivas legítimas, se renderizan como
    * cards separados — NO se fusionan (eso era el bug visual viejo).
+   * Cada sesión es atómica y trae su duración real desde el backend.
+   * `duracionSlots` proviene de `sesion.duracionHoras` (1, 2, 3 horas, ...).
+   * Si por error vinieran dos sesiones consecutivas legítimas, se renderizan como
+   * cards separados — NO se fusionan (eso era el bug visual viejo).
    */
   private computeMergedMap(spaceId: string | undefined, allSesiones: Sesion[]): Map<string, MergedSesion[]> {
     const map = new Map<string, MergedSesion[]>();
@@ -269,6 +275,12 @@ export class HorarioComponent {
     }
 
     return map;
+  }
+
+  private diffHoras(horaInicio: string, horaFin: string): number {
+    const [hi, mi] = horaInicio.split(':').map(Number);
+    const [hf, mf] = horaFin.split(':').map(Number);
+    return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60);
   }
 
   private diffHoras(horaInicio: string, horaFin: string): number {
@@ -418,12 +430,22 @@ export class HorarioComponent {
       ? this.franjas[endIdx]
       : this.addHours(newStart, merged.duracionSlots);
     this.state.updateSesion({ ...sesion, dia: targetDia, horaInicio: newStart, horaFin: newEnd });
+    // La sesión es atómica: mover su inicio y recalcular su fin desde la duración.
+    const sesion = merged.sesiones[0];
+    const newStart = this.franjas[targetStartIdx];
+    const endIdx   = targetStartIdx + merged.duracionSlots;
+    const newEnd   = endIdx < this.franjas.length
+      ? this.franjas[endIdx]
+      : this.addHours(newStart, merged.duracionSlots);
+    this.state.updateSesion({ ...sesion, dia: targetDia, horaInicio: newStart, horaFin: newEnd });
 
     this.snackBar.open('Sesión movida correctamente.', '', { duration: 2000 });
   }
 
   private addHours(franja: string, horas: number): string {
+  private addHours(franja: string, horas: number): string {
     const [h, m] = franja.split(':').map(Number);
+    return `${String(h + horas).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     return `${String(h + horas).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 

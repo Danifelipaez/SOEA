@@ -73,7 +73,6 @@ namespace SOEA.Engine.GraphColoring
             //    no intersecte el span de ningún vecino ya colocado.
             var bloquesOcupadosPorSesion = new Dictionary<Guid, HashSet<int>>();
             int asignadas = 0, enConflicto = 0;
-
             foreach (var sesion in sesionesOrdenadas)
             {
                 int dur = duraciones[sesion.Id];
