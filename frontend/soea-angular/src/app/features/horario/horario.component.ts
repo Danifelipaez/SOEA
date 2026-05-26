@@ -229,13 +229,15 @@ export class HorarioComponent {
         const run = chain.slice(i, j + 1);
         const first = run[0];
         const last  = run[run.length - 1];
+        const startH = parseInt(first.horaInicio.split(':')[0], 10);
+        const endH   = parseInt(last.horaFin.split(':')[0], 10);
         const merged: MergedSesion = {
           key:           run.map(s => s.id).join('-'),
           sesiones:      run,
           dia:           first.dia,
           horaInicio:    first.horaInicio,
           horaFin:       last.horaFin,
-          duracionSlots: run.length,
+          duracionSlots: Math.max(1, endH - startH),
           virtual:       first.virtual,
           alternancia:   first.alternancia,
           asignaturaId:  first.asignaturaId,

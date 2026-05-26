@@ -100,21 +100,66 @@ namespace SOEA.Engine.ConstraintProg
                 }
             }
 
+            // --- PRE-RESTRICCIÓN: dominio de bloque restringido a slots que caben en el mismo día ---
+            // Calcula, para cada índice de bloque, el índice exclusivo del fin de su día.
+            var dayEndIdx = new int[bloques.Count];
+            {
+                DiaDeSemana? prevDia = null;
+                int dayStart = 0;
+                for (int b = 0; b < bloques.Count; b++)
+                {
+                    if (prevDia.HasValue && bloques[b].Dia != prevDia.Value)
+                    {
+                        for (int k = dayStart; k < b; k++) dayEndIdx[k] = b;
+                        dayStart = b;
+                    }
+                    prevDia = bloques[b].Dia;
+                }
+                for (int k = dayStart; k < bloques.Count; k++) dayEndIdx[k] = bloques.Count;
+            }
+
+            // Para sesiones con duración > 1h, restringir el inicio a bloques donde cabe toda la duración.
+            foreach (var s in sesiones)
+            {
+                int d = (int)Math.Ceiling(s.DuracionHoras);
+                if (d <= 1 || !timeVars.ContainsKey(s.Id)) continue;
+
+                var validIdx = Enumerable.Range(0, bloques.Count)
+                    .Where(b => b + d <= dayEndIdx[b])
+                    .Select(b => (long)b)
+                    .ToArray();
+
+                if (validIdx.Length > 0)
+                    model.AddLinearExpressionInDomain(timeVars[s.Id], CpDomain.FromValues(validIdx));
+            }
+
             // --- RESTRICCIONES DURAS ---
 
-            // HC-I01: Conflicto de Docente — mismo docente no puede tener dos sesiones al mismo tiempo
+            // HC-I01: Conflicto de Docente — ningún docente puede tener sesiones que se solapen en el tiempo
             var sesionesPorDocente = sesiones.GroupBy(s => s.DocenteId).Where(g => g.Key != Guid.Empty);
             foreach (var grupo in sesionesPorDocente)
             {
                 var sesionesDelDocente = grupo.ToList();
-                if (sesionesDelDocente.Count > 1)
+                if (sesionesDelDocente.Count <= 1) continue;
+
+                for (int pi = 0; pi < sesionesDelDocente.Count; pi++)
                 {
-                    var vars = sesionesDelDocente.Select(s => timeVars[s.Id]).ToArray();
-                    model.AddAllDifferent(vars);
+                    for (int pj = pi + 1; pj < sesionesDelDocente.Count; pj++)
+                    {
+                        var s1 = sesionesDelDocente[pi];
+                        var s2 = sesionesDelDocente[pj];
+                        int d1 = (int)Math.Ceiling(s1.DuracionHoras);
+                        int d2 = (int)Math.Ceiling(s2.DuracionHoras);
+
+                        // s1 termina antes de que empiece s2, O viceversa
+                        var s1First = model.NewBoolVar($"docOrd_{s1.Id:N}_{s2.Id:N}");
+                        model.Add(timeVars[s1.Id] + d1 <= timeVars[s2.Id]).OnlyEnforceIf(s1First);
+                        model.Add(timeVars[s2.Id] + d2 <= timeVars[s1.Id]).OnlyEnforceIf(s1First.Not());
+                    }
                 }
             }
 
-            // HC-I02: Disponibilidad del Docente — sesión solo en bloques donde el docente está disponible
+            // HC-I02: Disponibilidad del Docente — todos los bloques de la sesión deben estar disponibles
             foreach (var sesion in sesiones)
             {
                 if (!docenteDict.TryGetValue(sesion.DocenteId, out var docente)) continue;
@@ -122,14 +167,33 @@ namespace SOEA.Engine.ConstraintProg
                 var bloquesDocente = docente.BloquesDisponibles;
                 if (bloquesDocente.Count == 0)
                 {
-                    // GenerarHorarioService should have rejected this before reaching CP-SAT.
                     _logger.LogWarning("HC-I02: Docente {D} sin bloques disponibles — no se aplica restricción de disponibilidad.", docente.NombreCompleto);
                     continue;
                 }
 
-                var indicesPermitidos = bloquesDocente
+                // Conjunto de índices disponibles para búsqueda rápida
+                var disponiblesSet = bloquesDocente
                     .Where(b => bloqueIndex.ContainsKey(b.Id))
-                    .Select(b => (long)bloqueIndex[b.Id])
+                    .Select(b => bloqueIndex[b.Id])
+                    .ToHashSet();
+
+                int d = (int)Math.Ceiling(sesion.DuracionHoras);
+
+                // Bloque B es válido si todos los bloques [B, B+d) están disponibles Y en el mismo día
+                var indicesPermitidos = disponiblesSet
+                    .Where(startIdx =>
+                    {
+                        var startDia = bloques[startIdx].Dia;
+                        return Enumerable.Range(0, d).All(k =>
+                        {
+                            int idx = startIdx + k;
+                            return idx < bloques.Count
+                                && disponiblesSet.Contains(idx)
+                                && bloques[idx].Dia == startDia;
+                        });
+                    })
+                    .Select(idx => (long)idx)
+                    .OrderBy(x => x)
                     .ToArray();
 
                 if (indicesPermitidos.Any())
@@ -175,7 +239,7 @@ namespace SOEA.Engine.ConstraintProg
                 }
             }
 
-            // HC-S01: Conflicto de Espacio — mismo espacio no puede tener dos sesiones al mismo tiempo
+            // HC-S01: Conflicto de Espacio — mismo espacio no puede tener sesiones que se solapen en el tiempo
             if (spaceVars.Any())
             {
                 for (int i = 0; i < sesiones.Count; i++)
@@ -185,24 +249,31 @@ namespace SOEA.Engine.ConstraintProg
                         var s1 = sesiones[i];
                         var s2 = sesiones[j];
 
-                        // Si ambas sesiones tienen variable de espacio, agregar:
-                        // NOT (timeVar[s1] == timeVar[s2] AND spaceVar[s1] == spaceVar[s2])
-                        if (spaceVars.ContainsKey(s1.Id) && spaceVars.ContainsKey(s2.Id))
-                        {
-                            var sameTime = model.NewBoolVar($"sameTime_{i}_{j}");
-                            var sameSpace = model.NewBoolVar($"sameSpace_{i}_{j}");
+                        if (!spaceVars.ContainsKey(s1.Id) || !spaceVars.ContainsKey(s2.Id)) continue;
 
-                            // sameTime = (timeVar[s1] == timeVar[s2])
-                            model.Add(timeVars[s1.Id] == timeVars[s2.Id]).OnlyEnforceIf(sameTime);
-                            model.Add(timeVars[s1.Id] != timeVars[s2.Id]).OnlyEnforceIf(sameTime.Not());
+                        int d1 = (int)Math.Ceiling(s1.DuracionHoras);
+                        int d2 = (int)Math.Ceiling(s2.DuracionHoras);
 
-                            // sameSpace = (spaceVar[s1] == spaceVar[s2])
-                            model.Add(spaceVars[s1.Id] == spaceVars[s2.Id]).OnlyEnforceIf(sameSpace);
-                            model.Add(spaceVars[s1.Id] != spaceVars[s2.Id]).OnlyEnforceIf(sameSpace.Not());
+                        // sameSpace = (spaceVar[s1] == spaceVar[s2])
+                        var sameSpace = model.NewBoolVar($"sameSpace_{i}_{j}");
+                        model.Add(spaceVars[s1.Id] == spaceVars[s2.Id]).OnlyEnforceIf(sameSpace);
+                        model.Add(spaceVars[s1.Id] != spaceVars[s2.Id]).OnlyEnforceIf(sameSpace.Not());
 
-                            // NOT (sameTime AND sameSpace)
-                            model.AddBoolOr(new[] { sameTime.Not(), sameSpace.Not() });
-                        }
+                        // Si mismo espacio: s1 termina antes de s2, O s2 termina antes de s1.
+                        // OnlyEnforceIf no permite encadenado → auxiliares para (sameSpace ∧ orden).
+                        var s1First = model.NewBoolVar($"spOrd_{i}_{j}");
+
+                        // aux1 = sameSpace AND s1First
+                        var aux1 = model.NewBoolVar($"aux1_{i}_{j}");
+                        model.AddBoolAnd(new ILiteral[] { sameSpace, s1First }).OnlyEnforceIf(aux1);
+                        model.AddBoolOr(new ILiteral[] { sameSpace.Not(), s1First.Not() }).OnlyEnforceIf(aux1.Not());
+                        model.Add(timeVars[s1.Id] + d1 <= timeVars[s2.Id]).OnlyEnforceIf(aux1);
+
+                        // aux2 = sameSpace AND NOT s1First
+                        var aux2 = model.NewBoolVar($"aux2_{i}_{j}");
+                        model.AddBoolAnd(new ILiteral[] { sameSpace, s1First.Not() }).OnlyEnforceIf(aux2);
+                        model.AddBoolOr(new ILiteral[] { sameSpace.Not(), s1First }).OnlyEnforceIf(aux2.Not());
+                        model.Add(timeVars[s2.Id] + d2 <= timeVars[s1.Id]).OnlyEnforceIf(aux2);
                     }
                 }
             }

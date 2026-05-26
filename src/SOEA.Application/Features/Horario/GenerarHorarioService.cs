@@ -368,7 +368,9 @@ namespace SOEA.Application.Features.Horario
                 EspacioId    = s.EspacioId?.ToString(),
                 Dia          = bloque != null ? DiaToString(bloque.Dia) : "lunes",
                 HoraInicio   = bloque != null ? bloque.HoraInicio.ToString("HH:mm") : "07:00",
-                HoraFin      = bloque != null ? bloque.HoraFin.ToString("HH:mm")    : "09:00",
+                HoraFin      = bloque != null
+                    ? bloque.HoraInicio.AddHours((double)s.DuracionHoras).ToString("HH:mm")
+                    : "09:00",
                 Alternancia  = s.Alternancia.ToString(),
                 Virtual      = s.Modalidad == Modalidad.Virtual
             };

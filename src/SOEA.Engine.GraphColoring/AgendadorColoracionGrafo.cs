@@ -48,7 +48,11 @@ namespace SOEA.Engine.GraphColoring
 
             var diccionarioBloques = bloquesDisponibles.ToDictionary(b => b.Id);
             var bloquesIds = bloquesDisponibles.Select(b => b.Id).ToList();
-            
+
+            // Lookups adicionales para asignación consciente de duración
+            var bloqueByDiaHora = bloquesDisponibles.ToDictionary(b => (b.Dia, b.HoraInicio));
+            var sesionById = sesiones.ToDictionary(s => s.Id);
+
             // Estructura para mapeo rápido en memoria O(1)
             var asignaciones = new Dictionary<Guid, Guid>();
 
@@ -60,26 +64,50 @@ namespace SOEA.Engine.GraphColoring
             foreach (var sesion in sesionesOrdenadas)
             {
                 var conflictos = grafo[sesion.Id];
+                int dActual = (int)Math.Ceiling(sesion.DuracionHoras);
 
-                // Obtener colores (Bloques) ya usados por los vecinos de la sesión actual
-                var bloquesUsadosPorVecinos = new HashSet<Guid>();
+                // Calcular bloques prohibidos considerando duración de cada vecino y de la sesión actual.
+                // Un bloque B está prohibido si el rango [B, B+dActual) se solapa con el rango del vecino.
+                var bloquesProhibidos = new HashSet<Guid>();
                 foreach (var vecinoId in conflictos)
                 {
-                    if (asignaciones.TryGetValue(vecinoId, out var bloqueUsado))
+                    if (!asignaciones.TryGetValue(vecinoId, out var bloqueVecinoId)) continue;
+                    if (!diccionarioBloques.TryGetValue(bloqueVecinoId, out var bloqueVecino)) continue;
+
+                    int dVecino = sesionById.TryGetValue(vecinoId, out var sesVecino)
+                        ? (int)Math.Ceiling(sesVecino.DuracionHoras)
+                        : 1;
+
+                    // Solapamiento: B < vecinoStart+dVecino  Y  vecinoStart < B+dActual
+                    // → offset ∈ [-(dActual-1), dVecino-1] da los bloques B = vecinoStart+offset prohibidos
+                    for (int offset = -(dActual - 1); offset < dVecino; offset++)
                     {
-                        bloquesUsadosPorVecinos.Add(bloqueUsado);
+                        var horaProhibida = bloqueVecino.HoraInicio.AddHours(offset);
+                        if (bloqueByDiaHora.TryGetValue((bloqueVecino.Dia, horaProhibida), out var bloqueProhibido))
+                            bloquesProhibidos.Add(bloqueProhibido.Id);
                     }
                 }
 
-                // Asignar el primer bloque de tiempo disponible (First Available TimeSlot)
+                // Asignar el primer bloque disponible donde la sesión cabe completamente en el mismo día
                 Guid? bloqueAsignado = null;
                 foreach (var bloqueId in bloquesIds)
                 {
-                    if (!bloquesUsadosPorVecinos.Contains(bloqueId))
+                    if (bloquesProhibidos.Contains(bloqueId)) continue;
+
+                    var bloque = diccionarioBloques[bloqueId];
+                    bool cabe = true;
+                    for (int k = 1; k < dActual; k++)
                     {
-                        bloqueAsignado = bloqueId;
-                        break;
+                        if (!bloqueByDiaHora.ContainsKey((bloque.Dia, bloque.HoraInicio.AddHours(k))))
+                        {
+                            cabe = false;
+                            break;
+                        }
                     }
+                    if (!cabe) continue;
+
+                    bloqueAsignado = bloqueId;
+                    break;
                 }
 
                 if (bloqueAsignado.HasValue)
