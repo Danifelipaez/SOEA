@@ -111,22 +111,25 @@ namespace SOEA.API.Controllers
                 }
 
                 // ── Docentes (con disponibilidad) ─────────────────────────────────────
-                // Los BloquesDisponibles en el resultado YA usan IDs del catálogo (porque
-                // pasamos catalogoLookup al lector). Usamos Attach para que EF no intente
-                // insertar los bloques otra vez — solo crea las filas en DisponibilidadDocente.
+                // Cargamos todos los docentes en memoria para comparar nombres normalizados
+                // (sin tildes, case-insensitive) y evitar duplicados por variantes de acento.
+                var docentesExistentes = await _context.Docentes
+                    .Include(x => x.BloquesDisponibles)
+                    .ToListAsync();
+                var docentesNormDict = docentesExistentes
+                    .GroupBy(x => NormalizadorTexto.Normalizar(x.Nombre))
+                    .ToDictionary(g => g.Key, g => g.First());
+
                 foreach (var d in resultado.Docentes)
                 {
                     var nombreNorm = NormalizadorTexto.Normalizar(d.Nombre);
-                    var existe = await _context.Docentes
-                        .Include(x => x.BloquesDisponibles)
-                        .FirstOrDefaultAsync(x => EF.Functions.ILike(
-                            x.Nombre.Trim().ToLower(), d.Nombre.Trim().ToLower()));
+                    docentesNormDict.TryGetValue(nombreNorm, out var existe);
 
                     if (existe == null)
                     {
-                        // Correo único generado cuando no viene en el Excel
+                        // Correo determinista derivado del nombre cuando no viene en el Excel
                         var correoFinal = string.IsNullOrWhiteSpace(d.Correo)
-                            ? $"{Guid.NewGuid()}@soea.local"
+                            ? $"{NormalizadorTexto.Normalizar(d.Nombre).Replace(" ", ".")}@soea.local"
                             : d.Correo;
                         var nuevo = new Docente(Guid.NewGuid(), d.Nombre, d.Apellido,
                             correoFinal, d.MaximoHorasSemanales, d.Disponibilidad.ToList());
@@ -207,6 +210,7 @@ namespace SOEA.API.Controllers
                 await _context.SaveChangesAsync();
 
                 // ── Grupos ────────────────────────────────────────────────────────────
+                var grupoIdMap = new Dictionary<Guid, Guid>();
                 foreach (var g in resultado.Grupos)
                 {
                     var progRealId = programaIdMap.TryGetValue(g.ProgramaId, out var pid2) ? pid2 : g.ProgramaId;
@@ -214,8 +218,14 @@ namespace SOEA.API.Controllers
                         .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, g.Nombre) && x.ProgramaId == progRealId);
                     if (existe == null)
                     {
-                        _context.Grupos.Add(new Grupo(Guid.NewGuid(), g.Nombre, progRealId, 1, 30, g.Alternancia));
+                        var nuevo = new Grupo(Guid.NewGuid(), g.Nombre, progRealId, 1, 30, g.Alternancia);
+                        _context.Grupos.Add(nuevo);
+                        grupoIdMap[g.Id] = nuevo.Id;
                         stats.GruposCreados++;
+                    }
+                    else
+                    {
+                        grupoIdMap[g.Id] = existe.Id;
                     }
                 }
                 await _context.SaveChangesAsync();
@@ -238,9 +248,11 @@ namespace SOEA.API.Controllers
                         x.BloqueTiempoId == s.BloqueTiempoId);
                     if (yaExiste) continue;
 
+                    var grupoRealId = s.GrupoId.HasValue && grupoIdMap.TryGetValue(s.GrupoId.Value, out var gid)
+                        ? gid : s.GrupoId;
                     var sesion = new Sesion(
                         Guid.NewGuid(), asigRealId, docRealId,
-                        s.BloqueTiempoId, s.EspacioId, s.GrupoId,
+                        s.BloqueTiempoId, s.EspacioId, grupoRealId,
                         s.Alternancia, Modalidad.Presencial, s.DuracionHoras,
                         esBloque: false, estaDividida: false);
                     _context.Sesiones.Add(sesion);
@@ -365,12 +377,19 @@ namespace SOEA.API.Controllers
                 foreach (var d in dto.Docentes ?? Enumerable.Empty<DocenteImportDto>())
                 {
                     if (string.IsNullOrWhiteSpace(d.Nombre)) continue;
-                    var exists = _context.Docentes.FirstOrDefault(x => x.Nombre.ToLower() == d.Nombre.ToLower());
+
+                    // Buscar por ID real primero, luego por nombre
+                    Docente? exists = null;
+                    if (!string.IsNullOrWhiteSpace(d.Id) && Guid.TryParse(d.Id, out var dGuid) && dGuid != Guid.Empty)
+                        exists = _context.Docentes.FirstOrDefault(x => x.Id == dGuid);
+                    exists ??= _context.Docentes.FirstOrDefault(x => x.Nombre.ToLower() == d.Nombre.ToLower());
+
                     Guid docenteTargetId;
                     if (exists == null)
                     {
                         var id = Guid.NewGuid();
-                        var docente = new Docente(id, d.Nombre, "", $"{id}@soea.local",
+                        var correo = $"{NormalizadorTexto.Normalizar(d.Nombre).Replace(" ", ".")}@soea.local";
+                        var docente = new Docente(id, d.Nombre, "", correo,
                             (decimal)d.MaxHoras,
                             new List<Domain.Enums.FranjaHoraria> { Domain.Enums.FranjaHoraria.Matutino, Domain.Enums.FranjaHoraria.Vespertino });
                         if (!string.IsNullOrWhiteSpace(d.Cedula))
@@ -380,6 +399,9 @@ namespace SOEA.API.Controllers
                     }
                     else
                     {
+                        exists.ActualizarDatos(d.Nombre, "", exists.Correo, (decimal)d.MaxHoras);
+                        if (!string.IsNullOrWhiteSpace(d.Cedula))
+                            exists.ActualizarPersistenciaUi(d.Cedula, exists.DisponibilidadUiJson);
                         docenteTargetId = exists.Id;
                     }
 
@@ -438,7 +460,12 @@ namespace SOEA.API.Controllers
                             docenteRealId = docGuid;
                     }
 
-                    var exists = _context.Asignaturas.FirstOrDefault(x => x.Nombre.ToLower() == a.Nombre.ToLower() && x.ProgramaId == prog.Id);
+                    // Buscar por ID real primero (asignatura cargada desde BD), luego por nombre+programa
+                    Asignatura? exists = null;
+                    if (Guid.TryParse(a.Id, out var aGuid) && aGuid != Guid.Empty)
+                        exists = _context.Asignaturas.FirstOrDefault(x => x.Id == aGuid);
+                    exists ??= _context.Asignaturas.FirstOrDefault(x => x.Nombre.ToLower() == a.Nombre.ToLower() && x.ProgramaId == prog.Id);
+
                     Guid targetId;
                     if (exists == null)
                     {
@@ -449,6 +476,7 @@ namespace SOEA.API.Controllers
                     }
                     else
                     {
+                        exists.ActualizarDatos(a.Nombre, a.SesionesLaboratorioSemestre);
                         exists.AsignarDocente(docenteRealId);
                         targetId = exists.Id;
                     }

@@ -8,6 +8,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSliderModule } from '@angular/material/slider';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { StateService } from '../../core/state.service';
+import { ConfiguracionAlgoritmo } from '../../core/models';
 
 @Component({
   selector: 'app-dashboard-developer',
@@ -237,9 +238,19 @@ export class DashboardDeveloperComponent implements OnDestroy {
   }
 
   guardarConfig() {
-    if (this.configForm.valid) {
-      this.snackBar.open('Configuración guardada correctamente', 'Cerrar', { duration: 3000 });
-    }
+    if (!this.configForm.valid) return;
+    const v = this.configForm.value;
+    const config: ConfiguracionAlgoritmo = {
+      pobSize:     v.pobSize,
+      mutRate:     v.mutRate,
+      crossRate:   v.crossRate,
+      maxGen:      v.maxGen,
+      pesoErgo:    v.pesoErgo,
+      pesoTiempos: v.pesoTiempos,
+      pesoAlm:     v.pesoAlm,
+    };
+    this.state.setConfiguracionAlgoritmo(config);
+    this.snackBar.open('Configuración guardada — se aplicará en la próxima generación.', 'Cerrar', { duration: 3500 });
   }
 
   ngOnDestroy() {

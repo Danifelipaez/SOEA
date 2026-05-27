@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using SOEA.Domain.Entities;
+using SOEA.Domain.Interfaces;
 
 namespace SOEA.Engine.Genetic
 {
@@ -16,25 +17,31 @@ namespace SOEA.Engine.Genetic
         private readonly List<BloqueTiempo> _bloques;
         private readonly List<Docente> _docentes;
 
-        // Pesos de restricciones blandas (configurables)
-        private const int PesoSC01 = 3; // Horario compacto docente
-        private const int PesoSC06 = 2; // Carga distribuida
-        private const int PesoSC09 = 1; // Evitar max horas diarias
+        private readonly int _pesoSC01;
+        private readonly int _pesoSC06;
+        private readonly int _pesoSC09;
 
-        public EvaluadorFitness(List<Sesion> sesiones, List<BloqueTiempo> bloques, List<Docente> docentes)
+        public EvaluadorFitness(
+            List<Sesion> sesiones,
+            List<BloqueTiempo> bloques,
+            List<Docente> docentes,
+            ConfiguracionOptimizacion? config = null)
         {
             _sesiones = sesiones;
-            _bloques = bloques;
+            _bloques  = bloques;
             _docentes = docentes;
+            _pesoSC01 = config?.PesoErgo     ?? 3;
+            _pesoSC06 = config?.PesoTiempos  ?? 2;
+            _pesoSC09 = config?.PesoAlmuerzo ?? 1;
         }
 
         public decimal Evaluar(CromosomaHorario cromosoma)
         {
             decimal fitness = 0;
 
-            fitness += PesoSC01 * EvaluarSC01_HorarioCompactoDocente(cromosoma);
-            fitness += PesoSC06 * EvaluarSC06_CargaDistribuida(cromosoma);
-            fitness += PesoSC09 * EvaluarSC09_EvitarMaxHorasDiarias(cromosoma);
+            fitness += _pesoSC01 * EvaluarSC01_HorarioCompactoDocente(cromosoma);
+            fitness += _pesoSC06 * EvaluarSC06_CargaDistribuida(cromosoma);
+            fitness += _pesoSC09 * EvaluarSC09_EvitarMaxHorasDiarias(cromosoma);
 
             return fitness;
         }

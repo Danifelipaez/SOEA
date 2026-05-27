@@ -140,40 +140,37 @@ export class DocentesTabComponent {
 
   guardarEnBD() {
     const docentes = this.state.docentes();
-    if (docentes.length === 0) {
+    if (!docentes.length) {
       this.snackBar.open('No hay docentes para guardar.', 'Cerrar', { duration: 3000 });
       return;
     }
-
-    const paraActualizar = docentes.filter(d => this.bdIds.has(d.id));
-    const paraCrear      = docentes.filter(d => !this.bdIds.has(d.id));
-
     this.saving.set(true);
 
-    const updateCalls$ = paraActualizar.map(d =>
+    // PUT-first: intenta actualizar; si el backend devuelve 404 (no existe aún), crea con POST.
+    const calls$ = docentes.map(d =>
       this.persistencia.actualizarDocente(d).pipe(
-        map((updated) => {
+        map(updated => {
           this.state.updateDocente(updated);
-          return { ok: true, nombre: updated.nombre, tipo: 'actualizado' as const };
+          this.bdIds.add(updated.id);
+          return { ok: true, nombre: d.nombre, tipo: 'actualizado' as const };
         }),
-        catchError(() => of({ ok: false, nombre: d.nombre, tipo: 'actualizado' as const }))
-      )
-    );
-    const createCalls$ = paraCrear.map(d =>
-      this.persistencia.guardarDocente(d).pipe(
-        map((created) => {
-          this.bdIds.add(created.id);
-          this.state.updateDocente(created);
-          return { ok: true, nombre: created.nombre, tipo: 'nuevo' as const };
-        }),
-        catchError(() => of({ ok: false, nombre: d.nombre, tipo: 'nuevo' as const }))
+        catchError(err => {
+          if (err.status === 404) {
+            return this.persistencia.guardarDocente(d).pipe(
+              map(created => {
+                this.bdIds.add(created.id);
+                this.state.updateDocente(created);
+                return { ok: true, nombre: d.nombre, tipo: 'nuevo' as const };
+              }),
+              catchError(() => of({ ok: false, nombre: d.nombre, tipo: 'nuevo' as const }))
+            );
+          }
+          return of({ ok: false, nombre: d.nombre, tipo: 'actualizado' as const });
+        })
       )
     );
 
-    const all$ = [...updateCalls$, ...createCalls$];
-    if (all$.length === 0) { this.saving.set(false); return; }
-
-    forkJoin(all$).subscribe(results => {
+    forkJoin(calls$).subscribe(results => {
       this.saving.set(false);
       const nuevos       = results.filter(r => r.ok && r.tipo === 'nuevo').map(r => r.nombre);
       const actualizados = results.filter(r => r.ok && r.tipo === 'actualizado').map(r => r.nombre);

@@ -2,16 +2,27 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { Asignatura, Docente, Espacio, Sesion } from './models';
-import { StateService } from './state.service';
+import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Sesion } from './models';
 
 // ── Tipos del contrato con la API ──────────────────────────────────────────────
+
+export interface ConfiguracionAlgoritmoApiDto {
+  tamañoPoblacion:      number;
+  maxGeneraciones:      number;
+  probabilidadMutacion: number;
+  probabilidadCruce:    number;
+  umbralConvergencia:   number;
+  pesoErgo:             number;
+  pesoTiempos:          number;
+  pesoAlmuerzo:         number;
+}
 
 export interface GenerarHorarioRequest {
   semestre: string;
   asignaturas: AsignaturaApiDto[];
   docentes: DocenteApiDto[];
   espacios: EspacioApiDto[];
+  configuracion?: ConfiguracionAlgoritmoApiDto;
 }
 
 export interface AsignaturaApiDto {
@@ -57,20 +68,8 @@ export interface GenerarHorarioResponse {
   generaciones: number;
   mensajeError?: string;
   logs?: string[];
-  sesiones: SesionApiDto[];
-}
-
-export interface SesionApiDto {
-  id: string;
-  asignaturaId: string;
-  docenteId: string;
-  espacioId?: string;
-  dia: string;
-  horaInicio: string;
-  horaFin: string;
-  duracionHoras: number;
-  alternancia: string;
-  virtual: boolean;
+  // alternancia llega como string desde JSON; mapearSesiones() lo castea al tipo unión
+  sesiones: (Omit<Sesion, 'alternancia'> & { alternancia: string })[];
 }
 
 // ── Servicio ───────────────────────────────────────────────────────────────────
@@ -91,10 +90,21 @@ export class HorarioApiService {
     asignaturas: Asignatura[],
     docentes: Docente[],
     espacios: Espacio[],
+    config?: ConfiguracionAlgoritmo,
     semestre = '2026-1'
   ): Observable<GenerarHorarioResponse> {
     const body: GenerarHorarioRequest = {
       semestre,
+      configuracion: config ? {
+        tamañoPoblacion:      config.pobSize,
+        maxGeneraciones:      config.maxGen,
+        probabilidadMutacion: config.mutRate,
+        probabilidadCruce:    config.crossRate,
+        umbralConvergencia:   30,
+        pesoErgo:             config.pesoErgo,
+        pesoTiempos:          config.pesoTiempos,
+        pesoAlmuerzo:         config.pesoAlm,
+      } : undefined,
       asignaturas: asignaturas.map(a => ({
         id: a.id,
         nombre: a.nombre,
@@ -126,19 +136,12 @@ export class HorarioApiService {
       .pipe(catchError(this.manejarError));
   }
 
-  /** Mapea la respuesta del API al modelo Sesion[] del StateService. */
-  mapearSesiones(apiSesiones: SesionApiDto[]): Sesion[] {
-    return apiSesiones.map(s => ({
-      id: s.id,
-      asignaturaId: s.asignaturaId,
-      docenteId: s.docenteId,
-      dia: s.dia,
-      horaInicio: s.horaInicio,
-      horaFin: s.horaFin,
+  /** Castea el campo alternancia de string a la unión tipada. */
+  mapearSesiones(sesiones: GenerarHorarioResponse['sesiones']): Sesion[] {
+    return sesiones.map(s => ({
+      ...s,
       duracionHoras: s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin),
-      espacioId: s.espacioId,
-      virtual: s.virtual,
-      alternancia: (s.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia'
+      alternancia: (s.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia',
     }));
   }
 

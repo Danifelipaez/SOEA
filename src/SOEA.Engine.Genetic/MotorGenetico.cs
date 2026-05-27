@@ -17,13 +17,7 @@ namespace SOEA.Engine.Genetic
     {
         private readonly ILogger<MotorGenetico> _logger;
 
-        // Hiperparámetros (configurables en el futuro)
-        private const int TamañoPoblacion = 50;
-        private const int MaxGeneraciones = 200;
         private const int TamañoTorneo = 5;
-        private const double ProbabilidadCruce = 0.8;
-        private const double ProbabilidadMutacion = 0.05;
-        private const int UmbralConvergencia = 30;
 
         public MotorGenetico(ILogger<MotorGenetico> logger)
         {
@@ -31,25 +25,34 @@ namespace SOEA.Engine.Genetic
         }
 
         public Task<ResultadoOptimizacion> OptimizarAsync(
-            IEnumerable<Sesion> sesionesFactibles,
+            IEnumerable<Sesion>       sesionesFactibles,
             IEnumerable<BloqueTiempo> bloques,
-            IEnumerable<Espacio> espacios,
-            IEnumerable<Docente> docentes)
+            IEnumerable<Espacio>      espacios,
+            IEnumerable<Docente>      docentes,
+            ConfiguracionOptimizacion? config = null)
         {
             var resultado = OptimizarSincrono(
                 sesionesFactibles.ToList(),
                 bloques.ToList(),
                 espacios.ToList(),
-                docentes.ToList());
+                docentes.ToList(),
+                config ?? new ConfiguracionOptimizacion());
             return Task.FromResult(resultado);
         }
 
         private ResultadoOptimizacion OptimizarSincrono(
-            List<Sesion> sesiones,
+            List<Sesion>       sesiones,
             List<BloqueTiempo> bloques,
-            List<Espacio> espacios,
-            List<Docente> docentes)
+            List<Espacio>      espacios,
+            List<Docente>      docentes,
+            ConfiguracionOptimizacion config)
         {
+            var tamañoPoblacion      = Math.Max(10, config.TamañoPoblacion);
+            var maxGeneraciones      = Math.Max(1,  config.MaxGeneraciones);
+            var probabilidadMutacion = Math.Clamp(config.ProbabilidadMutacion, 0.0, 1.0);
+            var probabilidadCruce    = Math.Clamp(config.ProbabilidadCruce,    0.0, 1.0);
+            var umbralConvergencia   = Math.Max(1,  config.UmbralConvergencia);
+
             if (!sesiones.Any() || !bloques.Any())
             {
                 _logger.LogWarning("No hay sesiones o bloques para la Fase 3.");
@@ -57,7 +60,7 @@ namespace SOEA.Engine.Genetic
             }
 
             _logger.LogInformation("Fase 3 (Genético): Iniciando con {S} sesiones, población={P}, maxGen={G}.",
-                sesiones.Count, TamañoPoblacion, MaxGeneraciones);
+                sesiones.Count, tamañoPoblacion, maxGeneraciones);
 
             var rng = new Random(42);
             var bloqueIndex = new Dictionary<Guid, int>();
@@ -77,14 +80,14 @@ namespace SOEA.Engine.Genetic
 
             var semilla = new CromosomaHorario(sesionIds, bloqueIndices, espacioIndices);
 
-            var evaluador  = new EvaluadorFitness(sesiones, bloques, docentes);
+            var evaluador  = new EvaluadorFitness(sesiones, bloques, docentes, config);
             var operadores = new OperadoresGeneticos(sesiones, bloques, espacios.Count, rng);
 
             // Inicializar población
             var poblacion = new List<(CromosomaHorario cromosoma, decimal fitness)>();
             poblacion.Add((semilla, evaluador.Evaluar(semilla)));
 
-            for (int i = 1; i < TamañoPoblacion; i++)
+            for (int i = 1; i < tamañoPoblacion; i++)
             {
                 var perturbado = operadores.ClonarYPerturbar(semilla, perturbaciones: 2 + rng.Next(3));
                 operadores.Reparar(perturbado);
@@ -98,13 +101,13 @@ namespace SOEA.Engine.Genetic
             _logger.LogInformation("Fitness inicial: {F}", mejorFitnessGlobal);
 
             // Ciclo generacional
-            for (int gen = 1; gen <= MaxGeneraciones; gen++)
+            for (int gen = 1; gen <= maxGeneraciones; gen++)
             {
                 var padre1 = operadores.SeleccionTorneo(poblacion, TamañoTorneo);
                 var padre2 = operadores.SeleccionTorneo(poblacion, TamañoTorneo);
 
-                var hijo = operadores.Cruce(padre1, padre2, ProbabilidadCruce);
-                operadores.Mutar(hijo, ProbabilidadMutacion);
+                var hijo = operadores.Cruce(padre1, padre2, probabilidadCruce);
+                operadores.Mutar(hijo, probabilidadMutacion);
                 operadores.Reparar(hijo);
 
                 var fitnessHijo = evaluador.Evaluar(hijo);
@@ -139,7 +142,7 @@ namespace SOEA.Engine.Genetic
 
                 generacionFinal = gen;
 
-                if (generacionesSinMejora >= UmbralConvergencia)
+                if (generacionesSinMejora >= umbralConvergencia)
                 {
                     _logger.LogInformation("Convergencia alcanzada en generación {G}. Fitness: {F}", gen, mejorFitnessGlobal);
                     break;

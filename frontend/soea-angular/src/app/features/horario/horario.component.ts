@@ -14,10 +14,8 @@ import { HorarioApiService } from '../../core/horario-api.service';
 import { Espacio, Sesion } from '../../core/models';
 
 /** Representación visual de una sesión atómica multi-slot. */
-/** Representación visual de una sesión atómica multi-slot. */
 interface MergedSesion {
   key: string;
-  sesiones: Sesion[];     // siempre length=1 con el nuevo backend; se conserva la forma para drag-drop
   sesiones: Sesion[];     // siempre length=1 con el nuevo backend; se conserva la forma para drag-drop
   dia: string;
   horaInicio: string;
@@ -203,10 +201,6 @@ export class HorarioComponent {
    * `duracionSlots` proviene de `sesion.duracionHoras` (1, 2, 3 horas, ...).
    * Si por error vinieran dos sesiones consecutivas legítimas, se renderizan como
    * cards separados — NO se fusionan (eso era el bug visual viejo).
-   * Cada sesión es atómica y trae su duración real desde el backend.
-   * `duracionSlots` proviene de `sesion.duracionHoras` (1, 2, 3 horas, ...).
-   * Si por error vinieran dos sesiones consecutivas legítimas, se renderizan como
-   * cards separados — NO se fusionan (eso era el bug visual viejo).
    */
   private computeMergedMap(spaceId: string | undefined, allSesiones: Sesion[]): Map<string, MergedSesion[]> {
     const map = new Map<string, MergedSesion[]>();
@@ -214,46 +208,6 @@ export class HorarioComponent {
     const visible = allSesiones.filter(s => s.virtual || s.espacioId === spaceId);
 
     for (const s of visible) {
-<<<<<<< HEAD
-      const k = `${s.dia}||${s.asignaturaId}||${s.alternancia}`;
-      if (!chains.has(k)) chains.set(k, []);
-      chains.get(k)!.push(s);
-    }
-
-    for (const chain of chains.values()) {
-      chain.sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
-
-      let i = 0;
-      while (i < chain.length) {
-        // Extend run while consecutive (end of slot i == start of slot i+1)
-        let j = i;
-        while (j + 1 < chain.length && chain[j].horaFin === chain[j + 1].horaInicio) {
-          j++;
-        }
-        const run = chain.slice(i, j + 1);
-        const first = run[0];
-        const last  = run[run.length - 1];
-        const startH = parseInt(first.horaInicio.split(':')[0], 10);
-        const endH   = parseInt(last.horaFin.split(':')[0], 10);
-        const merged: MergedSesion = {
-          key:           run.map(s => s.id).join('-'),
-          sesiones:      run,
-          dia:           first.dia,
-          horaInicio:    first.horaInicio,
-          horaFin:       last.horaFin,
-          duracionSlots: Math.max(1, endH - startH),
-          virtual:       first.virtual,
-          alternancia:   first.alternancia,
-          asignaturaId:  first.asignaturaId,
-          docenteId:     first.docenteId,
-          espacioId:     first.espacioId,
-        };
-        const cid = this.cellId(first.dia, first.horaInicio);
-        if (!map.has(cid)) map.set(cid, []);
-        map.get(cid)!.push(merged);
-        i = j + 1;
-      }
-=======
       const dur = Math.max(1, Math.round(s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin)));
       const merged: MergedSesion = {
         key:           s.id,
@@ -271,7 +225,6 @@ export class HorarioComponent {
       const cid = this.cellId(s.dia, s.horaInicio);
       if (!map.has(cid)) map.set(cid, []);
       map.get(cid)!.push(merged);
->>>>>>> 9cb7fe8214ddaa0985ea442d261553b840dd0f28
     }
 
     return map;
@@ -283,10 +236,17 @@ export class HorarioComponent {
     return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60);
   }
 
-  private diffHoras(horaInicio: string, horaFin: string): number {
-    const [hi, mi] = horaInicio.split(':').map(Number);
-    const [hf, mf] = horaFin.split(':').map(Number);
-    return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60);
+  /**
+   * Devuelve true si la sesión `s` ocupa la franja dada, es decir,
+   * si franja ∈ [s.horaInicio, s.horaInicio + duracionHoras).
+   * Usar en conflictos de drag & drop en lugar de `s.horaInicio === franja`.
+   */
+  private sesionOcupaFranja(s: Sesion, franja: string): boolean {
+    const startIdx  = this.franjas.indexOf(s.horaInicio);
+    if (startIdx < 0) return false;
+    const dur       = Math.max(1, Math.round(s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin)));
+    const franjaIdx = this.franjas.indexOf(franja);
+    return franjaIdx >= startIdx && franjaIdx < startIdx + dur;
   }
 
   mergedByCell = computed(() =>
@@ -371,7 +331,7 @@ export class HorarioComponent {
     const targetDia    = event.container.data.dia;
     const targetFranja = event.container.data.franja;
 
-    // Validate docente availability
+    // Validate docente availability — verificar que TODA la duración cabe en la ventana
     const docente = this.state.docentes().find(d => d.id === merged.docenteId);
     if (docente && docente.disponibilidad) {
       const diaDisp = docente.disponibilidad[targetDia];
@@ -383,12 +343,14 @@ export class HorarioComponent {
         return;
       }
       if (diaDisp?.tipo === 'Franja específica') {
-        const horaInt = parseInt(targetFranja.replace(':', ''), 10);
-        const desde   = parseInt((diaDisp.desde ?? '00:00').replace(':', ''), 10);
-        const hasta   = parseInt((diaDisp.hasta ?? '23:59').replace(':', ''), 10);
-        if (horaInt < desde || horaInt >= hasta) {
+        const toMin  = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+        const startMin = toMin(targetFranja);
+        const endMin   = startMin + merged.duracionSlots * 60;
+        const desdeMin = toMin(diaDisp.desde ?? '00:00');
+        const hastaMin = toMin(diaDisp.hasta ?? '23:59');
+        if (startMin < desdeMin || endMin > hastaMin) {
           this.snackBar.open(
-            `El docente solo está disponible de ${diaDisp.desde} a ${diaDisp.hasta} el ${targetDia}.`,
+            `El docente solo está disponible de ${diaDisp.desde} a ${diaDisp.hasta} el ${targetDia} y la sesión (${merged.duracionSlots}h) no cabe en esa ventana.`,
             'Cerrar', { duration: 4000, panelClass: ['snack-error'] }
           );
           return;
@@ -396,7 +358,9 @@ export class HorarioComponent {
       }
     }
 
-    // Validate that all slots the merged block would occupy are free and in-bounds
+    // Validate that all slots the merged block would occupy are free and in-bounds.
+    // sesionOcupaFranja() verifica el span completo [horaInicio, horaInicio+dur),
+    // no solo el inicio — así detectamos colisiones con sesiones de 2-3 h que cubren la franja.
     const spaceId = this.activeSpace()?.id;
     const targetStartIdx = this.franjas.indexOf(targetFranja);
     for (let k = 0; k < merged.duracionSlots; k++) {
@@ -409,7 +373,7 @@ export class HorarioComponent {
         !merged.sesiones.some(ms => ms.id === s.id) &&
         s.espacioId === spaceId &&
         s.dia === targetDia &&
-        s.horaInicio === checkFranja &&
+        this.sesionOcupaFranja(s, checkFranja) &&
         !s.virtual &&
         (s.alternancia === merged.alternancia || s.alternancia === 'SinAlternancia' || merged.alternancia === 'SinAlternancia')
       );
@@ -430,22 +394,12 @@ export class HorarioComponent {
       ? this.franjas[endIdx]
       : this.addHours(newStart, merged.duracionSlots);
     this.state.updateSesion({ ...sesion, dia: targetDia, horaInicio: newStart, horaFin: newEnd });
-    // La sesión es atómica: mover su inicio y recalcular su fin desde la duración.
-    const sesion = merged.sesiones[0];
-    const newStart = this.franjas[targetStartIdx];
-    const endIdx   = targetStartIdx + merged.duracionSlots;
-    const newEnd   = endIdx < this.franjas.length
-      ? this.franjas[endIdx]
-      : this.addHours(newStart, merged.duracionSlots);
-    this.state.updateSesion({ ...sesion, dia: targetDia, horaInicio: newStart, horaFin: newEnd });
 
     this.snackBar.open('Sesión movida correctamente.', '', { duration: 2000 });
   }
 
   private addHours(franja: string, horas: number): string {
-  private addHours(franja: string, horas: number): string {
     const [h, m] = franja.split(':').map(Number);
-    return `${String(h + horas).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     return `${String(h + horas).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
@@ -463,7 +417,8 @@ export class HorarioComponent {
       .generarHorario(
         this.state.asignaturas(),
         this.state.docentes(),
-        this.state.espacios()
+        this.state.espacios(),
+        this.state.configuracionAlgoritmo()
       )
       .subscribe({
         next: (respuesta) => {

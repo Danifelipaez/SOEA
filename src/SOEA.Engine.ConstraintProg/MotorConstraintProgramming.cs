@@ -50,19 +50,26 @@ namespace SOEA.Engine.ConstraintProg
                 return new ResultadoFactibilidad(false, sesiones.AsReadOnly(), "No hay datos suficientes.");
             }
 
-            // ── Capacidad teórica (bloques-hora) vs demanda (Σ DuracionHoras) ────────────
-            int capacidadBloquesHora = espacios.Count * bloques.Count;
-            decimal demandaBloquesHora = sesiones.Sum(s => s.DuracionHoras);
+            // ── Capacidad de espacios vs demanda presencial (virtuales no ocupan espacio físico) ──
+            int capacidadBloquesHora    = espacios.Count * bloques.Count;
+            var sesionesPresenciales    = sesiones.Where(s => s.Modalidad != Modalidad.Virtual).ToList();
+            decimal demandaPresencial   = sesionesPresenciales.Sum(s => s.DuracionHoras);
+            decimal demandaTotal        = sesiones.Sum(s => s.DuracionHoras);
+
             _logger.LogInformation(
-                "Fase 2 (CP-SAT): {S} sesiones, {B} bloques, {E} espacios, {D} docentes. " +
-                "Demanda={Dem}h vs Capacidad={Cap}h.",
-                sesiones.Count, bloques.Count, espacios.Count, docentes.Count,
-                demandaBloquesHora, capacidadBloquesHora);
-            if (demandaBloquesHora > capacidadBloquesHora)
+                "Fase 2 (CP-SAT): {S} sesiones ({SP} presenciales / {SV} virtuales), {B} bloques, {E} espacios, {D} docentes. " +
+                "Demanda presencial={Dem}h vs Capacidad={Cap}h.",
+                sesiones.Count, sesionesPresenciales.Count, sesiones.Count - sesionesPresenciales.Count,
+                bloques.Count, espacios.Count, docentes.Count,
+                demandaPresencial, capacidadBloquesHora);
+
+            if (demandaPresencial > capacidadBloquesHora)
             {
-                _logger.LogWarning(
-                    "Demanda total {Dem}h > capacidad {Cap}h — el modelo será infactible.",
-                    demandaBloquesHora, capacidadBloquesHora);
+                var msg = $"Infactible: la demanda presencial ({demandaPresencial}h) supera la capacidad de espacios " +
+                          $"({capacidadBloquesHora}h = {espacios.Count} espacio(s) × {bloques.Count} bloques). " +
+                          "Añada más espacios o marque sesiones como virtuales.";
+                _logger.LogError(msg);
+                return new ResultadoFactibilidad(false, sesiones.AsReadOnly(), msg);
             }
 
             var model = new CpModel();
@@ -100,7 +107,7 @@ namespace SOEA.Engine.ConstraintProg
                     spaceVars[sesion.Id] = model.NewIntVar(0, espacios.Count - 1, $"space_{sesion.Id}");
             }
 
-            // ── Warm-start desde Fase 1 (GraphColoring) ────────────────────────────────
+            // ── Warm-start desde Fase 1 (GraphColoring asigna bloques, no espacios) ────
             foreach (var sesion in sesiones)
             {
                 if (sesion.Estado == EstadoSesion.Asignada && sesion.BloqueTiempoId != Guid.Empty &&
@@ -109,12 +116,6 @@ namespace SOEA.Engine.ConstraintProg
                     int dur = duraciones[sesion.Id];
                     if (BloquesPlanner.CabeEnDia(idx, dur, rangosPorDia, diaPorIdx))
                         model.AddHint(startVars[sesion.Id], idx);
-                }
-                if (sesion.EspacioId.HasValue && sesion.EspacioId != Guid.Empty &&
-                    espacioIndex.TryGetValue(sesion.EspacioId.Value, out var sIdx) &&
-                    spaceVars.ContainsKey(sesion.Id))
-                {
-                    model.AddHint(spaceVars[sesion.Id], sIdx);
                 }
             }
 
@@ -159,16 +160,18 @@ namespace SOEA.Engine.ConstraintProg
             }
 
             // ── HC-I03: pre-solve de carga semanal y capacidad por docente ─────────────
-            var sesionesPorDocente = sesiones.GroupBy(s => s.DocenteId).Where(g => g.Key != Guid.Empty);
+            // Materializar aquí para que HC-I01 reutilice la misma lista sin re-evaluar el GroupBy.
+            var sesionesPorDocente = sesiones.GroupBy(s => s.DocenteId).Where(g => g.Key != Guid.Empty).ToList();
             foreach (var grupo in sesionesPorDocente)
             {
                 if (!docenteDict.TryGetValue(grupo.Key, out var docente)) continue;
 
                 if (docente.BloquesDisponibles.Count == 0)
                 {
-                    var msg = $"Docente {docente.NombreCompleto} no tiene disponibilidad definida — no puede recibir sesiones.";
-                    _logger.LogError(msg);
-                    return new ResultadoFactibilidad(false, sesiones.AsReadOnly(), msg);
+                    _logger.LogWarning(
+                        "Docente {D} no tiene disponibilidad definida — sus sesiones usarán cualquier bloque de la grilla.",
+                        docente.NombreCompleto);
+                    continue;
                 }
 
                 var totalHoras = grupo.Sum(s => s.DuracionHoras);

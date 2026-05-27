@@ -14,6 +14,24 @@ namespace SOEA.Application.Features.Horario.Requests
         public List<AsignaturaDto> Asignaturas { get; set; } = new();
         public List<DocenteDto>    Docentes    { get; set; } = new();
         public List<EspacioDto>    Espacios    { get; set; } = new();
+
+        /// <summary>
+        /// Parámetros del algoritmo genético y pesos de soft constraints.
+        /// Null = usar valores por defecto del motor.
+        /// </summary>
+        public ConfiguracionAlgoritmoDto? Configuracion { get; set; }
+    }
+
+    public class ConfiguracionAlgoritmoDto
+    {
+        public int    TamañoPoblacion      { get; set; } = 50;
+        public int    MaxGeneraciones      { get; set; } = 200;
+        public double ProbabilidadMutacion { get; set; } = 0.05;
+        public double ProbabilidadCruce    { get; set; } = 0.80;
+        public int    UmbralConvergencia   { get; set; } = 30;
+        public int    PesoErgo             { get; set; } = 3;
+        public int    PesoTiempos          { get; set; } = 2;
+        public int    PesoAlmuerzo         { get; set; } = 1;
     }
 
     public class AsignaturaDto

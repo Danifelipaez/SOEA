@@ -88,8 +88,9 @@ namespace SOEA.Application.Features.Horario
             // ── 4. Fase 3 — Algoritmo Genético (optimización soft constraints) ─
             logs.Add("[INFO] Fase 3: Algoritmo Genético (Optimización) iniciado.");
             var swFase3 = System.Diagnostics.Stopwatch.StartNew();
+            var configOptimizacion = MapearConfiguracion(request.Configuracion);
             var resultadoOptimizacion = await _fase3.OptimizarAsync(
-                resultadoFactibilidad.SesionesResueltas, bloques, espacios, docentes);
+                resultadoFactibilidad.SesionesResueltas, bloques, espacios, docentes, configOptimizacion);
             swFase3.Stop();
             logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness final: {resultadoOptimizacion.PuntajeFitness:F2}");
 
@@ -387,6 +388,19 @@ namespace SOEA.Application.Features.Horario
                 Virtual       = s.Modalidad == Modalidad.Virtual
             };
         }
+
+        private static ConfiguracionOptimizacion MapearConfiguracion(ConfiguracionAlgoritmoDto? dto) =>
+            dto is null
+                ? new ConfiguracionOptimizacion()
+                : new ConfiguracionOptimizacion(
+                    TamañoPoblacion:      dto.TamañoPoblacion,
+                    MaxGeneraciones:      dto.MaxGeneraciones,
+                    ProbabilidadMutacion: dto.ProbabilidadMutacion,
+                    ProbabilidadCruce:    dto.ProbabilidadCruce,
+                    UmbralConvergencia:   dto.UmbralConvergencia,
+                    PesoErgo:             dto.PesoErgo,
+                    PesoTiempos:          dto.PesoTiempos,
+                    PesoAlmuerzo:         dto.PesoAlmuerzo);
 
         private static string DiaToString(DiaDeSemana dia) => dia switch
         {

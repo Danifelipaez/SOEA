@@ -47,6 +47,22 @@ export interface Asignatura {
   espacioFijoId?: string;    // Espacio requerido (opcional)
 }
 
+/** Parámetros del algoritmo genético y pesos de soft constraints configurados por el developer. */
+export interface ConfiguracionAlgoritmo {
+  pobSize:    number;  // TamañoPoblacion
+  mutRate:    number;  // ProbabilidadMutacion
+  crossRate:  number;  // ProbabilidadCruce
+  maxGen:     number;  // MaxGeneraciones
+  pesoErgo:   number;  // SC-01: horario compacto
+  pesoTiempos: number; // SC-06: tiempos muertos
+  pesoAlm:    number;  // SC-09: concentración diaria
+}
+
+export const CONFIGURACION_DEFECTO: ConfiguracionAlgoritmo = {
+  pobSize: 50, mutRate: 0.05, crossRate: 0.80, maxGen: 200,
+  pesoErgo: 3, pesoTiempos: 2, pesoAlm: 1,
+};
+
 export interface Sesion {
   id: string;
   asignaturaId: string;

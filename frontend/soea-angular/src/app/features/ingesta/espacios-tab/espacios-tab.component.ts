@@ -126,33 +126,35 @@ export class EspaciosTabComponent {
 
   guardarEnBD() {
     const espacios = this.state.espacios();
-    if (espacios.length === 0) {
+    if (!espacios.length) {
       this.snackBar.open('No hay espacios para guardar.', 'Cerrar', { duration: 3000 });
       return;
     }
-
-    const paraActualizar = espacios.filter(e => this.bdIds.has(e.id));
-    const paraCrear      = espacios.filter(e => !this.bdIds.has(e.id));
-
     this.saving.set(true);
 
-    const updateCalls$ = paraActualizar.map(e =>
+    // PUT-first: intenta actualizar; si el backend devuelve 404 (no existe aún), crea con POST.
+    const calls$ = espacios.map(e =>
       this.persistencia.actualizarEspacio(e).pipe(
-        map(() => ({ ok: true, nombre: e.nombre, tipo: 'actualizado' as const })),
-        catchError(() => of({ ok: false, nombre: e.nombre, tipo: 'actualizado' as const }))
-      )
-    );
-    const createCalls$ = paraCrear.map(e =>
-      this.persistencia.guardarEspacio(e).pipe(
-        map(() => { this.bdIds.add(e.id); return { ok: true, nombre: e.nombre, tipo: 'nuevo' as const }; }),
-        catchError(() => of({ ok: false, nombre: e.nombre, tipo: 'nuevo' as const }))
+        map(() => {
+          this.bdIds.add(e.id);
+          return { ok: true, nombre: e.nombre, tipo: 'actualizado' as const };
+        }),
+        catchError(err => {
+          if (err.status === 404) {
+            return this.persistencia.guardarEspacio(e).pipe(
+              map(() => {
+                this.bdIds.add(e.id);
+                return { ok: true, nombre: e.nombre, tipo: 'nuevo' as const };
+              }),
+              catchError(() => of({ ok: false, nombre: e.nombre, tipo: 'nuevo' as const }))
+            );
+          }
+          return of({ ok: false, nombre: e.nombre, tipo: 'actualizado' as const });
+        })
       )
     );
 
-    const all$ = [...updateCalls$, ...createCalls$];
-    if (all$.length === 0) { this.saving.set(false); return; }
-
-    forkJoin(all$).subscribe(results => {
+    forkJoin(calls$).subscribe(results => {
       this.saving.set(false);
       const nuevos       = results.filter(r => r.ok && r.tipo === 'nuevo').map(r => r.nombre);
       const actualizados = results.filter(r => r.ok && r.tipo === 'actualizado').map(r => r.nombre);
