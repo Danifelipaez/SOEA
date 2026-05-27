@@ -8,6 +8,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSliderModule } from '@angular/material/slider';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { StateService } from '../../core/state.service';
+import { ConfiguracionAlgoritmo } from '../../core/models';
 
 @Component({
   selector: 'app-dashboard-developer',
@@ -23,7 +24,7 @@ import { StateService } from '../../core/state.service';
             <div class="logs-actions">
               <button mat-stroked-button (click)="limpiarLogs()">Limpiar logs</button>
               <button mat-stroked-button (click)="exportarLogs()">Exportar logs (.txt)</button>
-              <span class="run-info">Última ejecución: 2024-05-15 10:30 (Duración: 12.4s)</span>
+              <span class="run-info">{{ logs().length > 0 ? logs().length + ' líneas de log' : 'Sin ejecución aún' }}</span>
             </div>
             <div class="logs-panel">
               <pre *ngFor="let log of logs()"><span [class.log-error]="log.includes('cuello de botella') || log.includes('Infactibilidad')">{{log}}</span></pre>
@@ -237,9 +238,19 @@ export class DashboardDeveloperComponent implements OnDestroy {
   }
 
   guardarConfig() {
-    if (this.configForm.valid) {
-      this.snackBar.open('Configuración guardada correctamente', 'Cerrar', { duration: 3000 });
-    }
+    if (!this.configForm.valid) return;
+    const v = this.configForm.value;
+    const config: ConfiguracionAlgoritmo = {
+      pobSize:     v.pobSize,
+      mutRate:     v.mutRate,
+      crossRate:   v.crossRate,
+      maxGen:      v.maxGen,
+      pesoErgo:    v.pesoErgo,
+      pesoTiempos: v.pesoTiempos,
+      pesoAlm:     v.pesoAlm,
+    };
+    this.state.setConfiguracionAlgoritmo(config);
+    this.snackBar.open('Configuración guardada — se aplicará en la próxima generación.', 'Cerrar', { duration: 3500 });
   }
 
   ngOnDestroy() {

@@ -15,6 +15,10 @@ namespace SOEA.Infrastructure.Data
 
             services.AddScoped<IHorarioRepositorio, HorarioRepositorio>();
             services.AddScoped<IAsignaturaRepositorio, AsignaturaRepository>();
+            services.AddScoped<ISesionRepositorio, SesionRepositorio>();
+            services.AddScoped<IDocenteRepositorio, DocenteRepositorio>();
+            services.AddScoped<IGrupoRepositorio, GrupoRepositorio>();
+            services.AddScoped<IEspacioRepositorio, EspacioRepositorio>();
 
             return services;
         }

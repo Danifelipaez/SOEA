@@ -34,15 +34,17 @@ namespace SOEA.Engine.Genetic
         }
 
         /// <summary>
-        /// Crea una copia perturbada: intercambia aleatoriamente N genes de bloque.
+        /// Crea una copia perturbada: intercambia aleatoriamente N genes de bloque y espacio.
         /// </summary>
-        public CromosomaHorario ClonarYPerturbar(Random rng, int maxBloques, int perturbaciones = 3)
+        public CromosomaHorario ClonarYPerturbar(Random rng, int maxBloques, int maxEspacios, int perturbaciones = 3)
         {
             var clon = Clonar();
             for (int i = 0; i < perturbaciones && clon.CantidadGenes > 0; i++)
             {
                 var idx = rng.Next(clon.CantidadGenes);
                 clon.BloqueIndices[idx] = rng.Next(maxBloques);
+                if (maxEspacios > 0)
+                    clon.EspacioIndices[idx] = rng.Next(maxEspacios);
             }
             return clon;
         }

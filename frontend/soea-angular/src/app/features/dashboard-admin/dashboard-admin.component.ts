@@ -1,8 +1,8 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { BaseChartDirective } from 'ng2-charts';
 import { MatTableModule } from '@angular/material/table';
-import { ChartConfiguration, ChartData, ChartType } from 'chart.js';
+import { ChartConfiguration, ChartData } from 'chart.js';
 import { StateService } from '../../core/state.service';
 import { RouterModule } from '@angular/router';
 
@@ -17,19 +17,19 @@ import { RouterModule } from '@angular/router';
       <div class="cards-row">
         <div class="metric-card">
           <div class="metric-title">% Ocupación total</div>
-          <div class="metric-value">84%</div>
+          <div class="metric-value">{{ ocupacionPct() }}%</div>
         </div>
         <div class="metric-card">
           <div class="metric-title">Total sesiones presenciales</div>
-          <div class="metric-value">124</div>
+          <div class="metric-value">{{ totalPresenciales() }}</div>
         </div>
         <div class="metric-card">
           <div class="metric-title">Total sesiones virtuales</div>
-          <div class="metric-value">32</div>
+          <div class="metric-value">{{ totalVirtuales() }}</div>
         </div>
         <div class="metric-card">
           <div class="metric-title">Total franjas ociosas</div>
-          <div class="metric-value">45</div>
+          <div class="metric-value">{{ franjasOciosas() }}</div>
         </div>
       </div>
 
@@ -38,7 +38,7 @@ import { RouterModule } from '@angular/router';
           <h2 class="section-title">Ocupación por espacio</h2>
           <div class="chart-container">
             <canvas baseChart
-              [data]="barChartData"
+              [data]="barChartData()"
               [options]="barChartOptions"
               [type]="'bar'">
             </canvas>
@@ -49,7 +49,7 @@ import { RouterModule } from '@angular/router';
       <div class="tables-row">
         <div class="card-box flex-1">
           <h2 class="section-title">Ocupación por docente</h2>
-          <table mat-table [dataSource]="docentesData" class="mat-elevation-z0 border-table" matSort>
+          <table mat-table [dataSource]="docentesData()" class="mat-elevation-z0 border-table">
             <ng-container matColumnDef="docente">
               <th mat-header-cell *matHeaderCellDef> Docente </th>
               <td mat-cell *matCellDef="let element"> {{element.docente}} </td>
@@ -137,37 +137,86 @@ import { RouterModule } from '@angular/router';
   `]
 })
 export class DashboardAdminComponent {
-  
+  state = inject(StateService);
+
+  // ── Metrics ──────────────────────────────────────────────────────────────────
+
+  totalPresenciales = computed(() =>
+    this.state.sesiones().filter(s => !s.virtual).length);
+
+  totalVirtuales = computed(() =>
+    this.state.sesiones().filter(s => s.virtual).length);
+
+  /** Total slots available across all spaces × all day hours (07-20 = 13h × 6 days). */
+  private totalSlots = computed(() => this.state.espacios().length * 13 * 6);
+
+  ocupacionPct = computed(() => {
+    const slots = this.totalSlots();
+    if (slots === 0) return 0;
+    return Math.round((this.state.sesiones().filter(s => !s.virtual).length / slots) * 100);
+  });
+
+  /** Idle 1-hour slots = total slots minus occupied presencial sessions. */
+  franjasOciosas = computed(() =>
+    Math.max(0, this.totalSlots() - this.totalPresenciales()));
+
+  // ── Docentes table ────────────────────────────────────────────────────────────
+
+  docentesData = computed(() => {
+    const sesiones = this.state.sesiones();
+    return this.state.docentes().map(d => {
+      const sesDoc = sesiones.filter(s => s.docenteId === d.id);
+      // Estimate hours: count sessions (each ~2h) or use horaFin-horaInicio when available
+      const horasAsignadas = sesDoc.reduce((acc, s) => {
+        const [hI, mI] = s.horaInicio.split(':').map(Number);
+        const [hF, mF] = s.horaFin.split(':').map(Number);
+        return acc + ((hF * 60 + mF) - (hI * 60 + mI)) / 60;
+      }, 0);
+      const maxHoras = d.maxHoras || 40;
+      const porcentaje = maxHoras > 0 ? Math.round((horasAsignadas / maxHoras) * 100) : 0;
+      const estado = porcentaje >= 100 ? 'Límite' : porcentaje >= 85 ? 'Alerta' : 'Normal';
+      const estadoClass = porcentaje >= 100 ? 'status-limite' : porcentaje >= 85 ? 'status-alerta' : 'status-normal';
+      return { docente: d.nombre, horasAsignadas: Math.round(horasAsignadas * 10) / 10, maxHoras, porcentaje, estado, estadoClass };
+    });
+  });
+
+  // ── Bar chart ─────────────────────────────────────────────────────────────────
+
   barChartOptions: ChartConfiguration['options'] = {
     responsive: true,
     maintainAspectRatio: false,
     indexAxis: 'y',
     scales: { x: { min: 0, max: 100 } },
-    plugins: {
-      legend: { display: false }
-    }
+    plugins: { legend: { display: false } }
   };
 
-  barChartData: ChartData<'bar'> = {
-    labels: ['Laboratorio A', 'Laboratorio B', 'Salón 101'],
-    datasets: [
-      {
-        data: [85, 95, 70],
-        backgroundColor: (ctx) => {
-          const val = ctx.raw as number;
-          return val > 92 ? '#dc3545' : '#007bff';
-        }
-      }
-    ]
-  };
+  barChartData = computed<ChartData<'bar'>>(() => {
+    const espacios = this.state.espacios();
+    const sesiones = this.state.sesiones().filter(s => !s.virtual);
+    const slotsPerSpace = 13 * 6;
+    const labels = espacios.map(e => e.nombre);
+    const data = espacios.map(e => {
+      const occ = sesiones.filter(s => s.espacioId === e.id).length;
+      return slotsPerSpace > 0 ? Math.round((occ / slotsPerSpace) * 100) : 0;
+    });
+    return {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: data.map(v => v > 92 ? '#dc3545' : '#007bff')
+      }]
+    };
+  });
 
-  docentesData = [
-    { docente: 'Juan Perez', horasAsignadas: 30, maxHoras: 40, porcentaje: 75, estado: 'Normal', estadoClass: 'status-normal' },
-    { docente: 'Maria Gomez', horasAsignadas: 38, maxHoras: 40, porcentaje: 95, estado: 'Alerta', estadoClass: 'status-alerta' },
-    { docente: 'Carlos Ruiz', horasAsignadas: 40, maxHoras: 40, porcentaje: 100, estado: 'Límite', estadoClass: 'status-limite' }
-  ];
+  // ── Idle-slot mini matrix ────────────────────────────────────────────────────
 
-  isOciosa(f: number, d: number) {
-    return (f + d) % 3 === 0; // random pattern for demo
+  isOciosa(franjaIdx: number, diaIdx: number): boolean {
+    const esp = this.state.espacios()[0];
+    if (!esp || this.state.sesiones().length === 0) return true;
+    const dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+    const hora = `${String(7 + franjaIdx).padStart(2, '0')}:00`;
+    const dia  = dias[diaIdx - 1];
+    return !this.state.sesiones().some(s =>
+      s.espacioId === esp.id && s.dia === dia && s.horaInicio === hora);
   }
 }

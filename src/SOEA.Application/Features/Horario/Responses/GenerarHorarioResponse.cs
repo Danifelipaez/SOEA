@@ -30,6 +30,8 @@ namespace SOEA.Application.Features.Horario.Responses
         public string  Dia          { get; set; } = string.Empty;
         public string  HoraInicio   { get; set; } = string.Empty;   // "HH:mm"
         public string  HoraFin      { get; set; } = string.Empty;   // "HH:mm"
+        /// <summary>Duración real de la sesión en horas (input fijo, CLAUDE.md regla 6). El frontend la usa para el rowspan.</summary>
+        public decimal DuracionHoras { get; set; }
         /// <summary>TipoA, TipoB o SinAlternancia.</summary>
         public string  Alternancia  { get; set; } = "SinAlternancia";
         public bool    Virtual      { get; set; }

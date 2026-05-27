@@ -55,6 +55,15 @@ namespace SOEA.Infrastructure.Data.Configurations
                     j => j.HasOne<Docente>().WithMany().HasForeignKey("DocenteId")
                 );
 
+            builder.Property(d => d.CedulaIdentidad)
+                .HasColumnName("cedula_identidad")
+                .HasMaxLength(20)
+                .IsRequired(false);
+
+            builder.Property(d => d.DisponibilidadUiJson)
+                .HasColumnName("disponibilidad_ui_json")
+                .IsRequired(false);
+
             // Indexes
             builder.HasIndex(d => d.Correo)
                 .IsUnique()

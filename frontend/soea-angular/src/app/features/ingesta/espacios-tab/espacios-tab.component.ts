@@ -8,8 +8,12 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { StateService } from '../../../core/state.service';
+import { PersistenciaService } from '../../../core/persistencia.service';
 import { Espacio } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { forkJoin, of } from 'rxjs';
+import { map, catchError } from 'rxjs/operators';
+import { MatIconModule } from '@angular/material/icon';
 
 @Component({
   selector: 'app-espacios-tab',
@@ -22,7 +26,13 @@ import { MatSnackBar } from '@angular/material/snack-bar';
           <mat-label>Buscar...</mat-label>
           <input matInput (keyup)="applyFilter($event)" placeholder="Ej. Laboratorio A" #input>
         </mat-form-field>
-        <button mat-flat-button color="primary" class="primary-button" (click)="openDialog()">Agregar espacio</button>
+        <div class="btn-group">
+          <button mat-stroked-button (click)="cargarDesdeBD()" [disabled]="saving()">Cargar desde BD</button>
+          <button mat-stroked-button color="accent" (click)="guardarEnBD()" [disabled]="saving()">
+            {{ saving() ? 'Guardando...' : 'Guardar en BD' }}
+          </button>
+          <button mat-flat-button color="primary" class="primary-button" (click)="openDialog()">Agregar espacio</button>
+        </div>
       </div>
       <table mat-table [dataSource]="filteredEspacios()" class="mat-elevation-z0 border-table">
         <ng-container matColumnDef="nombre">
@@ -56,6 +66,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
     .tab-content { padding: 24px 0; }
     .actions-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .filter-input { width: 300px; }
+    .btn-group { display: flex; gap: 8px; align-items: center; }
     .border-table { border: 1px solid #e0e0e0; border-bottom: 0; }
   `]
 })
@@ -63,10 +74,13 @@ export class EspaciosTabComponent {
   state = inject(StateService);
   dialog = inject(MatDialog);
   snackBar = inject(MatSnackBar);
-  
+  persistencia = inject(PersistenciaService);
+
   displayedColumns = ['nombre', 'capacidad', 'tipo', 'acciones'];
   filterStr = signal('');
-  
+  saving = signal(false);
+  private bdIds = new Set<string>();
+
   filteredEspacios = computed(() => {
     const f = this.filterStr().toLowerCase();
     const all = this.state.espacios();
@@ -95,8 +109,81 @@ export class EspaciosTabComponent {
   }
 
   delete(espacio: Espacio) {
-    this.state.deleteEspacio(espacio.id);
-    this.snackBar.open('Espacio eliminado', 'Cerrar', { duration: 3000 });
+    if (this.bdIds.has(espacio.id)) {
+      this.persistencia.eliminarEspacioBD(espacio.id).subscribe({
+        next: () => {
+          this.bdIds.delete(espacio.id);
+          this.state.deleteEspacio(espacio.id);
+          this.snackBar.open('Espacio eliminado de la BD.', 'Cerrar', { duration: 3000 });
+        },
+        error: () => this.snackBar.open('Error al eliminar de la BD.', 'Cerrar', { duration: 4000 })
+      });
+    } else {
+      this.state.deleteEspacio(espacio.id);
+      this.snackBar.open('Espacio eliminado localmente.', 'Cerrar', { duration: 3000 });
+    }
+  }
+
+  guardarEnBD() {
+    const espacios = this.state.espacios();
+    if (!espacios.length) {
+      this.snackBar.open('No hay espacios para guardar.', 'Cerrar', { duration: 3000 });
+      return;
+    }
+    this.saving.set(true);
+
+    // PUT-first: intenta actualizar; si el backend devuelve 404 (no existe aún), crea con POST.
+    const calls$ = espacios.map(e =>
+      this.persistencia.actualizarEspacio(e).pipe(
+        map(() => {
+          this.bdIds.add(e.id);
+          return { ok: true, nombre: e.nombre, tipo: 'actualizado' as const };
+        }),
+        catchError(err => {
+          if (err.status === 404) {
+            return this.persistencia.guardarEspacio(e).pipe(
+              map(() => {
+                this.bdIds.add(e.id);
+                return { ok: true, nombre: e.nombre, tipo: 'nuevo' as const };
+              }),
+              catchError(() => of({ ok: false, nombre: e.nombre, tipo: 'nuevo' as const }))
+            );
+          }
+          return of({ ok: false, nombre: e.nombre, tipo: 'actualizado' as const });
+        })
+      )
+    );
+
+    forkJoin(calls$).subscribe(results => {
+      this.saving.set(false);
+      const nuevos       = results.filter(r => r.ok && r.tipo === 'nuevo').map(r => r.nombre);
+      const actualizados = results.filter(r => r.ok && r.tipo === 'actualizado').map(r => r.nombre);
+      const errores      = results.filter(r => !r.ok).map(r => r.nombre);
+      this.dialog.open(GuardadoResultadoDialogComponent, {
+        width: '420px',
+        data: { entidad: 'espacios', nuevos, actualizados, errores }
+      });
+    });
+  }
+
+  cargarDesdeBD() {
+    this.saving.set(true);
+    this.persistencia.cargarEspacios().subscribe({
+      next: (espacios) => {
+        this.saving.set(false);
+        this.bdIds = new Set(espacios.map(e => e.id));
+        espacios.forEach(e => {
+          const existing = this.state.espacios().find(x => x.id === e.id);
+          if (existing) this.state.updateEspacio(e);
+          else this.state.addEspacio(e);
+        });
+        this.snackBar.open(`${espacios.length} espacio(s) cargados desde la BD.`, 'Cerrar', { duration: 4000 });
+      },
+      error: () => {
+        this.saving.set(false);
+        this.snackBar.open('Error al cargar desde la BD.', 'Cerrar', { duration: 4000 });
+      }
+    });
   }
 }
 
@@ -123,6 +210,7 @@ export class EspaciosTabComponent {
           <mat-select formControlName="tipo" required>
             <mat-option value="Laboratorio">Laboratorio</mat-option>
             <mat-option value="Salón">Salón</mat-option>
+            <mat-option value="Auditorio">Auditorio</mat-option>
           </mat-select>
           <mat-error *ngIf="form.get('tipo')?.hasError('required')">Requerido</mat-error>
         </mat-form-field>
@@ -151,4 +239,52 @@ export class EspacioDialogComponent {
       this.dialogRef.close(this.form.value);
     }
   }
+}
+
+// ─── Dialog de resultado del guardado ────────────────────────────────────────
+
+interface GuardadoResultado {
+  entidad: string;
+  nuevos: string[];
+  actualizados: string[];
+  errores: string[];
+}
+
+@Component({
+  selector: 'app-guardado-resultado-espacios-dialog',
+  standalone: true,
+  imports: [CommonModule, MatDialogModule, MatButtonModule, MatIconModule],
+  template: `
+    <h2 mat-dialog-title>Resultado: Guardar en BD</h2>
+    <mat-dialog-content>
+      <div *ngIf="data.nuevos.length > 0" class="section">
+        <p class="section-title ok"><mat-icon>check_circle</mat-icon> Nuevos guardados ({{data.nuevos.length}})</p>
+        <ul><li *ngFor="let n of data.nuevos">{{n}}</li></ul>
+      </div>
+      <div *ngIf="data.actualizados.length > 0" class="section">
+        <p class="section-title info"><mat-icon>sync</mat-icon> Ya estaban en BD — actualizados ({{data.actualizados.length}})</p>
+        <ul><li *ngFor="let n of data.actualizados">{{n}}</li></ul>
+      </div>
+      <div *ngIf="data.errores.length > 0" class="section">
+        <p class="section-title err"><mat-icon>error</mat-icon> Errores ({{data.errores.length}})</p>
+        <ul><li *ngFor="let n of data.errores">{{n}}</li></ul>
+      </div>
+      <p *ngIf="!data.nuevos.length && !data.actualizados.length && !data.errores.length" class="empty">
+        No había cambios que guardar.
+      </p>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-flat-button mat-dialog-close color="primary">Aceptar</button>
+    </mat-dialog-actions>
+  `,
+  styles: [`
+    .section { margin-bottom: 14px; }
+    .section-title { display: flex; align-items: center; gap: 6px; font-weight: 500; margin: 0 0 4px; }
+    .ok   { color: #2e7d32; } .info { color: #1565c0; } .err { color: #c62828; }
+    ul { margin: 0 0 0 28px; padding: 0; font-size: 14px; }
+    .empty { color: #757575; font-style: italic; }
+  `]
+})
+export class GuardadoResultadoDialogComponent {
+  data = inject(MAT_DIALOG_DATA) as GuardadoResultado;
 }

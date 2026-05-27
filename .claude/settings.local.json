@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build *)",
+      "Bash(find \"D:\\\\\\\\__PracticasUniversitarias\\\\\\\\Visual studio code\\\\\\\\SOEA\\\\\\\\frontend\\\\\\\\soea-angular\\\\\\\\src\" -type f -name \"*.model.ts\" -o -name \"*.interface.ts\")",
+      "Bash(grep -n \"class Sesion\\\\|public.*BloqueTiempoId\\\\|public.*HoraInicio\\\\|public.*DuracionHoras\" \"D:\\\\\\\\__PracticasUniversitarias\\\\\\\\Visual studio code\\\\\\\\SOEA\\\\\\\\src\\\\\\\\SOEA.Domain\\\\\\\\Entities\\\\\\\\Sesion.cs\")",
+      "Bash(grep -n \"rowspan\\\\|height.*px\\\\|72px\\\\|matrix-cell\" \"D:\\\\\\\\__PracticasUniversitarias\\\\\\\\Visual studio code\\\\\\\\SOEA\\\\\\\\frontend\\\\\\\\soea-angular\\\\\\\\src\\\\\\\\app\\\\\\\\features\\\\\\\\horario\\\\\\\\horario.component.ts\")",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "Bash(npx tsc *)",
+      "PowerShell(Set-Location 'D:\\\\__PracticasUniversitarias\\\\Visual studio code\\\\SOEA\\\\frontend\\\\soea-angular'; npx tsc --noEmit; echo \"EXIT=$LASTEXITCODE\")"
+    ]
+  }
+}

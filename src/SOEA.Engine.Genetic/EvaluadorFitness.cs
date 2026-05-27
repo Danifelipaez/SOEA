@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using SOEA.Domain.Entities;
+using SOEA.Domain.Interfaces;
 
 namespace SOEA.Engine.Genetic
 {
@@ -16,61 +17,69 @@ namespace SOEA.Engine.Genetic
         private readonly List<BloqueTiempo> _bloques;
         private readonly List<Docente> _docentes;
 
-        // Pesos de restricciones blandas (configurables)
-        private const int PesoSC01 = 3; // Horario compacto docente
-        private const int PesoSC06 = 2; // Carga distribuida
-        private const int PesoSC09 = 1; // Evitar max horas diarias
+        private readonly int _pesoSC01;
+        private readonly int _pesoSC06;
+        private readonly int _pesoSC09;
 
-        public EvaluadorFitness(List<Sesion> sesiones, List<BloqueTiempo> bloques, List<Docente> docentes)
+        public EvaluadorFitness(
+            List<Sesion> sesiones,
+            List<BloqueTiempo> bloques,
+            List<Docente> docentes,
+            ConfiguracionOptimizacion? config = null)
         {
             _sesiones = sesiones;
-            _bloques = bloques;
+            _bloques  = bloques;
             _docentes = docentes;
+            _pesoSC01 = config?.PesoErgo     ?? 3;
+            _pesoSC06 = config?.PesoTiempos  ?? 2;
+            _pesoSC09 = config?.PesoAlmuerzo ?? 1;
         }
 
         public decimal Evaluar(CromosomaHorario cromosoma)
         {
             decimal fitness = 0;
 
-            fitness += PesoSC01 * EvaluarSC01_HorarioCompactoDocente(cromosoma);
-            fitness += PesoSC06 * EvaluarSC06_CargaDistribuida(cromosoma);
-            fitness += PesoSC09 * EvaluarSC09_EvitarMaxHorasDiarias(cromosoma);
+            fitness += _pesoSC01 * EvaluarSC01_HorarioCompactoDocente(cromosoma);
+            fitness += _pesoSC06 * EvaluarSC06_CargaDistribuida(cromosoma);
+            fitness += _pesoSC09 * EvaluarSC09_EvitarMaxHorasDiarias(cromosoma);
 
             return fitness;
         }
 
         /// <summary>
         /// SC-01: Minimizar huecos inactivos entre sesiones del mismo docente en un día.
-        /// Retorna el total de huecos detectados.
+        /// Usa la duración real de cada sesión para calcular su hora de fin efectiva.
         /// </summary>
         private int EvaluarSC01_HorarioCompactoDocente(CromosomaHorario cromosoma)
         {
             int totalHuecos = 0;
 
-            // Agrupar genes por docente
-            var genesPorDocente = new Dictionary<Guid, List<int>>();
+            // Fix #7: pair each gene with its block AND its session duration
+            var genesPorDocente = new Dictionary<Guid, List<(BloqueTiempo bloque, decimal duracion)>>();
             for (int i = 0; i < cromosoma.CantidadGenes; i++)
             {
                 var docenteId = _sesiones[i].DocenteId;
+                var bloqueIdx = cromosoma.BloqueIndices[i];
+                if (bloqueIdx < 0 || bloqueIdx >= _bloques.Count) continue;
+
                 if (!genesPorDocente.ContainsKey(docenteId))
-                    genesPorDocente[docenteId] = new List<int>();
-                genesPorDocente[docenteId].Add(cromosoma.BloqueIndices[i]);
+                    genesPorDocente[docenteId] = new List<(BloqueTiempo, decimal)>();
+                genesPorDocente[docenteId].Add((_bloques[bloqueIdx], _sesiones[i].DuracionHoras));
             }
 
             foreach (var par in genesPorDocente)
             {
-                // Agrupar bloques asignados por día
-                var bloquesPorDia = par.Value
-                    .Where(bi => bi >= 0 && bi < _bloques.Count)
-                    .Select(bi => _bloques[bi])
-                    .GroupBy(b => b.Dia);
+                var bloquesPorDia = par.Value.GroupBy(x => x.bloque.Dia);
 
                 foreach (var dia in bloquesPorDia)
                 {
-                    var horas = dia.OrderBy(b => b.HoraInicio).ToList();
-                    for (int i = 1; i < horas.Count; i++)
+                    var ordenados = dia.OrderBy(x => x.bloque.HoraInicio).ToList();
+                    for (int i = 1; i < ordenados.Count; i++)
                     {
-                        var gap = horas[i].HoraInicio - horas[i - 1].HoraFin;
+                        // Effective end of previous session = start + actual duration
+                        var finAnterior = ordenados[i - 1].bloque.HoraInicio
+                            .Add(TimeSpan.FromHours((double)ordenados[i - 1].duracion));
+                        var gap = ordenados[i].bloque.HoraInicio.ToTimeSpan() - finAnterior.ToTimeSpan();
                         if (gap.TotalHours > 0)
                             totalHuecos += (int)Math.Ceiling(gap.TotalHours);
                     }
@@ -122,16 +131,19 @@ namespace SOEA.Engine.Genetic
         }
 
         /// <summary>
-        /// SC-09: Evitar que un docente tenga asignadas todas las horas posibles en un día.
-        /// Penaliza si un docente ocupa más del 80% de los bloques de un día.
+        /// SC-09: Evitar que un docente ocupe más del 80% de las horas disponibles en un día.
+        /// Penaliza si las horas asignadas superan el umbral respecto al total de horas del día.
         /// </summary>
         private int EvaluarSC09_EvitarMaxHorasDiarias(CromosomaHorario cromosoma)
         {
             int penalizacion = 0;
 
-            var bloquesPorDia = _bloques.GroupBy(b => b.Dia).ToDictionary(g => (int)g.Key, g => g.Count());
+            // Count of 1-hour slots per day == total available hours per day
+            var horasDisponiblesPorDia = _bloques.GroupBy(b => b.Dia)
+                .ToDictionary(g => (int)g.Key, g => g.Count());
 
-            var asignacionesPorDocenteDia = new Dictionary<Guid, Dictionary<int, int>>();
+            // Fix #6: accumulate occupied HOURS (session duration), not session count
+            var horasPorDocenteDia = new Dictionary<Guid, Dictionary<int, decimal>>();
 
             for (int i = 0; i < cromosoma.CantidadGenes; i++)
             {
@@ -141,22 +153,22 @@ namespace SOEA.Engine.Genetic
 
                 var dia = (int)_bloques[bloqueIdx].Dia;
 
-                if (!asignacionesPorDocenteDia.ContainsKey(docenteId))
-                    asignacionesPorDocenteDia[docenteId] = new Dictionary<int, int>();
+                if (!horasPorDocenteDia.ContainsKey(docenteId))
+                    horasPorDocenteDia[docenteId] = new Dictionary<int, decimal>();
 
-                if (!asignacionesPorDocenteDia[docenteId].ContainsKey(dia))
-                    asignacionesPorDocenteDia[docenteId][dia] = 0;
+                if (!horasPorDocenteDia[docenteId].ContainsKey(dia))
+                    horasPorDocenteDia[docenteId][dia] = 0;
 
-                asignacionesPorDocenteDia[docenteId][dia]++;
+                horasPorDocenteDia[docenteId][dia] += _sesiones[i].DuracionHoras;
             }
 
-            foreach (var docente in asignacionesPorDocenteDia)
+            foreach (var docente in horasPorDocenteDia)
             {
                 foreach (var dia in docente.Value)
                 {
-                    if (bloquesPorDia.TryGetValue(dia.Key, out var totalBloquesDia) && totalBloquesDia > 0)
+                    if (horasDisponiblesPorDia.TryGetValue(dia.Key, out var totalHorasDia) && totalHorasDia > 0)
                     {
-                        var ocupacion = (double)dia.Value / totalBloquesDia;
+                        var ocupacion = (double)dia.Value / totalHorasDia;
                         if (ocupacion > 0.8)
                             penalizacion++;
                     }

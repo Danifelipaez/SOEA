@@ -1,3 +1,4 @@
+import { forkJoin } from 'rxjs';
 import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
@@ -11,14 +12,12 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatChipsModule } from '@angular/material/chips';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { StateService } from '../../../core/state.service';
+import { PersistenciaService } from '../../../core/persistencia.service';
 import { Asignatura, Facultad, Programa } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import * as XLSX from 'xlsx';
-
-// ─── Columnas del Excel esperadas (modo asignaturas separadas) ──────────────────
-// Facultad | Programa | Código | Nombre | HorasPorSesion | SesionesPorSemana | SesionesLabSemestre
-// ───────────────────────────────────────────────────────────────────────────────
+import { ImportResult, ImportExcelStatsDto } from '../../../core/persistencia.service';
 
 @Component({
   selector: 'app-asignaturas-tab',
@@ -26,7 +25,7 @@ import * as XLSX from 'xlsx';
   imports: [
     CommonModule, MatTableModule, MatButtonModule, MatDialogModule,
     MatFormFieldModule, MatInputModule, MatSelectModule, MatIconModule,
-    MatTooltipModule, MatChipsModule
+    MatTooltipModule, MatChipsModule, MatProgressSpinnerModule
   ],
   template: `
     <div class="tab-content">
@@ -37,8 +36,14 @@ import * as XLSX from 'xlsx';
           <input matInput (keyup)="applyFilter($event)" placeholder="Ej. Química 101">
         </mat-form-field>
         <div class="btn-group">
-          <button mat-stroked-button (click)="importarExcel()" matTooltip="Importar desde Excel (.xlsx)">
-            <mat-icon>upload_file</mat-icon> Importar Excel
+          <button mat-stroked-button (click)="importarExcel()" [disabled]="uploading()"
+                  matTooltip="Sube el Excel al servidor — el backend parsea y persiste todo">
+            <mat-icon>upload_file</mat-icon>
+            {{ uploading() ? 'Subiendo...' : 'Importar Excel' }}
+          </button>
+          <button mat-stroked-button (click)="cargarDesdeBD()" [disabled]="saving()">Cargar desde BD</button>
+          <button mat-stroked-button color="accent" (click)="guardarEnBD()" [disabled]="saving()">
+            {{ saving() ? 'Guardando...' : 'Guardar en BD' }}
           </button>
           <button mat-flat-button color="primary" class="primary-button" (click)="openDialog()">
             <mat-icon>add</mat-icon> Agregar asignatura
@@ -147,9 +152,13 @@ export class AsignaturasTabComponent {
   state = inject(StateService);
   dialog = inject(MatDialog);
   snackBar = inject(MatSnackBar);
+  persistencia = inject(PersistenciaService);
 
   displayedColumns = ['facultad', 'programa', 'codigo', 'nombre', 'alternancia', 'horas', 'sesiones', 'docente', 'acciones'];
+  saving = signal(false);
+  uploading = signal(false);
   filterStr = signal('');
+  private bdIds = new Set<string>();
 
   filteredAsignaturas = computed(() => {
     const f = this.filterStr().toLowerCase();
@@ -198,140 +207,34 @@ export class AsignaturasTabComponent {
   }
 
   onFileSelected(event: Event) {
-    // Formato por posicion de columna (igual que LectorExcel.cs):
-    // A(0)=FACULTAD  B(1)=PROGRAMA  C(2)=ASIGNATURA  D(3)=CODIGO
-    // E(4)=TIPO_ESPACIO  F(5)=ESPACIO  G(6)=DURACION[h]
-    // Modo 1 (horario existente): H(7)=DIA  I(8)=HORA  J(9)=DOCENTE
-    // Modo 2 (solo asignaturas):  H(7)=DOCENTE
-    // Auto-deteccion: si col H de la primera fila de datos es un dia, es Modo 1.
     const file = (event.target as HTMLInputElement).files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target!.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
-        if (rows.length < 2) {
-          this.snackBar.open('El archivo Excel no tiene datos.', 'Cerrar', { duration: 4000 });
-          return;
-        }
-
-        // ── Columnas fijas (igual que LectorExcel.cs) ──────────────────────
-        // A(0)=FACULTAD  B(1)=PROGRAMA  C(2)=ASIGNATURA  D(3)=CODIGO
-        // E(4)=TIPO_ESPACIO  F(5)=ESPACIO  G(6)=DURACION[h]
-        // Modo 1 (horario ya armado): H(7)=DIA  I(8)=HORA  J(9)=DOCENTE
-        // Modo 2 (solo asignaturas):  H(7)=DOCENTE
-        // ──────────────────────────────────────────────────────────────────
-        const PREFIJOS_DIA = ['lun','mar','mie','jue','vie','sab','mon','tue','wed','thu','fri','sat'];
-        const esDia = (v: any) => {
-          const t = String(v ?? '').trim().toLowerCase();
-          return PREFIJOS_DIA.some(p => t.startsWith(p));
-        };
-        const esModo1 = esDia(rows[1]?.[7]);
-
-        const str = (row: any[], i: number) => String(row[i] ?? '').trim();
-        const num = (row: any[], i: number, def = 2) => { const n = Number(row[i]); return n > 0 ? Math.round(n) : def; };
-
-        const nuevasFacultades: Facultad[] = [...this.state.facultades()];
-        const nuevosProgamas:   Programa[] = [...this.state.programas()];
-        const nuevasAsignaturas: Asignatura[] = [...this.state.asignaturas()];
-        const nuevosDocentes: any[] = [...this.state.docentes()];
-        const nuevosEspacios: any[] = [...this.state.espacios()];
-
-        const upsert = <T extends {id:string}>(list: T[], match: (x:T)=>boolean, build: ()=>T): string => {
-          const found = list.find(match);
-          if (found) return found.id;
-          const item = build(); list.push(item); return item.id;
-        };
-
-        let added = 0, skipped = 0;
-
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i];
-          const nombreFac  = str(row, 0);
-          const nombreProg = str(row, 1);
-          const nombreAsig = str(row, 2);
-
-          // Saltar filas sin datos esenciales (mismo criterio que el backend)
-          if (!nombreFac || !nombreProg || !nombreAsig) { skipped++; continue; }
-
-          const codigo      = str(row, 3) || `IMP-${i}`;
-          const tipoEspStr  = str(row, 4);
-          const nombreEsp   = str(row, 5);
-          const duracion    = num(row, 6, 2);
-          // En Modo 1 el docente está en col J(9); en Modo 2 en col H(7)
-          const nombreDoc   = esModo1 ? str(row, 9) : str(row, 7);
-
-          // 1. Facultad
-          const facultadId = upsert(nuevasFacultades,
-            f => f.nombre.toLowerCase() === nombreFac.toLowerCase(),
-            () => ({ id: crypto.randomUUID(), nombre: nombreFac }));
-
-          // 2. Programa (clave compuesta facultad|programa)
-          const programaId = upsert(nuevosProgamas,
-            p => p.nombre.toLowerCase() === nombreProg.toLowerCase() && p.facultadId === facultadId,
-            () => ({ id: crypto.randomUUID(), nombre: nombreProg, facultadId }));
-
-          // 3. Asignatura (deduplicada por nombre+programa, igual que el backend)
-          const existeEnPrograma = nuevasAsignaturas.some(
-            a => a.nombre.toLowerCase() === nombreAsig.toLowerCase() && a.programaId === programaId
-          );
-          if (!existeEnPrograma) {
-            // Replica DeterminarAlternancia del backend:
-            // Solo 'Quimica General' es TipoA; el resto TipoB
-            const normalized = nombreAsig.trim().toLowerCase()
-              .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-            const alternancia: 'TipoA'|'TipoB'|'SinAlternancia' =
-              normalized === 'quimica general' ? 'TipoA' : 'TipoB';
-            nuevasAsignaturas.push({
-              id: crypto.randomUUID(), codigo, nombre: nombreAsig,
-              alternancia, horasPorSesion: duracion,
-              sesionesPorSemana: 2, sesionesLaboratorioSemestre: 0, programaId
-            });
-            added++;
-          } else { skipped++; }
-
-          // 4. Docente (creacion basica)
-          if (nombreDoc) {
-            upsert(nuevosDocentes,
-              d => d.nombre.toLowerCase() === nombreDoc.toLowerCase(),
-              () => ({ id: crypto.randomUUID(), nombre: nombreDoc, cedula: '', maxHoras: 40, disponibilidad: {} }));
-          }
-
-          // 5. Espacio (creacion basica)
-          if (nombreEsp) {
-            upsert(nuevosEspacios,
-              e => e.nombre.toLowerCase() === nombreEsp.toLowerCase(),
-              () => ({
-                id: crypto.randomUUID(), nombre: nombreEsp,
-                tipo: tipoEspStr.toLowerCase().includes('laboratorio') ? 'Laboratorio' : 'Sal\u00f3n',
-                capacidad: 30
-              }));
-          }
-        }
-
-        this.state.facultades.set(nuevasFacultades);
-        this.state.programas.set(nuevosProgamas);
-        this.state.setAsignaturas(nuevasAsignaturas);
-        this.state.docentes.set(nuevosDocentes);
-        this.state.espacios.set(nuevosEspacios);
-
-        const modo = esModo1 ? 'Modo 1 (horario existente)' : 'Modo 2 (asignaturas)';
-        this.snackBar.open(
-          `${modo}: ${added} asignaturas importadas, ${skipped} omitidas. ` +
-          `Docentes: ${nuevosDocentes.length} · Espacios: ${nuevosEspacios.length}`,
-          'Cerrar', { duration: 6000 }
-        );
-      } catch (err) {
-        console.error(err);
-        this.snackBar.open('Error al leer el archivo Excel. Verifica el formato.', 'Cerrar', { duration: 5000 });
-      }
-    };
-    reader.readAsArrayBuffer(file);
     (event.target as HTMLInputElement).value = '';
+    this.uploading.set(true);
+    this.persistencia.importarExcel(file).subscribe({
+      next: (stats: ImportExcelStatsDto) => {
+        this.uploading.set(false);
+        this.cargarDesdeBD();
+        const resumen = [
+          `${stats.asignaturasCreadas} asig. nuevas`,
+          stats.asignaturasActualizadas > 0 ? `${stats.asignaturasActualizadas} actualizadas` : '',
+          `${stats.sesionesPersistidas} sesiones`,
+          stats.asignaturasSinDocente > 0 ? `⚠ ${stats.asignaturasSinDocente} sin docente` : '',
+          stats.advertencias?.length > 0 ? `${stats.advertencias.length} advertencias` : ''
+        ].filter(Boolean).join(' · ');
+        this.snackBar.open(resumen || 'Importación completa', 'Cerrar', { duration: 8000 });
+        if (stats.advertencias?.length > 0) {
+          console.group('Import Excel — advertencias');
+          stats.advertencias.forEach(w => console.warn(w));
+          console.groupEnd();
+        }
+      },
+      error: (err) => {
+        this.uploading.set(false);
+        const msg = err?.error?.detail ?? err?.error ?? err?.message ?? 'Error desconocido';
+        this.snackBar.open(`Error al importar: ${msg}`, 'Cerrar', { duration: 5000 });
+      }
+    });
   }
 
   // ── Dialog manual ─────────────────────────────────────────────────────────────
@@ -351,8 +254,140 @@ export class AsignaturasTabComponent {
   }
 
   delete(asignatura: Asignatura) {
-    this.state.deleteAsignatura(asignatura.id);
-    this.snackBar.open('Asignatura eliminada', 'Cerrar', { duration: 3000 });
+    if (this.bdIds.has(asignatura.id)) {
+      this.persistencia.eliminarAsignatura(asignatura.id).subscribe({
+        next: () => {
+          this.bdIds.delete(asignatura.id);
+          this.state.deleteAsignatura(asignatura.id);
+          this.snackBar.open('Asignatura eliminada de la BD.', 'Cerrar', { duration: 3000 });
+        },
+        error: () => this.snackBar.open('Error al eliminar de la BD.', 'Cerrar', { duration: 4000 })
+      });
+    } else {
+      this.state.deleteAsignatura(asignatura.id);
+      this.snackBar.open('Asignatura eliminada localmente.', 'Cerrar', { duration: 3000 });
+    }
+  }
+
+  guardarEnBD() {
+    const asignaturas = this.state.asignaturas();
+    const facultades = this.state.facultades();
+    const programas = this.state.programas();
+
+    if (asignaturas.length === 0) {
+      this.snackBar.open('No hay asignaturas para guardar.', 'Cerrar', { duration: 3000 });
+      return;
+    }
+
+    this.saving.set(true);
+    const docentes = this.state.docentes();
+    const payload = {
+      Facultades: facultades.map(f => ({ id: f.id, nombre: f.nombre })),
+      Programas: programas.map(p => ({ id: p.id, nombre: p.nombre, facultadId: p.facultadId })),
+      Docentes: docentes.map(d => ({ id: d.id, nombre: d.nombre, cedula: d.cedula, maxHoras: d.maxHoras })),
+      Asignaturas: asignaturas.map(a => ({
+        id: a.id, nombre: a.nombre, codigo: a.codigo,
+        horasPorSesion: a.horasPorSesion, sesionesPorSemana: a.sesionesPorSemana,
+        sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
+        alternancia: a.alternancia, programaId: a.programaId,
+        grupoNumero: a.grupoNumero,
+        docenteId: a.docenteId ?? null
+      })),
+    };
+
+    this.persistencia.importarCurriculum(payload).subscribe({
+      next: (result: ImportResult) => {
+        const facultadIdMap = new Map(result.facultades.map(m => [m.tempId, m.newId]));
+        const programaIdMap = new Map(result.programas.map(m => [m.tempId, m.newId]));
+        const asignaturaIdMap = new Map(result.asignaturas.map(m => [m.tempId, m.newId]));
+        const docenteIdMap = new Map((result.docentes ?? []).map(m => [m.tempId, m.newId]));
+
+        const facultadesActualizadas = this.state.facultades().map(f => ({
+          ...f,
+          id: facultadIdMap.get(f.id) ?? f.id
+        }));
+
+        const programasActualizados = this.state.programas().map(p => ({
+          ...p,
+          id: programaIdMap.get(p.id) ?? p.id,
+          facultadId: facultadIdMap.get(p.facultadId) ?? p.facultadId
+        }));
+
+        const docentesActualizados = this.state.docentes().map(d => ({
+          ...d,
+          id: docenteIdMap.get(d.id) ?? d.id
+        }));
+
+        const asignaturasActualizadas = this.state.asignaturas().map(a => ({
+          ...a,
+          id: asignaturaIdMap.get(a.id) ?? a.id,
+          programaId: programaIdMap.get(a.programaId) ?? a.programaId,
+          docenteId: a.docenteId ? (docenteIdMap.get(a.docenteId) ?? a.docenteId) : a.docenteId
+        }));
+
+        this.state.facultades.set(facultadesActualizadas);
+        this.state.programas.set(programasActualizados);
+        this.state.docentes.set(docentesActualizados);
+        this.state.setAsignaturas(asignaturasActualizadas);
+
+        this.cargarDesdeBD();
+        this.saving.set(false);
+        this.snackBar.open(
+          `${asignaturas.length} asignatura(s) importadas. ` +
+          `IDs sincronizados (A:${result.summary.asignaturas}, G:${result.summary.grupos}).`,
+          'Cerrar',
+          { duration: 5000 }
+        );
+      },
+      error: (err) => {
+        this.saving.set(false);
+        this.snackBar.open(`Error al importar: ${err?.error || err?.message || 'desconocido'}`, 'Cerrar', { duration: 5000 });
+      }
+    });
+  }
+
+  cargarDesdeBD() {
+    this.saving.set(true);
+    forkJoin({
+      facultades:  this.persistencia.cargarFacultades(),
+      programas:   this.persistencia.cargarProgramas(),
+      asignaturas: this.persistencia.cargarAsignaturas(),
+      docentes:    this.persistencia.cargarDocentes()
+    }).subscribe({
+      next: ({ facultades, programas, asignaturas, docentes }) => {
+        this.saving.set(false);
+
+        this.state.facultades.set(facultades.map((f: any) => ({ id: f.id, nombre: f.nombre })));
+        this.state.programas.set(programas.map((p: any) => ({ id: p.id, nombre: p.nombre, facultadId: p.facultadId })));
+        this.state.docentes.set(docentes.map((d: any) => ({
+          id: d.id, nombre: d.nombre, cedula: d.cedula ?? '',
+          maxHoras: d.maxHoras ?? 40, disponibilidad: d.disponibilidad ?? {}
+        })));
+
+        this.bdIds = new Set(asignaturas.map((a: any) => a.id as string));
+        const mapped: Asignatura[] = asignaturas.map((a: any) => ({
+          id: a.id,
+          nombre: a.nombre,
+          codigo: a.codigo,
+          horasPorSesion: a.horasPorSesion,
+          sesionesPorSemana: a.sesionesPorSemana,
+          sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
+          alternancia: a.alternancia ?? 'SinAlternancia',
+          programaId: a.programaId,
+          docenteId: a.docenteId ?? undefined
+        }));
+        this.state.setAsignaturas(mapped);
+
+        this.snackBar.open(
+          `${asignaturas.length} asignatura(s) · ${docentes.length} docente(s) cargados desde la BD.`,
+          'Cerrar', { duration: 4000 }
+        );
+      },
+      error: () => {
+        this.saving.set(false);
+        this.snackBar.open('Error al cargar desde la BD.', 'Cerrar', { duration: 4000 });
+      }
+    });
   }
 }
 
@@ -473,7 +508,6 @@ export class AsignaturaDialogComponent {
   espacios = this.state.espacios();
   programasFiltrados: Programa[] = [];
 
-  // Pre-select facultad from existing data
   private currentFacultadId: string = '';
 
   form = this.fb.group({
@@ -492,7 +526,6 @@ export class AsignaturaDialogComponent {
   });
 
   constructor() {
-    // If editing, restore facultad selection
     if (this.data?.programaId) {
       const prog = this.state.getProgramaById(this.data.programaId);
       if (prog) {
@@ -531,7 +564,6 @@ export class AsignaturaDialogComponent {
     if (!this.canSave()) return;
     const v = this.form.value;
 
-    // Resolve or create facultad
     let facultadId = v.facultadId!;
     if (facultadId === '__nueva__') {
       const fac: Facultad = { id: crypto.randomUUID(), nombre: v.nuevaFacultad! };
@@ -539,7 +571,6 @@ export class AsignaturaDialogComponent {
       facultadId = fac.id;
     }
 
-    // Resolve or create programa
     let programaId = v.programaId!;
     if (programaId === '__nuevo__') {
       const prog: Programa = { id: crypto.randomUUID(), nombre: v.nuevoPrograma!, facultadId };

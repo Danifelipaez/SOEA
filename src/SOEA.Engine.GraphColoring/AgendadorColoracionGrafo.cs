@@ -4,10 +4,18 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SOEA.Domain.Entities;
+using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.Services;
 
 namespace SOEA.Engine.GraphColoring
 {
+    /// <summary>
+    /// Fase 1 — Welsh-Powell duration-aware.
+    /// Asigna a cada sesión un span [startIdx, startIdx+DuracionHoras) que no
+    /// cruza día y no colisiona con los spans de vecinos del grafo de conflictos.
+    /// La salida sirve como warm-start para CP-SAT (no es vinculante).
+    /// </summary>
     public class AgendadorColoracionGrafo : IMotorColoracionGrafo
     {
         private readonly ConstructorGrafoConflictos _constructorGrafo;
@@ -21,84 +29,92 @@ namespace SOEA.Engine.GraphColoring
 
         public Task<IEnumerable<Sesion>> AsignarBloquesDeTiempoAsync(IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloquesDisponibles)
         {
-            // Ejecutar el algoritmo computacionalmente intensivo de forma asíncrona si la cantidad es alta, o retornar con Task.FromResult
             var resultado = AsignarBloquesSincrono(sesiones.ToList(), bloquesDisponibles.ToList());
             return Task.FromResult<IEnumerable<Sesion>>(resultado);
         }
 
-        private List<Sesion> AsignarBloquesSincrono(List<Sesion> sesiones, List<BloqueTiempo> bloquesDisponibles)
+        private List<Sesion> AsignarBloquesSincrono(List<Sesion> sesiones, List<BloqueTiempo> bloques)
         {
-            if (!sesiones.Any() || !bloquesDisponibles.Any())
+            if (!sesiones.Any() || !bloques.Any())
             {
-                _logger.LogWarning("No hay sesiones o bloques de tiempo disponibles para procesar.");
+                _logger.LogWarning("No hay sesiones o bloques disponibles para procesar.");
                 return sesiones;
             }
 
-            _logger.LogInformation("Iniciando algoritmo Welsh-Powell para agendar {CantidadSesiones} sesiones con {CantidadBloques} bloques disponibles.", sesiones.Count, bloquesDisponibles.Count);
+            _logger.LogInformation(
+                "Welsh-Powell duration-aware: {S} sesiones, {B} bloques.",
+                sesiones.Count, bloques.Count);
 
-            // 1. Construir grafo de conflictos
-            _logger.LogInformation("Construyendo grafo de conflictos...");
+            // 1. Grafo de conflictos (estructural: comparten docente o espacio)
             var grafo = _constructorGrafo.Construir(sesiones);
 
-            // 2. Ordenar nodos (sesiones) por grado (cantidad de conflictos) en orden descendente.
-            // Esto cumple con la heurística de Welsh-Powell para priorizar lo más restrictivo.
+            // 2. Helpers de planeación temporal
+            var rangosPorDia = BloquesPlanner.RangosPorDia(bloques);
+            var diaPorIdx    = BloquesPlanner.DiaPorBloqueIdx(bloques);
+
+            // 3. Pre-calcular duración por sesión y starts candidatos (que caben en algún día)
+            var duraciones = new Dictionary<Guid, int>();
+            var startsValidosPorSesion = new Dictionary<Guid, int[]>();
+            foreach (var s in sesiones)
+            {
+                int dur = Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
+                duraciones[s.Id] = dur;
+                startsValidosPorSesion[s.Id] = BloquesPlanner
+                    .StartsValidos(dur, bloques.Count, rangosPorDia, diaPorIdx, bloquesDisponibles: null)
+                    .ToArray();
+            }
+
+            // 4. Orden Welsh-Powell: grado DESC, romper empates por duración DESC.
             var sesionesOrdenadas = sesiones
                 .OrderByDescending(s => grafo[s.Id].Count)
+                .ThenByDescending(s => s.DuracionHoras)
                 .ToList();
-
-            var diccionarioBloques = bloquesDisponibles.ToDictionary(b => b.Id);
-            var bloquesIds = bloquesDisponibles.Select(b => b.Id).ToList();
-            
-            // Estructura para mapeo rápido en memoria O(1)
-            var asignaciones = new Dictionary<Guid, Guid>();
-
-            _logger.LogInformation("Iniciando coloreado de nodos (sesiones)...");
-            int asignadas = 0;
-            int enConflicto = 0;
-
-            // 3. Coloreado
+            // 5. Coloreado: para cada sesión, buscar el primer start cuyo span
+            //    no intersecte el span de ningún vecino ya colocado.
+            var bloquesOcupadosPorSesion = new Dictionary<Guid, HashSet<int>>();
+            int asignadas = 0, enConflicto = 0;
             foreach (var sesion in sesionesOrdenadas)
             {
-                var conflictos = grafo[sesion.Id];
+                int dur = duraciones[sesion.Id];
+                var vecinos = grafo[sesion.Id];
 
-                // Obtener colores (Bloques) ya usados por los vecinos de la sesión actual
-                var bloquesUsadosPorVecinos = new HashSet<Guid>();
-                foreach (var vecinoId in conflictos)
+                // Unir todos los índices ocupados por los vecinos ya coloreados.
+                var bloqueado = new HashSet<int>();
+                foreach (var vId in vecinos)
                 {
-                    if (asignaciones.TryGetValue(vecinoId, out var bloqueUsado))
-                    {
-                        bloquesUsadosPorVecinos.Add(bloqueUsado);
-                    }
+                    if (bloquesOcupadosPorSesion.TryGetValue(vId, out var ocupados))
+                        bloqueado.UnionWith(ocupados);
                 }
 
-                // Asignar el primer bloque de tiempo disponible (First Available TimeSlot)
-                Guid? bloqueAsignado = null;
-                foreach (var bloqueId in bloquesIds)
+                int? startAsignado = null;
+                foreach (var start in startsValidosPorSesion[sesion.Id])
                 {
-                    if (!bloquesUsadosPorVecinos.Contains(bloqueId))
+                    bool libre = true;
+                    for (int k = 0; k < dur; k++)
                     {
-                        bloqueAsignado = bloqueId;
-                        break;
+                        if (bloqueado.Contains(start + k)) { libre = false; break; }
                     }
+                    if (libre) { startAsignado = start; break; }
                 }
 
-                if (bloqueAsignado.HasValue)
+                if (startAsignado.HasValue)
                 {
-                    asignaciones[sesion.Id] = bloqueAsignado.Value;
-                    sesion.AsignarBloqueTiempo(bloqueAsignado.Value);
+                    var ocupa = new HashSet<int>();
+                    for (int k = 0; k < dur; k++) ocupa.Add(startAsignado.Value + k);
+                    bloquesOcupadosPorSesion[sesion.Id] = ocupa;
+                    sesion.AsignarBloqueTiempo(bloques[startAsignado.Value].Id);
                     asignadas++;
                 }
                 else
                 {
-                    // Si no hay bloques disponibles para esta sesión, la marcamos como Conflicto.
-                    // Será tratada posteriormente por la Fase 2 (CP-SAT)
-                    sesion.MarcarConConflicto("No se encontró un bloque de tiempo sin conflictos de Docente, Espacio o Asignatura.");
+                    sesion.MarcarConConflicto("No se encontró un span de bloques sin conflictos para la duración requerida.");
                     enConflicto++;
                 }
             }
 
-            _logger.LogInformation("Asignación de bloques de tiempo (Coloración) completada.");
-            _logger.LogInformation("Resultados: {Asignadas} sesiones asignadas exitosamente, {EnConflicto} sesiones sin bloque asignado (marcado en Conflicto).", asignadas, enConflicto);
+            _logger.LogInformation(
+                "Coloreado completado: {A} asignadas, {C} en conflicto (CP-SAT las re-evaluará).",
+                asignadas, enConflicto);
 
             return sesiones;
         }
