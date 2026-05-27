@@ -33,7 +33,7 @@ namespace SOEA.Infrastructure.Data.Repositories
         public async Task<T?> GetByIdAsync(Guid id)
             => await _dbSet.FindAsync(id);
 
-        public async Task<List<T>> GetAllAsync()
+        public virtual async Task<List<T>> GetAllAsync()
             => await _dbSet.ToListAsync();
 
         public async Task UpdateAsync(T entity)

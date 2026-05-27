@@ -19,6 +19,10 @@ namespace SOEA.Domain.Entities
         public List<FranjaHoraria> Disponibilidad { get; private set; } = new();
         /// <summary>Bloques de tiempo en los que el docente ya tiene clases (extraídos del horario existente).</summary>
         public List<BloqueTiempo> BloquesDisponibles { get; private set; } = new();
+        /// <summary>Cédula de identidad del docente (dato de la UI, no requerido para el motor).</summary>
+        public string? CedulaIdentidad { get; private set; }
+        /// <summary>JSON crudo con la disponibilidad por día ingresada desde la UI del piloto.</summary>
+        public string? DisponibilidadUiJson { get; private set; }
 
         // Constructor privado para EF Core
         private Docente() : base() { }
@@ -44,6 +48,16 @@ namespace SOEA.Domain.Entities
         /// Nombre completo del docente (propiedad calculada).
         /// </summary>
         public string NombreCompleto => $"{Nombre} {Apellido}";
+
+        /// <summary>
+        /// Almacena la cédula y la disponibilidad en formato JSON (datos del piloto UI).
+        /// No valida formato de JSON; la UI es responsable de la consistencia.
+        /// </summary>
+        public void ActualizarPersistenciaUi(string? cedula, string? disponibilidadJson)
+        {
+            CedulaIdentidad = cedula;
+            DisponibilidadUiJson = disponibilidadJson;
+        }
 
         /// <summary>
         /// Actualiza los datos editables del docente.

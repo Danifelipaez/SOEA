@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed } from '@angular/core';
+import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule, MatDialog, MatDialogRef } from '@angular/material/dialog';
@@ -13,11 +13,21 @@ import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { Espacio, Sesion } from '../../core/models';
 
-/**
- * Celda única en la matriz (día × franja).
- * CDK DragDrop necesita que todos los drop-lists se conozcan entre sí:
- * usamos [cdkDropListConnectedTo] con los IDs del resto de celdas.
- */
+/** Representación visual de una sesión atómica multi-slot. */
+interface MergedSesion {
+  key: string;
+  sesiones: Sesion[];     // siempre length=1 con el nuevo backend; se conserva la forma para drag-drop
+  dia: string;
+  horaInicio: string;
+  horaFin: string;
+  duracionSlots: number;
+  virtual: boolean;
+  alternancia: string;
+  asignaturaId: string;
+  docenteId: string;
+  espacioId?: string;
+}
+
 @Component({
   selector: 'app-horario',
   standalone: true,
@@ -57,41 +67,45 @@ import { Espacio, Sesion } from '../../core/models';
             <tbody>
               <tr *ngFor="let franja of franjas">
                 <td class="time-cell">{{ franja }}</td>
-                <td *ngFor="let dia of dias"
-                    class="matrix-cell"
-                    [class.out-of-hours]="isOutOfHours(dia, franja)">
+                <ng-container *ngFor="let dia of dias">
+                  <td *ngIf="!isCoveredByMergedPrior(dia, franja)"
+                      class="matrix-cell"
+                      [attr.rowspan]="getMergedRowspan(dia, franja)"
+                      [class.out-of-hours]="isOutOfHours(dia, franja)">
 
-                  <div class="cell-drop-zone"
-                       cdkDropList
-                       [id]="cellId(dia, franja)"
-                       [cdkDropListData]="{ dia: dia, franja: franja }"
-                       [cdkDropListConnectedTo]="allCellIds()"
-                       [cdkDropListDisabled]="isOutOfHours(dia, franja)"
-                       (cdkDropListDropped)="drop($event)">
+                    <div class="cell-drop-zone"
+                         cdkDropList
+                         [id]="cellId(dia, franja)"
+                         [cdkDropListData]="{ dia: dia, franja: franja }"
+                         [cdkDropListConnectedTo]="allCellIds()"
+                         [cdkDropListDisabled]="isOutOfHours(dia, franja)"
+                         (cdkDropListDropped)="drop($event)">
 
-                    <div class="session-card"
-                         *ngFor="let sesion of getCellSesiones(dia, franja)"
-                         cdkDrag
-                         [cdkDragData]="sesion"
-                         [cdkDragDisabled]="esTipoA(sesion)"
-                         [class.presencial]="!sesion.virtual"
-                         [class.virtual]="sesion.virtual"
-                         [class.tipo-a]="esTipoA(sesion)">
+                      <div class="session-card"
+                           *ngFor="let merged of getMergedCellSesiones(dia, franja)"
+                           cdkDrag
+                           [cdkDragData]="merged"
+                           [cdkDragDisabled]="esTipoA(merged)"
+                           [class.presencial]="!merged.virtual"
+                           [class.virtual]="merged.virtual"
+                           [class.tipo-a]="esTipoA(merged)">
 
-                      <div class="tipo-a-badge" *ngIf="esTipoA(sesion)">Tipo A</div>
-                      <div class="card-title">{{ getAsignaturaName(sesion) }}</div>
-                      <div class="card-sub">{{ getDocenteName(sesion) }}</div>
-                      <div class="card-badges">
-                        <span class="badge-virtual" *ngIf="sesion.virtual">Virtual</span>
-                        <span class="badge-alt" *ngIf="sesion.alternancia !== 'SinAlternancia'">{{ sesion.alternancia }}</span>
+                        <div class="tipo-a-badge" *ngIf="esTipoA(merged)">Tipo A</div>
+                        <div class="card-title">{{ getAsignaturaName(merged) }}</div>
+                        <div class="card-sub">{{ getDocenteName(merged) }}</div>
+                        <div class="card-duration">{{ merged.horaInicio }} – {{ merged.horaFin }}</div>
+                        <div class="card-badges">
+                          <span class="badge-virtual" *ngIf="merged.virtual">Virtual</span>
+                          <span class="badge-alt" *ngIf="merged.alternancia !== 'SinAlternancia'">{{ merged.alternancia }}</span>
+                        </div>
+
+                        <!-- Placeholder durante el arrastre -->
+                        <div *cdkDragPlaceholder class="drag-placeholder"></div>
                       </div>
 
-                      <!-- Placeholder durante el arrastre -->
-                      <div *cdkDragPlaceholder class="drag-placeholder"></div>
                     </div>
-
-                  </div>
-                </td>
+                  </td>
+                </ng-container>
               </tr>
             </tbody>
           </table>
@@ -132,7 +146,7 @@ import { Espacio, Sesion } from '../../core/models';
     .session-card {
       padding: 6px 8px; border-radius: 4px; text-align: left; font-size: 11px;
       cursor: grab; position: relative; box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-      user-select: none;
+      user-select: none; flex: 1;
     }
     .session-card.cdk-drag-animating { transition: transform 250ms cubic-bezier(0,0,0.2,1); }
     .session-card.cdk-drag-disabled { cursor: not-allowed; opacity: .85; }
@@ -146,9 +160,10 @@ import { Espacio, Sesion } from '../../core/models';
     .virtual    { background-color: #fafafa;  border-left: 4px solid #9e9e9e; }
     .tipo-a     { border-left-color: #f57c00; background-color: #fff8e1; }
 
-    .card-title { font-weight: 600; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .card-sub   { color: #616161; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .card-badges { display: flex; gap: 4px; margin-top: 3px; flex-wrap: wrap; }
+    .card-title    { font-weight: 600; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card-sub      { color: #616161; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card-duration { color: #9e9e9e; font-size: 10px; margin-top: 2px; }
+    .card-badges   { display: flex; gap: 4px; margin-top: 3px; flex-wrap: wrap; }
     .badge-virtual { padding: 1px 5px; background: #e0e0e0; border-radius: 10px; font-size: 9px; }
     .badge-alt     { padding: 1px 5px; background: #e3f2fd; color: #1565c0; border-radius: 10px; font-size: 9px; }
     .tipo-a-badge  { position: absolute; top: 2px; right: 2px; font-size: 9px; background: #ff9800; color: white; padding: 1px 4px; border-radius: 2px; }
@@ -167,7 +182,7 @@ export class HorarioComponent {
   dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
   franjas = [
     '06:00','07:00','08:00','09:00','10:00','11:00','12:00',
-    '13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','20:30'
+    '13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'
   ];
 
   activeSpace = signal<Espacio | null>(null);
@@ -179,13 +194,103 @@ export class HorarioComponent {
 
   selectSpace(esp: Espacio) { this.activeSpace.set(esp); }
 
+  // ── Merged session computation ────────────────────────────────────────────────
+
+  /**
+   * Cada sesión es atómica y trae su duración real desde el backend.
+   * `duracionSlots` proviene de `sesion.duracionHoras` (1, 2, 3 horas, ...).
+   * Si por error vinieran dos sesiones consecutivas legítimas, se renderizan como
+   * cards separados — NO se fusionan (eso era el bug visual viejo).
+   */
+  private computeMergedMap(spaceId: string | undefined, allSesiones: Sesion[]): Map<string, MergedSesion[]> {
+    const map = new Map<string, MergedSesion[]>();
+
+    const visible = allSesiones.filter(s => s.virtual || s.espacioId === spaceId);
+
+    for (const s of visible) {
+      const dur = Math.max(1, Math.round(s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin)));
+      const merged: MergedSesion = {
+        key:           s.id,
+        sesiones:      [s],
+        dia:           s.dia,
+        horaInicio:    s.horaInicio,
+        horaFin:       s.horaFin,
+        duracionSlots: dur,
+        virtual:       s.virtual,
+        alternancia:   s.alternancia,
+        asignaturaId:  s.asignaturaId,
+        docenteId:     s.docenteId,
+        espacioId:     s.espacioId,
+      };
+      const cid = this.cellId(s.dia, s.horaInicio);
+      if (!map.has(cid)) map.set(cid, []);
+      map.get(cid)!.push(merged);
+    }
+
+    return map;
+  }
+
+  private diffHoras(horaInicio: string, horaFin: string): number {
+    const [hi, mi] = horaInicio.split(':').map(Number);
+    const [hf, mf] = horaFin.split(':').map(Number);
+    return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60);
+  }
+
+  /**
+   * Devuelve true si la sesión `s` ocupa la franja dada, es decir,
+   * si franja ∈ [s.horaInicio, s.horaInicio + duracionHoras).
+   * Usar en conflictos de drag & drop en lugar de `s.horaInicio === franja`.
+   */
+  private sesionOcupaFranja(s: Sesion, franja: string): boolean {
+    const startIdx  = this.franjas.indexOf(s.horaInicio);
+    if (startIdx < 0) return false;
+    const dur       = Math.max(1, Math.round(s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin)));
+    const franjaIdx = this.franjas.indexOf(franja);
+    return franjaIdx >= startIdx && franjaIdx < startIdx + dur;
+  }
+
+  mergedByCell = computed(() =>
+    this.computeMergedMap(this.activeSpace()?.id, this.state.sesiones())
+  );
+
+  /** Set of cellIds that are "swallowed" by a prior rowspan and must not render a <td>. */
+  coveredCells = computed(() => {
+    const covered = new Set<string>();
+    for (const mergedList of this.mergedByCell().values()) {
+      for (const m of mergedList) {
+        if (m.duracionSlots <= 1) continue;
+        const startIdx = this.franjas.indexOf(m.horaInicio);
+        for (let k = 1; k < m.duracionSlots; k++) {
+          const idx = startIdx + k;
+          if (idx < this.franjas.length) {
+            covered.add(this.cellId(m.dia, this.franjas[idx]));
+          }
+        }
+      }
+    }
+    return covered;
+  });
+
+  getMergedCellSesiones(dia: string, franja: string): MergedSesion[] {
+    return this.mergedByCell().get(this.cellId(dia, franja)) ?? [];
+  }
+
+  isCoveredByMergedPrior(dia: string, franja: string): boolean {
+    return this.coveredCells().has(this.cellId(dia, franja));
+  }
+
+  getMergedRowspan(dia: string, franja: string): number {
+    const merged = this.getMergedCellSesiones(dia, franja);
+    if (merged.length === 0) return 1;
+    return Math.max(...merged.map(m => m.duracionSlots));
+  }
+
   // ── Helpers de celda ─────────────────────────────────────────────────────────
 
   cellId(dia: string, franja: string): string {
     return `cell-${dia}-${franja.replace(':', '')}`;
   }
 
-  /** Lista de todos los IDs de celdas habilitadas (para conectar drop-lists entre sí). */
   allCellIds(): string[] {
     const ids: string[] = [];
     for (const dia of this.dias) {
@@ -197,112 +302,112 @@ export class HorarioComponent {
   }
 
   isOutOfHours(dia: string, franja: string): boolean {
-    if (dia === 'sabado' && this.franjas.indexOf(franja) >= this.franjas.indexOf('14:00')) return true;
+    if (dia === 'sabado' && this.franjas.indexOf(franja) >= this.franjas.indexOf('13:00')) return true;
     return false;
   }
 
-  getCellSesiones(dia: string, franja: string): Sesion[] {
-    const spaceId = this.activeSpace()?.id;
-    return this.state.sesiones().filter(s =>
-      s.espacioId === spaceId && s.dia === dia && s.horaInicio === franja
-    );
+  esTipoA(merged: MergedSesion): boolean {
+    return merged.alternancia === 'TipoA';
   }
 
-  esTipoA(sesion: Sesion): boolean {
-    return sesion.alternancia === 'TipoA';
-  }
-
-  getAsignaturaName(sesion: Sesion): string {
-    const a = this.state.asignaturas().find(x => x.id === sesion.asignaturaId);
+  getAsignaturaName(merged: MergedSesion): string {
+    const a = this.state.asignaturas().find(x => x.id === merged.asignaturaId);
     return a?.nombre ?? 'Desconocida';
   }
 
-  getDocenteName(sesion: Sesion): string {
-    const d = this.state.docentes().find(x => x.id === sesion.docenteId);
+  getDocenteName(merged: MergedSesion): string {
+    const d = this.state.docentes().find(x => x.id === merged.docenteId);
     return d?.nombre ?? '';
   }
 
   // ── Drag & Drop ──────────────────────────────────────────────────────────────
 
-  /**
-   * El evento trae:
-   *  - previousContainer.data  → { dia, franja } origen
-   *  - container.data           → { dia, franja } destino
-   *  - item.data                → la Sesion arrastrada
-   *
-   * Aplicamos la actualización directamente al signal de sesiones para
-   * que Angular detecte el cambio y la vista se actualice.
-   */
   drop(event: CdkDragDrop<{ dia: string; franja: string }>) {
-    const sesion: Sesion = event.item.data;
+    const merged: MergedSesion = event.item.data;
 
-    // Si se soltó en la misma celda, no hacer nada
     if (event.previousContainer === event.container) return;
-
-    // Tipo A: el arrastre ya está bloqueado por cdkDragDisabled, pero por seguridad:
-    if (this.esTipoA(sesion)) return;
+    if (this.esTipoA(merged)) return;
 
     const targetDia    = event.container.data.dia;
     const targetFranja = event.container.data.franja;
 
-    // Validar disponibilidad del docente
-    const docente = this.state.docentes().find(d => d.id === sesion.docenteId);
+    // Validate docente availability — verificar que TODA la duración cabe en la ventana
+    const docente = this.state.docentes().find(d => d.id === merged.docenteId);
     if (docente && docente.disponibilidad) {
       const diaDisp = docente.disponibilidad[targetDia];
       if (diaDisp?.noDisponible) {
         this.snackBar.open(
           `El docente no tiene disponibilidad el ${targetDia}.`,
-          'Cerrar',
-          { duration: 4000, panelClass: ['snack-error'] }
+          'Cerrar', { duration: 4000, panelClass: ['snack-error'] }
         );
         return;
       }
-      // Validar franja horaria si el docente tiene franja específica
       if (diaDisp?.tipo === 'Franja específica') {
-        const horaInt = parseInt(targetFranja.replace(':', ''), 10);
-        const desde   = parseInt((diaDisp.desde ?? '00:00').replace(':', ''), 10);
-        const hasta   = parseInt((diaDisp.hasta ?? '23:59').replace(':', ''), 10);
-        if (horaInt < desde || horaInt >= hasta) {
+        const toMin  = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+        const startMin = toMin(targetFranja);
+        const endMin   = startMin + merged.duracionSlots * 60;
+        const desdeMin = toMin(diaDisp.desde ?? '00:00');
+        const hastaMin = toMin(diaDisp.hasta ?? '23:59');
+        if (startMin < desdeMin || endMin > hastaMin) {
           this.snackBar.open(
-            `El docente solo está disponible de ${diaDisp.desde} a ${diaDisp.hasta} el ${targetDia}.`,
-            'Cerrar',
-            { duration: 4000, panelClass: ['snack-error'] }
+            `El docente solo está disponible de ${diaDisp.desde} a ${diaDisp.hasta} el ${targetDia} y la sesión (${merged.duracionSlots}h) no cabe en esa ventana.`,
+            'Cerrar', { duration: 4000, panelClass: ['snack-error'] }
           );
           return;
         }
       }
     }
 
-    // Detectar colisión de espacio: ¿hay otra sesión no-virtual del mismo tipo de alternancia en la celda destino?
+    // Validate that all slots the merged block would occupy are free and in-bounds.
+    // sesionOcupaFranja() verifica el span completo [horaInicio, horaInicio+dur),
+    // no solo el inicio — así detectamos colisiones con sesiones de 2-3 h que cubren la franja.
     const spaceId = this.activeSpace()?.id;
-    const conflict = this.state.sesiones().find(s =>
-      s.id !== sesion.id &&
-      s.espacioId === spaceId &&
-      s.dia === targetDia &&
-      s.horaInicio === targetFranja &&
-      !s.virtual &&
-      (s.alternancia === sesion.alternancia || s.alternancia === 'SinAlternancia' || sesion.alternancia === 'SinAlternancia')
-    );
-    if (conflict) {
-      this.snackBar.open(
-        'Conflicto: el espacio ya está ocupado en esa franja para el mismo tipo de alternancia.',
-        'Cerrar',
-        { duration: 4000, panelClass: ['snack-error'] }
+    const targetStartIdx = this.franjas.indexOf(targetFranja);
+    for (let k = 0; k < merged.duracionSlots; k++) {
+      const checkFranja = this.franjas[targetStartIdx + k];
+      if (!checkFranja) {
+        this.snackBar.open('La sesión no cabe en ese horario (se saldría del límite).', 'Cerrar', { duration: 4000, panelClass: ['snack-error'] });
+        return;
+      }
+      const conflict = this.state.sesiones().find(s =>
+        !merged.sesiones.some(ms => ms.id === s.id) &&
+        s.espacioId === spaceId &&
+        s.dia === targetDia &&
+        this.sesionOcupaFranja(s, checkFranja) &&
+        !s.virtual &&
+        (s.alternancia === merged.alternancia || s.alternancia === 'SinAlternancia' || merged.alternancia === 'SinAlternancia')
       );
-      return;
+      if (conflict) {
+        this.snackBar.open(
+          'Conflicto: el espacio ya está ocupado en esa franja para el mismo tipo de alternancia.',
+          'Cerrar', { duration: 4000, panelClass: ['snack-error'] }
+        );
+        return;
+      }
     }
 
-    // Aplicar movimiento
-    const updated: Sesion = { ...sesion, dia: targetDia, horaInicio: targetFranja };
-    this.state.updateSesion(updated);
+    // La sesión es atómica: mover su inicio y recalcular su fin desde la duración.
+    const sesion = merged.sesiones[0];
+    const newStart = this.franjas[targetStartIdx];
+    const endIdx   = targetStartIdx + merged.duracionSlots;
+    const newEnd   = endIdx < this.franjas.length
+      ? this.franjas[endIdx]
+      : this.addHours(newStart, merged.duracionSlots);
+    this.state.updateSesion({ ...sesion, dia: targetDia, horaInicio: newStart, horaFin: newEnd });
+
     this.snackBar.open('Sesión movida correctamente.', '', { duration: 2000 });
+  }
+
+  private addHours(franja: string, horas: number): string {
+    const [h, m] = franja.split(':').map(Number);
+    return `${String(h + horas).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
   // ── Generación de horario ────────────────────────────────────────────────────
 
   generarHorario() {
-    if (this.state.asignaturas().length === 0 || this.state.espacios().length === 0) {
-      this.snackBar.open('Carga asignaturas y espacios antes de generar el horario.', 'Cerrar', { duration: 4000 });
+    if (this.state.asignaturas().length === 0 || this.state.espacios().length === 0 || this.state.docentes().length === 0) {
+      this.snackBar.open('Carga asignaturas, docentes y espacios antes de generar el horario.', 'Cerrar', { duration: 4000 });
       return;
     }
 
@@ -312,7 +417,8 @@ export class HorarioComponent {
       .generarHorario(
         this.state.asignaturas(),
         this.state.docentes(),
-        this.state.espacios()
+        this.state.espacios(),
+        this.state.configuracionAlgoritmo()
       )
       .subscribe({
         next: (respuesta) => {
@@ -378,6 +484,16 @@ export class HorarioComponent {
     .icon-done, .icon-pending { font-weight: bold; width: 20px; text-align: center; }
   `]
 })
-export class ProgressDialogComponent {
+export class ProgressDialogComponent implements OnInit, OnDestroy {
   phase = 1;
+  private timers: ReturnType<typeof setTimeout>[] = [];
+
+  ngOnInit() {
+    this.timers.push(setTimeout(() => { if (this.phase === 1) this.phase = 2; }, 2000));
+    this.timers.push(setTimeout(() => { if (this.phase === 2) this.phase = 3; }, 10000));
+  }
+
+  ngOnDestroy() {
+    this.timers.forEach(t => clearTimeout(t));
+  }
 }

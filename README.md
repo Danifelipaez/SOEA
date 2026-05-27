@@ -1,3 +1,5 @@
+> **Para contexto de desarrollo:** ver CLAUDE.md. Docs técnicos en docs/.
+
 # SOEA — Sistema de Optimización de Espacios Académicos
 
 SOEA es un sistema de horario académico universitario (UCTP) diseñado para automatizar y optimizar la programación académica de instituciones colombianas que siguen el modelo de alternancia (híbrido). Combina un backend basado en un **monolito modular con Clean Architecture en .NET** con un frontend en **Angular** y un motor de optimización de tres fases (Graph Coloring → Constraint Programming → Genetic Algorithm).
@@ -186,3 +188,4 @@ Puedes verificar y ejecutar el sistema localmente utilizando la CLI de .NET:
     > "Usando `docs/business-rules/hard-constraints.md`, implementa el validador de restricciones duras en `SOEA.Engine.ConstraintProg`."
 3. **Trabaja en pasos pequeños y enfocados**: un caso de uso, una entidad o una restricción a la vez.
 4. **Mantén consistente la terminología del dominio** entre la documentación y el código (ver `docs/requirements/glossary.md`).
+

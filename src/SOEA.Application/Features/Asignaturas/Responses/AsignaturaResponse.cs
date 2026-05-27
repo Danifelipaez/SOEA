@@ -12,5 +12,6 @@ namespace SOEA.Application.Features.Asignaturas.Responses
         public int SesionesLaboratorioSemestre { get; set; }
         public TipoAlternancia Alternancia { get; set; }
         public Guid ProgramaId { get; set; }
+        public Guid? DocenteId { get; set; }
     }
 }

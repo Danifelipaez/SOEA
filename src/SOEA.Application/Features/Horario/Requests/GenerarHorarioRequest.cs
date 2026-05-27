@@ -14,6 +14,24 @@ namespace SOEA.Application.Features.Horario.Requests
         public List<AsignaturaDto> Asignaturas { get; set; } = new();
         public List<DocenteDto>    Docentes    { get; set; } = new();
         public List<EspacioDto>    Espacios    { get; set; } = new();
+
+        /// <summary>
+        /// Parámetros del algoritmo genético y pesos de soft constraints.
+        /// Null = usar valores por defecto del motor.
+        /// </summary>
+        public ConfiguracionAlgoritmoDto? Configuracion { get; set; }
+    }
+
+    public class ConfiguracionAlgoritmoDto
+    {
+        public int    TamañoPoblacion      { get; set; } = 50;
+        public int    MaxGeneraciones      { get; set; } = 200;
+        public double ProbabilidadMutacion { get; set; } = 0.05;
+        public double ProbabilidadCruce    { get; set; } = 0.80;
+        public int    UmbralConvergencia   { get; set; } = 30;
+        public int    PesoErgo             { get; set; } = 3;
+        public int    PesoTiempos          { get; set; } = 2;
+        public int    PesoAlmuerzo         { get; set; } = 1;
     }
 
     public class AsignaturaDto
@@ -21,9 +39,13 @@ namespace SOEA.Application.Features.Horario.Requests
         public string Id           { get; set; } = string.Empty;
         public string Nombre       { get; set; } = string.Empty;
         public string? DocenteId   { get; set; }
-        public int    Creditos     { get; set; }
+        public int?    Creditos     { get; set; }
         /// <summary>Horas semanales totales a asignar.</summary>
-        public decimal HorasSemanales { get; set; }
+        public decimal? HorasSemanales { get; set; }
+        /// <summary>Duración de cada sesión en horas (2 o 3). Null = no enviado (usar fallback).</summary>
+        public int? HorasPorSesion  { get; set; }
+        /// <summary>Número de sesiones por semana. Null = no enviado (derivar de HorasSemanales).</summary>
+        public int? SesionesPorSemana { get; set; }
         public string? ProgramaId  { get; set; }
         public string? Alternancia { get; set; }
         public bool   EsVirtual    { get; set; }
@@ -33,9 +55,11 @@ namespace SOEA.Application.Features.Horario.Requests
     {
         public string Id     { get; set; } = string.Empty;
         public string Nombre { get; set; } = string.Empty;
+        /// <summary>Maximo de horas semanales contratadas.</summary>
+        public decimal? MaxHoras { get; set; }
         /// <summary>
         /// Disponibilidad por día: clave = nombre del día (lunes, martes, …).
-        /// Valor = objeto con campos: noDisponible (bool), tipo, desde, hasta.
+        /// Valor = objeto con campos: noDisponible (bool), tipo, franjaGeneral, desde, hasta.
         /// </summary>
         public Dictionary<string, DisponibilidadDiaDto> Disponibilidad { get; set; } = new();
     }
@@ -44,6 +68,7 @@ namespace SOEA.Application.Features.Horario.Requests
     {
         public bool    NoDisponible { get; set; }
         public string? Tipo         { get; set; }
+        public string? FranjaGeneral { get; set; }
         public string? Desde        { get; set; }
         public string? Hasta        { get; set; }
     }

@@ -49,6 +49,10 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasColumnName("programa_id")
                 .IsRequired();
 
+            builder.Property(a => a.DocenteId)
+                .HasColumnName("docente_id")
+                .IsRequired(false);
+
             // Indexes
             builder.HasIndex(a => new { a.Codigo, a.ProgramaId })
                 .IsUnique()

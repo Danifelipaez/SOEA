@@ -54,6 +54,10 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("codigo");
 
+                    b.Property<Guid?>("DocenteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("docente_id");
+
                     b.Property<int>("HorasPorSesion")
                         .HasColumnType("integer")
                         .HasColumnName("horas_por_sesion");
@@ -127,6 +131,11 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("apellido");
 
+                    b.Property<string>("CedulaIdentidad")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("cedula_identidad");
+
                     b.Property<string>("Correo")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -137,6 +146,10 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("disponibilidad");
+
+                    b.Property<string>("DisponibilidadUiJson")
+                        .HasColumnType("text")
+                        .HasColumnName("disponibilidad_ui_json");
 
                     b.Property<decimal>("MaximoHorasSemanales")
                         .HasPrecision(5, 2)

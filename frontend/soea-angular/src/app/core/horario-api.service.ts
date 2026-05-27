@@ -2,16 +2,27 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { Asignatura, Docente, Espacio, Sesion } from './models';
-import { StateService } from './state.service';
+import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Sesion } from './models';
 
 // ── Tipos del contrato con la API ──────────────────────────────────────────────
+
+export interface ConfiguracionAlgoritmoApiDto {
+  tamañoPoblacion:      number;
+  maxGeneraciones:      number;
+  probabilidadMutacion: number;
+  probabilidadCruce:    number;
+  umbralConvergencia:   number;
+  pesoErgo:             number;
+  pesoTiempos:          number;
+  pesoAlmuerzo:         number;
+}
 
 export interface GenerarHorarioRequest {
   semestre: string;
   asignaturas: AsignaturaApiDto[];
   docentes: DocenteApiDto[];
   espacios: EspacioApiDto[];
+  configuracion?: ConfiguracionAlgoritmoApiDto;
 }
 
 export interface AsignaturaApiDto {
@@ -20,6 +31,8 @@ export interface AsignaturaApiDto {
   docenteId?: string;
   creditos: number;
   horasSemanales: number;
+  horasPorSesion: number;
+  sesionesPorSemana: number;
   programaId?: string;
   alternancia?: string;
   esVirtual: boolean;
@@ -28,12 +41,14 @@ export interface AsignaturaApiDto {
 export interface DocenteApiDto {
   id: string;
   nombre: string;
+  maxHoras: number;
   disponibilidad: Record<string, DisponibilidadDiaDto>;
 }
 
 export interface DisponibilidadDiaDto {
   noDisponible: boolean;
   tipo?: string;
+  franjaGeneral?: string;
   desde?: string;
   hasta?: string;
 }
@@ -53,19 +68,8 @@ export interface GenerarHorarioResponse {
   generaciones: number;
   mensajeError?: string;
   logs?: string[];
-  sesiones: SesionApiDto[];
-}
-
-export interface SesionApiDto {
-  id: string;
-  asignaturaId: string;
-  docenteId: string;
-  espacioId?: string;
-  dia: string;
-  horaInicio: string;
-  horaFin: string;
-  alternancia: string;
-  virtual: boolean;
+  // alternancia llega como string desde JSON; mapearSesiones() lo castea al tipo unión
+  sesiones: (Omit<Sesion, 'alternancia'> & { alternancia: string })[];
 }
 
 // ── Servicio ───────────────────────────────────────────────────────────────────
@@ -86,16 +90,29 @@ export class HorarioApiService {
     asignaturas: Asignatura[],
     docentes: Docente[],
     espacios: Espacio[],
+    config?: ConfiguracionAlgoritmo,
     semestre = '2026-1'
   ): Observable<GenerarHorarioResponse> {
     const body: GenerarHorarioRequest = {
       semestre,
+      configuracion: config ? {
+        tamañoPoblacion:      config.pobSize,
+        maxGeneraciones:      config.maxGen,
+        probabilidadMutacion: config.mutRate,
+        probabilidadCruce:    config.crossRate,
+        umbralConvergencia:   30,
+        pesoErgo:             config.pesoErgo,
+        pesoTiempos:          config.pesoTiempos,
+        pesoAlmuerzo:         config.pesoAlm,
+      } : undefined,
       asignaturas: asignaturas.map(a => ({
         id: a.id,
         nombre: a.nombre,
         docenteId: a.docenteId,
-        creditos: a.sesionesPorSemana * a.horasPorSesion,
-        horasSemanales: a.horasPorSesion * a.sesionesPorSemana,
+        creditos: (a.sesionesPorSemana || 0) * (a.horasPorSesion || 0),
+        horasSemanales: (a.horasPorSesion || 0) * (a.sesionesPorSemana || 0),
+        horasPorSesion: a.horasPorSesion,
+        sesionesPorSemana: a.sesionesPorSemana,
         programaId: a.programaId,
         alternancia: a.alternancia,
         esVirtual: false
@@ -103,6 +120,7 @@ export class HorarioApiService {
       docentes: docentes.map(d => ({
         id: d.id,
         nombre: d.nombre,
+        maxHoras: d.maxHoras,
         disponibilidad: d.disponibilidad ?? {}
       })),
       espacios: espacios.map(e => ({
@@ -118,27 +136,35 @@ export class HorarioApiService {
       .pipe(catchError(this.manejarError));
   }
 
-  /** Mapea la respuesta del API al modelo Sesion[] del StateService. */
-  mapearSesiones(apiSesiones: SesionApiDto[]): Sesion[] {
-    return apiSesiones.map(s => ({
-      id: s.id,
-      asignaturaId: s.asignaturaId,
-      docenteId: s.docenteId,
-      dia: s.dia,
-      horaInicio: s.horaInicio,
-      horaFin: s.horaFin,
-      espacioId: s.espacioId,
-      virtual: s.virtual,
-      alternancia: (s.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia'
+  /** Castea el campo alternancia de string a la unión tipada. */
+  mapearSesiones(sesiones: GenerarHorarioResponse['sesiones']): Sesion[] {
+    return sesiones.map(s => ({
+      ...s,
+      duracionHoras: s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin),
+      alternancia: (s.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia',
     }));
   }
 
+  private diffHoras(horaInicio: string, horaFin: string): number {
+    const [hi, mi] = horaInicio.split(':').map(Number);
+    const [hf, mf] = horaFin.split(':').map(Number);
+    return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60);
+  }
+
   private manejarError(err: HttpErrorResponse): Observable<never> {
-    // Si el backend devolvió el DTO GenerarHorarioResponse (con status 422)
+    if (err.status === 400) {
+      const errors = err.error?.errors;
+      if (errors && typeof errors === 'object') {
+        const msgs = (Object.values(errors) as string[][]).flat().join('; ');
+        return throwError(() => new Error(msgs || 'Datos inválidos enviados al servidor.'));
+      }
+      const title = err.error?.title ?? err.error?.message ?? 'Solicitud inválida (400).';
+      return throwError(() => new Error(title));
+    }
+    // 422: backend devolvió GenerarHorarioResponse con EsFactible=false
     if (err.error && typeof err.error === 'object') {
       return throwError(() => err.error);
     }
-    const mensaje = err.message ?? 'Error desconocido al conectar con el API.';
-    return throwError(() => new Error(mensaje));
+    return throwError(() => new Error(err.message ?? 'Error desconocido al conectar con el API.'));
   }
 }
