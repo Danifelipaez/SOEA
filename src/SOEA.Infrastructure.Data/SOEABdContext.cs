@@ -10,6 +10,7 @@ namespace SOEA.Infrastructure.Data.Context
         public DbSet<Docente>    Docentes    { get; set; }
         public DbSet<Espacio>    Espacios    { get; set; }
         public DbSet<Sesion>     Sesiones    { get; set; }
+        public DbSet<AsignacionSemanal> AsignacionesSemanales { get; set; }
         public DbSet<BloqueTiempo> BloqueTiempos { get; set; }
         public DbSet<Horario>    Horarios    { get; set; }
         public DbSet<Grupo>      Grupos      { get; set; }
@@ -28,6 +29,7 @@ namespace SOEA.Infrastructure.Data.Context
             modelBuilder.ApplyConfiguration(new EspacioConfiguration());
             modelBuilder.ApplyConfiguration(new BloqueTiempoConfiguration());
             modelBuilder.ApplyConfiguration(new SesionConfiguration());
+            modelBuilder.ApplyConfiguration(new AsignacionSemanalConfiguration());
             modelBuilder.ApplyConfiguration(new HorarioConfiguration());
             modelBuilder.ApplyConfiguration(new GrupoConfiguration());
             modelBuilder.ApplyConfiguration(new FacultadConfiguration());

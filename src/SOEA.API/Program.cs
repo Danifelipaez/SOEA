@@ -35,6 +35,7 @@ builder.Services.AddDbContext<SOEABdContext>(options =>
 builder.Services.AddScoped<IAsignaturaRepositorio, AsignaturaRepository>();
 builder.Services.AddScoped<IHorarioRepositorio, HorarioRepositorio>();
 builder.Services.AddScoped<ISesionRepositorio, SesionRepositorio>();
+builder.Services.AddScoped<IAsignacionSemanalRepositorio, AsignacionSemanalRepositorio>();
 builder.Services.AddScoped<IDocenteRepositorio, DocenteRepositorio>();
 builder.Services.AddScoped<IEspacioRepositorio, EspacioRepositorio>();
 builder.Services.AddScoped<IGrupoRepositorio, GrupoRepositorio>();

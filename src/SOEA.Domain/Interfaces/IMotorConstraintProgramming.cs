@@ -6,10 +6,11 @@ namespace SOEA.Domain.Interfaces
 {
     /// <summary>
     /// Resultado de la Fase 2 (Constraint Programming).
+    /// Cada sesión lógica factible produce dos <see cref="AsignacionSemanal"/> (Semana A y B).
     /// </summary>
     public record ResultadoFactibilidad(
         bool EsFactible,
-        IReadOnlyList<Sesion> SesionesResueltas,
+        IReadOnlyList<AsignacionSemanal> Asignaciones,
         string MensajeError);
 
     /// <summary>

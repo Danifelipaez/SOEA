@@ -8,7 +8,12 @@
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
       "Bash(npx tsc *)",
-      "PowerShell(Set-Location 'D:\\\\__PracticasUniversitarias\\\\Visual studio code\\\\SOEA\\\\frontend\\\\soea-angular'; npx tsc --noEmit; echo \"EXIT=$LASTEXITCODE\")"
+      "PowerShell(Set-Location 'D:\\\\__PracticasUniversitarias\\\\Visual studio code\\\\SOEA\\\\frontend\\\\soea-angular'; npx tsc --noEmit; echo \"EXIT=$LASTEXITCODE\")",
+      "Bash(Get-ChildItem -Recurse -Path \"src/SOEA.Engine.ConstraintProg\" -File)",
+      "Bash(Select-Object FullName)",
+      "Bash(graphify query *)",
+      "Bash(xargs grep -l \"Modalidad\\\\|IntervaloTiempo\\\\|CodigoCohorte\\\\|CodigoEspacio\")",
+      "Bash(xargs wc -l)"
     ]
   }
 }

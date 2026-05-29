@@ -185,16 +185,17 @@ namespace SOEA.ConsoleRunner
                 var resultadoCP = await motorCP.ResolverFactibilidadAsync(
                     sesionesColoreadas, bloquesDisponibles, curriculum.Espacios, docentes);
 
-                IEnumerable<Sesion> sesionesFase2 = resultadoCP.SesionesResueltas;
+                // Fase 2 ahora devuelve asignaciones bi-semanales (dos AsignacionSemanal por sesión).
+                // La sesión lógica (colorada en Fase 1) sigue siendo la unidad que alimenta la Fase 3.
+                IEnumerable<Sesion> sesionesFase2 = sesionesColoreadas;
                 if (resultadoCP.EsFactible)
                 {
-                    Console.WriteLine($"Fase 2: FACTIBLE — {resultadoCP.SesionesResueltas.Count} sesiones resueltas.");
+                    Console.WriteLine($"Fase 2: FACTIBLE — {resultadoCP.Asignaciones.Count} asignaciones semanales (Semana A/B).");
                 }
                 else
                 {
                     Console.WriteLine($"Fase 2: NO FACTIBLE — {resultadoCP.MensajeError}");
                     Console.WriteLine("Se continuará con la asignación de la Fase 1.");
-                    sesionesFase2 = sesionesColoreadas;
                 }
 
                 // 5. Fase 3 — Algoritmo Genético

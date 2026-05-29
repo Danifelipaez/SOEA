@@ -1,4 +1,5 @@
 import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
+import { forkJoin } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule, MatDialog, MatDialogRef } from '@angular/material/dialog';
@@ -11,7 +12,8 @@ import {
 import { RouterModule } from '@angular/router';
 import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
-import { Espacio, Sesion } from '../../core/models';
+import { PersistenciaService } from '../../core/persistencia.service';
+import { Asignatura, Docente, Espacio, Sesion } from '../../core/models';
 
 /** Representación visual de una sesión atómica multi-slot. */
 interface MergedSesion {
@@ -39,7 +41,7 @@ interface MergedSesion {
     <div class="horario-container">
       <div class="header-actions">
         <h1 class="page-title text-primary">Horario</h1>
-        <button mat-flat-button color="primary" class="primary-button" (click)="generarHorario()">
+        <button mat-flat-button color="primary" class="primary-button" (click)="generarHorario()" [disabled]="loadingBackend()">
           <mat-icon>auto_awesome</mat-icon> Generar Horario
         </button>
       </div>
@@ -53,6 +55,27 @@ interface MergedSesion {
                   (click)="selectSpace(esp)">
             {{ esp.nombre }}
           </button>
+        </div>
+
+        <!-- Selector de semana (por espacio) -->
+        <div class="week-selector">
+          <span class="week-label">Semana</span>
+          <button class="pill-button"
+                  [class.active]="activeWeek() === 'A'"
+                  (click)="selectWeek('A')">
+            Semana A
+          </button>
+          <button class="pill-button"
+                  [class.active]="activeWeek() === 'B'"
+                  (click)="selectWeek('B')">
+            Semana B
+          </button>
+        </div>
+
+        <div class="backend-alert" *ngIf="!backendReady()">
+          <mat-icon>cloud_off</mat-icon>
+          <span>Sin conexión al backend. Carga datos desde la API para continuar.</span>
+          <button mat-stroked-button (click)="syncFromBackend()" [disabled]="loadingBackend()">Reintentar</button>
         </div>
 
         <!-- Matriz de horario -->
@@ -128,6 +151,13 @@ interface MergedSesion {
     .space-selector { display: flex; gap: 8px; margin-bottom: 24px; overflow-x: auto; padding-bottom: 8px; flex-wrap: wrap; }
     .pill-button { padding: 8px 16px; border-radius: 20px; border: 1px solid #e0e0e0; background: white; cursor: pointer; transition: 0.2s; white-space: nowrap; }
     .pill-button.active { background: #1976d2; color: white; border-color: #1976d2; }
+    .week-selector { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .week-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #757575; }
+    .backend-alert {
+      display: flex; align-items: center; gap: 12px; padding: 8px 12px; margin-bottom: 16px;
+      border: 1px solid #ffe0b2; border-radius: 8px; background: #fff3e0; color: #8d6e63;
+    }
+    .backend-alert mat-icon { font-size: 18px; width: 18px; height: 18px; }
     .matrix-scroll { overflow-x: auto; }
     .horario-matrix { width: 100%; border-collapse: collapse; min-width: 820px; table-layout: fixed; }
     .horario-matrix th, .horario-matrix td { border: 1px solid #e0e0e0; padding: 4px; text-align: center; vertical-align: top; }
@@ -173,11 +203,12 @@ interface MergedSesion {
     .empty-state p { font-size: 16px; margin-bottom: 16px; }
   `]
 })
-export class HorarioComponent {
+export class HorarioComponent implements OnInit {
   state     = inject(StateService);
   dialog    = inject(MatDialog);
   snackBar  = inject(MatSnackBar);
   horarioApi = inject(HorarioApiService);
+  persistencia = inject(PersistenciaService);
 
   dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
   franjas = [
@@ -186,6 +217,13 @@ export class HorarioComponent {
   ];
 
   activeSpace = signal<Espacio | null>(null);
+  activeWeek = signal<'A' | 'B'>('A');
+  loadingBackend = signal(false);
+  backendReady = signal(false);
+
+  ngOnInit() {
+    this.syncFromBackend();
+  }
 
   constructor() {
     const espacios = this.state.espacios();
@@ -193,6 +231,39 @@ export class HorarioComponent {
   }
 
   selectSpace(esp: Espacio) { this.activeSpace.set(esp); }
+  selectWeek(week: 'A' | 'B') { this.activeWeek.set(week); }
+
+  syncFromBackend() {
+    this.loadingBackend.set(true);
+    forkJoin({
+      espacios: this.persistencia.cargarEspacios(),
+      docentes: this.persistencia.cargarDocentes(),
+      asignaturas: this.persistencia.cargarAsignaturas()
+    }).subscribe({
+      next: ({ espacios, docentes, asignaturas }) => {
+        this.loadingBackend.set(false);
+        this.backendReady.set(true);
+
+        this.state.espacios.set(espacios);
+        this.state.docentes.set(this.mapDocentes(docentes));
+        this.state.setAsignaturas(this.mapAsignaturas(asignaturas));
+
+        const current = this.activeSpace();
+        if (!current || !espacios.find(e => e.id === current.id)) {
+          this.activeSpace.set(espacios[0] ?? null);
+        }
+      },
+      error: () => {
+        this.loadingBackend.set(false);
+        this.backendReady.set(false);
+        this.snackBar.open(
+          'No se pudo conectar con el backend. Verifica que la API esté activa.',
+          'Cerrar',
+          { duration: 5000, panelClass: ['snack-error'] }
+        );
+      }
+    });
+  }
 
   // ── Merged session computation ────────────────────────────────────────────────
 
@@ -205,7 +276,9 @@ export class HorarioComponent {
   private computeMergedMap(spaceId: string | undefined, allSesiones: Sesion[]): Map<string, MergedSesion[]> {
     const map = new Map<string, MergedSesion[]>();
 
-    const visible = allSesiones.filter(s => s.virtual || s.espacioId === spaceId);
+    const visible = allSesiones.filter(s =>
+      (s.virtual || s.espacioId === spaceId) && this.sesionVisibleEnSemana(s)
+    );
 
     for (const s of visible) {
       const dur = Math.max(1, Math.round(s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin)));
@@ -234,6 +307,13 @@ export class HorarioComponent {
     const [hi, mi] = horaInicio.split(':').map(Number);
     const [hf, mf] = horaFin.split(':').map(Number);
     return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60);
+  }
+
+  private sesionVisibleEnSemana(s: Sesion): boolean {
+    if (s.alternancia === 'SinAlternancia') return true;
+    return this.activeWeek() === 'A'
+      ? s.alternancia === 'TipoA'
+      : s.alternancia === 'TipoB';
   }
 
   /**
@@ -406,6 +486,10 @@ export class HorarioComponent {
   // ── Generación de horario ────────────────────────────────────────────────────
 
   generarHorario() {
+    if (!this.backendReady()) {
+      this.snackBar.open('Conecta el backend antes de generar el horario.', 'Cerrar', { duration: 4000 });
+      return;
+    }
     if (this.state.asignaturas().length === 0 || this.state.espacios().length === 0 || this.state.docentes().length === 0) {
       this.snackBar.open('Carga asignaturas, docentes y espacios antes de generar el horario.', 'Cerrar', { duration: 4000 });
       return;
@@ -445,6 +529,32 @@ export class HorarioComponent {
           );
         }
       });
+  }
+
+  private mapDocentes(docentes: Docente[]): Docente[] {
+    return docentes.map(d => ({
+      id: d.id,
+      nombre: d.nombre,
+      cedula: d.cedula ?? '',
+      maxHoras: d.maxHoras ?? 40,
+      disponibilidad: d.disponibilidad ?? {}
+    }));
+  }
+
+  private mapAsignaturas(asignaturas: any[]): Asignatura[] {
+    return asignaturas.map(a => ({
+      id: a.id,
+      codigo: a.codigo ?? '',
+      nombre: a.nombre,
+      horasPorSesion: a.horasPorSesion ?? 2,
+      sesionesPorSemana: a.sesionesPorSemana ?? 1,
+      sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre ?? 0,
+      alternancia: a.alternancia ?? 'SinAlternancia',
+      programaId: a.programaId,
+      docenteId: a.docenteId ?? undefined,
+      grupoNumero: a.grupoNumero ?? undefined,
+      espacioFijoId: a.espacioFijoId ?? undefined
+    }));
   }
 }
 

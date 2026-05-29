@@ -19,19 +19,22 @@ namespace SOEA.Application.Features.Horario
         private readonly IMotorGenetico              _fase3;
         private readonly IHorarioRepositorio         _horarioRepo;
         private readonly ISesionRepositorio          _sesionRepo;
+        private readonly IAsignacionSemanalRepositorio _asignacionRepo;
 
         public GenerarHorarioService(
             IMotorColoracionGrafo       fase1,
             IMotorConstraintProgramming  fase2,
             IMotorGenetico              fase3,
             IHorarioRepositorio         horarioRepo,
-            ISesionRepositorio          sesionRepo)
+            ISesionRepositorio          sesionRepo,
+            IAsignacionSemanalRepositorio asignacionRepo)
         {
             _fase1       = fase1;
             _fase2       = fase2;
             _fase3       = fase3;
             _horarioRepo = horarioRepo;
             _sesionRepo  = sesionRepo;
+            _asignacionRepo = asignacionRepo;
         }
 
         public async Task<GenerarHorarioResponse> EjecutarAsync(GenerarHorarioRequest request)
@@ -85,18 +88,15 @@ namespace SOEA.Application.Features.Horario
             }
             logs.Add($"[INFO] Fase 2 completada exitosamente en {swFase2.ElapsedMilliseconds}ms.");
 
-            // ── 4. Fase 3 — Algoritmo Genético (optimización soft constraints) ─
-            logs.Add("[INFO] Fase 3: Algoritmo Genético (Optimización) iniciado.");
-            var swFase3 = System.Diagnostics.Stopwatch.StartNew();
-            var configOptimizacion = MapearConfiguracion(request.Configuracion);
-            var resultadoOptimizacion = await _fase3.OptimizarAsync(
-                resultadoFactibilidad.SesionesResueltas, bloques, espacios, docentes, configOptimizacion);
-            swFase3.Stop();
-            logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness final: {resultadoOptimizacion.PuntajeFitness:F2}");
+            // ── 4. Fase 3 — Algoritmo Genético OMITIDA en Incremento 1 ─────────
+            // El horario bi-semanal factible de la Fase 2 (dos AsignacionSemanal por sesión,
+            // Semana A / B) es el resultado de este incremento. La Fase 3 se reactiva en el
+            // Incremento 2 con un cromosoma de pares y la soft constraint de balance entre semanas.
+            var sesionesFinales = sesionesColoreadas;
+            var asignaciones     = resultadoFactibilidad.Asignaciones;
+            logs.Add($"[INFO] Fase 3 (Genético) omitida en Incremento 1. Asignaciones bi-semanales: {asignaciones.Count} (2 por sesión).");
 
-            var sesionesFinales = resultadoOptimizacion.SesionesOptimizadas.ToList();
-
-            // ── 5. Persistir sesiones y Horario en la base de datos ───────────
+            // ── 5. Persistir sesiones lógicas, Horario y asignaciones semanales ─
             await _sesionRepo.AddRangeAsync(sesionesFinales);
 
             var horario = new Domain.Entities.Horario(
@@ -104,23 +104,28 @@ namespace SOEA.Application.Features.Horario
                 semestre: request.Semestre,
                 sesionIds: sesionesFinales.Select(s => s.Id).ToList(),
                 violacionesRestriccionesDuras: 0,
-                puntajeFitness: resultadoOptimizacion.PuntajeFitness);
+                puntajeFitness: 0m);
 
             await _horarioRepo.AddAsync(horario);
-            
+            await _asignacionRepo.AddRangeAsync(asignaciones);
+
             stopwatch.Stop();
             logs.Add($"[INFO] Pipeline total ejecutado en {stopwatch.ElapsedMilliseconds}ms.");
 
-            // ── 6. Mapear sesiones al DTO de respuesta ────────────────────────
-            var sesionesDto = sesionesFinales.Select(s => MapearSesionDto(s, bloques)).ToList();
+            // ── 6. Mapear asignaciones al DTO de respuesta (una DTO por semana) ─
+            var sesionPorId = sesionesFinales.ToDictionary(s => s.Id);
+            var sesionesDto = asignaciones
+                .Where(a => sesionPorId.ContainsKey(a.SesionId))
+                .Select(a => MapearSesionDto(a, sesionPorId[a.SesionId], bloques))
+                .ToList();
 
             return new GenerarHorarioResponse
             {
                 HorarioId      = horario.Id,
                 Semestre       = request.Semestre,
                 EsFactible     = true,
-                PuntajeFitness = resultadoOptimizacion.PuntajeFitness,
-                Generaciones   = resultadoOptimizacion.Generaciones,
+                PuntajeFitness = 0m,
+                Generaciones   = 0,
                 Logs           = logs,
                 Sesiones       = sesionesDto
             };
@@ -358,9 +363,9 @@ namespace SOEA.Application.Features.Horario
             return bloques;
         }
 
-        private static SesionGeneradaDto MapearSesionDto(Sesion s, List<BloqueTiempo> bloques)
+        private static SesionGeneradaDto MapearSesionDto(AsignacionSemanal a, Sesion s, List<BloqueTiempo> bloques)
         {
-            var bloque = bloques.FirstOrDefault(b => b.Id == s.BloqueTiempoId);
+            var bloque = bloques.FirstOrDefault(b => b.Id == a.BloqueTiempoId);
 
             string horaInicio = "07:00";
             string horaFin    = "09:00";
@@ -379,13 +384,14 @@ namespace SOEA.Application.Features.Horario
                 Id            = s.Id.ToString(),
                 AsignaturaId  = s.AsignaturaId.ToString(),
                 DocenteId     = s.DocenteId.ToString(),
-                EspacioId     = s.EspacioId?.ToString(),
+                EspacioId     = a.EspacioId?.ToString(),
                 Dia           = dia,
                 HoraInicio    = horaInicio,
                 HoraFin       = horaFin,
                 DuracionHoras = s.DuracionHoras,
                 Alternancia   = s.Alternancia.ToString(),
-                Virtual       = s.Modalidad == Modalidad.Virtual
+                Virtual       = a.Modalidad == Modalidad.Virtual,
+                Semana        = a.Semana.ToString()
             };
         }
 

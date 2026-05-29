@@ -37,6 +37,49 @@ namespace SOEA.Infrastructure.Data.Migrations
                     b.ToTable("DisponibilidadDocente");
                 });
 
+            modelBuilder.Entity("SOEA.Domain.Entities.AsignacionSemanal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BloqueTiempoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("bloque_tiempo_id");
+
+                    b.Property<Guid?>("EspacioId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("espacio_id");
+
+                    b.Property<string>("Modalidad")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("modalidad");
+
+                    b.Property<string>("Semana")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("semana");
+
+                    b.Property<Guid>("SesionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sesion_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SesionId")
+                        .HasDatabaseName("ix_asignacion_semanal_sesion_id");
+
+                    b.HasIndex("SesionId", "Semana")
+                        .IsUnique()
+                        .HasDatabaseName("ux_asignacion_semanal_sesion_semana");
+
+                    b.HasIndex("EspacioId", "Semana", "BloqueTiempoId")
+                        .HasDatabaseName("ix_asignacion_semanal_espacio_conflicto");
+
+                    b.ToTable("AsignacionesSemanales", (string)null);
+                });
+
             modelBuilder.Entity("SOEA.Domain.Entities.Asignatura", b =>
                 {
                     b.Property<Guid>("Id")

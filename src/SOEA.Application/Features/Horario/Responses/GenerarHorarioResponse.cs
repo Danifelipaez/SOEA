@@ -35,5 +35,7 @@ namespace SOEA.Application.Features.Horario.Responses
         /// <summary>TipoA, TipoB o SinAlternancia.</summary>
         public string  Alternancia  { get; set; } = "SinAlternancia";
         public bool    Virtual      { get; set; }
+        /// <summary>Semana del ciclo de alternancia: "A" (impares) o "B" (pares).</summary>
+        public string  Semana       { get; set; } = string.Empty;
     }
 }
