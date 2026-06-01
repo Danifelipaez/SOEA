@@ -174,10 +174,14 @@ namespace SOEA.Engine.ConstraintProg
 
                     if (bloquesDocente.Count == 0)
                     {
-                        _logger.LogWarning(
-                            "HC-I02: Docente {D} no tiene bloques disponibles que coincidan con la grilla canónica.",
-                            docente.NombreCompleto);
-                        bloquesDocente = null;
+                        // HC-I02 (P1.3 auditoría): un docente sin bloques disponibles que calcen con
+                        // la grilla está explícitamente NO disponible. No se trata como "sin
+                        // restricción" (lo que permitiría agendarlo en cualquier bloque): se rechaza
+                        // con un mensaje claro, en vez de agendar silenciosamente a quien el usuario
+                        // marcó como no disponible.
+                        var msg = $"Docente {docente.NombreCompleto} no tiene disponibilidad configurada que coincida con la grilla; no se pueden agendar sus sesiones.";
+                        _logger.LogError(msg);
+                        return new ResultadoFactibilidad(false, SinAsignaciones, msg);
                     }
                 }
 

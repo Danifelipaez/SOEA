@@ -3,6 +3,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Sesion } from './models';
+import { environment } from '../../environments/environment';
 
 // ── Tipos del contrato con la API ──────────────────────────────────────────────
 
@@ -76,8 +77,8 @@ export interface GenerarHorarioResponse {
 
 @Injectable({ providedIn: 'root' })
 export class HorarioApiService {
-  /** URL base del backend. Cambia aquí si el API corre en otro puerto. */
-  private readonly apiBase = 'http://localhost:5066/api';
+  /** URL base del backend. Configurada por entorno (environment.ts / environment.prod.ts). */
+  private readonly apiBase = environment.apiBaseUrl;
 
   private http = inject(HttpClient);
 

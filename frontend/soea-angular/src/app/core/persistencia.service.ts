@@ -1,7 +1,8 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { Asignatura, Docente, Espacio } from './models';
+import { Asignatura, Docente, Espacio, Facultad, Programa } from './models';
+import { environment } from '../../environments/environment';
 
 export interface ImportMapping {
   tempId: string;
@@ -28,16 +29,16 @@ export interface ImportResult {
 @Injectable({ providedIn: 'root' })
 export class PersistenciaService {
   private http = inject(HttpClient);
-  private base = 'http://localhost:5066/api';
+  private base = environment.apiBaseUrl;
 
   // ── Facultades y Programas ─────────────────────────────────────────────────────
 
-  cargarFacultades(): Observable<any[]> {
-    return this.http.get<any[]>(`${this.base}/facultades`);
+  cargarFacultades(): Observable<Facultad[]> {
+    return this.http.get<Facultad[]>(`${this.base}/facultades`);
   }
 
-  cargarProgramas(): Observable<any[]> {
-    return this.http.get<any[]>(`${this.base}/programas`);
+  cargarProgramas(): Observable<Programa[]> {
+    return this.http.get<Programa[]>(`${this.base}/programas`);
   }
 
   // ── Docentes ───────────────────────────────────────────────────────────────────
