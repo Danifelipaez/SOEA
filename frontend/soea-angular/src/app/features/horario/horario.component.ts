@@ -25,6 +25,8 @@ interface MergedSesion {
   duracionSlots: number;
   virtual: boolean;
   alternancia: string;
+  /** Semana del ciclo de alternancia ('A'/'B'). Presente desde el modelo bi-semanal. */
+  semana?: 'A' | 'B';
   asignaturaId: string;
   docenteId: string;
   espacioId?: string;
@@ -57,19 +59,27 @@ interface MergedSesion {
           </button>
         </div>
 
-        <!-- Selector de semana (por espacio) -->
+        <!-- Selector de semana A/B -->
         <div class="week-selector">
           <span class="week-label">Semana</span>
-          <button class="pill-button"
+          <button class="pill-button week-btn"
                   [class.active]="activeWeek() === 'A'"
                   (click)="selectWeek('A')">
-            Semana A
+            <span class="week-letter">A</span>
+            <span class="week-sub">impares</span>
           </button>
-          <button class="pill-button"
+          <button class="pill-button week-btn"
                   [class.active]="activeWeek() === 'B'"
                   (click)="selectWeek('B')">
-            Semana B
+            <span class="week-letter">B</span>
+            <span class="week-sub">pares</span>
           </button>
+          <span class="week-desc" *ngIf="activeWeek() === 'A'">
+            TipoA presencial · TipoB virtual
+          </span>
+          <span class="week-desc" *ngIf="activeWeek() === 'B'">
+            TipoB presencial · TipoA virtual
+          </span>
         </div>
 
         <div class="backend-alert" *ngIf="!backendReady()">
@@ -119,7 +129,8 @@ interface MergedSesion {
                         <div class="card-duration">{{ merged.horaInicio }} – {{ merged.horaFin }}</div>
                         <div class="card-badges">
                           <span class="badge-virtual" *ngIf="merged.virtual">Virtual</span>
-                          <span class="badge-alt" *ngIf="merged.alternancia !== 'SinAlternancia'">{{ merged.alternancia }}</span>
+                          <span class="badge-semana" *ngIf="merged.semana">S.{{ merged.semana }}</span>
+                          <span class="badge-alt" *ngIf="merged.alternancia !== 'SinAlternancia' && !merged.semana">{{ merged.alternancia }}</span>
                         </div>
 
                         <!-- Placeholder durante el arrastre -->
@@ -153,6 +164,11 @@ interface MergedSesion {
     .pill-button.active { background: #1976d2; color: white; border-color: #1976d2; }
     .week-selector { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
     .week-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #757575; }
+    .week-btn { display: flex; flex-direction: column; align-items: center; padding: 6px 18px; min-width: 72px; }
+    .week-letter { font-size: 15px; font-weight: 700; line-height: 1; }
+    .week-sub { font-size: 9px; color: #9e9e9e; letter-spacing: 0.05em; margin-top: 1px; }
+    .pill-button.week-btn.active .week-sub { color: rgba(255,255,255,0.75); }
+    .week-desc { font-size: 11px; color: #9e9e9e; align-self: center; margin-left: 4px; font-style: italic; }
     .backend-alert {
       display: flex; align-items: center; gap: 12px; padding: 8px 12px; margin-bottom: 16px;
       border: 1px solid #ffe0b2; border-radius: 8px; background: #fff3e0; color: #8d6e63;
@@ -195,6 +211,7 @@ interface MergedSesion {
     .card-duration { color: #9e9e9e; font-size: 10px; margin-top: 2px; }
     .card-badges   { display: flex; gap: 4px; margin-top: 3px; flex-wrap: wrap; }
     .badge-virtual { padding: 1px 5px; background: #e0e0e0; border-radius: 10px; font-size: 9px; }
+    .badge-semana  { padding: 1px 5px; background: #ede7f6; color: #512da8; border-radius: 10px; font-size: 9px; font-weight: 600; }
     .badge-alt     { padding: 1px 5px; background: #e3f2fd; color: #1565c0; border-radius: 10px; font-size: 9px; }
     .tipo-a-badge  { position: absolute; top: 2px; right: 2px; font-size: 9px; background: #ff9800; color: white; padding: 1px 4px; border-radius: 2px; }
 
@@ -291,6 +308,7 @@ export class HorarioComponent implements OnInit {
         duracionSlots: dur,
         virtual:       s.virtual,
         alternancia:   s.alternancia,
+        semana:        s.semana,
         asignaturaId:  s.asignaturaId,
         docenteId:     s.docenteId,
         espacioId:     s.espacioId,
@@ -310,10 +328,11 @@ export class HorarioComponent implements OnInit {
   }
 
   private sesionVisibleEnSemana(s: Sesion): boolean {
+    // Modelo bi-semanal (Incremento 1): cada DTO ya trae su semana explícita.
+    if (s.semana) return s.semana === this.activeWeek();
+    // Fallback para datos previos al modelo bi-semanal.
     if (s.alternancia === 'SinAlternancia') return true;
-    return this.activeWeek() === 'A'
-      ? s.alternancia === 'TipoA'
-      : s.alternancia === 'TipoB';
+    return this.activeWeek() === 'A' ? s.alternancia === 'TipoA' : s.alternancia === 'TipoB';
   }
 
   /**
@@ -449,13 +468,18 @@ export class HorarioComponent implements OnInit {
         this.snackBar.open('La sesión no cabe en ese horario (se saldría del límite).', 'Cerrar', { duration: 4000, panelClass: ['snack-error'] });
         return;
       }
+      const currentWeek = this.activeWeek();
       const conflict = this.state.sesiones().find(s =>
         !merged.sesiones.some(ms => ms.id === s.id) &&
         s.espacioId === spaceId &&
         s.dia === targetDia &&
         this.sesionOcupaFranja(s, checkFranja) &&
         !s.virtual &&
-        (s.alternancia === merged.alternancia || s.alternancia === 'SinAlternancia' || merged.alternancia === 'SinAlternancia')
+        // Conflicto solo dentro de la misma semana del ciclo de alternancia.
+        // Modelo bi-semanal: usar campo semana explícito cuando esté disponible.
+        (s.semana
+          ? s.semana === currentWeek
+          : (s.alternancia === merged.alternancia || s.alternancia === 'SinAlternancia' || merged.alternancia === 'SinAlternancia'))
       );
       if (conflict) {
         this.snackBar.open(

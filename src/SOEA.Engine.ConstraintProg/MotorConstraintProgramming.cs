@@ -24,13 +24,14 @@ namespace SOEA.Engine.ConstraintProg
     public class MotorConstraintProgramming : IMotorConstraintProgramming
     {
         private readonly ILogger<MotorConstraintProgramming> _logger;
-        private const int TimeoutSegundos = 120;
+        private readonly CpSatOptions _options;
 
         private static readonly SemanaAcademica[] Semanas = { SemanaAcademica.A, SemanaAcademica.B };
 
-        public MotorConstraintProgramming(ILogger<MotorConstraintProgramming> logger)
+        public MotorConstraintProgramming(ILogger<MotorConstraintProgramming> logger, CpSatOptions? options = null)
         {
             _logger = logger;
+            _options = options ?? new CpSatOptions();
         }
 
         public Task<ResultadoFactibilidad> ResolverFactibilidadAsync(
@@ -317,20 +318,24 @@ namespace SOEA.Engine.ConstraintProg
             }
 
             // ── RESOLVER ────────────────────────────────────────────────────────────────
-            try
+            // El volcado a disco solo ocurre si se habilita explícitamente (P0.2 auditoría).
+            if (_options.ExportarModelo)
             {
-                System.IO.File.WriteAllText("cp_model_debug.txt", model.Model.ToString());
-                _logger.LogInformation("Modelo CP-SAT exportado a cp_model_debug.txt para inspección.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "No se pudo exportar el modelo CP-SAT.");
+                try
+                {
+                    System.IO.File.WriteAllText("cp_model_debug.txt", model.Model.ToString());
+                    _logger.LogInformation("Modelo CP-SAT exportado a cp_model_debug.txt para inspección.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "No se pudo exportar el modelo CP-SAT.");
+                }
             }
 
             var solver = new CpSolver();
-            solver.StringParameters = $"max_time_in_seconds:{TimeoutSegundos},log_search_progress:true";
+            solver.StringParameters = $"max_time_in_seconds:{_options.TimeoutSegundos},log_search_progress:true";
 
-            _logger.LogInformation("Resolviendo modelo CP-SAT (timeout: {T}s)...", TimeoutSegundos);
+            _logger.LogInformation("Resolviendo modelo CP-SAT (timeout: {T}s)...", _options.TimeoutSegundos);
             var status = solver.Solve(model);
             _logger.LogInformation("CP-SAT terminó con status: {Status}", status);
 

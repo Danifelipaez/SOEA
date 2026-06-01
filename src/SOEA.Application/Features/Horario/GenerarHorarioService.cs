@@ -96,6 +96,32 @@ namespace SOEA.Application.Features.Horario
             var asignaciones     = resultadoFactibilidad.Asignaciones;
             logs.Add($"[INFO] Fase 3 (Genético) omitida en Incremento 1. Asignaciones bi-semanales: {asignaciones.Count} (2 por sesión).");
 
+            // ── 4b. Validación post-generación de restricciones duras (P0.3 auditoría) ──
+            // No publicamos un horario asumiendo 0 violaciones: lo verificamos sobre las
+            // asignaciones reales. Si el motor (o una futura Fase 3) dejara un solape, lo
+            // detectamos aquí y devolvemos infactible en lugar de emitir un horario inválido.
+            var sesionPorIdValidacion = sesionesFinales.ToDictionary(s => s.Id);
+            var bloqueIndex = new Dictionary<Guid, int>(bloques.Count);
+            for (int i = 0; i < bloques.Count; i++) bloqueIndex[bloques[i].Id] = i;
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesionPorIdValidacion, bloqueIndex);
+            if (conflictos.Count > 0)
+            {
+                logs.Add($"[ERROR] Validación post-generación detectó {conflictos.Count} violación(es) de restricciones duras.");
+                foreach (var c in conflictos.Take(20)) logs.Add($"[ERROR] {c}");
+                return new GenerarHorarioResponse
+                {
+                    HorarioId    = Guid.NewGuid(),
+                    Semestre     = request.Semestre,
+                    EsFactible   = false,
+                    MensajeError = $"El horario generado viola {conflictos.Count} restricción(es) dura(s) y no puede publicarse. " +
+                                   string.Join(" ", conflictos.Take(5)),
+                    Logs         = logs,
+                    Sesiones     = new List<SesionGeneradaDto>()
+                };
+            }
+            logs.Add("[INFO] Validación post-generación OK: 0 violaciones de restricciones duras.");
+
             // ── 5. Persistir sesiones lógicas, Horario y asignaciones semanales ─
             await _sesionRepo.AddRangeAsync(sesionesFinales);
 
@@ -103,7 +129,7 @@ namespace SOEA.Application.Features.Horario
                 id: Guid.NewGuid(),
                 semestre: request.Semestre,
                 sesionIds: sesionesFinales.Select(s => s.Id).ToList(),
-                violacionesRestriccionesDuras: 0,
+                violacionesRestriccionesDuras: conflictos.Count,
                 puntajeFitness: 0m);
 
             await _horarioRepo.AddAsync(horario);
@@ -213,10 +239,14 @@ namespace SOEA.Application.Features.Horario
                     ? franjas.ToList()
                     : new List<FranjaHoraria> { FranjaHoraria.Matutino, FranjaHoraria.Vespertino };
 
-                // No blocks were mapped (empty dict or all days set to NoDisponible).
-                // Treat as fully available so schedule generation can still proceed.
-                // Users should configure availability in the UI to restrict specific docentes.
-                if (bloquesDisponibles.Count == 0)
+                // P1.3 auditoría: distinguir "sin información" de "explícitamente no disponible".
+                // Solo aplicamos el fallback "todos los bloques" cuando el DTO NO trae ninguna
+                // información de disponibilidad. Si el usuario configuró días (todos NoDisponible
+                // o con horarios que no calzan con la grilla), respetamos esa restricción: la
+                // lista queda vacía y la Fase 2 (HC-I02) reportará infactible con un mensaje claro,
+                // en vez de agendar silenciosamente a un docente marcado como no disponible.
+                bool sinInformacionDisponibilidad = dto.Disponibilidad.Count == 0;
+                if (bloquesDisponibles.Count == 0 && sinInformacionDisponibilidad)
                     bloquesDisponibles.AddRange(bloques);
 
                 var docente = new Docente(

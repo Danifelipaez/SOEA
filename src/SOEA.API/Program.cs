@@ -27,7 +27,15 @@ builder.Services.AddCors(opts =>
 });
 
 // ── Base de datos (PostgreSQL) ────────────────────────────────────────────────
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")!;
+// La cadena vive en appsettings.Development.json (gitignored) o en variables de
+// entorno / user-secrets en otros ambientes — nunca commiteada (P0.1 auditoría).
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "No hay cadena de conexión configurada. Defina ConnectionStrings:DefaultConnection en " +
+        "appsettings.Development.json (desarrollo) o en variables de entorno / user-secrets.");
+}
 builder.Services.AddDbContext<SOEABdContext>(options =>
     options.UseNpgsql(connectionString));
 
@@ -46,7 +54,14 @@ builder.Services.AddScoped<ILectorExcel, LectorExcel>();
 
 // ── Motores de scheduling ─────────────────────────────────────────────────────
 builder.Services.AddGraphColoringEngine();
-builder.Services.AddConstraintProgEngine();
+// El volcado de cp_model_debug.txt a disco solo se habilita explícitamente vía
+// CpSat:ExportarModelo (default false). Evita llenar el disco y filtrar el modelo
+// con IDs de docentes/sesiones en producción (P0.2 auditoría).
+builder.Services.AddConstraintProgEngine(opts =>
+{
+    opts.ExportarModelo  = builder.Configuration.GetValue<bool>("CpSat:ExportarModelo");
+    opts.TimeoutSegundos = builder.Configuration.GetValue("CpSat:TimeoutSegundos", 120);
+});
 builder.Services.AddGeneticEngine();
 
 // ── Application services ──────────────────────────────────────────────────────
@@ -68,7 +83,16 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
+// ── Manejo global de excepciones (ProblemDetails) ─────────────────────────────
+// Toda excepción no controlada se devuelve como application/problem+json con traceId,
+// en lugar de un 500 con formato inconsistente (P1.4 auditoría).
+builder.Services.AddProblemDetails();
+
 var app = builder.Build();
+
+// El manejador de excepciones debe ir lo más temprano posible en el pipeline.
+app.UseExceptionHandler();
+app.UseStatusCodePages();
 
 // ── Migraciones automáticas + seed del catálogo de bloques ───────────────────
 using (var scope = app.Services.CreateScope())
@@ -87,4 +111,8 @@ app.UseCors("AllowAngularDev");
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
+
+// Endpoint de salud para readiness/liveness checks (P2.20).
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok", utc = DateTime.UtcNow }));
+
 app.Run();

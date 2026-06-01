@@ -68,8 +68,8 @@ export interface GenerarHorarioResponse {
   generaciones: number;
   mensajeError?: string;
   logs?: string[];
-  // alternancia llega como string desde JSON; mapearSesiones() lo castea al tipo unión
-  sesiones: (Omit<Sesion, 'alternancia'> & { alternancia: string })[];
+  // alternancia y semana llegan como string desde JSON; mapearSesiones() los castea
+  sesiones: (Omit<Sesion, 'alternancia' | 'semana'> & { alternancia: string; semana?: string })[];
 }
 
 // ── Servicio ───────────────────────────────────────────────────────────────────
@@ -136,12 +136,13 @@ export class HorarioApiService {
       .pipe(catchError(this.manejarError));
   }
 
-  /** Castea el campo alternancia de string a la unión tipada. */
+  /** Castea alternancia y semana de string a los tipos unión tipados. */
   mapearSesiones(sesiones: GenerarHorarioResponse['sesiones']): Sesion[] {
     return sesiones.map(s => ({
       ...s,
       duracionHoras: s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin),
       alternancia: (s.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia',
+      semana: (s.semana === 'A' || s.semana === 'B') ? s.semana : undefined,
     }));
   }
 

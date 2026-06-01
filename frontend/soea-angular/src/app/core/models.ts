@@ -75,4 +75,7 @@ export interface Sesion {
   espacioId?: string;    // null si virtual
   virtual: boolean;
   alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia';
+  /** Semana del ciclo de alternancia. Presente desde el modelo bi-semanal (Incremento 1).
+   *  'A' = semanas impares (TipoA presencial), 'B' = semanas pares (TipoB presencial). */
+  semana?: 'A' | 'B';
 }
