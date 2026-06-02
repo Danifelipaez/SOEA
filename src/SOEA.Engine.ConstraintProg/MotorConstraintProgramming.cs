@@ -50,17 +50,7 @@ namespace SOEA.Engine.ConstraintProg
         /// semanas; solo las sesiones presenciales alternan según TipoA/TipoB (regla 9).
         /// </summary>
         private static Modalidad ModalidadDe(Sesion sesion, SemanaAcademica semana)
-        {
-            if (sesion.Modalidad == Modalidad.Virtual)
-                return Modalidad.Virtual;
-
-            return sesion.Alternancia switch
-            {
-                TipoAlternancia.TipoA => semana == SemanaAcademica.A ? Modalidad.Presencial : Modalidad.Virtual,
-                TipoAlternancia.TipoB => semana == SemanaAcademica.B ? Modalidad.Presencial : Modalidad.Virtual,
-                _ => Modalidad.Presencial // SinAlternancia: presencial en ambas semanas
-            };
-        }
+            => ModalidadSemanal.Derivar(sesion, semana); // fuente única de la regla 9 (Domain)
 
         private static IReadOnlyList<AsignacionSemanal> SinAsignaciones => Array.Empty<AsignacionSemanal>();
 

@@ -88,26 +88,46 @@ namespace SOEA.Application.Features.Horario
             }
             logs.Add($"[INFO] Fase 2 completada exitosamente en {swFase2.ElapsedMilliseconds}ms.");
 
-            // ── 4. Fase 3 — Algoritmo Genético OMITIDA en Incremento 1 ─────────
-            // El horario bi-semanal factible de la Fase 2 (dos AsignacionSemanal por sesión,
-            // Semana A / B) es el resultado de este incremento. La Fase 3 se reactiva en el
-            // Incremento 2 con un cromosoma de pares y la soft constraint de balance entre semanas.
+            // ── 4. Fase 3 — Algoritmo Genético (optimización de restricciones blandas) ──
+            // Optimiza objetivos del docente (huecos, > 6 horas seguidas, balance entre días
+            // disponibles) moviendo el inicio de cada sesión, compartido por las semanas A/B.
+            // Preserva todas las restricciones duras de la Fase 2; ante cualquier duda hace
+            // fallback interno a la solución de Fase 2.
             var sesionesFinales = sesionesColoreadas;
-            var asignaciones     = resultadoFactibilidad.Asignaciones;
-            logs.Add($"[INFO] Fase 3 (Genético) omitida en Incremento 1. Asignaciones bi-semanales: {asignaciones.Count} (2 por sesión).");
+            logs.Add("[INFO] Fase 3: Optimización (Algoritmo Genético) iniciada.");
+            var swFase3 = System.Diagnostics.Stopwatch.StartNew();
+            var resultadoGA = await _fase3.OptimizarAsync(
+                sesionesFinales, resultadoFactibilidad.Asignaciones, bloques, espacios, docentes,
+                MapearConfiguracion(request.Configuracion));
+            swFase3.Stop();
+            logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness={resultadoGA.PuntajeFitness}, " +
+                     $"generaciones={resultadoGA.Generaciones}, fallback={resultadoGA.UsoFallback}.");
 
-            // ── 4b. Validación post-generación de restricciones duras (P0.3 auditoría) ──
-            // No publicamos un horario asumiendo 0 violaciones: lo verificamos sobre las
-            // asignaciones reales. Si el motor (o una futura Fase 3) dejara un solape, lo
-            // detectamos aquí y devolvemos infactible en lugar de emitir un horario inválido.
+            var asignaciones   = resultadoGA.AsignacionesOptimizadas;
+            var puntajeFitness = resultadoGA.PuntajeFitness;
+
+            // ── 4b. Post-chequeo de restricciones duras (P0.3 + P1.8 auditoría) ─────────
+            // Verificamos las asignaciones FINALES: HC-I01/HC-S01 (solapes, consciente de duración
+            // y semana) y HC-I03 (horas semanales por docente). Si el GA introdujo cualquier
+            // violación, hacemos fallback a las asignaciones factibles de la Fase 2.
             var sesionPorIdValidacion = sesionesFinales.ToDictionary(s => s.Id);
             var bloqueIndex = new Dictionary<Guid, int>(bloques.Count);
             for (int i = 0; i < bloques.Count; i++) bloqueIndex[bloques[i].Id] = i;
+            var maxHorasPorDocente = docentes.ToDictionary(d => d.Id, d => d.MaximoHorasSemanales);
 
-            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesionPorIdValidacion, bloqueIndex);
+            var conflictos = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, sesionesFinales, maxHorasPorDocente);
             if (conflictos.Count > 0)
             {
-                logs.Add($"[ERROR] Validación post-generación detectó {conflictos.Count} violación(es) de restricciones duras.");
+                logs.Add($"[WARN] Post-chequeo detectó {conflictos.Count} violación(es) en la salida del GA; usando la solución de Fase 2.");
+                asignaciones   = resultadoFactibilidad.Asignaciones;
+                puntajeFitness = 0m;
+                conflictos     = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, sesionesFinales, maxHorasPorDocente);
+            }
+
+            if (conflictos.Count > 0)
+            {
+                // Ni siquiera la solución de Fase 2 valida (no debería ocurrir): no publicar.
+                logs.Add($"[ERROR] La solución de Fase 2 viola {conflictos.Count} restricción(es) dura(s).");
                 foreach (var c in conflictos.Take(20)) logs.Add($"[ERROR] {c}");
                 return new GenerarHorarioResponse
                 {
@@ -120,7 +140,7 @@ namespace SOEA.Application.Features.Horario
                     Sesiones     = new List<SesionGeneradaDto>()
                 };
             }
-            logs.Add("[INFO] Validación post-generación OK: 0 violaciones de restricciones duras.");
+            logs.Add("[INFO] Post-chequeo OK: 0 violaciones de restricciones duras.");
 
             // ── 5. Persistir sesiones lógicas, Horario y asignaciones semanales ─
             await _sesionRepo.AddRangeAsync(sesionesFinales);
@@ -130,7 +150,7 @@ namespace SOEA.Application.Features.Horario
                 semestre: request.Semestre,
                 sesionIds: sesionesFinales.Select(s => s.Id).ToList(),
                 violacionesRestriccionesDuras: conflictos.Count,
-                puntajeFitness: 0m);
+                puntajeFitness: puntajeFitness);
 
             await _horarioRepo.AddAsync(horario);
             await _asignacionRepo.AddRangeAsync(asignaciones);
@@ -150,11 +170,28 @@ namespace SOEA.Application.Features.Horario
                 HorarioId      = horario.Id,
                 Semestre       = request.Semestre,
                 EsFactible     = true,
-                PuntajeFitness = 0m,
-                Generaciones   = 0,
+                PuntajeFitness = puntajeFitness,
+                Generaciones   = resultadoGA.Generaciones,
                 Logs           = logs,
                 Sesiones       = sesionesDto
             };
+        }
+
+        /// <summary>
+        /// Post-chequeo combinado de restricciones duras sobre las asignaciones finales:
+        /// HC-I01/HC-S01 (solapes de docente/espacio) + HC-I03 (horas semanales por docente).
+        /// </summary>
+        private static IReadOnlyList<string> Validar(
+            IReadOnlyList<AsignacionSemanal> asignaciones,
+            IReadOnlyDictionary<Guid, Sesion> sesionPorId,
+            IReadOnlyDictionary<Guid, int> bloqueIndex,
+            IReadOnlyList<Sesion> sesiones,
+            IReadOnlyDictionary<Guid, decimal> maxHorasPorDocente)
+        {
+            var conflictos = new List<string>();
+            conflictos.AddRange(ValidadorRestriccionesDuras.Validar(asignaciones, sesionPorId, bloqueIndex));
+            conflictos.AddRange(ValidadorRestriccionesDuras.ValidarCargaSemanal(sesiones, maxHorasPorDocente));
+            return conflictos;
         }
 
         // ── Helpers de mapeo ─────────────────────────────────────────────────────

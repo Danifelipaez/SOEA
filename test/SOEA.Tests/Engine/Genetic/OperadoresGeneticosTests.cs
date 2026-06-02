@@ -5,128 +5,131 @@ using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Services;
 using SOEA.Engine.Genetic;
+using Xunit;
 
 namespace SOEA.Tests.Engine.Genetic
 {
+    /// <summary>
+    /// Operadores del GA bi-semanal (cromosoma = inicio por sesión, compartido A/B).
+    /// Verifica los invariantes: inicios siempre válidos (cabe-en-día ∩ disponibilidad docente)
+    /// y reparación de solapes de docente (HC-I01).
+    /// </summary>
     public class OperadoresGeneticosTests
     {
         private static Sesion CrearSesion(Guid docenteId, decimal duracion = 2m, Modalidad modalidad = Modalidad.Presencial) =>
             new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), null, null,
                 TipoAlternancia.SinAlternancia, modalidad, duracion, false, false);
 
+        // Lunes y Martes con `bloquesPorDia` bloques de 1h cada uno.
         private static List<BloqueTiempo> CrearGrilla(int bloquesPorDia)
         {
             var bloques = new List<BloqueTiempo>();
             foreach (var dia in new[] { DiaDeSemana.Lunes, DiaDeSemana.Martes })
-            {
                 for (int h = 0; h < bloquesPorDia; h++)
                     bloques.Add(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(7 + h, 0), new TimeOnly(8 + h, 0)));
-            }
             return bloques;
         }
 
-        // HC-I01: Reparar debe eliminar solapamiento de SPANS (no sólo igualdad de bloque) del mismo docente
+        private static Docente CrearDocente(Guid id, IEnumerable<BloqueTiempo> bloquesDisponibles)
+        {
+            var d = new Docente(id, "Doc", "", $"doc-{id}@soea.edu", 40m,
+                new List<FranjaHoraria> { FranjaHoraria.Matutino });
+            foreach (var b in bloquesDisponibles) d.AgregarBloqueDisponibilidad(b);
+            return d;
+        }
+
         [Fact]
-        public void Reparar_ConflictoDocente_EliminaSolapamientoDeSpans()
+        public void Reparar_ConflictoDocente_EliminaSolape()
         {
             var docenteId = Guid.NewGuid();
-            var sesiones = new List<Sesion>
-            {
-                CrearSesion(docenteId, 2m),
-                CrearSesion(docenteId, 2m)
-            };
-            var bloques = CrearGrilla(bloquesPorDia: 10);
+            var sesiones = new List<Sesion> { CrearSesion(docenteId, 2m), CrearSesion(docenteId, 2m) };
+            var bloques  = CrearGrilla(10);
+            var docentes = new List<Docente> { CrearDocente(docenteId, bloques) };
 
-            // Ambas en bloque 0 con duración 2 — solapan en bloques 0 y 1
-            var cromosoma = new CromosomaHorario(
-                sesiones.Select(s => s.Id).ToArray(),
-                new[] { 0, 0 },
-                new[] { 0, 1 });
-
-            var operadores = new OperadoresGeneticos(sesiones, bloques, maxEspacios: 3, rng: new Random(42));
-            operadores.Reparar(cromosoma);
+            // Ambas en el bloque 0, duración 2 → solapan en los bloques 0 y 1.
+            var c = new CromosomaHorario(sesiones.Select(s => s.Id).ToArray(), new[] { 0, 0 });
+            var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(42));
+            op.Reparar(c);
 
             var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
-            var solapa = BloquesPlanner.Solapan(
-                cromosoma.BloqueIndices[0], 2,
-                cromosoma.BloqueIndices[1], 2,
-                diaPorIdx);
-
-            Assert.False(solapa, "El conflicto de docente no se reparó: los spans siguen solapando.");
+            Assert.False(BloquesPlanner.Solapan(c.Start[0], 2, c.Start[1], 2, diaPorIdx),
+                "La reparación no eliminó el solape de docente.");
         }
 
-        // HC-S01: Reparar debe eliminar solapamiento de SPANS en el mismo espacio
         [Fact]
-        public void Reparar_ConflictoEspacio_EliminaSolapamientoDeSpans()
+        public void Mutar_SiempreProduceInicioQueNoCruzaDia()
         {
-            var sesiones = new List<Sesion>
-            {
-                CrearSesion(Guid.NewGuid(), 2m, Modalidad.Presencial),
-                CrearSesion(Guid.NewGuid(), 2m, Modalidad.Presencial)
-            };
-            var bloques = CrearGrilla(bloquesPorDia: 10);
-
-            // Mismo espacio 0, mismo bloque 0 — solapan
-            var cromosoma = new CromosomaHorario(
-                sesiones.Select(s => s.Id).ToArray(),
-                new[] { 0, 0 },
-                new[] { 0, 0 });
-
-            var operadores = new OperadoresGeneticos(sesiones, bloques, maxEspacios: 5, rng: new Random(42));
-            operadores.Reparar(cromosoma);
-
-            var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
-            var mismoEspacio = cromosoma.EspacioIndices[0] == cromosoma.EspacioIndices[1];
-            var solapanEnTiempo = BloquesPlanner.Solapan(
-                cromosoma.BloqueIndices[0], 2,
-                cromosoma.BloqueIndices[1], 2,
-                diaPorIdx);
-
-            Assert.False(mismoEspacio && solapanEnTiempo,
-                "Conflicto de espacio sin reparar: mismo espacio y spans solapan.");
-        }
-
-        // Sesiones virtuales no participan de la reparación de espacio
-        [Fact]
-        public void Reparar_SesionVirtual_NoAfectaEspacio()
-        {
-            var sesiones = new List<Sesion>
-            {
-                CrearSesion(Guid.NewGuid(), 2m, Modalidad.Virtual),
-                CrearSesion(Guid.NewGuid(), 2m, Modalidad.Virtual)
-            };
-            var bloques = CrearGrilla(bloquesPorDia: 10);
-
-            var cromosoma = new CromosomaHorario(
-                sesiones.Select(s => s.Id).ToArray(),
-                new[] { 0, 0 },
-                new[] { 0, 0 });
-
-            var operadores = new OperadoresGeneticos(sesiones, bloques, maxEspacios: 5, rng: new Random(42));
-            operadores.Reparar(cromosoma);
-            // No debe lanzar; las virtuales se exceptúan de HC-S01.
-        }
-
-        // Mutar respeta "no cruzar día" para la duración de la sesión
-        [Fact]
-        public void Mutar_NoGeneraStartQueCruceDia()
-        {
-            var sesion = CrearSesion(Guid.NewGuid(), 2m);
+            var docenteId = Guid.NewGuid();
+            var sesion   = CrearSesion(docenteId, 2m);
             var sesiones = new List<Sesion> { sesion };
-            var bloques = CrearGrilla(bloquesPorDia: 5); // Lunes 7-12, Martes 7-12 → idx 0-4 lunes, 5-9 martes
+            var bloques  = CrearGrilla(5);
+            var docentes = new List<Docente> { CrearDocente(docenteId, bloques) };
             var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
-            var rangos = BloquesPlanner.RangosPorDia(bloques);
+            var rangos    = BloquesPlanner.RangosPorDia(bloques);
 
-            var cromosoma = new CromosomaHorario(new[] { sesion.Id }, new[] { 0 }, new[] { 0 });
-            var operadores = new OperadoresGeneticos(sesiones, bloques, maxEspacios: 2, rng: new Random(42));
+            var c  = new CromosomaHorario(new[] { sesion.Id }, new[] { 0 });
+            var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(42));
 
-            // Mutación forzada (probabilidad 1.0) muchas veces; ningún start resultante puede cruzar día.
             for (int i = 0; i < 200; i++)
             {
-                operadores.Mutar(cromosoma, probabilidadPorGen: 1.0);
-                Assert.True(
-                    BloquesPlanner.CabeEnDia(cromosoma.BloqueIndices[0], 2, rangos, diaPorIdx),
-                    $"Mutación generó start {cromosoma.BloqueIndices[0]} que cruza día con duración 2.");
+                op.Mutar(c, 1.0);
+                Assert.True(BloquesPlanner.CabeEnDia(c.Start[0], 2, rangos, diaPorIdx),
+                    $"Mutación generó inicio {c.Start[0]} que cruza día (duración 2).");
+            }
+        }
+
+        [Fact]
+        public void Mutar_RespetaDisponibilidadDelDocente()
+        {
+            // Docente disponible SOLO los bloques de Lunes (idx 0..4). Duración 2.
+            var docenteId = Guid.NewGuid();
+            var sesion   = CrearSesion(docenteId, 2m);
+            var sesiones = new List<Sesion> { sesion };
+            var bloques  = CrearGrilla(5);             // 0..4 Lunes, 5..9 Martes
+            var soloLunes = bloques.Take(5).ToList();
+            var docentes = new List<Docente> { CrearDocente(docenteId, soloLunes) };
+            var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
+
+            var c  = new CromosomaHorario(new[] { sesion.Id }, new[] { 0 });
+            var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(7));
+
+            for (int i = 0; i < 200; i++)
+            {
+                op.Mutar(c, 1.0);
+                Assert.Equal(DiaDeSemana.Lunes, diaPorIdx[c.Start[0]]);
+            }
+        }
+
+        // Property test: tras muchos cruces+mutaciones+reparaciones, todo inicio sigue válido.
+        [Fact]
+        public void OperadoresPreservanInvarianteI1()
+        {
+            var docenteId = Guid.NewGuid();
+            var sesiones = Enumerable.Range(0, 4).Select(_ => CrearSesion(docenteId, 2m)).ToList();
+            var bloques  = CrearGrilla(8);
+            var docentes = new List<Docente> { CrearDocente(docenteId, bloques) };
+            var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(123));
+
+            var ids = sesiones.Select(s => s.Id).ToArray();
+            var p1 = new CromosomaHorario(ids,
+                sesiones.Select((_, i) => op.StartsValidosDe(i).Count > 0 ? op.StartsValidosDe(i)[0] : 0).ToArray());
+            var p2 = new CromosomaHorario(ids, sesiones.Select((_, i) =>
+            {
+                var v = op.StartsValidosDe(i);
+                return v.Count > 0 ? v[v.Count - 1] : 0;
+            }).ToArray());
+
+            for (int iter = 0; iter < 500; iter++)
+            {
+                var hijo = op.Cruce(p1, p2, 0.9);
+                op.Mutar(hijo, 0.3);
+                op.Reparar(hijo);
+                for (int i = 0; i < hijo.CantidadGenes; i++)
+                {
+                    var validos = op.StartsValidosDe(i);
+                    Assert.Contains(hijo.Start[i], validos);
+                }
+                p1 = hijo;
             }
         }
     }

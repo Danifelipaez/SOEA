@@ -8,81 +8,73 @@ using SOEA.Domain.Services;
 namespace SOEA.Engine.Genetic
 {
     /// <summary>
-    /// Operadores genéticos duration-aware: selección por torneo, cruce de un punto,
-    /// mutación y reparación que detectan solapamiento usando spans
-    /// [start, start + DuracionHoras).
+    /// Operadores genéticos del modelo bi-semanal. Operan SOLO sobre el inicio de cada sesión
+    /// (compartido A/B). Invariantes preservados por construcción:
+    ///   I1: todo inicio elegido pertenece a <see cref="_startsValidos"/>[i] = cabe-en-día ∩
+    ///       disponibilidad del docente (HC-I02). Mutación, cruce y perturbación solo eligen de ahí.
+    ///   Regla 9: hay un único inicio por sesión ⇒ A y B nunca se desincronizan.
+    /// La reparación elimina solapes de docente (HC-I01). Como los inicios son compartidos, el
+    /// horario del docente es idéntico en A y B, así que basta reparar una vez. Los aulas (HC-S01)
+    /// se resuelven en un pase posterior (<see cref="AsignadorEspacios"/>), no aquí.
     /// </summary>
     public class OperadoresGeneticos
     {
         private readonly Random _rng;
         private readonly List<Sesion> _sesiones;
-        private readonly int _maxBloques;
-        private readonly int _maxEspacios;
         private readonly DiaDeSemana[] _diaPorIdx;
-        private readonly Dictionary<DiaDeSemana, (int firstIdx, int lastIdx)> _rangosPorDia;
         private readonly int[] _duraciones;
-        private readonly int[][] _startsValidosPorSesion;
+        private readonly int[][] _startsValidos;
 
         public OperadoresGeneticos(
             List<Sesion> sesiones,
             List<BloqueTiempo> bloques,
-            int maxEspacios,
-            Random? rng = null)
+            IReadOnlyList<Docente> docentes,
+            Random rng)
         {
-            _sesiones    = sesiones;
-            _maxBloques  = bloques.Count;
-            _maxEspacios = maxEspacios;
-            _rng         = rng ?? new Random();
+            _sesiones  = sesiones;
+            _rng       = rng;
+            _diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
+            var rangos = BloquesPlanner.RangosPorDia(bloques);
 
-            _diaPorIdx     = BloquesPlanner.DiaPorBloqueIdx(bloques);
-            _rangosPorDia  = BloquesPlanner.RangosPorDia(bloques);
+            var bloqueIndex = new Dictionary<Guid, int>(bloques.Count);
+            for (int i = 0; i < bloques.Count; i++) bloqueIndex[bloques[i].Id] = i;
 
-            _duraciones = new int[sesiones.Count];
-            _startsValidosPorSesion = new int[sesiones.Count][];
+            var docentePorId = docentes.ToDictionary(d => d.Id);
+
+            _duraciones    = new int[sesiones.Count];
+            _startsValidos = new int[sesiones.Count][];
             for (int i = 0; i < sesiones.Count; i++)
             {
                 _duraciones[i] = Math.Max(1, (int)Math.Ceiling(sesiones[i].DuracionHoras));
-                _startsValidosPorSesion[i] = BloquesPlanner
-                    .StartsValidos(_duraciones[i], _maxBloques, _rangosPorDia, _diaPorIdx, bloquesDisponibles: null)
+
+                // HC-I02: filtrar los inicios por los bloques disponibles del docente.
+                ISet<int>? disponibles = null;
+                if (docentePorId.TryGetValue(sesiones[i].DocenteId, out var doc))
+                {
+                    disponibles = doc.BloquesDisponibles
+                        .Where(b => bloqueIndex.ContainsKey(b.Id))
+                        .Select(b => bloqueIndex[b.Id])
+                        .ToHashSet();
+                    // Sin info de disponibilidad ⇒ sin filtro (no debería ocurrir: Fase 2 ya
+                    // rechaza a un docente sin bloques que calcen con la grilla).
+                    if (disponibles.Count == 0) disponibles = null;
+                }
+
+                _startsValidos[i] = BloquesPlanner
+                    .StartsValidos(_duraciones[i], bloques.Count, rangos, _diaPorIdx, disponibles)
                     .ToArray();
             }
         }
 
-        /// <summary>
-        /// Compatibilidad con el constructor anterior (sin acceso a la grilla canónica de bloques).
-        /// Crea un escenario degradado donde cada sesión se considera de 1h y todos los starts
-        /// son válidos — usado únicamente por tests legacy que no construyen la grilla.
-        /// </summary>
-        public OperadoresGeneticos(
-            List<Sesion> sesiones,
-            int maxBloques,
-            int maxEspacios,
-            Random? rng = null)
-        {
-            _sesiones    = sesiones;
-            _maxBloques  = maxBloques;
-            _maxEspacios = maxEspacios;
-            _rng         = rng ?? new Random();
-
-            _diaPorIdx    = Enumerable.Repeat(DiaDeSemana.Lunes, maxBloques).ToArray();
-            _rangosPorDia = new Dictionary<DiaDeSemana, (int, int)> { [DiaDeSemana.Lunes] = (0, Math.Max(0, maxBloques - 1)) };
-
-            _duraciones = new int[sesiones.Count];
-            _startsValidosPorSesion = new int[sesiones.Count][];
-            for (int i = 0; i < sesiones.Count; i++)
-            {
-                _duraciones[i] = Math.Max(1, (int)Math.Ceiling(sesiones[i].DuracionHoras));
-                _startsValidosPorSesion[i] = Enumerable.Range(0, Math.Max(0, maxBloques - _duraciones[i] + 1)).ToArray();
-            }
-        }
+        public IReadOnlyList<int> StartsValidosDe(int sesionIdx) => _startsValidos[sesionIdx];
+        public int DuracionDe(int sesionIdx) => _duraciones[sesionIdx];
 
         // ── Selección ────────────────────────────────────────────────────────────────
-
-        public CromosomaHorario SeleccionTorneo(List<(CromosomaHorario cromosoma, decimal fitness)> poblacion, int k = 5)
+        public CromosomaHorario SeleccionTorneo(
+            List<(CromosomaHorario cromosoma, decimal fitness)> poblacion, int k = 5)
         {
             CromosomaHorario? mejor = null;
             decimal mejorFitness = decimal.MaxValue;
-
             for (int i = 0; i < k; i++)
             {
                 var idx = _rng.Next(poblacion.Count);
@@ -92,176 +84,98 @@ namespace SOEA.Engine.Genetic
                     mejor = poblacion[idx].cromosoma;
                 }
             }
-
             return mejor!;
         }
 
-        // ── Cruce y mutación ─────────────────────────────────────────────────────────
-
-        public CromosomaHorario Cruce(CromosomaHorario padre1, CromosomaHorario padre2, double probabilidad = 0.8)
+        // ── Cruce de un punto (a granularidad de sesión) ──────────────────────────────
+        // Hereda el inicio de cada sesión como unidad desde uno de los padres ⇒ I1 y regla 9
+        // se preservan (ambos padres ya los satisfacen para esa sesión).
+        public CromosomaHorario Cruce(CromosomaHorario p1, CromosomaHorario p2, double probabilidad = 0.8)
         {
-            if (_rng.NextDouble() > probabilidad)
-                return padre1.Clonar();
+            if (p1.CantidadGenes < 2 || _rng.NextDouble() > probabilidad)
+                return p1.Clonar();
 
-            int punto = _rng.Next(1, padre1.CantidadGenes);
-            var bloques  = new int[padre1.CantidadGenes];
-            var espacios = new int[padre1.CantidadGenes];
+            int punto = _rng.Next(1, p1.CantidadGenes);
+            var start = new int[p1.CantidadGenes];
+            for (int i = 0; i < p1.CantidadGenes; i++)
+                start[i] = i < punto ? p1.Start[i] : p2.Start[i];
 
-            for (int i = 0; i < padre1.CantidadGenes; i++)
-            {
-                if (i < punto)
-                {
-                    bloques[i]  = padre1.BloqueIndices[i];
-                    espacios[i] = padre1.EspacioIndices[i];
-                }
-                else
-                {
-                    bloques[i]  = padre2.BloqueIndices[i];
-                    espacios[i] = padre2.EspacioIndices[i];
-                }
-            }
-
-            return new CromosomaHorario((Guid[])padre1.SesionIds.Clone(), bloques, espacios);
+            return new CromosomaHorario((Guid[])p1.SesionIds.Clone(), start);
         }
 
-        /// <summary>
-        /// Mutación duration-aware: cada gen muta con probabilidad
-        /// <paramref name="probabilidadPorGen"/>. El nuevo start se elige de la lista
-        /// pre-calculada de inicios que no cruzan día para la duración de esa sesión.
-        /// </summary>
+        // ── Mutación: re-elige el inicio entre los válidos de esa sesión ──────────────
         public void Mutar(CromosomaHorario cromosoma, double probabilidadPorGen = 0.05)
         {
             for (int i = 0; i < cromosoma.CantidadGenes; i++)
             {
                 if (_rng.NextDouble() < probabilidadPorGen)
                 {
-                    var validos = _startsValidosPorSesion[i];
+                    var validos = _startsValidos[i];
                     if (validos.Length > 0)
-                        cromosoma.BloqueIndices[i] = validos[_rng.Next(validos.Length)];
-
-                    if (_maxEspacios > 0)
-                        cromosoma.EspacioIndices[i] = _rng.Next(_maxEspacios);
+                        cromosoma.Start[i] = validos[_rng.Next(validos.Length)];
                 }
             }
         }
 
-        /// <summary>
-        /// Crea una copia del cromosoma perturbando N genes respetando "no cruzar día".
-        /// </summary>
         public CromosomaHorario ClonarYPerturbar(CromosomaHorario semilla, int perturbaciones = 3)
         {
             var clon = semilla.Clonar();
-            for (int i = 0; i < perturbaciones && clon.CantidadGenes > 0; i++)
+            for (int k = 0; k < perturbaciones && clon.CantidadGenes > 0; k++)
             {
-                var idx = _rng.Next(clon.CantidadGenes);
-                var validos = _startsValidosPorSesion[idx];
+                var i = _rng.Next(clon.CantidadGenes);
+                var validos = _startsValidos[i];
                 if (validos.Length > 0)
-                    clon.BloqueIndices[idx] = validos[_rng.Next(validos.Length)];
-
-                if (_maxEspacios > 0)
-                    clon.EspacioIndices[idx] = _rng.Next(_maxEspacios);
+                    clon.Start[i] = validos[_rng.Next(validos.Length)];
             }
             return clon;
         }
 
-        // ── Reparación ───────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Operador de reparación: detecta solapamiento de spans
-        /// [start, start+DuracionHoras) por (docente, día) y (espacio, día)
-        /// y reasigna el gen ofensor a un start aleatorio que NO solape con los demás.
-        /// </summary>
+        // ── Reparación HC-I01: sin solapes de docente (una pasada; A≡B por inicio compartido) ─
         public void Reparar(CromosomaHorario cromosoma)
         {
-            RepararPorRecurso(
-                cromosoma,
-                clave: i => _sesiones[i].DocenteId == Guid.Empty
-                    ? (object)("nop-" + i)
-                    : _sesiones[i].DocenteId,
-                aplicaA: _ => true,
-                cambiarEspacio: false);
-
-            if (_maxEspacios > 0)
-            {
-                RepararPorRecurso(
-                    cromosoma,
-                    clave: i => (object)cromosoma.EspacioIndices[i],
-                    aplicaA: i => _sesiones[i].Modalidad != Modalidad.Virtual,
-                    cambiarEspacio: true);
-            }
-        }
-
-        private void RepararPorRecurso(
-            CromosomaHorario cromosoma,
-            Func<int, object> clave,
-            Func<int, bool> aplicaA,
-            bool cambiarEspacio)
-        {
-            // Para cada recurso, mantener la lista de genes ya colocados (idx, start, dur).
-            var colocados = new Dictionary<object, List<(int gen, int start, int dur)>>();
+            var colocadosPorDocente = new Dictionary<Guid, List<(int start, int dur)>>();
 
             for (int i = 0; i < cromosoma.CantidadGenes; i++)
             {
-                if (!aplicaA(i)) continue;
+                var docente = _sesiones[i].DocenteId;
+                if (docente == Guid.Empty) continue;
 
-                int start = cromosoma.BloqueIndices[i];
+                int start = cromosoma.Start[i];
                 int dur   = _duraciones[i];
-                var k     = clave(i);
 
-                if (!colocados.TryGetValue(k, out var lista))
+                if (!colocadosPorDocente.TryGetValue(docente, out var lista))
                 {
-                    lista = new List<(int, int, int)>();
-                    colocados[k] = lista;
+                    lista = new List<(int, int)>();
+                    colocadosPorDocente[docente] = lista;
                 }
 
                 bool solapa = lista.Any(p => BloquesPlanner.Solapan(p.start, p.dur, start, dur, _diaPorIdx));
-
                 if (solapa)
                 {
-                    if (cambiarEspacio && _maxEspacios > 1)
+                    var nuevo = BuscarStartLibre(i, lista);
+                    if (nuevo.HasValue)
                     {
-                        // Estrategia 1: cambiar a un espacio libre en el mismo bloque/día.
-                        var nuevoEspacio = BuscarEspacioLibre(cromosoma, i, start, dur);
-                        if (nuevoEspacio.HasValue)
-                        {
-                            cromosoma.EspacioIndices[i] = nuevoEspacio.Value;
-                            var nuevaClave = (object)nuevoEspacio.Value;
-                            if (!colocados.TryGetValue(nuevaClave, out var lista2))
-                            {
-                                lista2 = new List<(int, int, int)>();
-                                colocados[nuevaClave] = lista2;
-                            }
-                            lista2.Add((i, start, dur));
-                            continue;
-                        }
-                    }
-
-                    // Estrategia 2: mover a otro start válido que no solape con los del mismo recurso.
-                    var nuevoStart = BuscarStartLibre(i, lista);
-                    if (nuevoStart.HasValue)
-                    {
-                        cromosoma.BloqueIndices[i] = nuevoStart.Value;
-                        lista.Add((i, nuevoStart.Value, dur));
+                        cromosoma.Start[i] = nuevo.Value;
+                        lista.Add((nuevo.Value, dur));
                         continue;
                     }
-
-                    // Fallback: registrar tal cual; el fitness penalizará.
-                    lista.Add((i, start, dur));
+                    // Fallback: registrar tal cual. El post-chequeo del orquestador (HC-I01) lo
+                    // detecta y hace fallback a Fase 2 — nunca se publica un horario inválido.
+                    lista.Add((start, dur));
                 }
                 else
                 {
-                    lista.Add((i, start, dur));
+                    lista.Add((start, dur));
                 }
             }
         }
 
-        private int? BuscarStartLibre(int gen, List<(int gen, int start, int dur)> ocupados)
+        private int? BuscarStartLibre(int gen, List<(int start, int dur)> ocupados)
         {
-            var validos = _startsValidosPorSesion[gen];
+            var validos = _startsValidos[gen];
             if (validos.Length == 0) return null;
             int dur = _duraciones[gen];
 
-            // Probar hasta 10 candidatos aleatorios; luego barrido lineal.
             for (int intento = 0; intento < 10; intento++)
             {
                 var cand = validos[_rng.Next(validos.Length)];
@@ -272,31 +186,6 @@ namespace SOEA.Engine.Genetic
             {
                 if (!ocupados.Any(o => BloquesPlanner.Solapan(o.start, o.dur, cand, dur, _diaPorIdx)))
                     return cand;
-            }
-            return null;
-        }
-
-        private int? BuscarEspacioLibre(CromosomaHorario cromosoma, int gen, int start, int dur)
-        {
-            for (int intento = 0; intento < 10; intento++)
-            {
-                var cand = _rng.Next(_maxEspacios);
-                if (cand == cromosoma.EspacioIndices[gen]) continue;
-
-                bool conflicto = false;
-                for (int j = 0; j < cromosoma.CantidadGenes; j++)
-                {
-                    if (j == gen) continue;
-                    if (_sesiones[j].Modalidad == Modalidad.Virtual) continue;
-                    if (cromosoma.EspacioIndices[j] != cand) continue;
-                    if (BloquesPlanner.Solapan(cromosoma.BloqueIndices[j], _duraciones[j], start, dur, _diaPorIdx))
-                    {
-                        conflicto = true;
-                        break;
-                    }
-                }
-
-                if (!conflicto) return cand;
             }
             return null;
         }

@@ -201,21 +201,28 @@ namespace SOEA.ConsoleRunner
                 // 5. Fase 3 — Algoritmo Genético
                 Console.WriteLine();
                 Console.WriteLine("--- FASE 3: ALGORITMO GENÉTICO ---");
+                var asignacionesFase2 = resultadoCP.EsFactible
+                    ? resultadoCP.Asignaciones
+                    : (IReadOnlyList<AsignacionSemanal>)Array.Empty<AsignacionSemanal>();
+
                 var resultadoGA = await motorGenetico.OptimizarAsync(
-                    sesionesFase2, bloquesDisponibles, curriculum.Espacios, docentes);
+                    sesionesFase2, asignacionesFase2, bloquesDisponibles, curriculum.Espacios, docentes);
 
-                Console.WriteLine($"Fase 3: Fitness final = {resultadoGA.PuntajeFitness} | Generaciones = {resultadoGA.Generaciones}");
+                Console.WriteLine($"Fase 3: Fitness final = {resultadoGA.PuntajeFitness} | Generaciones = {resultadoGA.Generaciones} | Fallback = {resultadoGA.UsoFallback}");
 
-                var sesionesFinales = resultadoGA.SesionesOptimizadas;
-                var asignadasFinal = sesionesFinales.Count(s => s.Estado == EstadoSesion.Asignada);
-                var conflictosFinal = sesionesFinales.Count(s => s.Estado == EstadoSesion.Conflicto);
+                // El GA ya no muta las sesiones: la unidad lógica sigue siendo la sesión coloreada;
+                // las asignaciones optimizadas (A/B) son el resultado a mostrar.
+                var sesionesFinales = sesionesFase2.ToList();
+                var asignacionesFinales = resultadoGA.AsignacionesOptimizadas;
+                var sesionPorId = sesionesFinales.ToDictionary(s => s.Id);
 
                 Console.WriteLine();
                 Console.WriteLine("=====================================================");
                 Console.WriteLine("            RESULTADOS FINALES DEL PIPELINE          ");
                 Console.WriteLine("=====================================================");
-                Console.WriteLine($"Sesiones Asignadas (Final)      : {asignadasFinal}");
-                Console.WriteLine($"Sesiones en Conflicto (Final)   : {conflictosFinal}");
+                Console.WriteLine($"Sesiones lógicas                : {sesionesFinales.Count}");
+                Console.WriteLine($"Asignaciones semanales (A/B)    : {asignacionesFinales.Count}");
+                Console.WriteLine($"Fallback a Fase 2               : {(resultadoGA.UsoFallback ? "Sí" : "No")}");
                 Console.WriteLine($"Puntaje Fitness (Fase 3)        : {resultadoGA.PuntajeFitness}");
                 Console.WriteLine("=====================================================");
 
@@ -243,27 +250,23 @@ namespace SOEA.ConsoleRunner
                             foreach(var d in docentes) Console.WriteLine($"- {d.NombreCompleto}");
                             break;
                         case "3":
-                            Console.WriteLine("\n--- Todas las Sesiones (Post Fase 3) ---");
-                            foreach(var s in sesionesFinales)
+                            Console.WriteLine("\n--- Todas las Asignaciones Semanales (Post Fase 3) ---");
+                            foreach(var asg in asignacionesFinales.OrderBy(x => x.SesionId).ThenBy(x => x.Semana))
                             {
-                                var a = asignaturas.FirstOrDefault(x => x.Id == s.AsignaturaId)?.Nombre ?? "Desconocida";
-                                var d = docentes.FirstOrDefault(x => x.Id == s.DocenteId)?.NombreCompleto ?? "Desconocido";
-                                var e = curriculum.Espacios.FirstOrDefault(x => x.Id == s.EspacioId)?.Nombre ?? "Sin asignar";
-                                var bloque = bloquesDisponibles.FirstOrDefault(b => b.Id == s.BloqueTiempoId);
+                                sesionPorId.TryGetValue(asg.SesionId, out var s);
+                                var a = s != null ? (asignaturas.FirstOrDefault(x => x.Id == s.AsignaturaId)?.Nombre ?? "Desconocida") : "Desconocida";
+                                var d = s != null ? (docentes.FirstOrDefault(x => x.Id == s.DocenteId)?.NombreCompleto ?? "Desconocido") : "Desconocido";
+                                var e = curriculum.Espacios.FirstOrDefault(x => x.Id == asg.EspacioId)?.Nombre ?? "Virtual";
+                                var bloque = bloquesDisponibles.FirstOrDefault(b => b.Id == asg.BloqueTiempoId);
                                 var bloqueStr = bloque != null ? $"{bloque.Dia} {bloque.HoraInicio}-{bloque.HoraFin}" : "Sin bloque";
-                                Console.WriteLine($"- {a} | {d} | {e} | {bloqueStr} | {s.Estado}");
+                                Console.WriteLine($"- {a} | {d} | Semana {asg.Semana} | {asg.Modalidad} | {e} | {bloqueStr}");
                             }
                             break;
                         case "4":
-                            Console.WriteLine("\n--- Sesiones con Conflicto ---");
-                            var conConflicto = sesionesFinales.Where(s => s.Estado == EstadoSesion.Conflicto).ToList();
-                            if(!conConflicto.Any()) Console.WriteLine("No hay sesiones con conflicto.");
-                            foreach(var s in conConflicto)
-                            {
-                                var a = asignaturas.FirstOrDefault(x => x.Id == s.AsignaturaId)?.Nombre ?? "Desconocida";
-                                var d = docentes.FirstOrDefault(x => x.Id == s.DocenteId)?.NombreCompleto ?? "Desconocido";
-                                Console.WriteLine($"- Asignatura: {a} | Docente: {d} | Motivo: {s.MotivoConflicto}");
-                            }
+                            Console.WriteLine("\n--- Estado de factibilidad ---");
+                            Console.WriteLine(resultadoGA.UsoFallback
+                                ? "La Fase 3 hizo fallback a la solución factible de la Fase 2 (no pudo mejorar de forma factible)."
+                                : "La Fase 3 optimizó sobre la solución factible sin introducir violaciones de restricciones duras.");
                             break;
                         case "5":
                             Console.WriteLine("\n--- Resultados por Fase ---");

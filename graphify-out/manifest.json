@@ -100,8 +100,8 @@
     "semantic_hash": "0b97c0ab2f00e3e04b1db00b5a5cc04c"
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Application\\Features\\Horario\\GenerarHorarioService.cs": {
-    "mtime": 1780106760.502018,
-    "ast_hash": "c173942bd3731bf7be7bd1283e00e3e3",
+    "mtime": 1780343520.8320825,
+    "ast_hash": "39d75eb9277575a7a55ce20ab910627b",
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Application\\Features\\Horario\\Requests\\GenerarHorarioRequest.cs": {
@@ -115,8 +115,8 @@
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.ConsoleRunner\\Program.cs": {
-    "mtime": 1780086159.858791,
-    "ast_hash": "75489611d39a06a337a07f749960ec57",
+    "mtime": 1780343604.9073405,
+    "ast_hash": "67cf4e0e95120cb185ab831856a17891",
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.ConsoleRunner\\SOEA.ConsoleRunner.csproj": {
@@ -265,8 +265,8 @@
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Domain\\Interfaces\\IMotorGenetico.cs": {
-    "mtime": 1779842988.2569804,
-    "ast_hash": "d95e5f31d8288b760db2f7efa8aecf1e",
+    "mtime": 1780343449.0724523,
+    "ast_hash": "c432b13b710fe1ecfc71130d938de68a",
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Domain\\Interfaces\\IMotorOptimizacion.cs": {
@@ -315,8 +315,8 @@
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Engine.ConstraintProg\\MotorConstraintProgramming.cs": {
-    "mtime": 1780106847.6630306,
-    "ast_hash": "fe7bdaf0ec12c30d0512903a6f9de07b",
+    "mtime": 1780343458.5005403,
+    "ast_hash": "a847ca7c6463e30b45ae2ab95078dce5",
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Engine.ConstraintProg\\SOEA.Engine.ConstraintProg.csproj": {
@@ -325,9 +325,9 @@
     "semantic_hash": "28aa436e9275d55c3d3c69eace9e38d4"
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Engine.Genetic\\CromosomaHorario.cs": {
-    "mtime": 1779132577.9789984,
-    "ast_hash": "acc67c77830d17a42d2084b25cb95495",
-    "semantic_hash": "acc67c77830d17a42d2084b25cb95495"
+    "mtime": 1780343221.6523898,
+    "ast_hash": "babea82a5311244eae830f1c8bc37d47",
+    "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Engine.Genetic\\DependencyInjection.cs": {
     "mtime": 1778970482.9126542,
@@ -335,19 +335,19 @@
     "semantic_hash": "1fec04b83708a1d99e0fb2979ad69fb5"
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Engine.Genetic\\EvaluadorFitness.cs": {
-    "mtime": 1779843007.1925626,
-    "ast_hash": "8313e4763f1b8cb4a0ad26c5b85b41f8",
+    "mtime": 1780343376.844223,
+    "ast_hash": "73f5f9c2ffefc23af558b2faca797890",
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Engine.Genetic\\MotorGenetico.cs": {
-    "mtime": 1779843054.332024,
-    "ast_hash": "a6ba4c89e58347a6c446bbfcf4e9e0e0",
+    "mtime": 1780343440.3641071,
+    "ast_hash": "394939e2855d4d09fcb694a1219e6da5",
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Engine.Genetic\\OperadoresGeneticos.cs": {
-    "mtime": 1779826927.9477165,
-    "ast_hash": "826b98f76e8b4a5efe7f4901e0a58794",
-    "semantic_hash": "826b98f76e8b4a5efe7f4901e0a58794"
+    "mtime": 1780343642.1238692,
+    "ast_hash": "d652fc3d3847b28364fd0adbe07fc99e",
+    "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Engine.Genetic\\SOEA.Engine.Genetic.csproj": {
     "mtime": 1778970482.9156532,
@@ -1000,8 +1000,8 @@
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\test\\SOEA.Tests\\Engine\\Genetic\\OperadoresGeneticosTests.cs": {
-    "mtime": 1779826927.9622445,
-    "ast_hash": "acd42f624cb5f1aa0105dc6e4686287e",
+    "mtime": 1780343936.481002,
+    "ast_hash": "0c4f9211c2769155f1f35c01ba342543",
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\test\\SOEA.Tests\\Engine\\GraphColoring\\ConstructorGrafoConflictosTests.cs": {
@@ -1080,8 +1080,8 @@
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Application\\Features\\Horario\\ValidadorRestriccionesDuras.cs": {
-    "mtime": 1780106749.8201704,
-    "ast_hash": "007c177ba1f400a3b7ab6321c93d72ba",
+    "mtime": 1780343209.750139,
+    "ast_hash": "cf548b45ad0d76c0192f094804311b03",
     "semantic_hash": ""
   },
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Engine.ConstraintProg\\CpSatOptions.cs": {
@@ -1102,6 +1102,26 @@
   "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\docs\\auditoria_viernes.md": {
     "mtime": 1780107088.410841,
     "ast_hash": "95e66b799e5b222459d55fdf1b4a2de3",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Domain\\Services\\ModalidadSemanal.cs": {
+    "mtime": 1780343179.5065064,
+    "ast_hash": "042814f75604c15b3320fe3d2044e69b",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\src\\SOEA.Engine.Genetic\\AsignadorEspacios.cs": {
+    "mtime": 1780343241.1935518,
+    "ast_hash": "01745c8e9f171d6b55d7261ec8a3b8a9",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\test\\SOEA.Tests\\Engine\\Genetic\\EvaluadorFitnessTests.cs": {
+    "mtime": 1780343870.7226245,
+    "ast_hash": "0b4bf8c07ccf8d969966d9bbaada30ac",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\test\\SOEA.Tests\\Engine\\Genetic\\MotorGeneticoTests.cs": {
+    "mtime": 1780343902.4925163,
+    "ast_hash": "4a18ae7027559aa282e9a6c51d4bebf7",
     "semantic_hash": ""
   }
 }
