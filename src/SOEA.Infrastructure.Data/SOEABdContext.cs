@@ -16,6 +16,7 @@ namespace SOEA.Infrastructure.Data.Context
         public DbSet<Grupo>      Grupos      { get; set; }
         public DbSet<Facultad>   Facultades  { get; set; }
         public DbSet<Programa>   Programas   { get; set; }
+        public DbSet<TipoAlternanciaConfig> TiposAlternancia { get; set; }
 
         public SOEABdContext(DbContextOptions<SOEABdContext> options) : base(options) { }
 
@@ -34,6 +35,7 @@ namespace SOEA.Infrastructure.Data.Context
             modelBuilder.ApplyConfiguration(new GrupoConfiguration());
             modelBuilder.ApplyConfiguration(new FacultadConfiguration());
             modelBuilder.ApplyConfiguration(new ProgramaConfiguration());
+            modelBuilder.ApplyConfiguration(new TipoAlternanciaConfigConfiguration());
         }
     }
 }

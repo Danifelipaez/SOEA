@@ -47,8 +47,13 @@ namespace SOEA.Application.Features.Horario.Requests
         /// <summary>Número de sesiones por semana. Null = no enviado (derivar de HorasSemanales).</summary>
         public int? SesionesPorSemana { get; set; }
         public string? ProgramaId  { get; set; }
-        public string? Alternancia { get; set; }
-        public bool   EsVirtual    { get; set; }
+        public string? Alternancia    { get; set; }
+        public bool   EsVirtual      { get; set; }
+        /// <summary>
+        /// Espacio físico fijo para esta asignatura (HC-S05).
+        /// Cuando está presente, CP-SAT solo asigna sesiones presenciales a este espacio.
+        /// </summary>
+        public string? EspacioFijoId  { get; set; }
     }
 
     public class DocenteDto

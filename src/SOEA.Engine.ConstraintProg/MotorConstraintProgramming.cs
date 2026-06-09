@@ -241,26 +241,35 @@ namespace SOEA.Engine.ConstraintProg
             // ── HC-S01 + HC-S03 + HC-S04: espacio por (espacio, semana), solo presencial ─
             if (spaceVars.Any() && espacios.Any())
             {
-                // HC-S03: candidatos por sesión (mismo requerimiento de lab en ambas semanas).
+                // HC-S03 + HC-S05: candidatos por sesión.
+                // HC-S05: si la sesión trae un EspacioId específico y ese espacio existe en la
+                // lista, solo ese espacio es candidato (respeta la asignación del curriculum).
+                // HC-S03: si no hay espacio fijo pero requiere laboratorio, se filtran por tipo.
                 var candidatosPorSesion = new Dictionary<Guid, List<int>>();
                 foreach (var sesion in sesiones)
                 {
                     bool tienePresencial = Semanas.Any(w => spaceVars.ContainsKey((sesion.Id, w)));
                     if (!tienePresencial) continue;
 
-                    bool requiereLab = false;
-                    if (sesion.EspacioId.HasValue)
-                    {
-                        var espOriginal = espacios.FirstOrDefault(e => e.Id == sesion.EspacioId);
-                        if (espOriginal != null && espOriginal.Tipo == TipoEspacio.Laboratorio)
-                            requiereLab = true;
-                    }
+                    List<int> lista;
 
-                    var lista = new List<int>();
-                    for (int e = 0; e < espacios.Count; e++)
+                    // HC-S05: espacio fijo → solo ese índice
+                    if (sesion.EspacioId.HasValue && espacioIndex.TryGetValue(sesion.EspacioId.Value, out var idxFijo))
                     {
-                        if (requiereLab && espacios[e].Tipo != TipoEspacio.Laboratorio) continue;
-                        lista.Add(e);
+                        lista = new List<int> { idxFijo };
+                    }
+                    else
+                    {
+                        // HC-S03: sin espacio fijo → filtrar por tipo de espacio
+                        bool requiereLab = sesion.EspacioId.HasValue &&
+                            espacios.FirstOrDefault(e => e.Id == sesion.EspacioId)?.Tipo == TipoEspacio.Laboratorio;
+
+                        lista = new List<int>();
+                        for (int e = 0; e < espacios.Count; e++)
+                        {
+                            if (requiereLab && espacios[e].Tipo != TipoEspacio.Laboratorio) continue;
+                            lista.Add(e);
+                        }
                     }
 
                     if (lista.Count == 0)

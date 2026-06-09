@@ -37,6 +37,7 @@ export interface AsignaturaApiDto {
   programaId?: string;
   alternancia?: string;
   esVirtual: boolean;
+  espacioFijoId?: string;
 }
 
 export interface DocenteApiDto {
@@ -116,7 +117,8 @@ export class HorarioApiService {
         sesionesPorSemana: a.sesionesPorSemana,
         programaId: a.programaId,
         alternancia: a.alternancia,
-        esVirtual: false
+        esVirtual: false,
+        espacioFijoId: a.espacioFijoId
       })),
       docentes: docentes.map(d => ({
         id: d.id,

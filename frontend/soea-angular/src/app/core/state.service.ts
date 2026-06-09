@@ -6,12 +6,37 @@ import { Facultad, Programa, Espacio, Docente, Asignatura, Sesion, Configuracion
 })
 export class StateService {
   // ── Entidades maestras ───────────────────────────────────────────────────────
-  facultades = signal<Facultad[]>([]);
-  programas  = signal<Programa[]>([]);
-  espacios   = signal<Espacio[]>([]);
-  docentes   = signal<Docente[]>([]);
+  facultades  = signal<Facultad[]>([]);
+  programas   = signal<Programa[]>([]);
+  espacios    = signal<Espacio[]>([]);
+  docentes    = signal<Docente[]>([]);
   asignaturas = signal<Asignatura[]>([]);
-  sesiones   = signal<Sesion[]>([]);
+  sesiones    = signal<Sesion[]>([]);
+
+  // ── Lookup Maps computados — O(1) en lugar de .find() ───────────────────────
+  readonly facultadById    = computed(() => new Map(this.facultades().map(f  => [f.id,  f])));
+  readonly programaById    = computed(() => new Map(this.programas().map(p   => [p.id,  p])));
+  readonly espacioById     = computed(() => new Map(this.espacios().map(e    => [e.id,  e])));
+  readonly docenteById     = computed(() => new Map(this.docentes().map(d    => [d.id,  d])));
+  readonly asignaturaById  = computed(() => new Map(this.asignaturas().map(a => [a.id,  a])));
+
+  readonly programasByFacultad = computed(() => {
+    const m = new Map<string, Programa[]>();
+    for (const p of this.programas()) {
+      const list = m.get(p.facultadId);
+      if (list) list.push(p); else m.set(p.facultadId, [p]);
+    }
+    return m;
+  });
+
+  readonly asignaturasByPrograma = computed(() => {
+    const m = new Map<string, Asignatura[]>();
+    for (const a of this.asignaturas()) {
+      const list = m.get(a.programaId);
+      if (list) list.push(a); else m.set(a.programaId, [a]);
+    }
+    return m;
+  });
 
   // ── Facultades ───────────────────────────────────────────────────────────────
   addFacultad(f: Facultad)      { this.facultades.update(v => [...v, f]); }
@@ -49,22 +74,32 @@ export class StateService {
 
   setSesiones(s: Sesion[])       { this.sesiones.set(s); }
   updateSesion(s: Sesion)        { this.sesiones.update(v => v.map(x => x.id === s.id ? s : x)); }
+  /**
+   * Mueve una sesión a un nuevo día/franja conservando la modalidad, semana y espacio de
+   * CADA fila. Las filas A y B de una misma sesión comparten `id` y ocupan el mismo horario
+   * (el horario es idéntico en ambas semanas; solo cambia presencial↔virtual), por lo que el
+   * movimiento aplica a todas sus filas a la vez sin colapsarlas en un único objeto.
+   */
+  moverSesion(id: string, dia: string, horaInicio: string, horaFin: string) {
+    this.sesiones.update(v => v.map(x =>
+      x.id === id ? { ...x, dia, horaInicio, horaFin } : x));
+  }
   setExecutionLogs(logs: string[]) { this.executionLogs.set(logs); }
 
-  // ── Helpers derivados ────────────────────────────────────────────────────────
+  // ── Helpers derivados (delegan a los Maps computados) ───────────────────────
   getFacultadById(id: string): Facultad | undefined {
-    return this.facultades().find(f => f.id === id);
+    return this.facultadById().get(id);
   }
 
   getProgramaById(id: string): Programa | undefined {
-    return this.programas().find(p => p.id === id);
+    return this.programaById().get(id);
   }
 
   getProgramasByFacultad(facultadId: string): Programa[] {
-    return this.programas().filter(p => p.facultadId === facultadId);
+    return this.programasByFacultad().get(facultadId) ?? [];
   }
 
   getAsignaturasByPrograma(programaId: string): Asignatura[] {
-    return this.asignaturas().filter(a => a.programaId === programaId);
+    return this.asignaturasByPrograma().get(programaId) ?? [];
   }
 }

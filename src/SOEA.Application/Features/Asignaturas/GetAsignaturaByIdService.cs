@@ -33,7 +33,9 @@ namespace SOEA.Application.Features.Asignaturas
                 SesionesPorSemana = asignatura.SesionesPorSemana,
                 SesionesLaboratorioSemestre = asignatura.SesionesLaboratorioSemestre,
                 Alternancia = asignatura.Alternancia,
-                ProgramaId = asignatura.ProgramaId
+                ProgramaId = asignatura.ProgramaId,
+                DocenteId = asignatura.DocenteId,
+                EspacioFijoId = asignatura.EspacioFijoId
             };
         }
     }

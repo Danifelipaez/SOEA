@@ -160,9 +160,17 @@ namespace SOEA.Application.Features.Horario
 
             // ── 6. Mapear asignaciones al DTO de respuesta (una DTO por semana) ─
             var sesionPorId = sesionesFinales.ToDictionary(s => s.Id);
+            // Lab de origen por sesión = espacio de su asignación presencial. Permite al frontend
+            // ubicar la fila virtual (EspacioId=null) en el laboratorio donde la sesión es presencial.
+            var espacioHogarPorSesion = asignaciones
+                .Where(a => a.Modalidad == Modalidad.Presencial && a.EspacioId.HasValue)
+                .GroupBy(a => a.SesionId)
+                .ToDictionary(g => g.Key, g => g.First().EspacioId!.Value.ToString());
             var sesionesDto = asignaciones
                 .Where(a => sesionPorId.ContainsKey(a.SesionId))
-                .Select(a => MapearSesionDto(a, sesionPorId[a.SesionId], bloques))
+                .Select(a => MapearSesionDto(
+                    a, sesionPorId[a.SesionId], bloques,
+                    espacioHogarPorSesion.GetValueOrDefault(a.SesionId)))
                 .ToList();
 
             return new GenerarHorarioResponse
@@ -381,13 +389,17 @@ namespace SOEA.Application.Features.Horario
 
                 for (int i = 0; i < sesionesASolicitar; i++)
                 {
-                    sesiones.Add(new Sesion(
+                    // HC-S05: si la asignatura tiene espacio fijo, se lo pasamos a la sesión
+                // para que CP-SAT lo respete como hard constraint (solo ese espacio).
+                Guid? espacioFijo = !string.IsNullOrWhiteSpace(dto.EspacioFijoId) &&
+                                    Guid.TryParse(dto.EspacioFijoId, out var efid) ? efid : null;
+
+                sesiones.Add(new Sesion(
                         id: Guid.NewGuid(),
                         asignaturaId: asigId,
                         docenteId: docenteId,
                         bloqueId: bloqueTemp,
-                        // Fix #8: null means "not yet assigned" — Phase 2 will assign rooms
-                        espacioId: null,
+                        espacioId: espacioFijo,
                         grupoId: null,
                         alternancia: alternancia,
                         modalidad: modalidad,
@@ -430,7 +442,8 @@ namespace SOEA.Application.Features.Horario
             return bloques;
         }
 
-        private static SesionGeneradaDto MapearSesionDto(AsignacionSemanal a, Sesion s, List<BloqueTiempo> bloques)
+        private static SesionGeneradaDto MapearSesionDto(
+            AsignacionSemanal a, Sesion s, List<BloqueTiempo> bloques, string? espacioIdHogar)
         {
             var bloque = bloques.FirstOrDefault(b => b.Id == a.BloqueTiempoId);
 
@@ -452,6 +465,7 @@ namespace SOEA.Application.Features.Horario
                 AsignaturaId  = s.AsignaturaId.ToString(),
                 DocenteId     = s.DocenteId.ToString(),
                 EspacioId     = a.EspacioId?.ToString(),
+                EspacioIdHogar = espacioIdHogar ?? a.EspacioId?.ToString(),
                 Dia           = dia,
                 HoraInicio    = horaInicio,
                 HoraFin       = horaFin,

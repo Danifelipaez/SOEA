@@ -13,5 +13,6 @@ namespace SOEA.Application.Features.Asignaturas.Responses
         public TipoAlternancia Alternancia { get; set; }
         public Guid ProgramaId { get; set; }
         public Guid? DocenteId { get; set; }
+        public Guid? EspacioFijoId { get; set; }
     }
 }

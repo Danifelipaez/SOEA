@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using SOEA.Application.Features.Asignaturas;
 using SOEA.Application.Features.Asignaturas.Requests;
 using SOEA.Application.Features.Asignaturas.Responses;
+using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 
 namespace SOEA.API.Controllers
@@ -14,17 +15,20 @@ namespace SOEA.API.Controllers
         private readonly GetAsignaturaByIdService _getByIdService;
         private readonly GetAsignaturasService _getAllService;
         private readonly DeleteAsignaturaService _deleteService;
+        private readonly UpdateAlternanciaService _updateAlternanciaService;
 
         public AsignaturasController(
             CreateAsignaturaService createService,
             GetAsignaturaByIdService getByIdService,
             GetAsignaturasService getAllService,
-            DeleteAsignaturaService deleteService)
+            DeleteAsignaturaService deleteService,
+            UpdateAlternanciaService updateAlternanciaService)
         {
             _createService = createService;
             _getByIdService = getByIdService;
             _getAllService = getAllService;
             _deleteService = deleteService;
+            _updateAlternanciaService = updateAlternanciaService;
         }
 
         [HttpPost]
@@ -86,5 +90,29 @@ namespace SOEA.API.Controllers
                 return NotFound(ex.Message);
             }
         }
+
+        /// <summary>
+        /// Actualiza el tipo de alternancia de una asignatura.
+        /// Body: { "alternancia": "TipoA" | "TipoB" | "SinAlternancia" }
+        /// </summary>
+        [HttpPatch("{id}/alternancia")]
+        public async Task<IActionResult> UpdateAlternancia(Guid id, [FromBody] UpdateAlternanciaDto dto)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            try
+            {
+                await _updateAlternanciaService.ExecuteAsync(id, dto.Alternancia);
+                return NoContent();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return NotFound(ex.Message);
+            }
+        }
+    }
+
+    public class UpdateAlternanciaDto
+    {
+        public TipoAlternancia Alternancia { get; set; }
     }
 }

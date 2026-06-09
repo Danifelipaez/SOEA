@@ -53,6 +53,10 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasColumnName("docente_id")
                 .IsRequired(false);
 
+            builder.Property(a => a.EspacioFijoId)
+                .HasColumnName("espacio_fijo_id")
+                .IsRequired(false);
+
             // Indexes
             builder.HasIndex(a => new { a.Codigo, a.ProgramaId })
                 .IsUnique()

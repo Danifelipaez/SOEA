@@ -3,6 +3,7 @@ using OfficeOpenXml;  // EPPlus 8 license
 using SOEA.Application.Features.Asignaturas;
 using SOEA.Application.Features.Docentes;
 using SOEA.Application.Features.Horario;
+using SOEA.Application.Features.TiposAlternancia;
 using SOEA.Domain.Interfaces;
 using SOEA.Engine.ConstraintProg;
 using SOEA.Engine.Genetic;
@@ -48,6 +49,7 @@ builder.Services.AddScoped<IDocenteRepositorio, DocenteRepositorio>();
 builder.Services.AddScoped<IEspacioRepositorio, EspacioRepositorio>();
 builder.Services.AddScoped<IGrupoRepositorio, GrupoRepositorio>();
 builder.Services.AddScoped<IBloqueTiempoRepositorio, BloqueTiempoRepositorio>();
+builder.Services.AddScoped<ITipoAlternanciaConfigRepositorio, TipoAlternanciaConfigRepositorio>();
 
 // ── Excel reader ──────────────────────────────────────────────────────────────
 builder.Services.AddScoped<ILectorExcel, LectorExcel>();
@@ -70,8 +72,13 @@ builder.Services.AddScoped<CreateAsignaturaService>();
 builder.Services.AddScoped<GetAsignaturaByIdService>();
 builder.Services.AddScoped<GetAsignaturasService>();
 builder.Services.AddScoped<DeleteAsignaturaService>();
+builder.Services.AddScoped<UpdateAlternanciaService>();
+builder.Services.AddScoped<CrearSesionManualService>();
 // CRUD Docentes
 builder.Services.AddScoped<DocenteService>();
+builder.Services.AddScoped<FusionDocentesService>();
+// Catálogo de tipos de alternancia (Inc. C)
+builder.Services.AddScoped<TipoAlternanciaConfigService>();
 // Generación de horario
 builder.Services.AddScoped<GenerarHorarioService>();
 

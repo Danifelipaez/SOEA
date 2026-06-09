@@ -10,8 +10,13 @@ namespace SOEA.API.Controllers
     public class DocentesController : ControllerBase
     {
         private readonly DocenteService _service;
+        private readonly FusionDocentesService _fusion;
 
-        public DocentesController(DocenteService service) => _service = service;
+        public DocentesController(DocenteService service, FusionDocentesService fusion)
+        {
+            _service = service;
+            _fusion  = fusion;
+        }
 
         [HttpGet]
         public async Task<ActionResult<List<DocenteUiDto>>> GetAll()
@@ -55,5 +60,33 @@ namespace SOEA.API.Controllers
             await _service.DeleteAsync(id);
             return NoContent();
         }
+
+        /// <summary>
+        /// Grupos de docentes que probablemente son la misma persona (variantes de nombre),
+        /// para revisión y fusión manual desde la UI.
+        /// </summary>
+        [HttpGet("duplicados")]
+        public async Task<ActionResult<List<List<DocenteUiDto>>>> GetDuplicados()
+            => Ok(await _fusion.SugerirDuplicadosAsync());
+
+        /// <summary>
+        /// Fusiona los docentes duplicados en el canónico: reasigna sus asignaturas y los elimina.
+        /// </summary>
+        [HttpPost("fusionar")]
+        public async Task<IActionResult> Fusionar([FromBody] FusionarDocentesRequest req)
+        {
+            try
+            {
+                var resultado = await _fusion.FusionarAsync(req.CanonicoId, req.DuplicadosIds ?? new List<Guid>());
+                return Ok(resultado);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
     }
+
+    /// <summary>Payload para fusionar docentes: el canónico que se conserva y los que se absorben.</summary>
+    public record FusionarDocentesRequest(Guid CanonicoId, List<Guid> DuplicadosIds);
 }

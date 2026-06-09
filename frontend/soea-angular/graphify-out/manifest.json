@@ -1,0 +1,157 @@
+{
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\angular.json": {
+    "mtime": 1780106931.997907,
+    "ast_hash": "300be1b5605af043eafe3af865446dbe",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\package.json": {
+    "mtime": 1778970482.8384058,
+    "ast_hash": "803c5c2d4de8c66f2e70b03a28f11b57",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\tsconfig.app.json": {
+    "mtime": 1779192663.488292,
+    "ast_hash": "efb27b2c06d6ab0fd251e9ef3d56c661",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\tsconfig.json": {
+    "mtime": 1778970482.8584046,
+    "ast_hash": "46e70ba7bf6d021351390882a69f0ba9",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\tsconfig.spec.json": {
+    "mtime": 1778970482.8584046,
+    "ast_hash": "3e71f6d6d595f85d05c67af77e2029e9",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\.vscode\\extensions.json": {
+    "mtime": 1778970482.8304055,
+    "ast_hash": "66fd9e60d4633b6099fe02e06a7075ea",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\.vscode\\launch.json": {
+    "mtime": 1778970482.831404,
+    "ast_hash": "430386a2f03e9d559664c196344c121b",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\.vscode\\mcp.json": {
+    "mtime": 1778970482.831404,
+    "ast_hash": "a73020575e74990ecd722ccc5122bb0c",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\.vscode\\tasks.json": {
+    "mtime": 1778970482.8324037,
+    "ast_hash": "cb7ed9a56930402d9059ea5a9773d60e",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\main.ts": {
+    "mtime": 1778970482.8554032,
+    "ast_hash": "bc14533f3241702c6bde71a553eb01af",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\app.config.ts": {
+    "mtime": 1778970482.8404055,
+    "ast_hash": "3232967b52edde2252b126740bde9538",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\app.routes.ts": {
+    "mtime": 1778970482.8424048,
+    "ast_hash": "8f753cfcce6f0b57d9233f410d92fc4f",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\app.spec.ts": {
+    "mtime": 1778970482.8434064,
+    "ast_hash": "bdaf3055db5396aa319b4a9c861b916f",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\app.ts": {
+    "mtime": 1778970482.8434064,
+    "ast_hash": "ea5bcf74223bd643f14686b8834eecdf",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\core\\horario-api.service.ts": {
+    "mtime": 1780106941.7141688,
+    "ast_hash": "6a855fa8e3436ab1cbb052acf1c47fff",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\core\\models.ts": {
+    "mtime": 1780429139.7761662,
+    "ast_hash": "081e821bbcb56e4d571e43028daeeaad",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\core\\persistencia.service.ts": {
+    "mtime": 1780106954.9622948,
+    "ast_hash": "63d7b310c8ba23203ce9808501ca968f",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\core\\state.service.ts": {
+    "mtime": 1780429280.2429333,
+    "ast_hash": "6091b992c1b1268df36dad03f9a6dbf8",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\features\\dashboard-admin\\dashboard-admin.component.ts": {
+    "mtime": 1779134551.2195237,
+    "ast_hash": "26fa848b94e630f0b6e4bed9f10c1d78",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\features\\dashboard-developer\\dashboard-developer.component.ts": {
+    "mtime": 1779843256.38069,
+    "ast_hash": "9352da19d24433ee0af8630ce8db1af2",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\features\\horario\\horario.component.ts": {
+    "mtime": 1780429305.8889725,
+    "ast_hash": "0affd2f5fcddd5286b92b64e7819bcbd",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\features\\ingesta\\ingesta.component.ts": {
+    "mtime": 1778970482.853406,
+    "ast_hash": "b9e7f36b7bcc81fa2cd7b51e2ffc81f9",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\features\\ingesta\\asignaturas-tab\\asignaturas-tab.component.ts": {
+    "mtime": 1779698617.2587855,
+    "ast_hash": "c7f555db418f04d9cba82165850facab",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\features\\ingesta\\docentes-tab\\docentes-tab.component.ts": {
+    "mtime": 1779866903.654213,
+    "ast_hash": "5562fa333dc3369f0530675b4d6c5b7c",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\features\\ingesta\\espacios-tab\\espacios-tab.component.ts": {
+    "mtime": 1779866915.5420024,
+    "ast_hash": "f463fe4a8552c9318158573c4b5c9d2d",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\shared\\confirm-delete-dialog\\confirm-delete-dialog.component.ts": {
+    "mtime": 1780425931.8152864,
+    "ast_hash": "501853e2df72197516403e6e66762c9d",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\environments\\environment.prod.ts": {
+    "mtime": 1780106928.0916257,
+    "ast_hash": "4b7c8e2ca48eeee849d381d554f52b24",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\environments\\environment.ts": {
+    "mtime": 1780106923.6265123,
+    "ast_hash": "5d3b3fed87579c9ba20e1311576852ed",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\README.md": {
+    "mtime": 1778970482.8334057,
+    "ast_hash": "22f111a00edac97890330c08da09d275",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\index.html": {
+    "mtime": 1778970482.8545156,
+    "ast_hash": "6d129130a417a1a476921e7970ecdcec",
+    "semantic_hash": ""
+  },
+  "A:\\Unversidad\\_PRACTICAS_UNI\\CODIGO\\SOEA\\frontend\\soea-angular\\src\\app\\app.html": {
+    "mtime": 1778970482.8414037,
+    "ast_hash": "b8f174fa463cb93cee2b62557a15692c",
+    "semantic_hash": ""
+  }
+}

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.Services;
 using SOEA.Domain.ValueObjects;
 using SOEA.Infrastructure.Data.Context;
 using System.Globalization;
@@ -176,12 +177,33 @@ namespace SOEA.API.Controllers
                 }
                 await _context.SaveChangesAsync();
 
+                // Lookup: asignaturaId (temp) → EspacioId de su primera sesión predefinida.
+                // Esto permite propagar HC-S05: el espacio del curriculum se fija en la entidad.
+                var espacioPorAsignatura = resultado.SesionesPredefinidas
+                    .Where(s => s.EspacioId.HasValue)
+                    .GroupBy(s => s.AsignaturaId)
+                    .ToDictionary(g => g.Key, g => g.First().EspacioId!.Value);
+
                 // ── Asignaturas ───────────────────────────────────────────────────────
                 foreach (var a in resultado.Asignaturas)
                 {
                     var progRealId = programaIdMap.TryGetValue(a.ProgramaId, out var pid) ? pid : a.ProgramaId;
                     var docenteRealId = a.DocenteId.HasValue && docenteIdMap.TryGetValue(a.DocenteId.Value, out var did)
                         ? did : a.DocenteId;
+
+                    // Resolver el espacio fijo: buscar en el catálogo BD por nombre (los espacios
+                    // ya se persistieron en la sección anterior con sus IDs reales).
+                    Guid? espacioFijoRealId = null;
+                    if (espacioPorAsignatura.TryGetValue(a.Id, out var espacioTempId))
+                    {
+                        var espNombreTemp = resultado.Espacios.FirstOrDefault(e => e.Id == espacioTempId)?.Nombre;
+                        if (!string.IsNullOrWhiteSpace(espNombreTemp))
+                        {
+                            var espBd = await _context.Espacios
+                                .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, espNombreTemp));
+                            espacioFijoRealId = espBd?.Id;
+                        }
+                    }
 
                     var existe = await _context.Asignaturas
                         .FirstOrDefaultAsync(x => x.Codigo == a.Codigo && x.ProgramaId == progRealId);
@@ -195,7 +217,12 @@ namespace SOEA.API.Controllers
                     {
                         var nueva = new Asignatura(Guid.NewGuid(), a.Nombre, a.Codigo,
                             a.HorasPorSesion, a.SesionesPorSemana, a.SesionesLaboratorioSemestre, progRealId);
+                        // Override manual del tipo si el import lo trae explícito (TipoA/TipoB);
+                        // si viene SinAlternancia (default) se conserva la inferencia por umbral.
+                        if (a.Alternancia != TipoAlternancia.SinAlternancia)
+                            nueva.EstablecerAlternancia(a.Alternancia);
                         nueva.AsignarDocente(docenteRealId);
+                        nueva.AsignarEspacioFijo(espacioFijoRealId);
                         _context.Asignaturas.Add(nueva);
                         asignaturaIdMap[a.Id] = nueva.Id;
                         stats.AsignaturasCreadas++;
@@ -203,6 +230,11 @@ namespace SOEA.API.Controllers
                     else
                     {
                         existe.AsignarDocente(docenteRealId);
+                        existe.AsignarEspacioFijo(espacioFijoRealId);
+                        // Re-aplicar alternancia inferida por el lector; si es TipoA/TipoB
+                        // sobreescribe el valor antiguo (p.ej. SinAlternancia de imports anteriores).
+                        if (a.Alternancia != TipoAlternancia.SinAlternancia)
+                            existe.EstablecerAlternancia(a.Alternancia);
                         asignaturaIdMap[a.Id] = existe.Id;
                         stats.AsignaturasActualizadas++;
                     }
@@ -270,6 +302,19 @@ namespace SOEA.API.Controllers
 
             stats.AsignaturasSinDocente = resultado.Asignaturas.Count(a => !a.DocenteId.HasValue);
             stats.Advertencias = resultado.Advertencias.ToList();
+
+            // Reporte de posibles docentes duplicados (mismo profesor con variantes de nombre →
+            // se fragmenta en varios registros y el motor los agenda en paralelo). No se fusionan
+            // automáticamente: se avisa para que el usuario los revise/unifique manualmente.
+            var todosDocentes = await _context.Docentes
+                .Select(d => new { d.Id, d.Nombre })
+                .ToListAsync();
+            var gruposDup = DetectorDocentesDuplicados.AgruparPosiblesDuplicados(
+                todosDocentes.Select(d => new DetectorDocentesDuplicados.Docente(d.Id, d.Nombre)));
+            foreach (var grupo in gruposDup)
+                stats.Advertencias.Add(
+                    "Posibles docentes duplicados (revisar/unificar): " +
+                    string.Join(" | ", grupo.Select(g => g.Nombre)));
 
             return Ok(stats);
         }
@@ -466,17 +511,32 @@ namespace SOEA.API.Controllers
                         exists = _context.Asignaturas.FirstOrDefault(x => x.Id == aGuid);
                     exists ??= _context.Asignaturas.FirstOrDefault(x => x.Nombre.ToLower() == a.Nombre.ToLower() && x.ProgramaId == prog.Id);
 
+                    // Override manual del tipo si el import lo trae explícito (TipoA/TipoB);
+                    // SinAlternancia (default) deja que la inferencia por umbral decida.
+                    TipoAlternancia? altExplicita =
+                        Enum.TryParse<TipoAlternancia>(a.Alternancia, ignoreCase: true, out var altP) &&
+                        altP != TipoAlternancia.SinAlternancia
+                            ? altP : null;
+
                     Guid targetId;
                     if (exists == null)
                     {
                         var entidad = new Asignatura(Guid.NewGuid(), a.Nombre, a.Codigo ?? string.Empty, a.HorasPorSesion, a.SesionesPorSemana, a.SesionesLaboratorioSemestre, prog.Id);
+                        if (altExplicita.HasValue) entidad.EstablecerAlternancia(altExplicita.Value);
                         entidad.AsignarDocente(docenteRealId);
                         _context.Asignaturas.Add(entidad);
                         targetId = entidad.Id;
                     }
                     else
                     {
-                        exists.ActualizarDatos(a.Nombre, a.SesionesLaboratorioSemestre);
+                        exists.ActualizarDatos(
+                            a.Nombre,
+                            a.Codigo,
+                            a.HorasPorSesion,
+                            a.SesionesPorSemana,
+                            a.SesionesLaboratorioSemestre,
+                            prog.Id,
+                            altExplicita);
                         exists.AsignarDocente(docenteRealId);
                         targetId = exists.Id;
                     }

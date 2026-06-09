@@ -1,16 +1,16 @@
-# Graph Report - SOEA  (2026-06-01)
+# Graph Report - SOEA  (2026-06-05)
 
 ## Corpus Check
-- 220 files · ~79,751 words
+- 236 files · ~86,628 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2602 nodes · 3298 edges · 252 communities (190 shown, 62 thin omitted)
+- 2808 nodes · 3627 edges · 258 communities (197 shown, 61 thin omitted)
 - Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 92 edges (avg confidence: 0.86)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `13e206e6`
+- Built from commit: `083efce7`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -260,17 +260,23 @@
 - [[_COMMUNITY_Community 249|Community 249]]
 - [[_COMMUNITY_Community 250|Community 250]]
 - [[_COMMUNITY_Community 251|Community 251]]
+- [[_COMMUNITY_Community 252|Community 252]]
+- [[_COMMUNITY_Community 253|Community 253]]
+- [[_COMMUNITY_Community 254|Community 254]]
+- [[_COMMUNITY_Community 255|Community 255]]
+- [[_COMMUNITY_Community 256|Community 256]]
+- [[_COMMUNITY_Community 257|Community 257]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `StateService` - 32 edges
-2. `SOEABdContext` - 25 edges
-3. `HorarioComponent` - 24 edges
-4. `DocenteTests` - 21 edges
-5. `P2 — Backlog técnico` - 21 edges
-6. `SOEA API Entry Point (Program.cs)` - 21 edges
-7. `PersistenciaService` - 19 edges
-8. `GenerarHorarioService` - 18 edges
-9. `BaseRepository` - 18 edges
+1. `StateService` - 33 edges
+2. `PersistenciaService` - 26 edges
+3. `HorarioComponent` - 25 edges
+4. `SOEABdContext` - 25 edges
+5. `DocenteTests` - 21 edges
+6. `P2 — Backlog técnico` - 21 edges
+7. `SOEA API Entry Point (Program.cs)` - 21 edges
+8. `BaseRepository` - 19 edges
+9. `GenerarHorarioService` - 18 edges
 10. `BloqueTiempoTests` - 18 edges
 
 ## Surprising Connections (you probably didn't know these)
@@ -311,7 +317,7 @@
 - **Hard Constraint Categories** — hardconstraints_space, hardconstraints_instructor, hardconstraints_time, hardconstraints_cohort [EXTRACTED 1.00]
 - **Core Domain Entities** — datadict_sesion, datadict_asignatura, datadict_docente, datadict_espacio [EXTRACTED 1.00]
 
-## Communities (252 total, 62 thin omitted)
+## Communities (258 total, 61 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.31
@@ -339,7 +345,7 @@ Nodes (39): build, serve, test, builder, configurations, defaultConfiguration, o
 
 ### Community 6 - "Community 6"
 Cohesion: 0.05
-Nodes (22): Migration, InitialCreate, SOEA.Infrastructure.Data.Migrations, SOEA.Infrastructure.Data.Migrations, UpdateAsignaturaLogic, AddFacultadPrograma, SOEA.Infrastructure.Data.Migrations, FixDisponibilidadDocenteRelacion (+14 more)
+Nodes (25): Migration, InitialCreate, SOEA.Infrastructure.Data.Migrations, SOEA.Infrastructure.Data.Migrations, UpdateAsignaturaLogic, AddFacultadPrograma, SOEA.Infrastructure.Data.Migrations, FixDisponibilidadDocenteRelacion (+17 more)
 
 ### Community 7 - "Community 7"
 Cohesion: 0.05
@@ -362,32 +368,32 @@ Cohesion: 0.08
 Nodes (28): AsignaturaDto, ConfiguracionAlgoritmoDto, DocenteDto, EspacioDto, GenerarHorarioResponse, GenerarHorarioService, SOEA.Application.Features.Horario, SesionGeneradaDto (+20 more)
 
 ### Community 12 - "Community 12"
-Cohesion: 0.15
-Nodes (15): EspacioDto, EspaciosController, SOEA.API.Controllers, ActionResult, Espacio, Guid, HttpDelete, HttpGet (+7 more)
+Cohesion: 0.05
+Nodes (39): ControllerBase, AsignaturasController, SOEA.API.Controllers, HorarioController, SOEA.API.Controllers, SOEA.API.Controllers, TiposAlternanciaController, CreateAsignaturaService (+31 more)
 
 ### Community 13 - "Community 13"
 Cohesion: 0.09
 Nodes (27): BloqueTiempoSeeder, CurriculumExcelResult (DTO), Asignatura (Domain Entity), BloqueTiempo (Domain Entity), DiaDeSemana (Domain Enum), Docente (Domain Entity), Domain Enums (TipoEspacio, Modalidad, FranjaHoraria), Espacio (Domain Entity) (+19 more)
 
 ### Community 14 - "Community 14"
-Cohesion: 0.20
-Nodes (10): Consumes, ImportController, CurriculumExcelDto, IFormFile, HttpGet, HttpPost, IActionResult, ILectorExcel (+2 more)
+Cohesion: 0.10
+Nodes (20): Consumes, AsignaturaDto, CurriculumExcelDto, DocenteImportDto, EspacioImportDto, ImportController, ImportExcelStatsDto, ImportResultDto (+12 more)
 
 ### Community 15 - "Community 15"
-Cohesion: 0.13
-Nodes (3): Asignatura, Programa, StateService
+Cohesion: 0.10
+Nodes (8): Asignatura, CONFIGURACION_DEFECTO, ConfiguracionAlgoritmo, Facultad, Programa, list, m, StateService
 
 ### Community 16 - "Community 16"
-Cohesion: 0.11
-Nodes (16): AsignaturaApiDto, ConfiguracionAlgoritmoApiDto, DisponibilidadDiaDto, DocenteApiDto, EspacioApiDto, GenerarHorarioRequest, GenerarHorarioResponse, HorarioApiService (+8 more)
+Cohesion: 0.08
+Nodes (17): AsignaturaApiDto, ConfiguracionAlgoritmoApiDto, DisponibilidadDiaDto, DocenteApiDto, EspacioApiDto, GenerarHorarioRequest, GenerarHorarioResponse, HorarioApiService (+9 more)
 
 ### Community 17 - "Community 17"
 Cohesion: 0.10
 Nodes (18): cromosoma, dur, fitness, Func, gen, Random, OperadoresGeneticos, SOEA.Engine.Genetic (+10 more)
 
 ### Community 18 - "Community 18"
-Cohesion: 0.14
-Nodes (16): AsignaturasController, SOEA.API.Controllers, CreateAsignaturaService, DeleteAsignaturaService, GetAsignaturaByIdService, GetAsignaturasService, ActionResult, AsignaturaResponse (+8 more)
+Cohesion: 0.13
+Nodes (15): FakeAsignaturaRepo, FakeDocenteRepo, FusionDocentesServiceTests, SOEA.Tests.Application, FakeAsignaturaRepo, FakeDocenteRepo, IDocenteRepositorio, Asignatura (+7 more)
 
 ### Community 19 - "Community 19"
 Cohesion: 0.15
@@ -402,16 +408,16 @@ Cohesion: 0.20
 Nodes (21): Asignatura (Academic Subject), BloqueTiempo (Time Block), ConsoleRunner Program (Pipeline Entry), Docente (Teacher), EntidadBase (Abstract Base Entity), DiaDeSemana Enum, EstadoHorario Enum, EstadoSesion Enum (+13 more)
 
 ### Community 22 - "Community 22"
-Cohesion: 0.08
-Nodes (9): Espacio, PersistenciaService, all, EspacioDialogComponent, EspaciosTabComponent, f, GuardadoResultado, GuardadoResultadoDialogComponent (+1 more)
+Cohesion: 0.12
+Nodes (7): Espacio, all, EspacioDialogComponent, EspaciosTabComponent, f, GuardadoResultado, GuardadoResultadoDialogComponent
 
 ### Community 23 - "Community 23"
 Cohesion: 0.05
 Nodes (43): code:powershell (dotnet build SOEA.sln), P0.1 — Sacar credenciales del repositorio · S, P0.2 — Apagar la escritura a disco de `cp_model_debug.txt` en cada solve · S, P0.3 — Validar restricciones duras DESPUÉS de la Fase 3 · M, P0.4 — Reparador del GA: no `TryAdd` un valor inválido · M, P0.5 — Capa de autenticación mínima en la API · L, P0.6 — Test de integración end-to-end del pipeline · M, P0 — Bloqueantes (atender antes de cualquier despliegue a un entorno compartido) (+35 more)
 
 ### Community 24 - "Community 24"
-Cohesion: 0.12
-Nodes (6): Docente, all, DocentesTabComponent, f, GuardadoResultado, GuardadoResultadoDialogComponent
+Cohesion: 0.09
+Nodes (8): all, DocenteDialogComponent, DocentesTabComponent, f, FusionDocentesDialogComponent, GuardadoResultado, GuardadoResultadoDialogComponent, IngestaComponent
 
 ### Community 25 - "Community 25"
 Cohesion: 0.16
@@ -502,16 +508,16 @@ Cohesion: 0.28
 Nodes (6): CreateAsignaturaService, Asignatura, AsignaturaResponse, CreateAsignaturaRequest, IAsignaturaRepositorio, Task
 
 ### Community 50 - "Community 50"
-Cohesion: 0.28
-Nodes (4): Asignatura, SOEA.Domain.Entities, Guid, TipoAlternancia
+Cohesion: 0.29
+Nodes (5): Asignatura, SOEA.Domain.Entities, Guid, int, TipoAlternancia
 
 ### Community 51 - "Community 51"
 Cohesion: 0.36
 Nodes (9): BaseRepository Pattern, Module: SOEA.Engine.ConstraintProg, Module: SOEA.Engine.Genetic, Module: SOEA.Engine.GraphColoring, Module: SOEA.API, Module: SOEA.Application, Module: SOEA.Domain, Module: SOEA.Infrastructure.Data (+1 more)
 
 ### Community 52 - "Community 52"
-Cohesion: 0.31
-Nodes (6): IDocenteRepositorio, DocenteRepositorio, SOEA.Infrastructure.Data.Repositories, Docente, List, Task
+Cohesion: 0.36
+Nodes (5): DocenteRepositorio, SOEA.Infrastructure.Data.Repositories, Docente, List, Task
 
 ### Community 53 - "Community 53"
 Cohesion: 0.25
@@ -524,10 +530,6 @@ Nodes (7): ISesionRepositorio, SesionRepositorio, SOEA.Infrastructure.Data.Repos
 ### Community 55 - "Community 55"
 Cohesion: 0.25
 Nodes (7): angular.json (Angular Workspace Config), AppComponent (Root Component), appConfig (ApplicationConfig), app.routes.ts (Route Definitions), App Spec (Root Component Tests), main.ts (Angular Bootstrap), tsconfig.json (TypeScript Base Config)
-
-### Community 56 - "Community 56"
-Cohesion: 0.17
-Nodes (8): all, f, Facultad, ImportExcelStatsDto, ImportMapping, ImportResult, ImportSummary, environment
 
 ### Community 57 - "Community 57"
 Cohesion: 0.25
@@ -585,6 +587,10 @@ Nodes (7): Acceptance Criteria: Post-Pilot (AC-P01 to AC-P05), JWT Configuration
 Cohesion: 0.38
 Nodes (4): SOEA.Infrastructure.Data.Context, SOEABdContextFactory, IDesignTimeDbContextFactory, SOEABdContext
 
+### Community 71 - "Community 71"
+Cohesion: 0.16
+Nodes (8): all, AsignaturaDialogComponent, f, FusionDocentesResultado, ImportExcelStatsDto, ImportMapping, ImportResult, ImportSummary
+
 ### Community 72 - "Community 72"
 Cohesion: 0.33
 Nodes (4): BloqueTiempo, SOEA.Domain.Entities, DiaDeSemana, TimeOnly
@@ -610,8 +616,8 @@ Cohesion: 0.40
 Nodes (4): BloqueTiempoConfiguration, SOEA.Infrastructure.Data.Configurations, BloqueTiempo, EntityTypeBuilder
 
 ### Community 78 - "Community 78"
-Cohesion: 0.40
-Nodes (4): DocenteConfiguration, SOEA.Infrastructure.Data.Configurations, Docente, EntityTypeBuilder
+Cohesion: 0.33
+Nodes (5): DocenteConfiguration, SOEA.Infrastructure.Data.Configurations, IEntityTypeConfiguration, Docente, EntityTypeBuilder
 
 ### Community 79 - "Community 79"
 Cohesion: 0.40
@@ -630,8 +636,8 @@ Cohesion: 0.40
 Nodes (4): ProgramaConfiguration, SOEA.Infrastructure.Data.Configurations, Programa, EntityTypeBuilder
 
 ### Community 83 - "Community 83"
-Cohesion: 0.33
-Nodes (5): SesionConfiguration, SOEA.Infrastructure.Data.Configurations, IEntityTypeConfiguration, EntityTypeBuilder, Sesion
+Cohesion: 0.40
+Nodes (4): SesionConfiguration, SOEA.Infrastructure.Data.Configurations, EntityTypeBuilder, Sesion
 
 ### Community 84 - "Community 84"
 Cohesion: 0.40
@@ -644,6 +650,10 @@ Nodes (4): BloqueTiempoSeeder, SOEA.Infrastructure.Data.Seeding, SOEABdContext, 
 ### Community 86 - "Community 86"
 Cohesion: 0.33
 Nodes (4): DbContext, SOEA.Infrastructure.Data.Context, SOEABdContext, ModelBuilder
+
+### Community 87 - "Community 87"
+Cohesion: 0.12
+Nodes (17): FakeRepo, SOEA.Tests.Application, TipoAlternanciaConfigServiceTests, ITipoAlternanciaConfigRepositorio, SOEA.Infrastructure.Data.Repositories, TipoAlternanciaConfigRepositorio, TipoAlternanciaConfig, Dictionary (+9 more)
 
 ### Community 89 - "Community 89"
 Cohesion: 0.40
@@ -930,8 +940,8 @@ Cohesion: 0.25
 Nodes (7): code:csharp (// Namespace: SOEA.Domain.Enums), Enums y convenciones de código, Esquema de BD (SOEAdb, PostgreSQL localhost:5432), GitHub Copilot Instructions — SOEA, Lo que NUNCA debes hacer, Patrón para implementar un nuevo feature, Reglas de arquitectura (resumen)
 
 ### Community 210 - "Community 210"
-Cohesion: 0.50
-Nodes (3): IGrupoRepositorio, SOEA.Domain.Interfaces, Grupo
+Cohesion: 0.25
+Nodes (6): IGrupoRepositorio, SOEA.Domain.Interfaces, GrupoRepositorio, SOEA.Infrastructure.Data.Repositories, Grupo, Grupo
 
 ### Community 211 - "Community 211"
 Cohesion: 0.25
@@ -966,8 +976,8 @@ Cohesion: 0.40
 Nodes (4): AsignacionSemanalConfiguration, SOEA.Infrastructure.Data.Configurations, AsignacionSemanal, EntityTypeBuilder
 
 ### Community 219 - "Community 219"
-Cohesion: 0.33
-Nodes (4): AsignacionSemanal, SOEA.Domain.Entities, Guid, Modalidad
+Cohesion: 0.18
+Nodes (6): AsignacionSemanal, SOEA.Domain.Entities, EntidadBase, SOEA.Domain.Entities, Guid, Modalidad
 
 ### Community 220 - "Community 220"
 Cohesion: 0.40
@@ -1014,8 +1024,8 @@ Cohesion: 0.28
 Nodes (6): BloqueTiempoRepositorio, SOEA.Infrastructure.Data.Repositories, BloqueTiempo, DiaDeSemana, Task, TimeOnly
 
 ### Community 242 - "Community 242"
-Cohesion: 0.19
-Nodes (12): DocentesController, DocenteService, ActionResult, DocenteUiDto, Guid, HttpDelete, HttpGet, HttpPost (+4 more)
+Cohesion: 0.15
+Nodes (16): DocentesController, SOEA.API.Controllers, DocenteService, FusionarDocentesRequest, ActionResult, DocenteService, DocenteUiDto, FusionDocentesService (+8 more)
 
 ### Community 243 - "Community 243"
 Cohesion: 0.23
@@ -1026,43 +1036,67 @@ Cohesion: 0.19
 Nodes (11): semana, sesionId, AsignadorEspacios, SOEA.Engine.Genetic, DiaDeSemana, Dictionary, Espacio, Guid (+3 more)
 
 ### Community 245 - "Community 245"
-Cohesion: 0.18
-Nodes (10): AsignaturaDto, CurriculumExcelDto, DocenteImportDto, EspacioImportDto, ImportExcelStatsDto, ImportResultDto, ImportSummaryDto, MappingDto (+2 more)
+Cohesion: 0.15
+Nodes (15): EspacioDto, EspaciosController, SOEA.API.Controllers, ActionResult, Espacio, Guid, HttpDelete, HttpGet (+7 more)
 
 ### Community 246 - "Community 246"
 Cohesion: 0.29
 Nodes (5): ModalidadSemanal, SOEA.Domain.Services, Modalidad, SemanaAcademica, Sesion
 
 ### Community 247 - "Community 247"
-Cohesion: 0.33
-Nodes (5): ControllerBase, HorarioController, SOEA.API.Controllers, GenerarHorarioService, ILogger
+Cohesion: 0.15
+Nodes (11): FusionDocentesService, SOEA.Application.Features.Docentes, FusionResultado, IReadOnlyCollection, DocenteService, DocenteUiDto, Guid, IAsignaturaRepositorio (+3 more)
 
 ### Community 248 - "Community 248"
 Cohesion: 0.33
-Nodes (5): ProducesResponseType, GenerarHorarioRequest, HttpPost, IActionResult, Task
+Nodes (4): DetectorDocentesDuplicadosTests, SOEA.Tests.Domain.Services, Docente, Fact
+
+### Community 249 - "Community 249"
+Cohesion: 0.24
+Nodes (6): DetectorDocentesDuplicados, SOEA.Domain.Services, Docente, IEnumerable, int, IReadOnlyList
 
 ### Community 250 - "Community 250"
+Cohesion: 0.20
+Nodes (10): Guid, ITipoAlternanciaConfigRepositorio, List, PatronBaseAlternancia, Task, TipoAlternanciaConfig, TipoAlternanciaConfigDto, SOEA.Application.Features.TiposAlternancia (+2 more)
+
+### Community 252 - "Community 252"
+Cohesion: 0.16
+Nodes (5): TipoAlternanciaConfig, Patron, PATRON_LABEL, TipoAlternanciaDialogComponent, TiposAlternanciaComponent
+
+### Community 253 - "Community 253"
+Cohesion: 0.25
+Nodes (5): SOEA.Domain.Entities, TipoAlternanciaConfig, Guid, PatronBaseAlternancia, TipoAlternancia
+
+### Community 254 - "Community 254"
+Cohesion: 0.40
+Nodes (4): SOEA.Infrastructure.Data.Configurations, TipoAlternanciaConfigConfiguration, EntityTypeBuilder, TipoAlternanciaConfig
+
+### Community 255 - "Community 255"
+Cohesion: 0.40
+Nodes (3): CatalogoTiposAlternancia, SOEA.Infrastructure.Data.Migrations, ModelBuilder
+
+### Community 256 - "Community 256"
 Cohesion: 0.50
-Nodes (3): GrupoRepositorio, SOEA.Infrastructure.Data.Repositories, Grupo
+Nodes (3): ITipoAlternanciaConfigRepositorio, SOEA.Domain.Interfaces, TipoAlternanciaConfig
 
 ## Knowledge Gaps
-- **1128 isolated node(s):** `allow`, `PostToolUse`, `PreToolUse`, `allow`, `github.copilot.chat.codeGeneration.instructions` (+1123 more)
+- **1191 isolated node(s):** `allow`, `PostToolUse`, `PreToolUse`, `allow`, `github.copilot.chat.codeGeneration.instructions` (+1186 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **62 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **61 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `BaseRepository` connect `Community 33` to `Community 192`, `Community 4`, `Community 36`, `Community 239`, `Community 52`, `Community 53`, `Community 54`, `Community 250`, `Community 63`?**
-  _High betweenness centrality (0.002) - this node is a cross-community bridge._
-- **Why does `StateService` connect `Community 15` to `Community 41`, `Community 16`, `Community 22`, `Community 24`, `Community 56`?**
-  _High betweenness centrality (0.002) - this node is a cross-community bridge._
-- **Why does `IRepositorio` connect `Community 4` to `Community 33`, `Community 226`, `Community 196`, `Community 210`, `Community 215`, `Community 26`, `Community 220`, `Community 221`?**
-  _High betweenness centrality (0.001) - this node is a cross-community bridge._
+- **Why does `BaseRepository` connect `Community 33` to `Community 192`, `Community 4`, `Community 36`, `Community 239`, `Community 210`, `Community 52`, `Community 53`, `Community 54`, `Community 87`, `Community 63`?**
+  _High betweenness centrality (0.008) - this node is a cross-community bridge._
+- **Why does `IRepositorio` connect `Community 4` to `Community 256`, `Community 33`, `Community 226`, `Community 196`, `Community 210`, `Community 215`, `Community 26`, `Community 220`, `Community 221`?**
+  _High betweenness centrality (0.005) - this node is a cross-community bridge._
+- **Why does `TipoAlternanciaConfigRepositorio` connect `Community 87` to `Community 33`?**
+  _High betweenness centrality (0.003) - this node is a cross-community bridge._
 - **Are the 6 inferred relationships involving `SOEABdContext` (e.g. with `HorarioRepositorio` and `AsignaturaRepository`) actually correct?**
   _`SOEABdContext` has 6 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `allow`, `PostToolUse`, `PreToolUse` to the rest of the system?**
-  _1147 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _1210 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.07058823529411765 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
