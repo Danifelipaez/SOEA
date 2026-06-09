@@ -74,14 +74,12 @@ namespace SOEA.API.Controllers
                 // ── Facultades ────────────────────────────────────────────────────────
                 foreach (var f in resultado.Facultades)
                 {
-                    var norm = NormalizadorTexto.Normalizar(f.Nombre);
                     var existe = await _context.Facultades
                         .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, f.Nombre));
                     if (existe == null)
                     {
                         var nueva = new Facultad(Guid.NewGuid(), f.Nombre);
                         _context.Facultades.Add(nueva);
-                        await _context.SaveChangesAsync();
                         facultadIdMap[f.Id] = nueva.Id;
                         stats.FacultadesCreadas++;
                     }
@@ -90,6 +88,8 @@ namespace SOEA.API.Controllers
                         facultadIdMap[f.Id] = existe.Id;
                     }
                 }
+                // SaveChanges entre facultades y programas: necesitamos los IDs reales de FK
+                await _context.SaveChangesAsync();
 
                 // ── Programas ─────────────────────────────────────────────────────────
                 foreach (var p in resultado.Programas)
@@ -101,7 +101,6 @@ namespace SOEA.API.Controllers
                     {
                         var nuevo = new Programa(Guid.NewGuid(), p.Nombre, facRealId);
                         _context.Programas.Add(nuevo);
-                        await _context.SaveChangesAsync();
                         programaIdMap[p.Id] = nuevo.Id;
                         stats.ProgramasCreados++;
                     }
@@ -110,6 +109,7 @@ namespace SOEA.API.Controllers
                         programaIdMap[p.Id] = existe.Id;
                     }
                 }
+                await _context.SaveChangesAsync();
 
                 // ── Docentes (con disponibilidad) ─────────────────────────────────────
                 // Cargamos todos los docentes en memoria para comparar nombres normalizados
@@ -143,7 +143,6 @@ namespace SOEA.API.Controllers
                         }
 
                         _context.Docentes.Add(nuevo);
-                        await _context.SaveChangesAsync();
                         docenteIdMap[d.Id] = nuevo.Id;
                         stats.DocentesCreados++;
                     }
@@ -158,11 +157,11 @@ namespace SOEA.API.Controllers
                                 if (bloqueTracked != null) existe.AgregarBloqueDisponibilidad(bloqueTracked);
                             }
                         }
-                        await _context.SaveChangesAsync();
                         docenteIdMap[d.Id] = existe.Id;
                         stats.DocentesActualizados++;
                     }
                 }
+                await _context.SaveChangesAsync();
 
                 // ── Espacios ──────────────────────────────────────────────────────────
                 foreach (var e in resultado.Espacios)
@@ -320,18 +319,18 @@ namespace SOEA.API.Controllers
         }
 
         [HttpGet("/api/facultades")]
-        public IActionResult GetFacultades()
-            => Ok(_context.Facultades
+        public async Task<IActionResult> GetFacultades()
+            => Ok(await _context.Facultades
                 .OrderBy(f => f.Nombre)
                 .Select(f => new { id = f.Id.ToString(), nombre = f.Nombre })
-                .ToList());
+                .ToListAsync());
 
         [HttpGet("/api/programas")]
-        public IActionResult GetProgramas()
-            => Ok(_context.Programas
+        public async Task<IActionResult> GetProgramas()
+            => Ok(await _context.Programas
                 .OrderBy(p => p.Nombre)
                 .Select(p => new { id = p.Id.ToString(), nombre = p.Nombre, facultadId = p.FacultadId.ToString() })
-                .ToList());
+                .ToListAsync());
 
         [HttpPost("curriculum")]
         public async Task<IActionResult> ImportCurriculum([FromBody] CurriculumExcelDto dto)
@@ -356,7 +355,7 @@ namespace SOEA.API.Controllers
                 // Facultades
                 foreach (var f in dto.Facultades ?? Enumerable.Empty<FacultadDto>())
                 {
-                    var exists = _context.Facultades.FirstOrDefault(x => x.Nombre.ToLower() == f.Nombre.ToLower());
+                    var exists = await _context.Facultades.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, f.Nombre));
                     Guid targetId;
                     if (exists == null)
                     {
@@ -394,10 +393,10 @@ namespace SOEA.API.Controllers
                         continue;
                     }
 
-                    var fac = _context.Facultades.FirstOrDefault(x => x.Id == facultadRealId);
+                    var fac = await _context.Facultades.FindAsync(facultadRealId);
                     if (fac == null) continue;
 
-                    var exists = _context.Programas.FirstOrDefault(x => x.Nombre.ToLower() == p.Nombre.ToLower() && x.FacultadId == fac.Id);
+                    var exists = await _context.Programas.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, p.Nombre) && x.FacultadId == fac.Id);
                     Guid targetId;
                     if (exists == null)
                     {
@@ -426,8 +425,8 @@ namespace SOEA.API.Controllers
                     // Buscar por ID real primero, luego por nombre
                     Docente? exists = null;
                     if (!string.IsNullOrWhiteSpace(d.Id) && Guid.TryParse(d.Id, out var dGuid) && dGuid != Guid.Empty)
-                        exists = _context.Docentes.FirstOrDefault(x => x.Id == dGuid);
-                    exists ??= _context.Docentes.FirstOrDefault(x => x.Nombre.ToLower() == d.Nombre.ToLower());
+                        exists = await _context.Docentes.FindAsync(dGuid);
+                    exists ??= await _context.Docentes.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, d.Nombre));
 
                     Guid docenteTargetId;
                     if (exists == null)
@@ -462,7 +461,7 @@ namespace SOEA.API.Controllers
                 foreach (var e in dto.Espacios ?? Enumerable.Empty<EspacioImportDto>())
                 {
                     if (string.IsNullOrWhiteSpace(e.Nombre)) continue;
-                    var exists = _context.Espacios.FirstOrDefault(x => x.Nombre.ToLower() == e.Nombre.ToLower());
+                    var exists = await _context.Espacios.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, e.Nombre));
                     if (exists == null)
                     {
                         var tipo = e.Tipo switch
@@ -493,7 +492,7 @@ namespace SOEA.API.Controllers
                         continue;
                     }
 
-                    var prog = _context.Programas.FirstOrDefault(x => x.Id == programaRealId);
+                    var prog = await _context.Programas.FindAsync(programaRealId);
                     if (prog == null) continue;
 
                     Guid? docenteRealId = null;
@@ -508,8 +507,8 @@ namespace SOEA.API.Controllers
                     // Buscar por ID real primero (asignatura cargada desde BD), luego por nombre+programa
                     Asignatura? exists = null;
                     if (Guid.TryParse(a.Id, out var aGuid) && aGuid != Guid.Empty)
-                        exists = _context.Asignaturas.FirstOrDefault(x => x.Id == aGuid);
-                    exists ??= _context.Asignaturas.FirstOrDefault(x => x.Nombre.ToLower() == a.Nombre.ToLower() && x.ProgramaId == prog.Id);
+                        exists = await _context.Asignaturas.FindAsync(aGuid);
+                    exists ??= await _context.Asignaturas.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, a.Nombre) && x.ProgramaId == prog.Id);
 
                     // Override manual del tipo si el import lo trae explícito (TipoA/TipoB);
                     // SinAlternancia (default) deja que la inferencia por umbral decida.
@@ -566,14 +565,14 @@ namespace SOEA.API.Controllers
                         continue;
                     }
 
-                    var asign = _context.Asignaturas.FirstOrDefault(x => x.Nombre.ToLower() == a.Nombre.ToLower() && x.ProgramaId == programaRealId);
+                    var asign = await _context.Asignaturas.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, a.Nombre) && x.ProgramaId == programaRealId);
                     if (asign == null) continue;
 
                     var numeroGrupo = a.GrupoNumero.GetValueOrDefault(1);
                     var groupName = $"{a.Nombre} - Grupo {numeroGrupo}";
 
-                    var existente = _context.Grupos.FirstOrDefault(g =>
-                        g.Nombre.ToLower() == groupName.ToLower() &&
+                    var existente = await _context.Grupos.FirstOrDefaultAsync(g =>
+                        EF.Functions.ILike(g.Nombre, groupName) &&
                         g.ProgramaId == asign.ProgramaId);
 
                     Guid grupoId;
@@ -597,7 +596,7 @@ namespace SOEA.API.Controllers
                 foreach (var s in dto.SesionesPredefinidas ?? Enumerable.Empty<SesionImportDto>())
                 {
                     if (s.BloqueTiempoId == Guid.Empty) continue;
-                    var asign = _context.Asignaturas.FirstOrDefault(x => x.Id == s.AsignaturaId);
+                    var asign = await _context.Asignaturas.FindAsync(s.AsignaturaId);
                     if (asign == null) continue;
                     var alt = Enum.TryParse<TipoAlternancia>(s.Alternancia, out var parsed)
                         ? parsed : TipoAlternancia.SinAlternancia;
@@ -645,101 +644,4 @@ namespace SOEA.API.Controllers
         }
     }
 
-    // DTOs simplificados para el endpoint de importación
-    public record FacultadDto(string Id, string Nombre);
-    public record ProgramaDto(string Id, string Nombre, string FacultadId);
-
-    public class CurriculumExcelDto
-    {
-        public List<FacultadDto>? Facultades { get; set; }
-        public List<ProgramaDto>? Programas { get; set; }
-        public List<AsignaturaDto>? Asignaturas { get; set; }
-        public List<DocenteImportDto>? Docentes { get; set; }
-        public List<SesionImportDto>? SesionesPredefinidas { get; set; }
-        public List<EspacioImportDto>? Espacios { get; set; }
-    }
-
-    public class DocenteImportDto
-    {
-        public string? Id { get; set; }
-        public string Nombre { get; set; } = string.Empty;
-        public string Cedula { get; set; } = string.Empty;
-        public double MaxHoras { get; set; } = 40;
-        public object? Disponibilidad { get; set; }
-    }
-
-    public class EspacioImportDto
-    {
-        public string Nombre { get; set; } = string.Empty;
-        public string Tipo { get; set; } = "Salón";
-        public int Capacidad { get; set; } = 30;
-        public string? Edificio { get; set; }
-        public int? Piso { get; set; }
-    }
-
-    public class SesionImportDto
-    {
-        public Guid AsignaturaId { get; set; }
-        public Guid DocenteId { get; set; }
-        public Guid BloqueTiempoId { get; set; }
-        public Guid? EspacioId { get; set; }
-        public Guid? GrupoId { get; set; }
-        public string Alternancia { get; set; } = "SinAlternancia";
-        public decimal DuracionHoras { get; set; } = 2;
-    }
-
-    public class AsignaturaDto
-    {
-        public string? Id { get; set; }
-        public string Nombre { get; set; } = string.Empty;
-        public string? Codigo { get; set; }
-        public string? DocenteId { get; set; }
-        public int HorasPorSesion { get; set; }
-        public int SesionesPorSemana { get; set; }
-        public int SesionesLaboratorioSemestre { get; set; }
-        public string ProgramaId { get; set; } = string.Empty;
-        public string Alternancia { get; set; } = "SinAlternancia";
-        public int? GrupoNumero { get; set; }
-    }
-
-    public class MappingDto
-    {
-        public string TempId { get; set; } = string.Empty;
-        public string NewId { get; set; } = string.Empty;
-    }
-
-    public class ImportSummaryDto
-    {
-        public int Facultades { get; set; }
-        public int Programas { get; set; }
-        public int Asignaturas { get; set; }
-        public int Grupos { get; set; }
-        public int Docentes { get; set; }
-    }
-
-    public class ImportResultDto
-    {
-        public List<MappingDto> Facultades { get; set; } = new();
-        public List<MappingDto> Programas { get; set; } = new();
-        public List<MappingDto> Asignaturas { get; set; } = new();
-        public List<MappingDto> Grupos { get; set; } = new();
-        public List<MappingDto> Docentes { get; set; } = new();
-        public ImportSummaryDto Summary { get; set; } = new();
-    }
-
-    /// <summary>Resumen del resultado de POST /api/import/excel.</summary>
-    public class ImportExcelStatsDto
-    {
-        public int FacultadesCreadas { get; set; }
-        public int ProgramasCreados { get; set; }
-        public int DocentesCreados { get; set; }
-        public int DocentesActualizados { get; set; }
-        public int EspaciosCreados { get; set; }
-        public int AsignaturasCreadas { get; set; }
-        public int AsignaturasActualizadas { get; set; }
-        public int GruposCreados { get; set; }
-        public int SesionesPersistidas { get; set; }
-        public int AsignaturasSinDocente { get; set; }
-        public List<string> Advertencias { get; set; } = new();
-    }
 }

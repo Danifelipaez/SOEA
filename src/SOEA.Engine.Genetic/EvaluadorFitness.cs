@@ -64,10 +64,11 @@ namespace SOEA.Engine.Genetic
 
         public decimal Evaluar(CromosomaHorario c)
         {
+            var spansPorDocenteDia = SpansPorDocenteDia(c);
             decimal fitness = 0;
-            fitness += _pesoSC01 * SC01_HuecosOciosos(c);
+            fitness += _pesoSC01 * SC01_HuecosOciosos(spansPorDocenteDia);
             fitness += _pesoSC06 * SC06_BalanceEntreDias(c);
-            fitness += _pesoSC09 * SC09_HorasSeguidas(c);
+            fitness += _pesoSC09 * SC09_HorasSeguidas(spansPorDocenteDia);
             fitness += PesoFactibilidadSalas * GuardaCapacidadAulas(c);
             return fitness;
         }
@@ -91,10 +92,10 @@ namespace SOEA.Engine.Genetic
         }
 
         // ① SC-01: suma de huecos (en horas) entre sesiones consecutivas del mismo docente por día.
-        private int SC01_HuecosOciosos(CromosomaHorario c)
+        private int SC01_HuecosOciosos(Dictionary<Guid, Dictionary<DiaDeSemana, List<(int start, int dur)>>> spansPorDocenteDia)
         {
             int huecos = 0;
-            foreach (var porDia in SpansPorDocenteDia(c).Values)
+            foreach (var porDia in spansPorDocenteDia.Values)
                 foreach (var spans in porDia.Values)
                 {
                     var ord = spans.OrderBy(s => s.start).ToList();
@@ -109,10 +110,10 @@ namespace SOEA.Engine.Genetic
         }
 
         // ② SC-09: por cada racha contigua de sesiones, penaliza las horas que excedan de 6.
-        private int SC09_HorasSeguidas(CromosomaHorario c)
+        private int SC09_HorasSeguidas(Dictionary<Guid, Dictionary<DiaDeSemana, List<(int start, int dur)>>> spansPorDocenteDia)
         {
             int penalizacion = 0;
-            foreach (var porDia in SpansPorDocenteDia(c).Values)
+            foreach (var porDia in spansPorDocenteDia.Values)
                 foreach (var spans in porDia.Values)
                 {
                     var ord = spans.OrderBy(s => s.start).ToList();

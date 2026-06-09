@@ -120,6 +120,13 @@ namespace SOEA.Tests.Domain.Entities
         }
 
         [Fact]
+        public void NombreCompleto_WhenApellidoEmpty_ReturnsNombreOnly()
+        {
+            var docente = new Docente(_validId, _validNombre, "", _validCorreo, _validMaxHoras, _validDisponibilidad);
+            Assert.Equal(_validNombre, docente.NombreCompleto);
+        }
+
+        [Fact]
         public void ActualizarDisponibilidad_WithValidDisponibilidad_UpdatesProperty()
         {
             // Arrange

@@ -44,13 +44,6 @@ namespace SOEA.Application.Features.Horario
             
             logs.Add($"[INFO] Iniciando pipeline de optimización con {request.Asignaturas.Count} asignaturas, {request.Docentes.Count} docentes y {request.Espacios.Count} espacios.");
 
-            var primeraAsig = request.Asignaturas.FirstOrDefault();
-            if (primeraAsig != null)
-            {
-                logs.Add($"[DEBUG] Primera Asignatura Ingresada: {primeraAsig.Nombre} (ID: {primeraAsig.Id})");
-                logs.Add($"[DEBUG] -> Créditos: {primeraAsig.Creditos}, HorasSemanales: {primeraAsig.HorasSemanales}, Alternancia: {primeraAsig.Alternancia}, Virtual: {primeraAsig.EsVirtual}");
-            }
-
             // ── 1. Convertir DTOs del frontend a entidades de dominio ───────────
             var espacios  = MapearEspacios(request.Espacios);
             var bloques   = GenerarBloquesTiempo();
@@ -93,11 +86,10 @@ namespace SOEA.Application.Features.Horario
             // disponibles) moviendo el inicio de cada sesión, compartido por las semanas A/B.
             // Preserva todas las restricciones duras de la Fase 2; ante cualquier duda hace
             // fallback interno a la solución de Fase 2.
-            var sesionesFinales = sesionesColoreadas;
             logs.Add("[INFO] Fase 3: Optimización (Algoritmo Genético) iniciada.");
             var swFase3 = System.Diagnostics.Stopwatch.StartNew();
             var resultadoGA = await _fase3.OptimizarAsync(
-                sesionesFinales, resultadoFactibilidad.Asignaciones, bloques, espacios, docentes,
+                sesionesColoreadas, resultadoFactibilidad.Asignaciones, bloques, espacios, docentes,
                 MapearConfiguracion(request.Configuracion));
             swFase3.Stop();
             logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness={resultadoGA.PuntajeFitness}, " +
@@ -110,18 +102,18 @@ namespace SOEA.Application.Features.Horario
             // Verificamos las asignaciones FINALES: HC-I01/HC-S01 (solapes, consciente de duración
             // y semana) y HC-I03 (horas semanales por docente). Si el GA introdujo cualquier
             // violación, hacemos fallback a las asignaciones factibles de la Fase 2.
-            var sesionPorIdValidacion = sesionesFinales.ToDictionary(s => s.Id);
+            var sesionPorIdValidacion = sesionesColoreadas.ToDictionary(s => s.Id);
             var bloqueIndex = new Dictionary<Guid, int>(bloques.Count);
             for (int i = 0; i < bloques.Count; i++) bloqueIndex[bloques[i].Id] = i;
             var maxHorasPorDocente = docentes.ToDictionary(d => d.Id, d => d.MaximoHorasSemanales);
 
-            var conflictos = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, sesionesFinales, maxHorasPorDocente);
+            var conflictos = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, sesionesColoreadas, maxHorasPorDocente);
             if (conflictos.Count > 0)
             {
                 logs.Add($"[WARN] Post-chequeo detectó {conflictos.Count} violación(es) en la salida del GA; usando la solución de Fase 2.");
                 asignaciones   = resultadoFactibilidad.Asignaciones;
                 puntajeFitness = 0m;
-                conflictos     = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, sesionesFinales, maxHorasPorDocente);
+                conflictos     = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, sesionesColoreadas, maxHorasPorDocente);
             }
 
             if (conflictos.Count > 0)
@@ -143,12 +135,12 @@ namespace SOEA.Application.Features.Horario
             logs.Add("[INFO] Post-chequeo OK: 0 violaciones de restricciones duras.");
 
             // ── 5. Persistir sesiones lógicas, Horario y asignaciones semanales ─
-            await _sesionRepo.AddRangeAsync(sesionesFinales);
+            await _sesionRepo.AddRangeAsync(sesionesColoreadas);
 
             var horario = new Domain.Entities.Horario(
                 id: Guid.NewGuid(),
                 semestre: request.Semestre,
-                sesionIds: sesionesFinales.Select(s => s.Id).ToList(),
+                sesionIds: sesionesColoreadas.Select(s => s.Id).ToList(),
                 violacionesRestriccionesDuras: conflictos.Count,
                 puntajeFitness: puntajeFitness);
 
@@ -159,17 +151,18 @@ namespace SOEA.Application.Features.Horario
             logs.Add($"[INFO] Pipeline total ejecutado en {stopwatch.ElapsedMilliseconds}ms.");
 
             // ── 6. Mapear asignaciones al DTO de respuesta (una DTO por semana) ─
-            var sesionPorId = sesionesFinales.ToDictionary(s => s.Id);
+            var sesionPorId = sesionesColoreadas.ToDictionary(s => s.Id);
             // Lab de origen por sesión = espacio de su asignación presencial. Permite al frontend
             // ubicar la fila virtual (EspacioId=null) en el laboratorio donde la sesión es presencial.
             var espacioHogarPorSesion = asignaciones
                 .Where(a => a.Modalidad == Modalidad.Presencial && a.EspacioId.HasValue)
                 .GroupBy(a => a.SesionId)
                 .ToDictionary(g => g.Key, g => g.First().EspacioId!.Value.ToString());
+            var bloquePorId = bloques.ToDictionary(b => b.Id);
             var sesionesDto = asignaciones
                 .Where(a => sesionPorId.ContainsKey(a.SesionId))
                 .Select(a => MapearSesionDto(
-                    a, sesionPorId[a.SesionId], bloques,
+                    a, sesionPorId[a.SesionId], bloquePorId,
                     espacioHogarPorSesion.GetValueOrDefault(a.SesionId)))
                 .ToList();
 
@@ -443,9 +436,9 @@ namespace SOEA.Application.Features.Horario
         }
 
         private static SesionGeneradaDto MapearSesionDto(
-            AsignacionSemanal a, Sesion s, List<BloqueTiempo> bloques, string? espacioIdHogar)
+            AsignacionSemanal a, Sesion s, IReadOnlyDictionary<Guid, BloqueTiempo> bloquePorId, string? espacioIdHogar)
         {
-            var bloque = bloques.FirstOrDefault(b => b.Id == a.BloqueTiempoId);
+            bloquePorId.TryGetValue(a.BloqueTiempoId, out var bloque);
 
             string horaInicio = "07:00";
             string horaFin    = "09:00";

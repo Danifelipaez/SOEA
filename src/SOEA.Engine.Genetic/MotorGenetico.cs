@@ -37,14 +37,13 @@ namespace SOEA.Engine.Genetic
             IEnumerable<Docente>           docentes,
             ConfiguracionOptimizacion?     config = null)
         {
-            var resultado = OptimizarSincrono(
-                sesiones.ToList(),
-                asignacionesFase2.ToList(),
-                bloques.ToList(),
-                espacios.ToList(),
-                docentes.ToList(),
-                config ?? new ConfiguracionOptimizacion());
-            return Task.FromResult(resultado);
+            var s  = sesiones.ToList();
+            var a2 = asignacionesFase2.ToList();
+            var b  = bloques.ToList();
+            var e  = espacios.ToList();
+            var d  = docentes.ToList();
+            var c  = config ?? new ConfiguracionOptimizacion();
+            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, c));
         }
 
         private ResultadoOptimizacion OptimizarSincrono(

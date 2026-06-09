@@ -29,8 +29,9 @@ namespace SOEA.Engine.GraphColoring
 
         public Task<IEnumerable<Sesion>> AsignarBloquesDeTiempoAsync(IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloquesDisponibles)
         {
-            var resultado = AsignarBloquesSincrono(sesiones.ToList(), bloquesDisponibles.ToList());
-            return Task.FromResult<IEnumerable<Sesion>>(resultado);
+            var s = sesiones.ToList();
+            var b = bloquesDisponibles.ToList();
+            return Task.Run<IEnumerable<Sesion>>(() => AsignarBloquesSincrono(s, b));
         }
 
         private List<Sesion> AsignarBloquesSincrono(List<Sesion> sesiones, List<BloqueTiempo> bloques)

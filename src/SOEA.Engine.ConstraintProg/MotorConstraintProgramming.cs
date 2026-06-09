@@ -40,8 +40,11 @@ namespace SOEA.Engine.ConstraintProg
             IEnumerable<Espacio> espacios,
             IEnumerable<Docente> docentes)
         {
-            var resultado = ResolverSincrono(sesiones.ToList(), bloques.ToList(), espacios.ToList(), docentes.ToList());
-            return Task.FromResult(resultado);
+            var s = sesiones.ToList();
+            var b = bloques.ToList();
+            var e = espacios.ToList();
+            var d = docentes.ToList();
+            return Task.Run(() => ResolverSincrono(s, b, e, d));
         }
 
         /// <summary>
