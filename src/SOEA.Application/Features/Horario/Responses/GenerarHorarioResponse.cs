@@ -26,6 +26,12 @@ namespace SOEA.Application.Features.Horario.Responses
         public string  AsignaturaId { get; set; } = string.Empty;
         public string  DocenteId    { get; set; } = string.Empty;
         public string? EspacioId    { get; set; }
+        /// <summary>
+        /// Lab de origen: el espacio donde la sesión es presencial. Se rellena también en las filas
+        /// virtuales (donde <see cref="EspacioId"/> es null), para que el frontend pueda filtrar la
+        /// sesión a su laboratorio en la matriz aunque esa semana se dicte virtual.
+        /// </summary>
+        public string? EspacioIdHogar { get; set; }
         /// <summary>Nombre del día: lunes, martes, miercoles, jueves, viernes, sabado.</summary>
         public string  Dia          { get; set; } = string.Empty;
         public string  HoraInicio   { get; set; } = string.Empty;   // "HH:mm"
@@ -35,5 +41,7 @@ namespace SOEA.Application.Features.Horario.Responses
         /// <summary>TipoA, TipoB o SinAlternancia.</summary>
         public string  Alternancia  { get; set; } = "SinAlternancia";
         public bool    Virtual      { get; set; }
+        /// <summary>Semana del ciclo de alternancia: "A" (impares) o "B" (pares).</summary>
+        public string  Semana       { get; set; } = string.Empty;
     }
 }

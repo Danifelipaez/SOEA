@@ -9,15 +9,18 @@ namespace SOEA.API.Controllers
     [Route("api/[controller]")]
     public class HorarioController : ControllerBase
     {
-        private readonly GenerarHorarioService _generarService;
-        private readonly ILogger<HorarioController> _logger;
+        private readonly GenerarHorarioService       _generarService;
+        private readonly CrearSesionManualService    _sesionManualService;
+        private readonly ILogger<HorarioController>  _logger;
 
         public HorarioController(
-            GenerarHorarioService generarService,
-            ILogger<HorarioController> logger)
+            GenerarHorarioService       generarService,
+            CrearSesionManualService    sesionManualService,
+            ILogger<HorarioController>  logger)
         {
-            _generarService = generarService;
-            _logger         = logger;
+            _generarService      = generarService;
+            _sesionManualService = sesionManualService;
+            _logger              = logger;
         }
 
         /// <summary>
@@ -75,6 +78,41 @@ namespace SOEA.API.Controllers
                 _logger.LogError(ex, "Error inesperado al generar el horario.");
                 return StatusCode(StatusCodes.Status500InternalServerError,
                     new { error = "Error interno al generar el horario.", detalle = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Crea una sesión manualmente sin re-ejecutar el modelo de optimización.
+        /// Valida HC-I01, HC-S01 y HC-S05 antes de persistir.
+        /// Devuelve los DTOs de la sesión creada (1 ó 2 filas: semana A + semana B).
+        /// </summary>
+        [HttpPost("sesion-manual")]
+        [ProducesResponseType(typeof(List<SesionGeneradaDto>), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+        public async Task<IActionResult> CrearSesionManual([FromBody] CrearSesionManualRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            try
+            {
+                var resultado = await _sesionManualService.EjecutarAsync(request);
+                return StatusCode(StatusCodes.Status201Created, resultado);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Violación de hard constraint — el mensaje ya viene en español para el usuario
+                return UnprocessableEntity(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error inesperado al crear sesión manual.");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    new { error = "Error interno al crear la sesión.", detalle = ex.Message });
             }
         }
     }

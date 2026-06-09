@@ -76,7 +76,7 @@ namespace SOEA.Infrastructure.Excel
                 if (string.IsNullOrWhiteSpace(fa) || string.IsNullOrWhiteSpace(pr) || string.IsNullOrWhiteSpace(as_)) continue;
 
                 var docNorm = NormalizadorTexto.Normalizar(Celda(hoja, fila, cDocente));
-                var clave = (NormalizadorTexto.Normalizar(as_), pr, docNorm);
+                var clave = (NormalizadorTexto.Normalizar(as_), NormalizadorTexto.Normalizar(pr), docNorm);
                 conteoGrupos[clave] = conteoGrupos.TryGetValue(clave, out int cnt) ? cnt + 1 : 1;
             }
 
@@ -147,7 +147,7 @@ namespace SOEA.Infrastructure.Excel
                 }
 
                 // SesionesPorSemana: tomado del pre-pass
-                var claveConteo = (asignaturaNorm, txtPrograma, docenteNorm);
+                var claveConteo = (asignaturaNorm, NormalizadorTexto.Normalizar(txtPrograma), docenteNorm);
                 int sesionesSemana = conteoGrupos.TryGetValue(claveConteo, out int cnt2) ? cnt2 : 1;
 
                 // Asignatura: una por (asig_norm, programaId, docente_norm) = un "grupo de clase"
@@ -416,7 +416,7 @@ namespace SOEA.Infrastructure.Excel
             if (string.IsNullOrWhiteSpace(texto)) return false;
 
             // Intentar formatos comunes
-            string[] formatos = { "H:mm", "HH:mm", "h:mm tt", "hh:mm tt" };
+            string[] formatos = { "H:mm", "HH:mm", "h:mm tt", "hh:mm tt", "H:mm:ss", "HH:mm:ss", "h:mm:ss tt", "hh:mm:ss tt" };
             if (TimeOnly.TryParseExact(texto, formatos, CultureInfo.InvariantCulture, DateTimeStyles.None, out hora))
                 return true;
 

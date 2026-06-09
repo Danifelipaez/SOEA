@@ -13,6 +13,10 @@
 cp_model_debug.txt
 src/SOEA.API/cp_model_debug.txt
 
+# Local secrets — connection strings con credenciales (P0.1 auditoría)
+appsettings.Development.json
+**/appsettings.Development.json
+
 # User-specific files
 *.rsuser
 *.suo

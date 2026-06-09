@@ -39,7 +39,8 @@ public class CreateAsignaturaService
             SesionesPorSemana = asignatura.SesionesPorSemana,
             SesionesLaboratorioSemestre = asignatura.SesionesLaboratorioSemestre,
             Alternancia = asignatura.Alternancia,
-            ProgramaId = asignatura.ProgramaId
+            ProgramaId = asignatura.ProgramaId,
+            EspacioFijoId = asignatura.EspacioFijoId
         };
     }
 }

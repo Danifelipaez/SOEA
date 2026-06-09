@@ -86,7 +86,15 @@ npm test         # vitest
 
 ## Base de datos
 
-PostgreSQL `localhost:5432`, DB `SOEAdb`. Connection string en `src/SOEA.API/appsettings.json` y en `SOEABdContextFactory` para design-time migrations. Configuraciones EF en `SOEA.Infrastructure.Data/Configurations/`.
+PostgreSQL `localhost:5432`, DB `SOEAdb`. Configuraciones EF en `SOEA.Infrastructure.Data/Configurations/`.
+
+**Cadena de conexión (sin credenciales en el repo — P0.1 auditoría):**
+- `src/SOEA.API/appsettings.json` tiene `DefaultConnection` vacío.
+- En desarrollo la cadena real vive en `src/SOEA.API/appsettings.Development.json` (gitignored). Crear ese archivo localmente con `ConnectionStrings:DefaultConnection`.
+- Las migraciones design-time (`SOEABdContextFactory`) resuelven la cadena desde la variable de entorno `SOEA_DESIGN_TIME_DB` o, en su defecto, desde el `appsettings.Development.json` del API.
+- En staging/producción usar variables de entorno o user-secrets, nunca un archivo commiteado.
+
+**Motor CP-SAT:** la sección `CpSat` de configuración controla `ExportarModelo` (volcado de `cp_model_debug.txt`, default `false`) y `TimeoutSegundos` (default 120).
 
 `ILectorExcel` expone tres métodos:
 - `LeerCurriculumAsync` — cols A–J: Facultad, Programa, Asignatura, Código, TipoEspacio, Espacio, Duración, Día, Hora, Docente.

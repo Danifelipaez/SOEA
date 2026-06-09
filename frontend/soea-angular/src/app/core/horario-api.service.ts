@@ -3,6 +3,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Sesion } from './models';
+import { environment } from '../../environments/environment';
 
 // ── Tipos del contrato con la API ──────────────────────────────────────────────
 
@@ -36,6 +37,7 @@ export interface AsignaturaApiDto {
   programaId?: string;
   alternancia?: string;
   esVirtual: boolean;
+  espacioFijoId?: string;
 }
 
 export interface DocenteApiDto {
@@ -68,16 +70,16 @@ export interface GenerarHorarioResponse {
   generaciones: number;
   mensajeError?: string;
   logs?: string[];
-  // alternancia llega como string desde JSON; mapearSesiones() lo castea al tipo unión
-  sesiones: (Omit<Sesion, 'alternancia'> & { alternancia: string })[];
+  // alternancia y semana llegan como string desde JSON; mapearSesiones() los castea
+  sesiones: (Omit<Sesion, 'alternancia' | 'semana'> & { alternancia: string; semana?: string })[];
 }
 
 // ── Servicio ───────────────────────────────────────────────────────────────────
 
 @Injectable({ providedIn: 'root' })
 export class HorarioApiService {
-  /** URL base del backend. Cambia aquí si el API corre en otro puerto. */
-  private readonly apiBase = 'http://localhost:5066/api';
+  /** URL base del backend. Configurada por entorno (environment.ts / environment.prod.ts). */
+  private readonly apiBase = environment.apiBaseUrl;
 
   private http = inject(HttpClient);
 
@@ -115,7 +117,8 @@ export class HorarioApiService {
         sesionesPorSemana: a.sesionesPorSemana,
         programaId: a.programaId,
         alternancia: a.alternancia,
-        esVirtual: false
+        esVirtual: false,
+        espacioFijoId: a.espacioFijoId
       })),
       docentes: docentes.map(d => ({
         id: d.id,
@@ -136,12 +139,13 @@ export class HorarioApiService {
       .pipe(catchError(this.manejarError));
   }
 
-  /** Castea el campo alternancia de string a la unión tipada. */
+  /** Castea alternancia y semana de string a los tipos unión tipados. */
   mapearSesiones(sesiones: GenerarHorarioResponse['sesiones']): Sesion[] {
     return sesiones.map(s => ({
       ...s,
       duracionHoras: s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin),
       alternancia: (s.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia',
+      semana: (s.semana === 'A' || s.semana === 'B') ? s.semana : undefined,
     }));
   }
 

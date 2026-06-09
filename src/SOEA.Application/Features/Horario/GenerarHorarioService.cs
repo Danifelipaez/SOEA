@@ -19,19 +19,22 @@ namespace SOEA.Application.Features.Horario
         private readonly IMotorGenetico              _fase3;
         private readonly IHorarioRepositorio         _horarioRepo;
         private readonly ISesionRepositorio          _sesionRepo;
+        private readonly IAsignacionSemanalRepositorio _asignacionRepo;
 
         public GenerarHorarioService(
             IMotorColoracionGrafo       fase1,
             IMotorConstraintProgramming  fase2,
             IMotorGenetico              fase3,
             IHorarioRepositorio         horarioRepo,
-            ISesionRepositorio          sesionRepo)
+            ISesionRepositorio          sesionRepo,
+            IAsignacionSemanalRepositorio asignacionRepo)
         {
             _fase1       = fase1;
             _fase2       = fase2;
             _fase3       = fase3;
             _horarioRepo = horarioRepo;
             _sesionRepo  = sesionRepo;
+            _asignacionRepo = asignacionRepo;
         }
 
         public async Task<GenerarHorarioResponse> EjecutarAsync(GenerarHorarioRequest request)
@@ -40,13 +43,6 @@ namespace SOEA.Application.Features.Horario
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             
             logs.Add($"[INFO] Iniciando pipeline de optimización con {request.Asignaturas.Count} asignaturas, {request.Docentes.Count} docentes y {request.Espacios.Count} espacios.");
-
-            var primeraAsig = request.Asignaturas.FirstOrDefault();
-            if (primeraAsig != null)
-            {
-                logs.Add($"[DEBUG] Primera Asignatura Ingresada: {primeraAsig.Nombre} (ID: {primeraAsig.Id})");
-                logs.Add($"[DEBUG] -> Créditos: {primeraAsig.Creditos}, HorasSemanales: {primeraAsig.HorasSemanales}, Alternancia: {primeraAsig.Alternancia}, Virtual: {primeraAsig.EsVirtual}");
-            }
 
             // ── 1. Convertir DTOs del frontend a entidades de dominio ───────────
             var espacios  = MapearEspacios(request.Espacios);
@@ -85,45 +81,118 @@ namespace SOEA.Application.Features.Horario
             }
             logs.Add($"[INFO] Fase 2 completada exitosamente en {swFase2.ElapsedMilliseconds}ms.");
 
-            // ── 4. Fase 3 — Algoritmo Genético (optimización soft constraints) ─
-            logs.Add("[INFO] Fase 3: Algoritmo Genético (Optimización) iniciado.");
+            // ── 4. Fase 3 — Algoritmo Genético (optimización de restricciones blandas) ──
+            // Optimiza objetivos del docente (huecos, > 6 horas seguidas, balance entre días
+            // disponibles) moviendo el inicio de cada sesión, compartido por las semanas A/B.
+            // Preserva todas las restricciones duras de la Fase 2; ante cualquier duda hace
+            // fallback interno a la solución de Fase 2.
+            logs.Add("[INFO] Fase 3: Optimización (Algoritmo Genético) iniciada.");
             var swFase3 = System.Diagnostics.Stopwatch.StartNew();
-            var configOptimizacion = MapearConfiguracion(request.Configuracion);
-            var resultadoOptimizacion = await _fase3.OptimizarAsync(
-                resultadoFactibilidad.SesionesResueltas, bloques, espacios, docentes, configOptimizacion);
+            var resultadoGA = await _fase3.OptimizarAsync(
+                sesionesColoreadas, resultadoFactibilidad.Asignaciones, bloques, espacios, docentes,
+                MapearConfiguracion(request.Configuracion));
             swFase3.Stop();
-            logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness final: {resultadoOptimizacion.PuntajeFitness:F2}");
+            logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness={resultadoGA.PuntajeFitness}, " +
+                     $"generaciones={resultadoGA.Generaciones}, fallback={resultadoGA.UsoFallback}.");
 
-            var sesionesFinales = resultadoOptimizacion.SesionesOptimizadas.ToList();
+            var asignaciones   = resultadoGA.AsignacionesOptimizadas;
+            var puntajeFitness = resultadoGA.PuntajeFitness;
 
-            // ── 5. Persistir sesiones y Horario en la base de datos ───────────
-            await _sesionRepo.AddRangeAsync(sesionesFinales);
+            // ── 4b. Post-chequeo de restricciones duras (P0.3 + P1.8 auditoría) ─────────
+            // Verificamos las asignaciones FINALES: HC-I01/HC-S01 (solapes, consciente de duración
+            // y semana) y HC-I03 (horas semanales por docente). Si el GA introdujo cualquier
+            // violación, hacemos fallback a las asignaciones factibles de la Fase 2.
+            var sesionPorIdValidacion = sesionesColoreadas.ToDictionary(s => s.Id);
+            var bloqueIndex = new Dictionary<Guid, int>(bloques.Count);
+            for (int i = 0; i < bloques.Count; i++) bloqueIndex[bloques[i].Id] = i;
+            var maxHorasPorDocente = docentes.ToDictionary(d => d.Id, d => d.MaximoHorasSemanales);
+
+            var conflictos = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, sesionesColoreadas, maxHorasPorDocente);
+            if (conflictos.Count > 0)
+            {
+                logs.Add($"[WARN] Post-chequeo detectó {conflictos.Count} violación(es) en la salida del GA; usando la solución de Fase 2.");
+                asignaciones   = resultadoFactibilidad.Asignaciones;
+                puntajeFitness = 0m;
+                conflictos     = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, sesionesColoreadas, maxHorasPorDocente);
+            }
+
+            if (conflictos.Count > 0)
+            {
+                // Ni siquiera la solución de Fase 2 valida (no debería ocurrir): no publicar.
+                logs.Add($"[ERROR] La solución de Fase 2 viola {conflictos.Count} restricción(es) dura(s).");
+                foreach (var c in conflictos.Take(20)) logs.Add($"[ERROR] {c}");
+                return new GenerarHorarioResponse
+                {
+                    HorarioId    = Guid.NewGuid(),
+                    Semestre     = request.Semestre,
+                    EsFactible   = false,
+                    MensajeError = $"El horario generado viola {conflictos.Count} restricción(es) dura(s) y no puede publicarse. " +
+                                   string.Join(" ", conflictos.Take(5)),
+                    Logs         = logs,
+                    Sesiones     = new List<SesionGeneradaDto>()
+                };
+            }
+            logs.Add("[INFO] Post-chequeo OK: 0 violaciones de restricciones duras.");
+
+            // ── 5. Persistir sesiones lógicas, Horario y asignaciones semanales ─
+            await _sesionRepo.AddRangeAsync(sesionesColoreadas);
 
             var horario = new Domain.Entities.Horario(
                 id: Guid.NewGuid(),
                 semestre: request.Semestre,
-                sesionIds: sesionesFinales.Select(s => s.Id).ToList(),
-                violacionesRestriccionesDuras: 0,
-                puntajeFitness: resultadoOptimizacion.PuntajeFitness);
+                sesionIds: sesionesColoreadas.Select(s => s.Id).ToList(),
+                violacionesRestriccionesDuras: conflictos.Count,
+                puntajeFitness: puntajeFitness);
 
             await _horarioRepo.AddAsync(horario);
-            
+            await _asignacionRepo.AddRangeAsync(asignaciones);
+
             stopwatch.Stop();
             logs.Add($"[INFO] Pipeline total ejecutado en {stopwatch.ElapsedMilliseconds}ms.");
 
-            // ── 6. Mapear sesiones al DTO de respuesta ────────────────────────
-            var sesionesDto = sesionesFinales.Select(s => MapearSesionDto(s, bloques)).ToList();
+            // ── 6. Mapear asignaciones al DTO de respuesta (una DTO por semana) ─
+            var sesionPorId = sesionesColoreadas.ToDictionary(s => s.Id);
+            // Lab de origen por sesión = espacio de su asignación presencial. Permite al frontend
+            // ubicar la fila virtual (EspacioId=null) en el laboratorio donde la sesión es presencial.
+            var espacioHogarPorSesion = asignaciones
+                .Where(a => a.Modalidad == Modalidad.Presencial && a.EspacioId.HasValue)
+                .GroupBy(a => a.SesionId)
+                .ToDictionary(g => g.Key, g => g.First().EspacioId!.Value.ToString());
+            var bloquePorId = bloques.ToDictionary(b => b.Id);
+            var sesionesDto = asignaciones
+                .Where(a => sesionPorId.ContainsKey(a.SesionId))
+                .Select(a => MapearSesionDto(
+                    a, sesionPorId[a.SesionId], bloquePorId,
+                    espacioHogarPorSesion.GetValueOrDefault(a.SesionId)))
+                .ToList();
 
             return new GenerarHorarioResponse
             {
                 HorarioId      = horario.Id,
                 Semestre       = request.Semestre,
                 EsFactible     = true,
-                PuntajeFitness = resultadoOptimizacion.PuntajeFitness,
-                Generaciones   = resultadoOptimizacion.Generaciones,
+                PuntajeFitness = puntajeFitness,
+                Generaciones   = resultadoGA.Generaciones,
                 Logs           = logs,
                 Sesiones       = sesionesDto
             };
+        }
+
+        /// <summary>
+        /// Post-chequeo combinado de restricciones duras sobre las asignaciones finales:
+        /// HC-I01/HC-S01 (solapes de docente/espacio) + HC-I03 (horas semanales por docente).
+        /// </summary>
+        private static IReadOnlyList<string> Validar(
+            IReadOnlyList<AsignacionSemanal> asignaciones,
+            IReadOnlyDictionary<Guid, Sesion> sesionPorId,
+            IReadOnlyDictionary<Guid, int> bloqueIndex,
+            IReadOnlyList<Sesion> sesiones,
+            IReadOnlyDictionary<Guid, decimal> maxHorasPorDocente)
+        {
+            var conflictos = new List<string>();
+            conflictos.AddRange(ValidadorRestriccionesDuras.Validar(asignaciones, sesionPorId, bloqueIndex));
+            conflictos.AddRange(ValidadorRestriccionesDuras.ValidarCargaSemanal(sesiones, maxHorasPorDocente));
+            return conflictos;
         }
 
         // ── Helpers de mapeo ─────────────────────────────────────────────────────
@@ -208,10 +277,14 @@ namespace SOEA.Application.Features.Horario
                     ? franjas.ToList()
                     : new List<FranjaHoraria> { FranjaHoraria.Matutino, FranjaHoraria.Vespertino };
 
-                // No blocks were mapped (empty dict or all days set to NoDisponible).
-                // Treat as fully available so schedule generation can still proceed.
-                // Users should configure availability in the UI to restrict specific docentes.
-                if (bloquesDisponibles.Count == 0)
+                // P1.3 auditoría: distinguir "sin información" de "explícitamente no disponible".
+                // Solo aplicamos el fallback "todos los bloques" cuando el DTO NO trae ninguna
+                // información de disponibilidad. Si el usuario configuró días (todos NoDisponible
+                // o con horarios que no calzan con la grilla), respetamos esa restricción: la
+                // lista queda vacía y la Fase 2 (HC-I02) reportará infactible con un mensaje claro,
+                // en vez de agendar silenciosamente a un docente marcado como no disponible.
+                bool sinInformacionDisponibilidad = dto.Disponibilidad.Count == 0;
+                if (bloquesDisponibles.Count == 0 && sinInformacionDisponibilidad)
                     bloquesDisponibles.AddRange(bloques);
 
                 var docente = new Docente(
@@ -309,13 +382,17 @@ namespace SOEA.Application.Features.Horario
 
                 for (int i = 0; i < sesionesASolicitar; i++)
                 {
-                    sesiones.Add(new Sesion(
+                    // HC-S05: si la asignatura tiene espacio fijo, se lo pasamos a la sesión
+                // para que CP-SAT lo respete como hard constraint (solo ese espacio).
+                Guid? espacioFijo = !string.IsNullOrWhiteSpace(dto.EspacioFijoId) &&
+                                    Guid.TryParse(dto.EspacioFijoId, out var efid) ? efid : null;
+
+                sesiones.Add(new Sesion(
                         id: Guid.NewGuid(),
                         asignaturaId: asigId,
                         docenteId: docenteId,
                         bloqueId: bloqueTemp,
-                        // Fix #8: null means "not yet assigned" — Phase 2 will assign rooms
-                        espacioId: null,
+                        espacioId: espacioFijo,
                         grupoId: null,
                         alternancia: alternancia,
                         modalidad: modalidad,
@@ -358,9 +435,10 @@ namespace SOEA.Application.Features.Horario
             return bloques;
         }
 
-        private static SesionGeneradaDto MapearSesionDto(Sesion s, List<BloqueTiempo> bloques)
+        private static SesionGeneradaDto MapearSesionDto(
+            AsignacionSemanal a, Sesion s, IReadOnlyDictionary<Guid, BloqueTiempo> bloquePorId, string? espacioIdHogar)
         {
-            var bloque = bloques.FirstOrDefault(b => b.Id == s.BloqueTiempoId);
+            bloquePorId.TryGetValue(a.BloqueTiempoId, out var bloque);
 
             string horaInicio = "07:00";
             string horaFin    = "09:00";
@@ -379,13 +457,15 @@ namespace SOEA.Application.Features.Horario
                 Id            = s.Id.ToString(),
                 AsignaturaId  = s.AsignaturaId.ToString(),
                 DocenteId     = s.DocenteId.ToString(),
-                EspacioId     = s.EspacioId?.ToString(),
+                EspacioId     = a.EspacioId?.ToString(),
+                EspacioIdHogar = espacioIdHogar ?? a.EspacioId?.ToString(),
                 Dia           = dia,
                 HoraInicio    = horaInicio,
                 HoraFin       = horaFin,
                 DuracionHoras = s.DuracionHoras,
                 Alternancia   = s.Alternancia.ToString(),
-                Virtual       = s.Modalidad == Modalidad.Virtual
+                Virtual       = a.Modalidad == Modalidad.Virtual,
+                Semana        = a.Semana.ToString()
             };
         }
 

@@ -37,6 +37,49 @@ namespace SOEA.Infrastructure.Data.Migrations
                     b.ToTable("DisponibilidadDocente");
                 });
 
+            modelBuilder.Entity("SOEA.Domain.Entities.AsignacionSemanal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BloqueTiempoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("bloque_tiempo_id");
+
+                    b.Property<Guid?>("EspacioId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("espacio_id");
+
+                    b.Property<string>("Modalidad")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("modalidad");
+
+                    b.Property<string>("Semana")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("semana");
+
+                    b.Property<Guid>("SesionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sesion_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SesionId")
+                        .HasDatabaseName("ix_asignacion_semanal_sesion_id");
+
+                    b.HasIndex("SesionId", "Semana")
+                        .IsUnique()
+                        .HasDatabaseName("ux_asignacion_semanal_sesion_semana");
+
+                    b.HasIndex("EspacioId", "Semana", "BloqueTiempoId")
+                        .HasDatabaseName("ix_asignacion_semanal_espacio_conflicto");
+
+                    b.ToTable("AsignacionesSemanales", (string)null);
+                });
+
             modelBuilder.Entity("SOEA.Domain.Entities.Asignatura", b =>
                 {
                     b.Property<Guid>("Id")
@@ -57,6 +100,10 @@ namespace SOEA.Infrastructure.Data.Migrations
                     b.Property<Guid?>("DocenteId")
                         .HasColumnType("uuid")
                         .HasColumnName("docente_id");
+
+                    b.Property<Guid?>("EspacioFijoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("espacio_fijo_id");
 
                     b.Property<int>("HorasPorSesion")
                         .HasColumnType("integer")
@@ -424,6 +471,79 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_sesion_espacio_bloque_conflicto");
 
                     b.ToTable("Sesiones", (string)null);
+                });
+
+            modelBuilder.Entity("SOEA.Domain.Entities.TipoAlternanciaConfig", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activo");
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("color");
+
+                    b.Property<bool>("EsSistema")
+                        .HasColumnType("boolean")
+                        .HasColumnName("es_sistema");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("nombre");
+
+                    b.Property<string>("PatronBase")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("patron_base");
+
+                    b.Property<int>("SemanasPresenciales")
+                        .HasColumnType("integer")
+                        .HasColumnName("semanas_presenciales");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("TiposAlternancia", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("a0000000-0000-0000-0000-000000000001"),
+                            Activo = true,
+                            Color = "#1565c0",
+                            EsSistema = true,
+                            Nombre = "Tipo A",
+                            PatronBase = "PresencialEnSemanaA",
+                            SemanasPresenciales = 8
+                        },
+                        new
+                        {
+                            Id = new Guid("a0000000-0000-0000-0000-000000000002"),
+                            Activo = true,
+                            Color = "#e65100",
+                            EsSistema = true,
+                            Nombre = "Tipo B",
+                            PatronBase = "PresencialEnSemanaB",
+                            SemanasPresenciales = 8
+                        },
+                        new
+                        {
+                            Id = new Guid("a0000000-0000-0000-0000-000000000003"),
+                            Activo = true,
+                            Color = "#607d8b",
+                            EsSistema = true,
+                            Nombre = "Sin alternancia",
+                            PatronBase = "SinAlternancia",
+                            SemanasPresenciales = 16
+                        });
                 });
 
             modelBuilder.Entity("DisponibilidadDocente", b =>

@@ -114,22 +114,28 @@ GenerarHorarioService.EjecutarAsync()
          │
          ├─► [Fase 1] AgendadorColoracionGrafo
          │     Input:  List<Sesion>, List<BloqueTiempo>
-         │     Proceso: Welsh-Powell sobre grafo de conflictos
-         │     Output: PreHorario (asignación parcial de bloques)
+         │     Proceso: Welsh-Powell sobre grafo de conflictos (sin cambios)
+         │     Output: List<Sesion> con BloqueTiempoId preasignado
          │
          ├─► [Fase 2] MotorConstraintProgramming (OR-Tools CP-SAT, 120 s)
-         │     Input:  PreHorario + restricciones duras
-         │     Proceso: CP-SAT con warm-start de Fase 1
-         │     Output: Horario factible  OR  InfeasibleResult → HTTP 422
+         │     Input:  sesiones coloreadas + bloques + espacios + docentes
+         │     Proceso: variables (sesion, semana); HC por semana; regla 9; warm-start
+         │     Output: IReadOnlyList<AsignacionSemanal> (2 por sesión, A y B)
+         │             OR InfeasibleResult → HTTP 422
          │
-         └─► [Fase 3] MotorGenetico (200 gen, pop 50, convergencia 30)
-               Input:  Horario factible
-               Proceso: selección torneo → crossover → mutación → reparación
-               Output: Horario optimizado (fitness minimizado)
-                     └─► HorarioRepositorio.GuardarAsync() → PostgreSQL
+         ├─► [Fase 3] OMITIDA en Incremento 1 — pendiente Incremento 2
+         │     (cromosoma de pares AsignacionSemanal_A / B + SC-BAL)
+         │
+         └─► Persistencia
+               SesionRepositorio.AddRangeAsync(sesiones)
+               HorarioRepositorio.AddAsync(horario)
+               AsignacionSemanalRepositorio.AddRangeAsync(asignaciones)
+               └─► PostgreSQL (tablas Sesiones + Horarios + AsignacionesSemanales)
 ```
 
-`BloqueTiempo` se genera en memoria por request (Lun–Vie 07:00–20:00, Sáb 07:00–14:00) — no tiene tabla propia en BD.
+`BloqueTiempo` se genera en memoria por request (Lun–Vie 06:00–22:00, Sáb 06:00–13:00) — no tiene tabla propia en BD.
+
+La respuesta `SesionGeneradaDto` incluye el campo `Semana` (`"A"` / `"B"`); cada sesión lógica produce **dos entradas** en `GenerarHorarioResponse.Sesiones`.
 
 ---
 

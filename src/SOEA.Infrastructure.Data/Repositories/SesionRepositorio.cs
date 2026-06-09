@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Interfaces;
 using SOEA.Infrastructure.Data.Context;
@@ -15,5 +17,11 @@ namespace SOEA.Infrastructure.Data.Repositories
             await _dbSet.AddRangeAsync(sesiones);
             await _context.SaveChangesAsync();
         }
+
+        public async Task<bool> ExisteAsync(Guid asignaturaId, Guid docenteId, Guid bloqueTiempoId)
+            => await _dbSet.AnyAsync(x =>
+                x.AsignaturaId   == asignaturaId  &&
+                x.DocenteId      == docenteId     &&
+                x.BloqueTiempoId == bloqueTiempoId);
     }
 }

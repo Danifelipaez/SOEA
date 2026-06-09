@@ -47,7 +47,8 @@ namespace SOEA.Domain.Entities
         /// <summary>
         /// Nombre completo del docente (propiedad calculada).
         /// </summary>
-        public string NombreCompleto => $"{Nombre} {Apellido}";
+        public string NombreCompleto =>
+            string.IsNullOrWhiteSpace(Apellido) ? Nombre : $"{Nombre} {Apellido}";
 
         /// <summary>
         /// Almacena la cédula y la disponibilidad en formato JSON (datos del piloto UI).

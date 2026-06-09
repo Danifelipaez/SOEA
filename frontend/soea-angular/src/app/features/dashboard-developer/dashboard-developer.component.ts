@@ -7,17 +7,24 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSliderModule } from '@angular/material/slider';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { MatIconModule } from '@angular/material/icon';
+import { RouterModule } from '@angular/router';
 import { StateService } from '../../core/state.service';
 import { ConfiguracionAlgoritmo } from '../../core/models';
 
 @Component({
   selector: 'app-dashboard-developer',
   standalone: true,
-  imports: [CommonModule, MatTabsModule, MatButtonModule, ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatSliderModule],
+  imports: [CommonModule, MatTabsModule, MatButtonModule, ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatSliderModule, MatIconModule, RouterModule],
   template: `
     <div class="dashboard-container">
-      <h1 class="page-title text-primary">Dashboard Developer</h1>
-      
+      <div class="page-head">
+        <h1 class="page-title text-primary">Dashboard Developer</h1>
+        <button mat-stroked-button color="primary" routerLink="/tipos-alternancia">
+          <mat-icon>tune</mat-icon> Tipos de alternancia
+        </button>
+      </div>
+
       <mat-tab-group class="dev-tabs">
         <mat-tab label="Logs del Algoritmo">
           <div class="tab-content">
@@ -140,7 +147,8 @@ import { ConfiguracionAlgoritmo } from '../../core/models';
   `,
   styles: [`
     .dashboard-container { padding: 16px; background: white; border-radius: 8px; border: 1px solid #e0e0e0; min-height: 500px; }
-    .page-title { margin-bottom: 24px; font-weight: 500; font-size: 24px; }
+    .page-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .page-title { margin: 0; font-weight: 500; font-size: 24px; }
     .dev-tabs { margin-top: 16px; }
     .tab-content { padding: 24px 0; }
     

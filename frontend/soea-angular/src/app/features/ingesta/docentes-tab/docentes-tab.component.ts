@@ -1,6 +1,6 @@
 import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ReactiveFormsModule, FormBuilder, Validators, FormGroup } from '@angular/forms';
+import { ReactiveFormsModule, FormsModule, FormBuilder, Validators, FormGroup } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
@@ -31,6 +31,9 @@ import { map, catchError } from 'rxjs/operators';
           <button mat-stroked-button (click)="cargarDesdeBD()" [disabled]="saving()">Cargar desde BD</button>
           <button mat-stroked-button color="accent" (click)="guardarEnBD()" [disabled]="saving()">
             {{ saving() ? 'Guardando...' : 'Guardar en BD' }}
+          </button>
+          <button mat-stroked-button color="warn" (click)="detectarDuplicados()" [disabled]="saving()">
+            Detectar duplicados
           </button>
           <button mat-flat-button color="primary" class="primary-button" (click)="openDialog()">Agregar docente</button>
         </div>
@@ -179,6 +182,27 @@ export class DocentesTabComponent {
         width: '420px',
         data: { entidad: 'docentes', nuevos, actualizados, errores }
       });
+    });
+  }
+
+  detectarDuplicados() {
+    this.saving.set(true);
+    this.persistencia.detectarDuplicadosDocentes().subscribe({
+      next: (grupos) => {
+        this.saving.set(false);
+        if (!grupos.length) {
+          this.snackBar.open('No se detectaron docentes duplicados en la BD.', 'Cerrar', { duration: 4000 });
+          return;
+        }
+        const ref = this.dialog.open(FusionDocentesDialogComponent, {
+          width: '680px', maxWidth: '95vw', data: { grupos }
+        });
+        ref.afterClosed().subscribe((huboFusion) => { if (huboFusion) this.cargarDesdeBD(); });
+      },
+      error: () => {
+        this.saving.set(false);
+        this.snackBar.open('Error al detectar duplicados. Verifica que el backend esté activo.', 'Cerrar', { duration: 4000 });
+      }
     });
   }
 
@@ -469,4 +493,107 @@ interface GuardadoResultado {
 })
 export class GuardadoResultadoDialogComponent {
   data = inject(MAT_DIALOG_DATA) as GuardadoResultado;
+}
+
+// ─── Dialog de fusión de docentes duplicados ─────────────────────────────────
+
+@Component({
+  selector: 'app-fusion-docentes-dialog',
+  standalone: true,
+  imports: [CommonModule, FormsModule, MatDialogModule, MatButtonModule, MatIconModule],
+  template: `
+    <h2 mat-dialog-title>Fusionar docentes duplicados</h2>
+    <mat-dialog-content class="fusion-content">
+      <p class="hint">
+        Estos grupos parecen ser la misma persona escrita de distintas formas. Elige el registro
+        <strong>correcto (canónico)</strong> de cada grupo; los demás se absorberán: sus asignaturas
+        pasan al canónico y los registros duplicados se eliminan. La disponibilidad que se conserva
+        es la del canónico.
+      </p>
+
+      <div *ngFor="let grupo of data.grupos; let gi = index" class="grupo"
+           [class.done]="done.has(gi)">
+        <div class="grupo-head">
+          <span class="grupo-title">Grupo {{ gi + 1 }}</span>
+          <span *ngIf="done.has(gi)" class="badge-done"><mat-icon>check_circle</mat-icon> Fusionado</span>
+        </div>
+
+        <div *ngFor="let d of grupo" class="cand">
+          <label class="cand-label">
+            <input type="radio" [name]="'canon-' + gi" [value]="d.id"
+                   [(ngModel)]="canonico[gi]" [disabled]="done.has(gi)">
+            <span class="cand-nombre">{{ d.nombre }}</span>
+            <span class="cand-meta">· {{ d.maxHoras }}h/sem</span>
+            <span *ngIf="canonico[gi] === d.id" class="tag-canon">canónico</span>
+          </label>
+        </div>
+
+        <div class="grupo-actions" *ngIf="!done.has(gi)">
+          <button mat-flat-button color="primary" (click)="fusionar(gi)" [disabled]="busy()">
+            Fusionar grupo
+          </button>
+        </div>
+      </div>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-flat-button color="primary" [mat-dialog-close]="huboFusion">Cerrar</button>
+    </mat-dialog-actions>
+  `,
+  styles: [`
+    .fusion-content { max-height: 70vh; }
+    .hint { font-size: 13px; color: #616161; margin-bottom: 16px; line-height: 1.5; }
+    .grupo { border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+    .grupo.done { opacity: .6; background: #f5f5f5; }
+    .grupo-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .grupo-title { font-weight: 600; font-size: 13px; color: #424242; }
+    .badge-done { display: flex; align-items: center; gap: 4px; color: #2e7d32; font-size: 12px; font-weight: 500; }
+    .badge-done mat-icon { font-size: 16px; width: 16px; height: 16px; }
+    .cand { padding: 4px 0; }
+    .cand-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
+    .cand-nombre { font-weight: 500; }
+    .cand-meta { color: #9e9e9e; font-size: 12px; }
+    .tag-canon { margin-left: auto; background: #e3f2fd; color: #1565c0; border-radius: 10px;
+                 padding: 1px 8px; font-size: 11px; font-weight: 600; }
+    .grupo-actions { margin-top: 10px; text-align: right; }
+  `]
+})
+export class FusionDocentesDialogComponent {
+  data = inject(MAT_DIALOG_DATA) as { grupos: Docente[][] };
+  persistencia = inject(PersistenciaService);
+  snackBar = inject(MatSnackBar);
+
+  canonico: Record<number, string> = {};
+  done = new Set<number>();
+  busy = signal(false);
+  huboFusion = false;
+
+  constructor() {
+    // Canónico por defecto: el primer registro de cada grupo.
+    this.data.grupos.forEach((g, i) => { if (g.length) this.canonico[i] = g[0].id; });
+  }
+
+  fusionar(gi: number) {
+    const canonicoId = this.canonico[gi];
+    const grupo = this.data.grupos[gi];
+    const duplicadosIds = grupo.filter(d => d.id !== canonicoId).map(d => d.id);
+    if (!canonicoId || duplicadosIds.length === 0) return;
+
+    this.busy.set(true);
+    this.persistencia.fusionarDocentes(canonicoId, duplicadosIds).subscribe({
+      next: (r) => {
+        this.busy.set(false);
+        this.done.add(gi);
+        this.huboFusion = true;
+        this.snackBar.open(
+          `Fusionados ${r.docentesEliminados} docente(s); ${r.asignaturasReasignadas} asignatura(s) reasignada(s).`,
+          'Cerrar', { duration: 4000 }
+        );
+      },
+      error: (err) => {
+        this.busy.set(false);
+        this.snackBar.open(`Error al fusionar: ${err?.error ?? 'desconocido'}`, 'Cerrar',
+          { duration: 5000, panelClass: ['snack-error'] });
+      }
+    });
+  }
 }

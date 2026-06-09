@@ -1,7 +1,8 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { Asignatura, Docente, Espacio } from './models';
+import { Asignatura, Docente, Espacio, Facultad, Programa, Sesion, TipoAlternanciaConfig } from './models';
+import { environment } from '../../environments/environment';
 
 export interface ImportMapping {
   tempId: string;
@@ -28,16 +29,16 @@ export interface ImportResult {
 @Injectable({ providedIn: 'root' })
 export class PersistenciaService {
   private http = inject(HttpClient);
-  private base = 'http://localhost:5066/api';
+  private base = environment.apiBaseUrl;
 
   // ── Facultades y Programas ─────────────────────────────────────────────────────
 
-  cargarFacultades(): Observable<any[]> {
-    return this.http.get<any[]>(`${this.base}/facultades`);
+  cargarFacultades(): Observable<Facultad[]> {
+    return this.http.get<Facultad[]>(`${this.base}/facultades`);
   }
 
-  cargarProgramas(): Observable<any[]> {
-    return this.http.get<any[]>(`${this.base}/programas`);
+  cargarProgramas(): Observable<Programa[]> {
+    return this.http.get<Programa[]>(`${this.base}/programas`);
   }
 
   // ── Docentes ───────────────────────────────────────────────────────────────────
@@ -58,6 +59,35 @@ export class PersistenciaService {
 
   eliminarDocenteBD(id: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/docentes/${id}`);
+  }
+
+  /** Grupos de docentes que probablemente son la misma persona (variantes de nombre). */
+  detectarDuplicadosDocentes(): Observable<Docente[][]> {
+    return this.http.get<Docente[][]>(`${this.base}/docentes/duplicados`);
+  }
+
+  /** Fusiona los duplicados en el canónico: reasigna sus asignaturas y los elimina de la BD. */
+  fusionarDocentes(canonicoId: string, duplicadosIds: string[]): Observable<FusionDocentesResultado> {
+    return this.http.post<FusionDocentesResultado>(`${this.base}/docentes/fusionar`,
+      { canonicoId, duplicadosIds });
+  }
+
+  // ── Tipos de alternancia (catálogo editable, Inc. C) ────────────────────────────
+
+  cargarTiposAlternancia(): Observable<TipoAlternanciaConfig[]> {
+    return this.http.get<TipoAlternanciaConfig[]>(`${this.base}/tiposalternancia`);
+  }
+
+  crearTipoAlternancia(t: Partial<TipoAlternanciaConfig>): Observable<TipoAlternanciaConfig> {
+    return this.http.post<TipoAlternanciaConfig>(`${this.base}/tiposalternancia`, t);
+  }
+
+  actualizarTipoAlternancia(t: TipoAlternanciaConfig): Observable<TipoAlternanciaConfig> {
+    return this.http.put<TipoAlternanciaConfig>(`${this.base}/tiposalternancia/${t.id}`, t);
+  }
+
+  eliminarTipoAlternancia(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/tiposalternancia/${id}`);
   }
 
   // ── Espacios ───────────────────────────────────────────────────────────────────
@@ -86,8 +116,26 @@ export class PersistenciaService {
     return this.http.get<any[]>(`${this.base}/asignaturas`);
   }
 
+  actualizarAlternancia(id: string, alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia'): Observable<void> {
+    return this.http.patch<void>(`${this.base}/asignaturas/${id}/alternancia`, { alternancia });
+  }
+
   eliminarAsignatura(id: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/asignaturas/${id}`);
+  }
+
+  // ── Horario: creación manual de sesión ────────────────────────────────────────
+
+  crearSesionManual(payload: {
+    asignaturaId: string;
+    docenteId: string;
+    espacioId: string | null;
+    dia: string;
+    horaInicio: string;
+    duracionHoras: number;
+    alternancia: string;
+  }): Observable<Sesion[]> {
+    return this.http.post<Sesion[]>(`${this.base}/horario/sesion-manual`, payload);
   }
 
   importarCurriculum(payload: any): Observable<ImportResult> {
@@ -113,4 +161,10 @@ export interface ImportExcelStatsDto {
   sesionesPersistidas: number;
   asignaturasSinDocente: number;
   advertencias: string[];
+}
+
+export interface FusionDocentesResultado {
+  canonicoId: string;
+  docentesEliminados: number;
+  asignaturasReasignadas: number;
 }

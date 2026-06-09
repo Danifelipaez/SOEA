@@ -9,48 +9,56 @@
 | `Docente` | `Id`, `Nombre`, `Apellido`, `Correo`, `MaximoHorasSemanales`, `Disponibilidad[]` | M:N con FranjasHorarias |
 | `Espacio` | `Id`, `Nombre`, `TipoEspacio`, `Capacidad`, `Ubicacion`, `Piso` | `TipoEspacio`: Salon / Laboratorio / Auditorio |
 | `Grupo` | `Id`, `Codigo`, `NumeroEstudiantes`, `TipoAlternancia`, `ProgramaId` | Cohorte académica; determina semanas presenciales/virtuales |
-| `Sesion` | `Id`, `AsignaturaId`, `DocenteId`, `EspacioId?`, `BloqueId`, `TipoAlternancia`, `Modalidad` | `EspacioId = null` → sesión virtual |
-| `Horario` | `Id`, `Semestre`, `Estado`, `HardConstraintViolations`, `SoftConstraintFitnessScore` | No publicable si violations > 0 |
+| `Sesion` | `Id`, `AsignaturaId`, `DocenteId`, `EspacioId?`, `BloqueId`, `TipoAlternancia`, `Modalidad`, `DuracionHoras` | Unidad lógica inmutable. `EspacioId = null` → sesión virtual. Permanece única; las semanas A/B se materializan en `AsignacionSemanal`. |
+| `AsignacionSemanal` | `Id`, `SesionId`, `Semana` (`A`/`B`), `BloqueTiempoId`, `EspacioId?`, `Modalidad` | Materialización de una `Sesion` en una semana del ciclo. Cada sesión factible produce **dos** instancias. Invariante: `Modalidad=Virtual → EspacioId=null` (regla 9). |
+| `Horario` | `Id`, `Semestre`, `Estado`, `HardConstraintViolations`, `SoftConstraintFitnessScore` | No publicable si violations > 0; contiene `SesioneIds` lógicas |
 | `Programa` | `Id`, `Nombre`, `Codigo`, `FacultadId` | Plan académico |
 | `Facultad` | `Id`, `Nombre` | Unidad organizativa |
 
-## Modelo de alternancia
+## Modelo de alternancia y ciclo bi-semanal
 
-Tipo A — presencial en semanas **impares** (1, 3, 5 …), virtual en pares.
-Tipo B — presencial en semanas **pares** (2, 4, 6 …), virtual en impares.
-SinAlternancia — presencial **todas** las semanas.
+El horario producido por SOEA cubre **dos semanas** (Semana A / Semana B), que se repiten a lo largo del semestre.
+
+| Semana | Paridad | TipoA | TipoB | SinAlternancia |
+|---|---|---|---|---|
+| **A** | impares (1, 3, 5 …) | Presencial (espacio asignado) | Virtual (sin espacio) | Presencial |
+| **B** | pares (2, 4, 6 …) | Virtual (sin espacio) | Presencial (espacio asignado) | Presencial |
+
+La modalidad por semana es un **dato derivado fijo** de `TipoAlternancia` — no la elige el solver. Una sesión con `Modalidad=Virtual` intrínseca (asignatura totalmente en línea) es virtual en **ambas** semanas independientemente de la alternancia.
+
+El enum `SemanaAcademica { A, B }` identifica cada semana del ciclo. La entidad `AsignacionSemanal` materializa el par `(Sesion, Semana)` → el resultado visible del pipeline.
 
 | Regla | Descripción |
 |---|---|
-| ALT-01 | Tipo A + Tipo B pueden compartir espacio/franja — nunca coinciden físicamente |
-| ALT-02 | Dos Tipo A **no** pueden compartir espacio/franja |
-| ALT-03 | Dos Tipo B **no** pueden compartir espacio/franja |
-| ALT-04 | Sesiones virtuales no consumen capacidad de espacio |
-| ALT-05 | Franja asignada aplica a todo el semestre; la modalidad cambia, el bloque no |
-| ALT-06 | `SinAlternancia` = siempre presencial; va marcado en la malla curricular |
+| ALT-01 | Tipo A + Tipo B pueden compartir espacio/franja — nunca coinciden físicamente (regla A/B) |
+| ALT-02 | Dos Tipo A **no** pueden compartir espacio/franja en la misma semana |
+| ALT-03 | Dos Tipo B **no** pueden compartir espacio/franja en la misma semana |
+| ALT-04 | Sesiones virtuales no consumen capacidad de espacio (`EspacioId = null`) |
+| ALT-05 | Para TipoA/TipoB la **franja** es la misma en ambas semanas (regla 9 — la virtual hereda el bloque de la presencial) |
+| ALT-06 | `SinAlternancia` = presencial en ambas semanas; puede diferir de franja entre A y B |
 
-Impacto en Fase 1: hay arista en el grafo de conflictos si `TipoAlternancia` es igual en ambas sesiones, O si alguna es `SinAlternancia`.
+Impacto en Fase 1: hay arista en el grafo de conflictos si `TipoAlternancia` es igual en ambas sesiones, O si alguna es `SinAlternancia`. La Fase 1 opera sobre sesiones lógicas (sin semana) — no cambia.
 
 ---
 
 ## Restricciones duras (hard constraints)
 
-El motor CP-SAT (Fase 2) las aplica todas. Un horario con violations > 0 no puede publicarse.
+El motor CP-SAT (Fase 2) las aplica todas **por semana** (A y B por separado). Un horario con violations > 0 no puede publicarse.
 
 ### Espacio
-| ID | Regla |
-|---|---|
-| HC-S01 | Un espacio no puede alojar dos sesiones simultáneas del mismo tipo de alternancia (o si alguna es NonAlternating) |
-| HC-S02 | El total de estudiantes físicamente presentes no puede exceder la capacidad del espacio |
-| HC-S03 | Sesión que requiere laboratorio → debe asignarse a espacio tipo Laboratorio |
-| HC-S04 | Sesiones virtuales no se asignan a espacio físico (`EspacioId = null`) |
+| ID | Regla | Evaluación |
+|---|---|---|
+| HC-S01 | Un espacio no puede alojar dos sesiones presenciales simultáneas en la misma semana | por `(espacio, Semana)` |
+| HC-S02 | El total de estudiantes físicamente presentes no puede exceder la capacidad del espacio | por `(espacio, Semana)` |
+| HC-S03 | Sesión que requiere laboratorio → debe asignarse a espacio tipo Laboratorio | por sesión |
+| HC-S04 | Asignaciones virtuales no tienen espacio físico (`EspacioId = null`) | invariante de entidad |
 
 ### Docente
-| ID | Regla |
-|---|---|
-| HC-I01 | Un docente no puede tener dos sesiones en la misma franja |
-| HC-I02 | La franja asignada debe estar dentro de la disponibilidad declarada del docente |
-| HC-I03 | El docente no puede exceder su máximo de horas semanales contratadas |
+| ID | Regla | Evaluación |
+|---|---|---|
+| HC-I01 | Un docente no puede tener dos sesiones en la misma franja (presenciales + virtuales) | por `(docente, Semana)` |
+| HC-I02 | La franja asignada debe estar dentro de la disponibilidad declarada del docente | por `(sesion, Semana)` |
+| HC-I03 | El docente no puede exceder su máximo de horas semanales contratadas | por `(docente, Semana)` |
 
 ### Tiempo
 | ID | Regla |
@@ -99,12 +107,10 @@ Usadas en la función de fitness del algoritmo genético (Fase 3). `fitness = Σ
 Programas (1) ──→ (N) Asignaturas
                           ↓
                       Sesiones ←─── Horarios
-                      ↙  ↓  ↘
-                 Docentes  Espacios  FranjasHorarias
-                      ↑
+                      ↙  ↓  ↘        ↑
+                 Docentes  Espacios  AsignacionesSemanales
+                      ↑              (SesionId, Semana A/B)
               DisponibilidadDocente
-                      ↓
-               FranjasHorarias
 ```
 
 ### Tablas
@@ -112,7 +118,8 @@ Programas (1) ──→ (N) Asignaturas
 | Tabla | PK | Campos destacados |
 |---|---|---|
 | `Horarios` | `Id` uuid | `Semestre`, `Estado` (borrador/validado/aprobado/activo), `Hard_constraint_violations`, `Soft_constraint_fitness_score` |
-| `Sesiones` | `Id` uuid | `Horario_id`, `Asignatura_id`, `Espacio_id` (nullable), `Docente_id`, `Franja_id`, `Tipo_alternancia`, `Modalidad`, `Duracion_horas` |
+| `Sesiones` | `Id` uuid | `Asignatura_id`, `Espacio_id` (nullable), `Docente_id`, `bloque_tiempo_id`, `alternancia`, `modalidad`, `duracion_horas` |
+| `AsignacionesSemanales` | `Id` uuid | `sesion_id` FK, `semana` (`"A"`/`"B"`), `bloque_tiempo_id`, `espacio_id` (nullable), `modalidad`. Índice único `(sesion_id, semana)`. |
 | `Asignaturas` | `Id` uuid | `Codigo` (UNIQUE), `BloqueSemanales`, `RequiereLab`, `Alternancia`, `ProgramaId`, `DocenteId` |
 | `Docentes` | `Id` uuid | `Correo` (UNIQUE), `Maximo_hrs_semanales` |
 | `Espacios` | `Id` uuid | `Tipo`, `Capacidad`, `Ubicacion`, `Piso` |
@@ -121,4 +128,4 @@ Programas (1) ──→ (N) Asignaturas
 | `Programas` | `Id` uuid | `Codigo` (UNIQUE) |
 | `Facultades` | `Id` uuid | `Nombre` |
 
-`Espacio_id = null` identifica sesiones virtuales. Los nombres de tabla usan comillas dobles en PostgreSQL (`"Sesiones"`).
+`espacio_id = null` en `AsignacionesSemanales` identifica asignaciones virtuales (regla 9). La migración `HorarioBiSemanal` creó la tabla `AsignacionesSemanales` con tres índices: `ix_asignacion_semanal_sesion_id`, `ux_asignacion_semanal_sesion_semana` (único), `ix_asignacion_semanal_espacio_conflicto`.
