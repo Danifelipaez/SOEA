@@ -1,12 +1,15 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using SOEA.Domain.Enums;
+using SOEA.Application.Features.Import;
 using SOEA.Domain.Entities;
+using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.Services;
 using SOEA.Domain.ValueObjects;
-using SOEA.Infrastructure.Data.Context;
-using System.Globalization;
 
 namespace SOEA.API.Controllers
 {
@@ -14,20 +17,28 @@ namespace SOEA.API.Controllers
     [Route("api/[controller]")]
     public class ImportController : ControllerBase
     {
-        private readonly SOEABdContext _context;
+        private readonly ImportarCurriculumService _importService;
         private readonly ILectorExcel _lectorExcel;
+        private readonly IBloqueTiempoRepositorio _bloques;
+        private readonly IFacultadRepositorio _facultades;
+        private readonly IProgramaRepositorio _programas;
 
-        public ImportController(SOEABdContext context, ILectorExcel lectorExcel)
+        public ImportController(
+            ImportarCurriculumService importService,
+            ILectorExcel lectorExcel,
+            IBloqueTiempoRepositorio bloques,
+            IFacultadRepositorio facultades,
+            IProgramaRepositorio programas)
         {
-            _context = context;
-            _lectorExcel = lectorExcel;
+            _importService = importService;
+            _lectorExcel   = lectorExcel;
+            _bloques       = bloques;
+            _facultades    = facultades;
+            _programas     = programas;
         }
 
         /// <summary>
-        /// Importa el Excel de horario/currículum directamente desde el archivo.
-        /// Detecta columnas por cabecera, normaliza nombres de docentes y persiste todo
-        /// en una transacción: facultades, programas, docentes (con disponibilidad),
-        /// espacios, asignaturas, grupos y sesiones predefinidas con BloqueTiempoId real.
+        /// Importa el Excel de horario/currículum y persiste toda la jerarquía en una transacción.
         /// </summary>
         [HttpPost("excel")]
         [Consumes("multipart/form-data")]
@@ -37,15 +48,10 @@ namespace SOEA.API.Controllers
                 return BadRequest("No se recibió ningún archivo.");
 
             if (!archivo.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) &&
-                !archivo.FileName.EndsWith(".xls", StringComparison.OrdinalIgnoreCase))
+                !archivo.FileName.EndsWith(".xls",  StringComparison.OrdinalIgnoreCase))
                 return BadRequest("El archivo debe ser .xlsx o .xls.");
 
-            // Cargar catálogo de bloques seeded (1-hora, Lun-Vie 06-22h, Sáb 06-13h)
-            var bloquesCatalogo = await _context.BloqueTiempos
-                .AsNoTracking()
-                .ToListAsync();
-
-            // Agrupar por (Dia, HoraInicio) para lookup O(1)
+            var bloquesCatalogo = await _bloques.GetAllAsync();
             var catalogoLookup = bloquesCatalogo
                 .GroupBy(b => (b.Dia, b.HoraInicio))
                 .ToDictionary(g => g.Key, g => g.First())
@@ -62,580 +68,275 @@ namespace SOEA.API.Controllers
                 return BadRequest($"Error al leer el Excel: {ex.Message}");
             }
 
-            var stats = new ImportExcelStatsDto();
-            await using var tx = await _context.Database.BeginTransactionAsync();
+            ImportarCurriculumStats stats;
             try
             {
-                var facultadIdMap  = new Dictionary<Guid, Guid>();
-                var programaIdMap  = new Dictionary<Guid, Guid>();
-                var docenteIdMap   = new Dictionary<Guid, Guid>();
-                var asignaturaIdMap = new Dictionary<Guid, Guid>();
-
-                // ── Facultades ────────────────────────────────────────────────────────
-                foreach (var f in resultado.Facultades)
-                {
-                    var existe = await _context.Facultades
-                        .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, f.Nombre));
-                    if (existe == null)
-                    {
-                        var nueva = new Facultad(Guid.NewGuid(), f.Nombre);
-                        _context.Facultades.Add(nueva);
-                        facultadIdMap[f.Id] = nueva.Id;
-                        stats.FacultadesCreadas++;
-                    }
-                    else
-                    {
-                        facultadIdMap[f.Id] = existe.Id;
-                    }
-                }
-                // SaveChanges entre facultades y programas: necesitamos los IDs reales de FK
-                await _context.SaveChangesAsync();
-
-                // ── Programas ─────────────────────────────────────────────────────────
-                foreach (var p in resultado.Programas)
-                {
-                    var facRealId = facultadIdMap.TryGetValue(p.FacultadId, out var fid) ? fid : p.FacultadId;
-                    var existe = await _context.Programas
-                        .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, p.Nombre) && x.FacultadId == facRealId);
-                    if (existe == null)
-                    {
-                        var nuevo = new Programa(Guid.NewGuid(), p.Nombre, facRealId);
-                        _context.Programas.Add(nuevo);
-                        programaIdMap[p.Id] = nuevo.Id;
-                        stats.ProgramasCreados++;
-                    }
-                    else
-                    {
-                        programaIdMap[p.Id] = existe.Id;
-                    }
-                }
-                await _context.SaveChangesAsync();
-
-                // ── Docentes (con disponibilidad) ─────────────────────────────────────
-                // Cargamos todos los docentes en memoria para comparar nombres normalizados
-                // (sin tildes, case-insensitive) y evitar duplicados por variantes de acento.
-                var docentesExistentes = await _context.Docentes
-                    .Include(x => x.BloquesDisponibles)
-                    .ToListAsync();
-                var docentesNormDict = docentesExistentes
-                    .GroupBy(x => NormalizadorTexto.Normalizar(x.Nombre))
-                    .ToDictionary(g => g.Key, g => g.First());
-
-                foreach (var d in resultado.Docentes)
-                {
-                    var nombreNorm = NormalizadorTexto.Normalizar(d.Nombre);
-                    docentesNormDict.TryGetValue(nombreNorm, out var existe);
-
-                    if (existe == null)
-                    {
-                        // Correo determinista derivado del nombre cuando no viene en el Excel
-                        var correoFinal = string.IsNullOrWhiteSpace(d.Correo)
-                            ? $"{NormalizadorTexto.Normalizar(d.Nombre).Replace(" ", ".")}@soea.local"
-                            : d.Correo;
-                        var nuevo = new Docente(Guid.NewGuid(), d.Nombre, d.Apellido,
-                            correoFinal, d.MaximoHorasSemanales, d.Disponibilidad.ToList());
-
-                        // Adjuntar bloques del catálogo (ya existen en BD)
-                        foreach (var bloque in d.BloquesDisponibles)
-                        {
-                            var bloqueTracked = await _context.BloqueTiempos.FindAsync(bloque.Id);
-                            if (bloqueTracked != null) nuevo.AgregarBloqueDisponibilidad(bloqueTracked);
-                        }
-
-                        _context.Docentes.Add(nuevo);
-                        docenteIdMap[d.Id] = nuevo.Id;
-                        stats.DocentesCreados++;
-                    }
-                    else
-                    {
-                        // Actualizar disponibilidad: agregar bloques nuevos sin duplicar
-                        foreach (var bloque in d.BloquesDisponibles)
-                        {
-                            if (!existe.BloquesDisponibles.Any(b => b.Id == bloque.Id))
-                            {
-                                var bloqueTracked = await _context.BloqueTiempos.FindAsync(bloque.Id);
-                                if (bloqueTracked != null) existe.AgregarBloqueDisponibilidad(bloqueTracked);
-                            }
-                        }
-                        docenteIdMap[d.Id] = existe.Id;
-                        stats.DocentesActualizados++;
-                    }
-                }
-                await _context.SaveChangesAsync();
-
-                // ── Espacios ──────────────────────────────────────────────────────────
-                foreach (var e in resultado.Espacios)
-                {
-                    var existe = await _context.Espacios
-                        .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, e.Nombre));
-                    if (existe == null)
-                    {
-                        _context.Espacios.Add(new Espacio(Guid.NewGuid(), e.Nombre, e.Tipo, e.Capacidad, e.Edificio, e.Piso));
-                        stats.EspaciosCreados++;
-                    }
-                }
-                await _context.SaveChangesAsync();
-
-                // Lookup: asignaturaId (temp) → EspacioId de su primera sesión predefinida.
-                // Esto permite propagar HC-S05: el espacio del curriculum se fija en la entidad.
-                var espacioPorAsignatura = resultado.SesionesPredefinidas
-                    .Where(s => s.EspacioId.HasValue)
-                    .GroupBy(s => s.AsignaturaId)
-                    .ToDictionary(g => g.Key, g => g.First().EspacioId!.Value);
-
-                // ── Asignaturas ───────────────────────────────────────────────────────
-                foreach (var a in resultado.Asignaturas)
-                {
-                    var progRealId = programaIdMap.TryGetValue(a.ProgramaId, out var pid) ? pid : a.ProgramaId;
-                    var docenteRealId = a.DocenteId.HasValue && docenteIdMap.TryGetValue(a.DocenteId.Value, out var did)
-                        ? did : a.DocenteId;
-
-                    // Resolver el espacio fijo: buscar en el catálogo BD por nombre (los espacios
-                    // ya se persistieron en la sección anterior con sus IDs reales).
-                    Guid? espacioFijoRealId = null;
-                    if (espacioPorAsignatura.TryGetValue(a.Id, out var espacioTempId))
-                    {
-                        var espNombreTemp = resultado.Espacios.FirstOrDefault(e => e.Id == espacioTempId)?.Nombre;
-                        if (!string.IsNullOrWhiteSpace(espNombreTemp))
-                        {
-                            var espBd = await _context.Espacios
-                                .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, espNombreTemp));
-                            espacioFijoRealId = espBd?.Id;
-                        }
-                    }
-
-                    var existe = await _context.Asignaturas
-                        .FirstOrDefaultAsync(x => x.Codigo == a.Codigo && x.ProgramaId == progRealId);
-                    if (existe == null)
-                    {
-                        existe = await _context.Asignaturas
-                            .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, a.Nombre) && x.ProgramaId == progRealId && x.DocenteId == docenteRealId);
-                    }
-
-                    if (existe == null)
-                    {
-                        var nueva = new Asignatura(Guid.NewGuid(), a.Nombre, a.Codigo,
-                            a.HorasPorSesion, a.SesionesPorSemana, a.SesionesLaboratorioSemestre, progRealId);
-                        // Override manual del tipo si el import lo trae explícito (TipoA/TipoB);
-                        // si viene SinAlternancia (default) se conserva la inferencia por umbral.
-                        if (a.Alternancia != TipoAlternancia.SinAlternancia)
-                            nueva.EstablecerAlternancia(a.Alternancia);
-                        nueva.AsignarDocente(docenteRealId);
-                        nueva.AsignarEspacioFijo(espacioFijoRealId);
-                        _context.Asignaturas.Add(nueva);
-                        asignaturaIdMap[a.Id] = nueva.Id;
-                        stats.AsignaturasCreadas++;
-                    }
-                    else
-                    {
-                        existe.AsignarDocente(docenteRealId);
-                        existe.AsignarEspacioFijo(espacioFijoRealId);
-                        // Re-aplicar alternancia inferida por el lector; si es TipoA/TipoB
-                        // sobreescribe el valor antiguo (p.ej. SinAlternancia de imports anteriores).
-                        if (a.Alternancia != TipoAlternancia.SinAlternancia)
-                            existe.EstablecerAlternancia(a.Alternancia);
-                        asignaturaIdMap[a.Id] = existe.Id;
-                        stats.AsignaturasActualizadas++;
-                    }
-                }
-                await _context.SaveChangesAsync();
-
-                // ── Grupos ────────────────────────────────────────────────────────────
-                var grupoIdMap = new Dictionary<Guid, Guid>();
-                foreach (var g in resultado.Grupos)
-                {
-                    var progRealId = programaIdMap.TryGetValue(g.ProgramaId, out var pid2) ? pid2 : g.ProgramaId;
-                    var existe = await _context.Grupos
-                        .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, g.Nombre) && x.ProgramaId == progRealId);
-                    if (existe == null)
-                    {
-                        var nuevo = new Grupo(Guid.NewGuid(), g.Nombre, progRealId, 1, 30, g.Alternancia);
-                        _context.Grupos.Add(nuevo);
-                        grupoIdMap[g.Id] = nuevo.Id;
-                        stats.GruposCreados++;
-                    }
-                    else
-                    {
-                        grupoIdMap[g.Id] = existe.Id;
-                    }
-                }
-                await _context.SaveChangesAsync();
-
-                // ── Sesiones predefinidas ─────────────────────────────────────────────
-                foreach (var s in resultado.SesionesPredefinidas)
-                {
-                    if (s.BloqueTiempoId == Guid.Empty) continue; // sin día/hora → se omite
-
-                    var asigRealId = asignaturaIdMap.TryGetValue(s.AsignaturaId, out var asid) ? asid : s.AsignaturaId;
-                    var docRealId  = docenteIdMap.TryGetValue(s.DocenteId, out var sdid) ? sdid : s.DocenteId;
-
-                    var asig = await _context.Asignaturas.FindAsync(asigRealId);
-                    if (asig == null) continue;
-
-                    // Evitar duplicados exactos (misma asig+docente+bloque)
-                    bool yaExiste = await _context.Sesiones.AnyAsync(x =>
-                        x.AsignaturaId == asigRealId &&
-                        x.DocenteId    == docRealId  &&
-                        x.BloqueTiempoId == s.BloqueTiempoId);
-                    if (yaExiste) continue;
-
-                    var grupoRealId = s.GrupoId.HasValue && grupoIdMap.TryGetValue(s.GrupoId.Value, out var gid)
-                        ? gid : s.GrupoId;
-                    var sesion = new Sesion(
-                        Guid.NewGuid(), asigRealId, docRealId,
-                        s.BloqueTiempoId, s.EspacioId, grupoRealId,
-                        s.Alternancia, Modalidad.Presencial, s.DuracionHoras,
-                        esBloque: false, estaDividida: false);
-                    _context.Sesiones.Add(sesion);
-                    stats.SesionesPersistidas++;
-                }
-                await _context.SaveChangesAsync();
-
-                await tx.CommitAsync();
+                stats = await _importService.EjecutarAsync(resultado);
             }
             catch (Exception ex)
             {
-                await tx.RollbackAsync();
                 return StatusCode(500, $"Error al persistir: {ex.Message}");
             }
 
-            stats.AsignaturasSinDocente = resultado.Asignaturas.Count(a => !a.DocenteId.HasValue);
-            stats.Advertencias = resultado.Advertencias.ToList();
-
-            // Reporte de posibles docentes duplicados (mismo profesor con variantes de nombre →
-            // se fragmenta en varios registros y el motor los agenda en paralelo). No se fusionan
-            // automáticamente: se avisa para que el usuario los revise/unifique manualmente.
-            var todosDocentes = await _context.Docentes
-                .Select(d => new { d.Id, d.Nombre })
-                .ToListAsync();
-            var gruposDup = DetectorDocentesDuplicados.AgruparPosiblesDuplicados(
-                todosDocentes.Select(d => new DetectorDocentesDuplicados.Docente(d.Id, d.Nombre)));
-            foreach (var grupo in gruposDup)
-                stats.Advertencias.Add(
-                    "Posibles docentes duplicados (revisar/unificar): " +
-                    string.Join(" | ", grupo.Select(g => g.Nombre)));
-
-            return Ok(stats);
+            return Ok(new ImportExcelStatsDto
+            {
+                FacultadesCreadas       = stats.FacultadesCreadas,
+                ProgramasCreados        = stats.ProgramasCreados,
+                DocentesCreados         = stats.DocentesCreados,
+                DocentesActualizados    = stats.DocentesActualizados,
+                EspaciosCreados         = stats.EspaciosCreados,
+                AsignaturasCreadas      = stats.AsignaturasCreadas,
+                AsignaturasActualizadas = stats.AsignaturasActualizadas,
+                GruposCreados           = stats.GruposCreados,
+                SesionesPersistidas     = stats.SesionesPersistidas,
+                AsignaturasSinDocente   = stats.AsignaturasSinDocente,
+                Advertencias            = stats.Advertencias
+            });
         }
 
         [HttpGet("/api/facultades")]
         public async Task<IActionResult> GetFacultades()
-            => Ok(await _context.Facultades
+            => Ok((await _facultades.GetAllAsync())
                 .OrderBy(f => f.Nombre)
-                .Select(f => new { id = f.Id.ToString(), nombre = f.Nombre })
-                .ToListAsync());
+                .Select(f => new { id = f.Id.ToString(), nombre = f.Nombre }));
 
         [HttpGet("/api/programas")]
         public async Task<IActionResult> GetProgramas()
-            => Ok(await _context.Programas
+            => Ok((await _programas.GetAllAsync())
                 .OrderBy(p => p.Nombre)
-                .Select(p => new { id = p.Id.ToString(), nombre = p.Nombre, facultadId = p.FacultadId.ToString() })
-                .ToListAsync());
+                .Select(p => new { id = p.Id.ToString(), nombre = p.Nombre, facultadId = p.FacultadId.ToString() }));
 
+        /// <summary>
+        /// Recibe la jerarquía curricular en JSON con IDs temporales del cliente
+        /// y devuelve los mapas tempId → realId para que el frontend actualice su estado.
+        /// </summary>
         [HttpPost("curriculum")]
         public async Task<IActionResult> ImportCurriculum([FromBody] CurriculumExcelDto dto)
         {
             if (dto == null) return BadRequest("Payload vacío");
 
-            var createdFacultades = new List<MappingDto>();
-            var createdProgramas = new List<MappingDto>();
-            var createdAsignaturas = new List<MappingDto>();
-            var createdGrupos = new List<MappingDto>();
-            var createdDocentes = new List<MappingDto>();
+            var facStrGuid   = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            var progStrGuid  = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            var docStrGuid   = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            var asigStrGuid  = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            var grupoStrGuid = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
 
-            var facultadIdMap = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-            var programaIdMap = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-            var asignaturaIdMap = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-            var docenteIdMap = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            // ── Mapeo DTO → entidades de dominio con IDs temporales ────────────────
+            var facultades  = MapFacultadesDto(dto.Facultades, facStrGuid);
+            var programas   = MapProgramasDto(dto.Programas, facStrGuid, progStrGuid);
+            var docentes    = MapDocentesDto(dto.Docentes, docStrGuid);
+            var espacios    = MapEspaciosDto(dto.Espacios);
+            var asignaturas = MapAsignaturasDto(dto.Asignaturas, progStrGuid, docStrGuid, asigStrGuid);
+            var grupos      = MapGruposDeAsignaturas(dto.Asignaturas, progStrGuid, asigStrGuid, grupoStrGuid);
+            var sesiones    = MapSesionesDto(dto.SesionesPredefinidas);
 
-            // Transacción para persistencia consistente
-            await using var tx = await _context.Database.BeginTransactionAsync();
+            var resultado = new CurriculumExcelResult(
+                facultades, programas, asignaturas, docentes,
+                sesiones, espacios, grupos);
+
+            ImportarCurriculumStats stats;
             try
             {
-                // Facultades
-                foreach (var f in dto.Facultades ?? Enumerable.Empty<FacultadDto>())
-                {
-                    var exists = await _context.Facultades.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, f.Nombre));
-                    Guid targetId;
-                    if (exists == null)
-                    {
-                        var nueva = new Facultad(Guid.NewGuid(), f.Nombre);
-                        _context.Facultades.Add(nueva);
-                        targetId = nueva.Id;
-                    }
-                    else
-                    {
-                        targetId = exists.Id;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(f.Id))
-                    {
-                        facultadIdMap[f.Id] = targetId;
-                        createdFacultades.Add(new MappingDto { TempId = f.Id, NewId = targetId.ToString() });
-                    }
-                }
-                await _context.SaveChangesAsync();
-
-                // Programas
-                foreach (var p in dto.Programas ?? Enumerable.Empty<ProgramaDto>())
-                {
-                    Guid facultadRealId;
-                    if (!string.IsNullOrWhiteSpace(p.FacultadId) && facultadIdMap.TryGetValue(p.FacultadId, out var mappedFacId))
-                    {
-                        facultadRealId = mappedFacId;
-                    }
-                    else if (Guid.TryParse(p.FacultadId, out var facGuid))
-                    {
-                        facultadRealId = facGuid;
-                    }
-                    else
-                    {
-                        continue;
-                    }
-
-                    var fac = await _context.Facultades.FindAsync(facultadRealId);
-                    if (fac == null) continue;
-
-                    var exists = await _context.Programas.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, p.Nombre) && x.FacultadId == fac.Id);
-                    Guid targetId;
-                    if (exists == null)
-                    {
-                        var nuevo = new Programa(Guid.NewGuid(), p.Nombre, fac.Id);
-                        _context.Programas.Add(nuevo);
-                        targetId = nuevo.Id;
-                    }
-                    else
-                    {
-                        targetId = exists.Id;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(p.Id))
-                    {
-                        programaIdMap[p.Id] = targetId;
-                        createdProgramas.Add(new MappingDto { TempId = p.Id, NewId = targetId.ToString() });
-                    }
-                }
-                await _context.SaveChangesAsync();
-
-                // Docentes
-                foreach (var d in dto.Docentes ?? Enumerable.Empty<DocenteImportDto>())
-                {
-                    if (string.IsNullOrWhiteSpace(d.Nombre)) continue;
-
-                    // Buscar por ID real primero, luego por nombre
-                    Docente? exists = null;
-                    if (!string.IsNullOrWhiteSpace(d.Id) && Guid.TryParse(d.Id, out var dGuid) && dGuid != Guid.Empty)
-                        exists = await _context.Docentes.FindAsync(dGuid);
-                    exists ??= await _context.Docentes.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, d.Nombre));
-
-                    Guid docenteTargetId;
-                    if (exists == null)
-                    {
-                        var id = Guid.NewGuid();
-                        var correo = $"{NormalizadorTexto.Normalizar(d.Nombre).Replace(" ", ".")}@soea.local";
-                        var docente = new Docente(id, d.Nombre, "", correo,
-                            (decimal)d.MaxHoras,
-                            new List<Domain.Enums.FranjaHoraria> { Domain.Enums.FranjaHoraria.Matutino, Domain.Enums.FranjaHoraria.Vespertino });
-                        if (!string.IsNullOrWhiteSpace(d.Cedula))
-                            docente.ActualizarPersistenciaUi(d.Cedula, null);
-                        _context.Docentes.Add(docente);
-                        docenteTargetId = id;
-                    }
-                    else
-                    {
-                        exists.ActualizarDatos(d.Nombre, "", exists.Correo, (decimal)d.MaxHoras);
-                        if (!string.IsNullOrWhiteSpace(d.Cedula))
-                            exists.ActualizarPersistenciaUi(d.Cedula, exists.DisponibilidadUiJson);
-                        docenteTargetId = exists.Id;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(d.Id))
-                    {
-                        docenteIdMap[d.Id] = docenteTargetId;
-                        createdDocentes.Add(new MappingDto { TempId = d.Id, NewId = docenteTargetId.ToString() });
-                    }
-                }
-                await _context.SaveChangesAsync();
-
-                // Espacios
-                foreach (var e in dto.Espacios ?? Enumerable.Empty<EspacioImportDto>())
-                {
-                    if (string.IsNullOrWhiteSpace(e.Nombre)) continue;
-                    var exists = await _context.Espacios.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, e.Nombre));
-                    if (exists == null)
-                    {
-                        var tipo = e.Tipo switch
-                        {
-                            "Laboratorio" => Domain.Enums.TipoEspacio.Laboratorio,
-                            "Auditorio"   => Domain.Enums.TipoEspacio.Auditorio,
-                            _             => Domain.Enums.TipoEspacio.Salon
-                        };
-                        _context.Espacios.Add(new Espacio(Guid.NewGuid(), e.Nombre, tipo, e.Capacidad, e.Edificio, e.Piso));
-                    }
-                }
-                await _context.SaveChangesAsync();
-
-                // Asignaturas (DTO -> entidad)
-                foreach (var a in dto.Asignaturas ?? Enumerable.Empty<AsignaturaDto>())
-                {
-                    Guid programaRealId;
-                    if (!string.IsNullOrWhiteSpace(a.ProgramaId) && programaIdMap.TryGetValue(a.ProgramaId, out var mappedProgId))
-                    {
-                        programaRealId = mappedProgId;
-                    }
-                    else if (Guid.TryParse(a.ProgramaId, out var progGuid))
-                    {
-                        programaRealId = progGuid;
-                    }
-                    else
-                    {
-                        continue;
-                    }
-
-                    var prog = await _context.Programas.FindAsync(programaRealId);
-                    if (prog == null) continue;
-
-                    Guid? docenteRealId = null;
-                    if (!string.IsNullOrWhiteSpace(a.DocenteId))
-                    {
-                        if (docenteIdMap.TryGetValue(a.DocenteId, out var mappedDocId))
-                            docenteRealId = mappedDocId;
-                        else if (Guid.TryParse(a.DocenteId, out var docGuid))
-                            docenteRealId = docGuid;
-                    }
-
-                    // Buscar por ID real primero (asignatura cargada desde BD), luego por nombre+programa
-                    Asignatura? exists = null;
-                    if (Guid.TryParse(a.Id, out var aGuid) && aGuid != Guid.Empty)
-                        exists = await _context.Asignaturas.FindAsync(aGuid);
-                    exists ??= await _context.Asignaturas.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, a.Nombre) && x.ProgramaId == prog.Id);
-
-                    // Override manual del tipo si el import lo trae explícito (TipoA/TipoB);
-                    // SinAlternancia (default) deja que la inferencia por umbral decida.
-                    TipoAlternancia? altExplicita =
-                        Enum.TryParse<TipoAlternancia>(a.Alternancia, ignoreCase: true, out var altP) &&
-                        altP != TipoAlternancia.SinAlternancia
-                            ? altP : null;
-
-                    Guid targetId;
-                    if (exists == null)
-                    {
-                        var entidad = new Asignatura(Guid.NewGuid(), a.Nombre, a.Codigo ?? string.Empty, a.HorasPorSesion, a.SesionesPorSemana, a.SesionesLaboratorioSemestre, prog.Id);
-                        if (altExplicita.HasValue) entidad.EstablecerAlternancia(altExplicita.Value);
-                        entidad.AsignarDocente(docenteRealId);
-                        _context.Asignaturas.Add(entidad);
-                        targetId = entidad.Id;
-                    }
-                    else
-                    {
-                        exists.ActualizarDatos(
-                            a.Nombre,
-                            a.Codigo,
-                            a.HorasPorSesion,
-                            a.SesionesPorSemana,
-                            a.SesionesLaboratorioSemestre,
-                            prog.Id,
-                            altExplicita);
-                        exists.AsignarDocente(docenteRealId);
-                        targetId = exists.Id;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(a.Id))
-                    {
-                        asignaturaIdMap[a.Id] = targetId;
-                        createdAsignaturas.Add(new MappingDto { TempId = a.Id, NewId = targetId.ToString() });
-                    }
-                }
-                await _context.SaveChangesAsync();
-
-                // Grupos: crear por cada asignatura importada con grupoNumero (si no viene, usar 1)
-                foreach (var a in dto.Asignaturas ?? Enumerable.Empty<AsignaturaDto>())
-                {
-                    Guid programaRealId;
-                    if (!string.IsNullOrWhiteSpace(a.ProgramaId) && programaIdMap.TryGetValue(a.ProgramaId, out var mappedProgId2))
-                    {
-                        programaRealId = mappedProgId2;
-                    }
-                    else if (Guid.TryParse(a.ProgramaId, out var progGuid2))
-                    {
-                        programaRealId = progGuid2;
-                    }
-                    else
-                    {
-                        continue;
-                    }
-
-                    var asign = await _context.Asignaturas.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, a.Nombre) && x.ProgramaId == programaRealId);
-                    if (asign == null) continue;
-
-                    var numeroGrupo = a.GrupoNumero.GetValueOrDefault(1);
-                    var groupName = $"{a.Nombre} - Grupo {numeroGrupo}";
-
-                    var existente = await _context.Grupos.FirstOrDefaultAsync(g =>
-                        EF.Functions.ILike(g.Nombre, groupName) &&
-                        g.ProgramaId == asign.ProgramaId);
-
-                    Guid grupoId;
-                    if (existente == null)
-                    {
-                        var grupo = new Grupo(Guid.NewGuid(), groupName, asign.ProgramaId, 1, 30, asign.Alternancia);
-                        _context.Grupos.Add(grupo);
-                        grupoId = grupo.Id;
-                    }
-                    else
-                    {
-                        grupoId = existente.Id;
-                    }
-
-                    var tempGroupKey = BuildGroupTempKey(a.Id, numeroGrupo);
-                    createdGrupos.Add(new MappingDto { TempId = tempGroupKey, NewId = grupoId.ToString() });
-                }
-                await _context.SaveChangesAsync();
-
-                // Sesiones predefinidas (opcionales — solo si vienen con BloqueTiempoId válido)
-                foreach (var s in dto.SesionesPredefinidas ?? Enumerable.Empty<SesionImportDto>())
-                {
-                    if (s.BloqueTiempoId == Guid.Empty) continue;
-                    var asign = await _context.Asignaturas.FindAsync(s.AsignaturaId);
-                    if (asign == null) continue;
-                    var alt = Enum.TryParse<TipoAlternancia>(s.Alternancia, out var parsed)
-                        ? parsed : TipoAlternancia.SinAlternancia;
-                    var sesion = new Sesion(
-                        Guid.NewGuid(), s.AsignaturaId, s.DocenteId,
-                        s.BloqueTiempoId, s.EspacioId, s.GrupoId,
-                        alt, Modalidad.Presencial, s.DuracionHoras,
-                        esBloque: false, estaDividida: false);
-                    _context.Sesiones.Add(sesion);
-                }
-                await _context.SaveChangesAsync();
-
-                await tx.CommitAsync();
-
-                var result = new ImportResultDto
-                {
-                    Facultades = createdFacultades,
-                    Programas = createdProgramas,
-                    Asignaturas = createdAsignaturas,
-                    Grupos = createdGrupos,
-                    Docentes = createdDocentes,
-                    Summary = new ImportSummaryDto
-                    {
-                        Facultades = createdFacultades.Count,
-                        Programas = createdProgramas.Count,
-                        Asignaturas = createdAsignaturas.Count,
-                        Grupos = createdGrupos.Count,
-                        Docentes = createdDocentes.Count
-                    }
-                };
-
-                return Ok(result);
+                stats = await _importService.EjecutarAsync(resultado);
             }
             catch (Exception ex)
             {
-                await tx.RollbackAsync();
                 return StatusCode(500, ex.Message);
             }
+
+            return Ok(new ImportResultDto
+            {
+                Facultades  = MapearIdList(facStrGuid,   stats.FacultadMappings),
+                Programas   = MapearIdList(progStrGuid,  stats.ProgramaMappings),
+                Asignaturas = MapearIdList(asigStrGuid,  stats.AsignaturaMappings),
+                Docentes    = MapearIdList(docStrGuid,   stats.DocenteMappings),
+                Grupos      = MapearIdList(grupoStrGuid, stats.GrupoMappings),
+                Summary = new ImportSummaryDto
+                {
+                    Facultades  = facStrGuid.Count,
+                    Programas   = progStrGuid.Count,
+                    Asignaturas = asigStrGuid.Count,
+                    Grupos      = grupoStrGuid.Count,
+                    Docentes    = docStrGuid.Count
+                }
+            });
         }
+
+        // ── Helpers de mapeo DTO → entidades ────────────────────────────────────────
+
+        private static List<Facultad> MapFacultadesDto(
+            IEnumerable<FacultadDto>? dtos, Dictionary<string, Guid> strGuidOut)
+        {
+            var result = new List<Facultad>();
+            foreach (var f in dtos ?? Enumerable.Empty<FacultadDto>())
+            {
+                if (string.IsNullOrWhiteSpace(f.Nombre)) continue;
+                var id = Guid.TryParse(f.Id, out var g) && g != Guid.Empty ? g : Guid.NewGuid();
+                result.Add(new Facultad(id, f.Nombre));
+                if (!string.IsNullOrWhiteSpace(f.Id)) strGuidOut[f.Id] = id;
+            }
+            return result;
+        }
+
+        private static List<Programa> MapProgramasDto(
+            IEnumerable<ProgramaDto>? dtos,
+            Dictionary<string, Guid> facStrGuid,
+            Dictionary<string, Guid> strGuidOut)
+        {
+            var result = new List<Programa>();
+            foreach (var p in dtos ?? Enumerable.Empty<ProgramaDto>())
+            {
+                if (string.IsNullOrWhiteSpace(p.Nombre)) continue;
+                Guid facTempId;
+                if (!string.IsNullOrWhiteSpace(p.FacultadId) && facStrGuid.TryGetValue(p.FacultadId, out var mfid))
+                    facTempId = mfid;
+                else if (Guid.TryParse(p.FacultadId, out var pfid) && pfid != Guid.Empty)
+                    facTempId = pfid;
+                else continue;
+
+                var id = Guid.TryParse(p.Id, out var pg) && pg != Guid.Empty ? pg : Guid.NewGuid();
+                result.Add(new Programa(id, p.Nombre, facTempId));
+                if (!string.IsNullOrWhiteSpace(p.Id)) strGuidOut[p.Id] = id;
+            }
+            return result;
+        }
+
+        private static List<Docente> MapDocentesDto(
+            IEnumerable<DocenteImportDto>? dtos, Dictionary<string, Guid> strGuidOut)
+        {
+            var result = new List<Docente>();
+            foreach (var d in dtos ?? Enumerable.Empty<DocenteImportDto>())
+            {
+                if (string.IsNullOrWhiteSpace(d.Nombre)) continue;
+                var id     = Guid.TryParse(d.Id, out var dg) && dg != Guid.Empty ? dg : Guid.NewGuid();
+                var correo = $"{NormalizadorTexto.Normalizar(d.Nombre).Replace(" ", ".")}@soea.local";
+                var docente = new Docente(id, d.Nombre, "", correo, (decimal)d.MaxHoras,
+                    new List<FranjaHoraria> { FranjaHoraria.Matutino, FranjaHoraria.Vespertino });
+                if (!string.IsNullOrWhiteSpace(d.Cedula))
+                    docente.ActualizarPersistenciaUi(d.Cedula, null);
+                result.Add(docente);
+                if (!string.IsNullOrWhiteSpace(d.Id)) strGuidOut[d.Id] = id;
+            }
+            return result;
+        }
+
+        private static List<Espacio> MapEspaciosDto(IEnumerable<EspacioImportDto>? dtos)
+        {
+            var result = new List<Espacio>();
+            foreach (var e in dtos ?? Enumerable.Empty<EspacioImportDto>())
+            {
+                if (string.IsNullOrWhiteSpace(e.Nombre)) continue;
+                var tipo = e.Tipo switch
+                {
+                    "Laboratorio" => TipoEspacio.Laboratorio,
+                    "Auditorio"   => TipoEspacio.Auditorio,
+                    _             => TipoEspacio.Salon
+                };
+                result.Add(new Espacio(Guid.NewGuid(), e.Nombre, tipo, e.Capacidad, e.Edificio, e.Piso));
+            }
+            return result;
+        }
+
+        private static List<Asignatura> MapAsignaturasDto(
+            IEnumerable<AsignaturaDto>? dtos,
+            Dictionary<string, Guid> progStrGuid,
+            Dictionary<string, Guid> docStrGuid,
+            Dictionary<string, Guid> strGuidOut)
+        {
+            var result = new List<Asignatura>();
+            foreach (var a in dtos ?? Enumerable.Empty<AsignaturaDto>())
+            {
+                if (string.IsNullOrWhiteSpace(a.Nombre)) continue;
+
+                Guid progTempId;
+                if (!string.IsNullOrWhiteSpace(a.ProgramaId) && progStrGuid.TryGetValue(a.ProgramaId, out var mpid))
+                    progTempId = mpid;
+                else if (Guid.TryParse(a.ProgramaId, out var ppid) && ppid != Guid.Empty)
+                    progTempId = ppid;
+                else continue;
+
+                var id = Guid.TryParse(a.Id, out var ag) && ag != Guid.Empty ? ag : Guid.NewGuid();
+                var entidad = new Asignatura(id, a.Nombre, a.Codigo ?? string.Empty,
+                    a.HorasPorSesion, a.SesionesPorSemana, a.SesionesLaboratorioSemestre, progTempId);
+
+                if (Enum.TryParse<TipoAlternancia>(a.Alternancia, ignoreCase: true, out var altP)
+                    && altP != TipoAlternancia.SinAlternancia)
+                    entidad.EstablecerAlternancia(altP);
+
+                Guid? docTempId = null;
+                if (!string.IsNullOrWhiteSpace(a.DocenteId))
+                {
+                    if (docStrGuid.TryGetValue(a.DocenteId, out var mdid))
+                        docTempId = mdid;
+                    else if (Guid.TryParse(a.DocenteId, out var pdid) && pdid != Guid.Empty)
+                        docTempId = pdid;
+                }
+                entidad.AsignarDocente(docTempId);
+
+                result.Add(entidad);
+                if (!string.IsNullOrWhiteSpace(a.Id)) strGuidOut[a.Id] = id;
+            }
+            return result;
+        }
+
+        private static List<Grupo> MapGruposDeAsignaturas(
+            IEnumerable<AsignaturaDto>? dtos,
+            Dictionary<string, Guid> progStrGuid,
+            Dictionary<string, Guid> asigStrGuid,
+            Dictionary<string, Guid> strGuidOut)
+        {
+            var result = new List<Grupo>();
+            foreach (var a in dtos ?? Enumerable.Empty<AsignaturaDto>())
+            {
+                if (string.IsNullOrWhiteSpace(a.Nombre)) continue;
+
+                Guid progTempId;
+                if (!string.IsNullOrWhiteSpace(a.ProgramaId) && progStrGuid.TryGetValue(a.ProgramaId, out var mpid))
+                    progTempId = mpid;
+                else if (Guid.TryParse(a.ProgramaId, out var ppid) && ppid != Guid.Empty)
+                    progTempId = ppid;
+                else continue;
+
+                var numGrupo  = a.GrupoNumero.GetValueOrDefault(1);
+                var groupName = $"{a.Nombre} - Grupo {numGrupo}";
+                var groupAlt  = Enum.TryParse<TipoAlternancia>(a.Alternancia, ignoreCase: true, out var ga)
+                    ? ga : TipoAlternancia.SinAlternancia;
+                var tempGroupId = Guid.NewGuid();
+
+                result.Add(new Grupo(tempGroupId, groupName, progTempId, 1, 30, groupAlt));
+
+                var tempKey = BuildGroupTempKey(a.Id, numGrupo);
+                strGuidOut[tempKey] = tempGroupId;
+            }
+            return result;
+        }
+
+        private static List<Sesion> MapSesionesDto(IEnumerable<SesionImportDto>? dtos)
+        {
+            var result = new List<Sesion>();
+            foreach (var s in dtos ?? Enumerable.Empty<SesionImportDto>())
+            {
+                if (s.BloqueTiempoId == Guid.Empty) continue;
+                var alt = Enum.TryParse<TipoAlternancia>(s.Alternancia, out var parsed)
+                    ? parsed : TipoAlternancia.SinAlternancia;
+                result.Add(new Sesion(Guid.NewGuid(), s.AsignaturaId, s.DocenteId,
+                    s.BloqueTiempoId, s.EspacioId, s.GrupoId,
+                    alt, Modalidad.Presencial, s.DuracionHoras,
+                    esBloque: false, estaDividida: false));
+            }
+            return result;
+        }
+
+        private static List<MappingDto> MapearIdList(
+            Dictionary<string, Guid> strGuidMap,
+            Dictionary<Guid, Guid> tempRealMap)
+            => strGuidMap
+                .Select(kvp => new MappingDto
+                {
+                    TempId = kvp.Key,
+                    NewId  = tempRealMap.TryGetValue(kvp.Value, out var r) ? r.ToString() : kvp.Value.ToString()
+                })
+                .ToList();
 
         private static string BuildGroupTempKey(string? asignaturaTempId, int grupoNumero)
         {
@@ -643,5 +344,4 @@ namespace SOEA.API.Controllers
             return string.Create(CultureInfo.InvariantCulture, $"{left}:{grupoNumero}");
         }
     }
-
 }

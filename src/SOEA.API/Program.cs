@@ -8,6 +8,7 @@ using SOEA.Domain.Interfaces;
 using SOEA.Engine.ConstraintProg;
 using SOEA.Engine.Genetic;
 using SOEA.Engine.GraphColoring;
+using SOEA.Application.Features.Import;
 using SOEA.Infrastructure.Data;
 using SOEA.Infrastructure.Data.Context;
 using SOEA.Infrastructure.Data.Repositories;
@@ -50,6 +51,9 @@ builder.Services.AddScoped<IEspacioRepositorio, EspacioRepositorio>();
 builder.Services.AddScoped<IGrupoRepositorio, GrupoRepositorio>();
 builder.Services.AddScoped<IBloqueTiempoRepositorio, BloqueTiempoRepositorio>();
 builder.Services.AddScoped<ITipoAlternanciaConfigRepositorio, TipoAlternanciaConfigRepositorio>();
+builder.Services.AddScoped<IFacultadRepositorio, FacultadRepositorio>();
+builder.Services.AddScoped<IProgramaRepositorio, ProgramaRepositorio>();
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 // ── Excel reader ──────────────────────────────────────────────────────────────
 builder.Services.AddScoped<ILectorExcel, LectorExcel>();
@@ -81,6 +85,8 @@ builder.Services.AddScoped<FusionDocentesService>();
 builder.Services.AddScoped<TipoAlternanciaConfigService>();
 // Generación de horario
 builder.Services.AddScoped<GenerarHorarioService>();
+// Importación de curriculum
+builder.Services.AddScoped<ImportarCurriculumService>();
 
 // ── OpenAPI + Controladores ───────────────────────────────────────────────────
 builder.Services.AddControllers()

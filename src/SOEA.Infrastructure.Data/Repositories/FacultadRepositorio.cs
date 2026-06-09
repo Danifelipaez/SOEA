@@ -6,11 +6,11 @@ using SOEA.Infrastructure.Data.Context;
 
 namespace SOEA.Infrastructure.Data.Repositories
 {
-    public class EspacioRepositorio : BaseRepository<Espacio>, IEspacioRepositorio
+    public class FacultadRepositorio : BaseRepository<Facultad>, IFacultadRepositorio
     {
-        public EspacioRepositorio(SOEABdContext context) : base(context) { }
+        public FacultadRepositorio(SOEABdContext context) : base(context) { }
 
-        public async Task<Espacio?> GetByNombreAsync(string nombre)
+        public async Task<Facultad?> GetByNombreAsync(string nombre)
             => await _dbSet.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, nombre));
     }
 }

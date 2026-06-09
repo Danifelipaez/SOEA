@@ -103,6 +103,9 @@ namespace SOEA.Tests.Application
             public Task DeleteAsync(Guid id) { _store.Remove(id); return Task.CompletedTask; }
             public Task<Docente?> GetByCedulaAsync(string cedula) =>
                 Task.FromResult(_store.Values.FirstOrDefault(d => d.CedulaIdentidad == cedula));
+            public Task<Docente?> GetByNombreAsync(string nombre) =>
+                Task.FromResult(_store.Values.FirstOrDefault(d =>
+                    d.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase)));
         }
 
         private sealed class FakeAsignaturaRepo : IAsignaturaRepositorio
@@ -116,6 +119,11 @@ namespace SOEA.Tests.Application
             public Task DeleteAsync(Guid id) { _store.Remove(id); return Task.CompletedTask; }
             public Task<Asignatura?> GetByCodigoAsync(string codigo) =>
                 Task.FromResult(_store.Values.FirstOrDefault(a => a.Codigo == codigo));
+            public Task<Asignatura?> GetByCodigoYProgramaAsync(string codigo, Guid programaId) =>
+                Task.FromResult(_store.Values.FirstOrDefault(a => a.Codigo == codigo && a.ProgramaId == programaId));
+            public Task<Asignatura?> GetByNombreYProgramaAsync(string nombre, Guid programaId) =>
+                Task.FromResult(_store.Values.FirstOrDefault(a =>
+                    a.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase) && a.ProgramaId == programaId));
         }
     }
 }

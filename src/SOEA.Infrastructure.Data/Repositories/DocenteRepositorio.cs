@@ -14,5 +14,8 @@ namespace SOEA.Infrastructure.Data.Repositories
 
         public async Task<Docente?> GetByCedulaAsync(string cedula)
             => await _dbSet.FirstOrDefaultAsync(d => d.CedulaIdentidad == cedula);
+
+        public async Task<Docente?> GetByNombreAsync(string nombre)
+            => await _dbSet.FirstOrDefaultAsync(d => EF.Functions.ILike(d.Nombre, nombre));
     }
 }
