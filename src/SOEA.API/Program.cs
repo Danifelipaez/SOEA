@@ -19,11 +19,17 @@ ExcelPackage.License.SetNonCommercialPersonal("SOEA");
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ── CORS (permite llamadas desde el frontend Angular en desarrollo) ────────────
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// En desarrollo: http://localhost:4200
+// En producción: la URL del Static Web App se pone en AllowedOrigins (App Service config)
+var allowedOrigins = builder.Configuration
+    .GetSection("AllowedOrigins")
+    .Get<string[]>() ?? ["http://localhost:4200"];
+
 builder.Services.AddCors(opts =>
 {
-    opts.AddPolicy("AllowAngularDev", policy =>
-        policy.WithOrigins("http://localhost:4200")
+    opts.AddPolicy("AllowFrontend", policy =>
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
@@ -120,7 +126,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseCors("AllowAngularDev");
+app.UseCors("AllowFrontend");
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();

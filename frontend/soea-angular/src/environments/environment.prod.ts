@@ -1,9 +1,9 @@
 /**
- * Configuración de entorno para producción.
- * apiBaseUrl relativo: asume que la API se sirve tras el mismo host/reverse-proxy.
- * Ajustar a la URL absoluta del backend si se despliega en otro dominio.
+ * Configuración de entorno para producción en Azure.
+ * Reemplaza la URL por la de tu App Service antes de hacer ng build --configuration production.
+ * Ejemplo: 'https://soea-api.azurewebsites.net/api'
  */
 export const environment = {
   production: true,
-  apiBaseUrl: '/api',
+  apiBaseUrl: 'https://TU-APP-SERVICE.azurewebsites.net/api',
 };
