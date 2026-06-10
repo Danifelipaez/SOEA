@@ -16,19 +16,22 @@ namespace SOEA.API.Controllers
         private readonly GetAsignaturasService _getAllService;
         private readonly DeleteAsignaturaService _deleteService;
         private readonly UpdateAlternanciaService _updateAlternanciaService;
+        private readonly UpdateAsignaturaService _updateService;
 
         public AsignaturasController(
             CreateAsignaturaService createService,
             GetAsignaturaByIdService getByIdService,
             GetAsignaturasService getAllService,
             DeleteAsignaturaService deleteService,
-            UpdateAlternanciaService updateAlternanciaService)
+            UpdateAlternanciaService updateAlternanciaService,
+            UpdateAsignaturaService updateService)
         {
             _createService = createService;
             _getByIdService = getByIdService;
             _getAllService = getAllService;
             _deleteService = deleteService;
             _updateAlternanciaService = updateAlternanciaService;
+            _updateService = updateService;
         }
 
         [HttpPost]
@@ -74,6 +77,32 @@ namespace SOEA.API.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Actualiza los datos editables de una asignatura (nombre, código, duración,
+        /// programa, docente y espacio fijo) desde la UI de Ingesta.
+        /// </summary>
+        [HttpPut("{id}")]
+        public async Task<ActionResult<AsignaturaResponse>> UpdateAsignatura(
+            Guid id, [FromBody] UpdateAsignaturaRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            try
+            {
+                var response = await _updateService.ExecuteAsync(id, request);
+                return Ok(response);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return NotFound(ex.Message);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
             }
         }
 

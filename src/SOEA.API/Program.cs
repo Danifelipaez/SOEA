@@ -83,6 +83,7 @@ builder.Services.AddScoped<GetAsignaturaByIdService>();
 builder.Services.AddScoped<GetAsignaturasService>();
 builder.Services.AddScoped<DeleteAsignaturaService>();
 builder.Services.AddScoped<UpdateAlternanciaService>();
+builder.Services.AddScoped<UpdateAsignaturaService>();
 builder.Services.AddScoped<CrearSesionManualService>();
 // CRUD Docentes
 builder.Services.AddScoped<DocenteService>();

@@ -135,6 +135,11 @@ namespace SOEA.Application.Features.Import
                     }
                     else
                     {
+                        // Actualizar datos editables (nombre, apellido, máx. horas). El correo solo se
+                        // sobreescribe si el import trae uno real (no pisamos el existente con el dummy).
+                        var correoActualizado = string.IsNullOrWhiteSpace(d.Correo) ? existe.Correo : d.Correo;
+                        existe.ActualizarDatos(d.Nombre, d.Apellido, correoActualizado, d.MaximoHorasSemanales);
+
                         // Agregar bloques nuevos sin duplicar
                         foreach (var bloque in d.BloquesDisponibles)
                         {
@@ -161,6 +166,14 @@ namespace SOEA.Application.Features.Import
                     {
                         _uow.Track(new Espacio(Guid.NewGuid(), e.Nombre, e.Tipo, e.Capacidad, e.Edificio, e.Piso));
                         stats.EspaciosCreados++;
+                    }
+                    else
+                    {
+                        existe.ActualizarDatos(e.Nombre, e.Tipo, e.Edificio, e.Piso);
+                        // El dominio exige capacidad > 0: solo se pisa si el import trae un valor válido.
+                        if (e.Capacidad > 0)
+                            existe.ActualizarCapacidad(e.Capacidad);
+                        stats.EspaciosActualizados++;
                     }
                 }
                 await _uow.SaveAsync();
@@ -208,10 +221,19 @@ namespace SOEA.Application.Features.Import
                     }
                     else
                     {
+                        // Actualizar datos editables (nombre, código, duración): sin esto las ediciones
+                        // de la UI y los cambios del Excel se descartaban en silencio aunque la
+                        // estadística reportara "actualizadas".
+                        // Alternancia: igual que antes, un SinAlternancia entrante no pisa un tipo ya
+                        // establecido (puede ser un override manual de la coordinadora).
+                        var alternanciaFinal = a.Alternancia != TipoAlternancia.SinAlternancia
+                            ? a.Alternancia
+                            : existe.Alternancia;
+                        existe.ActualizarDatos(a.Nombre, a.Codigo, a.HorasPorSesion,
+                            a.SesionesPorSemana, a.SesionesLaboratorioSemestre, progRealId,
+                            alternanciaFinal);
                         existe.AsignarDocente(docenteRealId);
                         existe.AsignarEspacioFijo(espacioFijoRealId);
-                        if (a.Alternancia != TipoAlternancia.SinAlternancia)
-                            existe.EstablecerAlternancia(a.Alternancia);
                         asignaturaIdMap[a.Id] = existe.Id;
                         stats.AsignaturasActualizadas++;
                     }
