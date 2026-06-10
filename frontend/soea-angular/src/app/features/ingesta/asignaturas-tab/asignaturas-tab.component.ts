@@ -17,7 +17,9 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
 import { CatalogoService } from '../../../core/catalogo.service';
+import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { GuardadoResultadoDialogComponent } from '../../../shared/guardado-resultado-dialog/guardado-resultado-dialog.component';
+import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { Asignatura, Facultad, Programa } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { ImportExcelStatsDto } from '../../../core/persistencia.service';
@@ -257,19 +259,35 @@ export class AsignaturasTabComponent {
   }
 
   delete(asignatura: Asignatura) {
-    if (this.catalogo.estaEnBd('asignatura', asignatura.id)) {
+    const enBd = this.catalogo.estaEnBd('asignatura', asignatura.id);
+    const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
+      width: '420px',
+      data: {
+        title: 'Eliminar asignatura',
+        message: enBd
+          ? `Se eliminará "${asignatura.nombre}" de la base de datos. Esta acción es irreversible.`
+          : `Se eliminará "${asignatura.nombre}" (aún no está guardada en la BD).`
+      }
+    });
+    ref.afterClosed().subscribe(confirmado => {
+      if (!confirmado) return;
+      if (!enBd) {
+        this.state.deleteAsignatura(asignatura.id);
+        this.snackBar.open('Asignatura eliminada localmente.', 'Cerrar', { duration: 3000 });
+        return;
+      }
       this.persistencia.eliminarAsignatura(asignatura.id).subscribe({
         next: () => {
           this.catalogo.quitarDeBd('asignatura', asignatura.id);
           this.state.deleteAsignatura(asignatura.id);
+          // Refetch para garantizar consistencia UI↔BD tras el borrado.
+          this.catalogo.cargarTodo().subscribe();
           this.snackBar.open('Asignatura eliminada de la BD.', 'Cerrar', { duration: 3000 });
         },
-        error: () => this.snackBar.open('Error al eliminar de la BD.', 'Cerrar', { duration: 4000 })
+        error: (err) => this.snackBar.open(
+          `Error al eliminar de la BD: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
       });
-    } else {
-      this.state.deleteAsignatura(asignatura.id);
-      this.snackBar.open('Asignatura eliminada localmente.', 'Cerrar', { duration: 3000 });
-    }
+    });
   }
 
   guardarEnBD() {
@@ -293,7 +311,7 @@ export class AsignaturasTabComponent {
         this.persistencia.actualizarAsignatura(a).pipe(
           map((): Resultado => ({ ok: true, nombre: a.nombre, tipo: 'actualizado' })),
           catchError(err => of<Resultado>({
-            ok: false, nombre: `${a.nombre} — ${this.mensajeError(err)}`, tipo: 'actualizado'
+            ok: false, nombre: `${a.nombre} — ${mensajeErrorHttp(err)}`, tipo: 'actualizado'
           }))
         )
       )
@@ -303,7 +321,7 @@ export class AsignaturasTabComponent {
       this.persistencia.importarCurriculum(this.construirPayloadImport(nuevas)).pipe(
         map(() => nuevas.map((a): Resultado => ({ ok: true, nombre: a.nombre, tipo: 'nuevo' }))),
         catchError(err => of(nuevas.map((a): Resultado => ({
-          ok: false, nombre: `${a.nombre} — ${this.mensajeError(err)}`, tipo: 'nuevo'
+          ok: false, nombre: `${a.nombre} — ${mensajeErrorHttp(err)}`, tipo: 'nuevo'
         }))))
       );
 
@@ -346,11 +364,6 @@ export class AsignaturasTabComponent {
     };
   }
 
-  private mensajeError(err: any): string {
-    const cuerpo = err?.error;
-    if (typeof cuerpo === 'string' && cuerpo.trim()) return cuerpo;
-    return cuerpo?.detail ?? cuerpo?.title ?? err?.message ?? 'Error desconocido';
-  }
 
   cargarDesdeBD() {
     this.saving.set(true);

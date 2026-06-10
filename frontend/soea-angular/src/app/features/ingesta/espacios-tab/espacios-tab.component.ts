@@ -10,7 +10,9 @@ import { MatSelectModule } from '@angular/material/select';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
 import { CatalogoService } from '../../../core/catalogo.service';
+import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { GuardadoResultadoDialogComponent } from '../../../shared/guardado-resultado-dialog/guardado-resultado-dialog.component';
+import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { Espacio } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { forkJoin, of } from 'rxjs';
@@ -111,19 +113,34 @@ export class EspaciosTabComponent {
   }
 
   delete(espacio: Espacio) {
-    if (this.catalogo.estaEnBd('espacio', espacio.id)) {
+    const enBd = this.catalogo.estaEnBd('espacio', espacio.id);
+    const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
+      width: '420px',
+      data: {
+        title: 'Eliminar espacio',
+        message: enBd
+          ? `Se eliminará "${espacio.nombre}" de la base de datos. Esta acción es irreversible.`
+          : `Se eliminará "${espacio.nombre}" (aún no está guardado en la BD).`
+      }
+    });
+    ref.afterClosed().subscribe(confirmado => {
+      if (!confirmado) return;
+      if (!enBd) {
+        this.state.deleteEspacio(espacio.id);
+        this.snackBar.open('Espacio eliminado localmente.', 'Cerrar', { duration: 3000 });
+        return;
+      }
       this.persistencia.eliminarEspacioBD(espacio.id).subscribe({
         next: () => {
           this.catalogo.quitarDeBd('espacio', espacio.id);
           this.state.deleteEspacio(espacio.id);
+          this.catalogo.cargarTodo().subscribe();
           this.snackBar.open('Espacio eliminado de la BD.', 'Cerrar', { duration: 3000 });
         },
-        error: () => this.snackBar.open('Error al eliminar de la BD.', 'Cerrar', { duration: 4000 })
+        error: (err) => this.snackBar.open(
+          `Error al eliminar de la BD: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
       });
-    } else {
-      this.state.deleteEspacio(espacio.id);
-      this.snackBar.open('Espacio eliminado localmente.', 'Cerrar', { duration: 3000 });
-    }
+    });
   }
 
   guardarEnBD() {

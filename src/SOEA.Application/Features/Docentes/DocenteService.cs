@@ -80,7 +80,14 @@ namespace SOEA.Application.Features.Docentes
             return MapToDto(existing);
         }
 
-        public Task DeleteAsync(Guid id) => _repo.DeleteAsync(id);
+        /// <summary>Elimina el docente. Devuelve false si el id no existe (el repo es silencioso).</summary>
+        public async Task<bool> DeleteAsync(Guid id)
+        {
+            var existing = await _repo.GetByIdAsync(id);
+            if (existing is null) return false;
+            await _repo.DeleteAsync(id);
+            return true;
+        }
 
         private static DocenteUiDto MapToDto(Docente docente)
         {

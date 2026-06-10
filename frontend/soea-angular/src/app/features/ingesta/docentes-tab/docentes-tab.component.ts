@@ -12,7 +12,9 @@ import { MatIconModule } from '@angular/material/icon';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
 import { CatalogoService } from '../../../core/catalogo.service';
+import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { GuardadoResultadoDialogComponent } from '../../../shared/guardado-resultado-dialog/guardado-resultado-dialog.component';
+import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { Docente } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { forkJoin, of } from 'rxjs';
@@ -128,19 +130,34 @@ export class DocentesTabComponent {
   }
 
   delete(docente: Docente) {
-    if (this.catalogo.estaEnBd('docente', docente.id)) {
+    const enBd = this.catalogo.estaEnBd('docente', docente.id);
+    const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
+      width: '420px',
+      data: {
+        title: 'Eliminar docente',
+        message: enBd
+          ? `Se eliminará "${docente.nombre}" de la base de datos. Esta acción es irreversible.`
+          : `Se eliminará "${docente.nombre}" (aún no está guardado en la BD).`
+      }
+    });
+    ref.afterClosed().subscribe(confirmado => {
+      if (!confirmado) return;
+      if (!enBd) {
+        this.state.deleteDocente(docente.id);
+        this.snackBar.open('Docente eliminado localmente.', 'Cerrar', { duration: 3000 });
+        return;
+      }
       this.persistencia.eliminarDocenteBD(docente.id).subscribe({
         next: () => {
           this.catalogo.quitarDeBd('docente', docente.id);
           this.state.deleteDocente(docente.id);
+          this.catalogo.cargarTodo().subscribe();
           this.snackBar.open('Docente eliminado de la BD.', 'Cerrar', { duration: 3000 });
         },
-        error: () => this.snackBar.open('Error al eliminar de la BD.', 'Cerrar', { duration: 4000 })
+        error: (err) => this.snackBar.open(
+          `Error al eliminar de la BD: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
       });
-    } else {
-      this.state.deleteDocente(docente.id);
-      this.snackBar.open('Docente eliminado localmente.', 'Cerrar', { duration: 3000 });
-    }
+    });
   }
 
   guardarEnBD() {
