@@ -1,4 +1,6 @@
 import { Component, inject, computed, signal } from '@angular/core';
+import { forkJoin, of, Observable } from 'rxjs';
+import { map, catchError } from 'rxjs/operators';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
@@ -15,9 +17,10 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
 import { CatalogoService } from '../../../core/catalogo.service';
+import { GuardadoResultadoDialogComponent } from '../../../shared/guardado-resultado-dialog/guardado-resultado-dialog.component';
 import { Asignatura, Facultad, Programa } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { ImportResult, ImportExcelStatsDto } from '../../../core/persistencia.service';
+import { ImportExcelStatsDto } from '../../../core/persistencia.service';
 
 @Component({
   selector: 'app-asignaturas-tab',
@@ -271,20 +274,67 @@ export class AsignaturasTabComponent {
 
   guardarEnBD() {
     const asignaturas = this.state.asignaturas();
-    const facultades = this.state.facultades();
-    const programas = this.state.programas();
-
     if (asignaturas.length === 0) {
       this.snackBar.open('No hay asignaturas para guardar.', 'Cerrar', { duration: 3000 });
       return;
     }
-
     this.saving.set(true);
-    const docentes = this.state.docentes();
-    const payload = {
-      Facultades: facultades.map(f => ({ id: f.id, nombre: f.nombre })),
-      Programas: programas.map(p => ({ id: p.id, nombre: p.nombre, facultadId: p.facultadId })),
-      Docentes: docentes.map(d => ({ id: d.id, nombre: d.nombre, cedula: d.cedula, maxHoras: d.maxHoras })),
+
+    // PUT-first (mismo patrón que Docentes/Espacios): las asignaturas que ya existen
+    // en BD se actualizan vía PUT; las creadas localmente van por el import, que
+    // también crea sus facultades/programas/docentes nuevos.
+    const existentes = asignaturas.filter(a => this.catalogo.estaEnBd('asignatura', a.id));
+    const nuevas     = asignaturas.filter(a => !this.catalogo.estaEnBd('asignatura', a.id));
+
+    type Resultado = { ok: boolean; nombre: string; tipo: 'nuevo' | 'actualizado' };
+
+    const puts$: Observable<Resultado[]> = existentes.length === 0 ? of([]) : forkJoin(
+      existentes.map(a =>
+        this.persistencia.actualizarAsignatura(a).pipe(
+          map((): Resultado => ({ ok: true, nombre: a.nombre, tipo: 'actualizado' })),
+          catchError(err => of<Resultado>({
+            ok: false, nombre: `${a.nombre} — ${this.mensajeError(err)}`, tipo: 'actualizado'
+          }))
+        )
+      )
+    );
+
+    const import$: Observable<Resultado[]> = nuevas.length === 0 ? of([]) :
+      this.persistencia.importarCurriculum(this.construirPayloadImport(nuevas)).pipe(
+        map(() => nuevas.map((a): Resultado => ({ ok: true, nombre: a.nombre, tipo: 'nuevo' }))),
+        catchError(err => of(nuevas.map((a): Resultado => ({
+          ok: false, nombre: `${a.nombre} — ${this.mensajeError(err)}`, tipo: 'nuevo'
+        }))))
+      );
+
+    forkJoin([puts$, import$]).subscribe(([resPuts, resImport]) => {
+      const resultados   = [...resPuts, ...resImport];
+      const nuevos       = resultados.filter(r => r.ok && r.tipo === 'nuevo').map(r => r.nombre);
+      const actualizados = resultados.filter(r => r.ok && r.tipo === 'actualizado').map(r => r.nombre);
+      const errores      = resultados.filter(r => !r.ok).map(r => r.nombre);
+
+      // Refetch completo: reemplaza los IDs temporales locales por los reales de la BD
+      // y deja el estado (y la pertenencia a BD) consistente con lo persistido.
+      this.catalogo.cargarTodo().subscribe({
+        next: () => this.saving.set(false),
+        error: () => {
+          this.saving.set(false);
+          this.snackBar.open('Guardado procesado, pero falló la recarga desde la BD.', 'Cerrar', { duration: 4000 });
+        }
+      });
+
+      this.dialog.open(GuardadoResultadoDialogComponent, {
+        width: '420px',
+        data: { entidad: 'asignaturas', nuevos, actualizados, errores }
+      });
+    });
+  }
+
+  private construirPayloadImport(asignaturas: Asignatura[]) {
+    return {
+      Facultades: this.state.facultades().map(f => ({ id: f.id, nombre: f.nombre })),
+      Programas: this.state.programas().map(p => ({ id: p.id, nombre: p.nombre, facultadId: p.facultadId })),
+      Docentes: this.state.docentes().map(d => ({ id: d.id, nombre: d.nombre, cedula: d.cedula, maxHoras: d.maxHoras })),
       Asignaturas: asignaturas.map(a => ({
         id: a.id, nombre: a.nombre, codigo: a.codigo,
         horasPorSesion: a.horasPorSesion, sesionesPorSemana: a.sesionesPorSemana,
@@ -292,58 +342,14 @@ export class AsignaturasTabComponent {
         alternancia: a.alternancia, programaId: a.programaId,
         grupoNumero: a.grupoNumero,
         docenteId: a.docenteId ?? null
-      })),
+      }))
     };
+  }
 
-    this.persistencia.importarCurriculum(payload).subscribe({
-      next: (result: ImportResult) => {
-        const facultadIdMap = new Map(result.facultades.map(m => [m.tempId, m.newId]));
-        const programaIdMap = new Map(result.programas.map(m => [m.tempId, m.newId]));
-        const asignaturaIdMap = new Map(result.asignaturas.map(m => [m.tempId, m.newId]));
-        const docenteIdMap = new Map((result.docentes ?? []).map(m => [m.tempId, m.newId]));
-
-        const facultadesActualizadas = this.state.facultades().map(f => ({
-          ...f,
-          id: facultadIdMap.get(f.id) ?? f.id
-        }));
-
-        const programasActualizados = this.state.programas().map(p => ({
-          ...p,
-          id: programaIdMap.get(p.id) ?? p.id,
-          facultadId: facultadIdMap.get(p.facultadId) ?? p.facultadId
-        }));
-
-        const docentesActualizados = this.state.docentes().map(d => ({
-          ...d,
-          id: docenteIdMap.get(d.id) ?? d.id
-        }));
-
-        const asignaturasActualizadas = this.state.asignaturas().map(a => ({
-          ...a,
-          id: asignaturaIdMap.get(a.id) ?? a.id,
-          programaId: programaIdMap.get(a.programaId) ?? a.programaId,
-          docenteId: a.docenteId ? (docenteIdMap.get(a.docenteId) ?? a.docenteId) : a.docenteId
-        }));
-
-        this.state.facultades.set(facultadesActualizadas);
-        this.state.programas.set(programasActualizados);
-        this.state.docentes.set(docentesActualizados);
-        this.state.setAsignaturas(asignaturasActualizadas);
-
-        this.cargarDesdeBD();
-        this.saving.set(false);
-        this.snackBar.open(
-          `${asignaturas.length} asignatura(s) importadas. ` +
-          `IDs sincronizados (A:${result.summary.asignaturas}, G:${result.summary.grupos}).`,
-          'Cerrar',
-          { duration: 5000 }
-        );
-      },
-      error: (err) => {
-        this.saving.set(false);
-        this.snackBar.open(`Error al importar: ${err?.error || err?.message || 'desconocido'}`, 'Cerrar', { duration: 5000 });
-      }
-    });
+  private mensajeError(err: any): string {
+    const cuerpo = err?.error;
+    if (typeof cuerpo === 'string' && cuerpo.trim()) return cuerpo;
+    return cuerpo?.detail ?? cuerpo?.title ?? err?.message ?? 'Error desconocido';
   }
 
   cargarDesdeBD() {
