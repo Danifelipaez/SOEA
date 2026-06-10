@@ -1,4 +1,3 @@
-import { forkJoin } from 'rxjs';
 import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
@@ -15,6 +14,7 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
+import { CatalogoService } from '../../../core/catalogo.service';
 import { Asignatura, Facultad, Programa } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { ImportResult, ImportExcelStatsDto } from '../../../core/persistencia.service';
@@ -153,12 +153,12 @@ export class AsignaturasTabComponent {
   dialog = inject(MatDialog);
   snackBar = inject(MatSnackBar);
   persistencia = inject(PersistenciaService);
+  catalogo = inject(CatalogoService);
 
   displayedColumns = ['facultad', 'programa', 'codigo', 'nombre', 'alternancia', 'horas', 'sesiones', 'docente', 'acciones'];
   saving = signal(false);
   uploading = signal(false);
   filterStr = signal('');
-  private bdIds = new Set<string>();
 
   filteredAsignaturas = computed(() => {
     const f = this.filterStr().toLowerCase();
@@ -254,10 +254,10 @@ export class AsignaturasTabComponent {
   }
 
   delete(asignatura: Asignatura) {
-    if (this.bdIds.has(asignatura.id)) {
+    if (this.catalogo.estaEnBd('asignatura', asignatura.id)) {
       this.persistencia.eliminarAsignatura(asignatura.id).subscribe({
         next: () => {
-          this.bdIds.delete(asignatura.id);
+          this.catalogo.quitarDeBd('asignatura', asignatura.id);
           this.state.deleteAsignatura(asignatura.id);
           this.snackBar.open('Asignatura eliminada de la BD.', 'Cerrar', { duration: 3000 });
         },
@@ -348,38 +348,11 @@ export class AsignaturasTabComponent {
 
   cargarDesdeBD() {
     this.saving.set(true);
-    forkJoin({
-      facultades:  this.persistencia.cargarFacultades(),
-      programas:   this.persistencia.cargarProgramas(),
-      asignaturas: this.persistencia.cargarAsignaturas(),
-      docentes:    this.persistencia.cargarDocentes()
-    }).subscribe({
-      next: ({ facultades, programas, asignaturas, docentes }) => {
+    this.catalogo.cargarTodo().subscribe({
+      next: (resumen) => {
         this.saving.set(false);
-
-        this.state.facultades.set(facultades.map((f: any) => ({ id: f.id, nombre: f.nombre })));
-        this.state.programas.set(programas.map((p: any) => ({ id: p.id, nombre: p.nombre, facultadId: p.facultadId })));
-        this.state.docentes.set(docentes.map((d: any) => ({
-          id: d.id, nombre: d.nombre, cedula: d.cedula ?? '',
-          maxHoras: d.maxHoras ?? 40, disponibilidad: d.disponibilidad ?? {}
-        })));
-
-        this.bdIds = new Set(asignaturas.map((a: any) => a.id as string));
-        const mapped: Asignatura[] = asignaturas.map((a: any) => ({
-          id: a.id,
-          nombre: a.nombre,
-          codigo: a.codigo,
-          horasPorSesion: a.horasPorSesion,
-          sesionesPorSemana: a.sesionesPorSemana,
-          sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
-          alternancia: a.alternancia ?? 'SinAlternancia',
-          programaId: a.programaId,
-          docenteId: a.docenteId ?? undefined
-        }));
-        this.state.setAsignaturas(mapped);
-
         this.snackBar.open(
-          `${asignaturas.length} asignatura(s) · ${docentes.length} docente(s) cargados desde la BD.`,
+          `${resumen.asignaturas} asignatura(s) · ${resumen.docentes} docente(s) cargados desde la BD.`,
           'Cerrar', { duration: 4000 }
         );
       },

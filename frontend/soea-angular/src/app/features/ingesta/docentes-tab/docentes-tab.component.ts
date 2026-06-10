@@ -11,6 +11,7 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
+import { CatalogoService } from '../../../core/catalogo.service';
 import { Docente } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { forkJoin, of } from 'rxjs';
@@ -83,11 +84,11 @@ export class DocentesTabComponent {
   dialog = inject(MatDialog);
   snackBar = inject(MatSnackBar);
   persistencia = inject(PersistenciaService);
+  catalogo = inject(CatalogoService);
 
   displayedColumns = ['nombre', 'cedula', 'maxHoras', 'disponibilidad', 'acciones'];
   filterStr = signal('');
   saving = signal(false);
-  private bdIds = new Set<string>();
 
   filteredDocentes = computed(() => {
     const f = this.filterStr().toLowerCase();
@@ -126,10 +127,10 @@ export class DocentesTabComponent {
   }
 
   delete(docente: Docente) {
-    if (this.bdIds.has(docente.id)) {
+    if (this.catalogo.estaEnBd('docente', docente.id)) {
       this.persistencia.eliminarDocenteBD(docente.id).subscribe({
         next: () => {
-          this.bdIds.delete(docente.id);
+          this.catalogo.quitarDeBd('docente', docente.id);
           this.state.deleteDocente(docente.id);
           this.snackBar.open('Docente eliminado de la BD.', 'Cerrar', { duration: 3000 });
         },
@@ -154,14 +155,14 @@ export class DocentesTabComponent {
       this.persistencia.actualizarDocente(d).pipe(
         map(updated => {
           this.state.updateDocente(updated);
-          this.bdIds.add(updated.id);
+          this.catalogo.marcarEnBd('docente', updated.id);
           return { ok: true, nombre: d.nombre, tipo: 'actualizado' as const };
         }),
         catchError(err => {
           if (err.status === 404) {
             return this.persistencia.guardarDocente(d).pipe(
               map(created => {
-                this.bdIds.add(created.id);
+                this.catalogo.marcarEnBd('docente', created.id);
                 this.state.updateDocente(created);
                 return { ok: true, nombre: d.nombre, tipo: 'nuevo' as const };
               }),
@@ -208,16 +209,10 @@ export class DocentesTabComponent {
 
   cargarDesdeBD() {
     this.saving.set(true);
-    this.persistencia.cargarDocentes().subscribe({
-      next: (docentes) => {
+    this.catalogo.cargarTodo().subscribe({
+      next: (resumen) => {
         this.saving.set(false);
-        this.bdIds = new Set(docentes.map(d => d.id));
-        docentes.forEach(d => {
-          const existing = this.state.docentes().find(x => x.id === d.id);
-          if (existing) this.state.updateDocente(d);
-          else this.state.addDocente(d);
-        });
-        this.snackBar.open(`${docentes.length} docente(s) cargados desde la BD.`, 'Cerrar', { duration: 4000 });
+        this.snackBar.open(`${resumen.docentes} docente(s) cargados desde la BD.`, 'Cerrar', { duration: 4000 });
       },
       error: () => {
         this.saving.set(false);

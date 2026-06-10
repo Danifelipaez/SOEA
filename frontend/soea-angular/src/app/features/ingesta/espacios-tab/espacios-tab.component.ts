@@ -9,6 +9,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
+import { CatalogoService } from '../../../core/catalogo.service';
 import { Espacio } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { forkJoin, of } from 'rxjs';
@@ -75,11 +76,11 @@ export class EspaciosTabComponent {
   dialog = inject(MatDialog);
   snackBar = inject(MatSnackBar);
   persistencia = inject(PersistenciaService);
+  catalogo = inject(CatalogoService);
 
   displayedColumns = ['nombre', 'capacidad', 'tipo', 'acciones'];
   filterStr = signal('');
   saving = signal(false);
-  private bdIds = new Set<string>();
 
   filteredEspacios = computed(() => {
     const f = this.filterStr().toLowerCase();
@@ -109,10 +110,10 @@ export class EspaciosTabComponent {
   }
 
   delete(espacio: Espacio) {
-    if (this.bdIds.has(espacio.id)) {
+    if (this.catalogo.estaEnBd('espacio', espacio.id)) {
       this.persistencia.eliminarEspacioBD(espacio.id).subscribe({
         next: () => {
-          this.bdIds.delete(espacio.id);
+          this.catalogo.quitarDeBd('espacio', espacio.id);
           this.state.deleteEspacio(espacio.id);
           this.snackBar.open('Espacio eliminado de la BD.', 'Cerrar', { duration: 3000 });
         },
@@ -136,14 +137,14 @@ export class EspaciosTabComponent {
     const calls$ = espacios.map(e =>
       this.persistencia.actualizarEspacio(e).pipe(
         map(() => {
-          this.bdIds.add(e.id);
+          this.catalogo.marcarEnBd('espacio', e.id);
           return { ok: true, nombre: e.nombre, tipo: 'actualizado' as const };
         }),
         catchError(err => {
           if (err.status === 404) {
             return this.persistencia.guardarEspacio(e).pipe(
               map(() => {
-                this.bdIds.add(e.id);
+                this.catalogo.marcarEnBd('espacio', e.id);
                 return { ok: true, nombre: e.nombre, tipo: 'nuevo' as const };
               }),
               catchError(() => of({ ok: false, nombre: e.nombre, tipo: 'nuevo' as const }))
@@ -168,16 +169,10 @@ export class EspaciosTabComponent {
 
   cargarDesdeBD() {
     this.saving.set(true);
-    this.persistencia.cargarEspacios().subscribe({
-      next: (espacios) => {
+    this.catalogo.cargarTodo().subscribe({
+      next: (resumen) => {
         this.saving.set(false);
-        this.bdIds = new Set(espacios.map(e => e.id));
-        espacios.forEach(e => {
-          const existing = this.state.espacios().find(x => x.id === e.id);
-          if (existing) this.state.updateEspacio(e);
-          else this.state.addEspacio(e);
-        });
-        this.snackBar.open(`${espacios.length} espacio(s) cargados desde la BD.`, 'Cerrar', { duration: 4000 });
+        this.snackBar.open(`${resumen.espacios} espacio(s) cargados desde la BD.`, 'Cerrar', { duration: 4000 });
       },
       error: () => {
         this.saving.set(false);

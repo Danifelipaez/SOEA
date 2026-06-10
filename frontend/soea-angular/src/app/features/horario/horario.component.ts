@@ -1,5 +1,4 @@
 import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
-import { forkJoin } from 'rxjs';
 import { CommonModule, TitleCasePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -14,6 +13,7 @@ import { RouterModule } from '@angular/router';
 import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { PersistenciaService } from '../../core/persistencia.service';
+import { CatalogoService } from '../../core/catalogo.service';
 import { Asignatura, Docente, Espacio, Sesion } from '../../core/models';
 
 /** Representación visual de una sesión atómica multi-slot. */
@@ -253,6 +253,7 @@ export class HorarioComponent implements OnInit {
   snackBar  = inject(MatSnackBar);
   horarioApi = inject(HorarioApiService);
   persistencia = inject(PersistenciaService);
+  catalogo  = inject(CatalogoService);
 
   dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
   franjas = [
@@ -279,19 +280,12 @@ export class HorarioComponent implements OnInit {
 
   syncFromBackend() {
     this.loadingBackend.set(true);
-    forkJoin({
-      espacios: this.persistencia.cargarEspacios(),
-      docentes: this.persistencia.cargarDocentes(),
-      asignaturas: this.persistencia.cargarAsignaturas()
-    }).subscribe({
-      next: ({ espacios, docentes, asignaturas }) => {
+    this.catalogo.cargarTodo().subscribe({
+      next: () => {
         this.loadingBackend.set(false);
         this.backendReady.set(true);
 
-        this.state.espacios.set(espacios);
-        this.state.docentes.set(this.mapDocentes(docentes));
-        this.state.setAsignaturas(this.mapAsignaturas(asignaturas));
-
+        const espacios = this.state.espacios();
         const current = this.activeSpace();
         if (!current || !espacios.find(e => e.id === current.id)) {
           this.activeSpace.set(espacios[0] ?? null);
@@ -627,16 +621,6 @@ export class HorarioComponent implements OnInit {
       });
   }
 
-  private mapDocentes(docentes: Docente[]): Docente[] {
-    return docentes.map(d => ({
-      id: d.id,
-      nombre: d.nombre,
-      cedula: d.cedula ?? '',
-      maxHoras: d.maxHoras ?? 40,
-      disponibilidad: d.disponibilidad ?? {}
-    }));
-  }
-
   // ── Crear sesión manual ──────────────────────────────────────────────────────
 
   abrirCrearSesion() {
@@ -662,21 +646,6 @@ export class HorarioComponent implements OnInit {
     });
   }
 
-  private mapAsignaturas(asignaturas: any[]): Asignatura[] {
-    return asignaturas.map(a => ({
-      id: a.id,
-      codigo: a.codigo ?? '',
-      nombre: a.nombre,
-      horasPorSesion: a.horasPorSesion ?? 2,
-      sesionesPorSemana: a.sesionesPorSemana ?? 1,
-      sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre ?? 0,
-      alternancia: a.alternancia ?? 'SinAlternancia',
-      programaId: a.programaId,
-      docenteId: a.docenteId ?? undefined,
-      grupoNumero: a.grupoNumero ?? undefined,
-      espacioFijoId: a.espacioFijoId ?? undefined
-    }));
-  }
 }
 
 // ─── Diálogo: Crear sesión manual ────────────────────────────────────────────
