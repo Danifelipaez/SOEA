@@ -48,10 +48,18 @@ interface MergedSesion {
         <h1 class="page-title text-primary">Horario</h1>
         <div class="header-buttons">
           @if (state.sesiones().length > 0) {
+            <button mat-stroked-button (click)="exportarHorario()" title="Descargar horario como JSON">
+              <mat-icon>download</mat-icon> Exportar
+            </button>
             <button mat-stroked-button color="primary" (click)="abrirCrearSesion()" [disabled]="loadingBackend()">
               <mat-icon>add_circle_outline</mat-icon> Crear sesión
             </button>
           }
+          <button mat-stroked-button (click)="importarInput.click()" title="Cargar horario desde JSON">
+            <mat-icon>upload</mat-icon> Importar
+          </button>
+          <input #importarInput type="file" accept=".json" style="display:none"
+                 (change)="importarHorario($event)">
           <button mat-flat-button color="primary" class="primary-button" (click)="generarHorario()" [disabled]="loadingBackend()">
             <mat-icon>auto_awesome</mat-icon> Generar Horario
           </button>
@@ -571,6 +579,44 @@ export class HorarioComponent implements OnInit {
   private addHours(franja: string, horas: number): string {
     const [h, m] = franja.split(':').map(Number);
     return `${String(h + horas).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  // ── Exportar / Importar horario JSON ─────────────────────────────────────────
+
+  exportarHorario() {
+    const sesiones = this.state.sesiones();
+    const payload = {
+      version: 1,
+      exportadoEn: new Date().toISOString(),
+      sesiones
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `horario-soea-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    this.snackBar.open(`✅ Horario exportado (${sesiones.length} sesiones).`, '', { duration: 3000 });
+  }
+
+  importarHorario(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = JSON.parse(e.target!.result as string);
+        const sesiones = json.sesiones ?? json; // soporta array plano o { sesiones: [...] }
+        if (!Array.isArray(sesiones)) throw new Error('Formato inválido: se espera un array de sesiones.');
+        this.state.setSesiones(sesiones);
+        this.snackBar.open(`✅ Horario importado: ${sesiones.length} sesiones cargadas.`, 'Cerrar', { duration: 5000 });
+      } catch (err: any) {
+        this.snackBar.open(`❌ Error al leer el archivo: ${err.message}`, 'Cerrar', { duration: 6000, panelClass: ['snack-error'] });
+      }
+      (event.target as HTMLInputElement).value = '';
+    };
+    reader.readAsText(file);
   }
 
   // ── Generación de horario ────────────────────────────────────────────────────
