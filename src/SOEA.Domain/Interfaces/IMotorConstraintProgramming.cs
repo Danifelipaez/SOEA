@@ -19,10 +19,15 @@ namespace SOEA.Domain.Interfaces
     /// </summary>
     public interface IMotorConstraintProgramming
     {
+        /// <param name="sesionesFijasIds">
+        /// IDs de sesiones cuya franja ya está decidida (horario base).
+        /// CP-SAT les añade una restricción de igualdad en vez de un hint — no se mueven.
+        /// </param>
         Task<ResultadoFactibilidad> ResolverFactibilidadAsync(
             IEnumerable<Sesion> sesiones,
             IEnumerable<BloqueTiempo> bloques,
             IEnumerable<Espacio> espacios,
-            IEnumerable<Docente> docentes);
+            IEnumerable<Docente> docentes,
+            IEnumerable<Guid>? sesionesFijasIds = null);
     }
 }

@@ -78,6 +78,15 @@ export interface TipoAlternanciaConfig {
   activo: boolean;
 }
 
+/** Horario base: snapshot nombrado de sesiones con franjas ya decididas.
+ *  Se usa como restricciones de entrada en la siguiente generación. */
+export interface HorarioBase {
+  id: string;
+  nombre: string;
+  creadoEn: string;  // ISO date string
+  sesiones: Sesion[];
+}
+
 export interface Sesion {
   id: string;
   asignaturaId: string;

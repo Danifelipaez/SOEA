@@ -38,13 +38,17 @@ namespace SOEA.Engine.ConstraintProg
             IEnumerable<Sesion> sesiones,
             IEnumerable<BloqueTiempo> bloques,
             IEnumerable<Espacio> espacios,
-            IEnumerable<Docente> docentes)
+            IEnumerable<Docente> docentes,
+            IEnumerable<Guid>? sesionesFijasIds = null)
         {
-            var s = sesiones.ToList();
-            var b = bloques.ToList();
-            var e = espacios.ToList();
-            var d = docentes.ToList();
-            return Task.Run(() => ResolverSincrono(s, b, e, d));
+            var s     = sesiones.ToList();
+            var b     = bloques.ToList();
+            var e     = espacios.ToList();
+            var d     = docentes.ToList();
+            var fijas = sesionesFijasIds != null
+                ? new HashSet<Guid>(sesionesFijasIds)
+                : new HashSet<Guid>();
+            return Task.Run(() => ResolverSincrono(s, b, e, d, fijas));
         }
 
         /// <summary>
@@ -61,7 +65,8 @@ namespace SOEA.Engine.ConstraintProg
             List<Sesion> sesiones,
             List<BloqueTiempo> bloques,
             List<Espacio> espacios,
-            List<Docente> docentes)
+            List<Docente> docentes,
+            HashSet<Guid> sesionesFijasIds)
         {
             if (!sesiones.Any() || !bloques.Any())
             {
@@ -137,24 +142,38 @@ namespace SOEA.Engine.ConstraintProg
                     model.Add(startVars[(sesion.Id, SemanaAcademica.A)] == startVars[(sesion.Id, SemanaAcademica.B)]);
             }
 
-            // ── Warm-start desde Fase 1 (GraphColoring asigna bloques, no espacios) ────
+            // ── Warm-start y fijación de sesiones base ───────────────────────────────
             foreach (var sesion in sesiones)
             {
-                if (sesion.Estado == EstadoSesion.Asignada && sesion.BloqueTiempoId != Guid.Empty &&
-                    bloqueIndex.TryGetValue(sesion.BloqueTiempoId, out var idx))
+                if (sesion.Estado != EstadoSesion.Asignada) continue;
+                if (sesion.BloqueTiempoId == Guid.Empty) continue;
+                if (!bloqueIndex.TryGetValue(sesion.BloqueTiempoId, out var idx)) continue;
+
+                int dur = duraciones[sesion.Id];
+                if (!BloquesPlanner.CabeEnDia(idx, dur, rangosPorDia, diaPorIdx)) continue;
+
+                if (sesionesFijasIds.Contains(sesion.Id))
                 {
-                    int dur = duraciones[sesion.Id];
-                    if (BloquesPlanner.CabeEnDia(idx, dur, rangosPorDia, diaPorIdx))
-                    {
-                        foreach (var semana in Semanas)
-                            model.AddHint(startVars[(sesion.Id, semana)], idx);
-                    }
+                    // Sesión del horario base: igualdad estricta — CP-SAT no puede moverla.
+                    foreach (var semana in Semanas)
+                        model.Add(startVars[(sesion.Id, semana)] == idx);
+                }
+                else
+                {
+                    // Fase 1 warm-start: pista, el solver puede sobreescribirla.
+                    foreach (var semana in Semanas)
+                        model.AddHint(startVars[(sesion.Id, semana)], idx);
                 }
             }
 
             // ── HC-I02 + "no cruzar día": dominio de start filtrado por sesión y semana ─
+            // Las sesiones fijas ya tienen una restricción de igualdad; se omite el dominio
+            // para no provocar conflicto si su bloque no está en la disponibilidad del docente.
             foreach (var sesion in sesiones)
             {
+                // Sesiones del horario base: su start ya está fijado por igualdad — no aplicar dominio.
+                if (sesionesFijasIds.Contains(sesion.Id)) continue;
+
                 int dur = duraciones[sesion.Id];
                 ISet<int>? bloquesDocente = null;
 
@@ -199,6 +218,8 @@ namespace SOEA.Engine.ConstraintProg
             // ── HC-I03: pre-solve de carga semanal y capacidad por docente ─────────────
             // Cada sesión ocupa tiempo de docente en AMBAS semanas (la virtual es sincrónica),
             // por lo que la carga por semana = suma de duraciones de sus sesiones.
+            // Las sesiones del horario base se incluyen en la suma pero se excluyen de la
+            // comprobación de bloques válidos (su bloque ya está fijado — es siempre válido).
             var sesionesPorDocente = sesiones.GroupBy(s => s.DocenteId).Where(g => g.Key != Guid.Empty).ToList();
             foreach (var grupo in sesionesPorDocente)
             {
@@ -220,10 +241,13 @@ namespace SOEA.Engine.ConstraintProg
                     return new ResultadoFactibilidad(false, SinAsignaciones, msg);
                 }
 
+                // Hojas libres = bloques disponibles del docente - bloques ya ocupados por sesiones fijas.
+                var horasFijas = grupo.Where(s => sesionesFijasIds.Contains(s.Id)).Sum(s => s.DuracionHoras);
                 var bloquesValidos = docente.BloquesDisponibles.Count(b => bloqueIndex.ContainsKey(b.Id));
-                if (totalHoras > bloquesValidos)
+                var horasLibresNecesarias = totalHoras - horasFijas;
+                if (horasLibresNecesarias > bloquesValidos)
                 {
-                    var msg = $"Docente {docente.NombreCompleto} requiere {totalHoras}h pero solo {bloquesValidos} bloques de 1h coinciden con la grilla canónica — imposible agendar sin solapamientos.";
+                    var msg = $"Docente {docente.NombreCompleto} requiere {horasLibresNecesarias}h libres pero solo {bloquesValidos} bloques de 1h coinciden con la grilla canónica — imposible agendar sin solapamientos.";
                     _logger.LogError(msg);
                     return new ResultadoFactibilidad(false, SinAsignaciones, msg);
                 }

@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Sesion } from './models';
+import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, HorarioBase, Sesion } from './models';
 import { environment } from '../../environments/environment';
 
 // ── Tipos del contrato con la API ──────────────────────────────────────────────
@@ -18,12 +18,25 @@ export interface ConfiguracionAlgoritmoApiDto {
   pesoAlmuerzo:         number;
 }
 
+export interface SesionFijaApiDto {
+  asignaturaId: string;
+  docenteId: string;
+  espacioId?: string;
+  dia: string;
+  horaInicio: string;
+  horaFin: string;
+  duracionHoras: number;
+  alternancia?: string;
+  virtual: boolean;
+}
+
 export interface GenerarHorarioRequest {
   semestre: string;
   asignaturas: AsignaturaApiDto[];
   docentes: DocenteApiDto[];
   espacios: EspacioApiDto[];
   configuracion?: ConfiguracionAlgoritmoApiDto;
+  sesionesFijas?: SesionFijaApiDto[];
 }
 
 export interface AsignaturaApiDto {
@@ -93,10 +106,24 @@ export class HorarioApiService {
     docentes: Docente[],
     espacios: Espacio[],
     config?: ConfiguracionAlgoritmo,
-    semestre = '2026-1'
+    semestre = '2026-1',
+    base?: HorarioBase
   ): Observable<GenerarHorarioResponse> {
+    const sesionesFijas: SesionFijaApiDto[] | undefined = base?.sesiones.map(s => ({
+      asignaturaId: s.asignaturaId,
+      docenteId:    s.docenteId,
+      espacioId:    s.espacioId,
+      dia:          s.dia,
+      horaInicio:   s.horaInicio,
+      horaFin:      s.horaFin,
+      duracionHoras: s.duracionHoras,
+      alternancia:  s.alternancia,
+      virtual:      s.virtual,
+    }));
+
     const body: GenerarHorarioRequest = {
       semestre,
+      sesionesFijas: sesionesFijas?.length ? sesionesFijas : undefined,
       configuracion: config ? {
         tamañoPoblacion:      config.pobSize,
         maxGeneraciones:      config.maxGen,

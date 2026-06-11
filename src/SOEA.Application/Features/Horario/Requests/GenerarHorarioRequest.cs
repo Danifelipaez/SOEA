@@ -20,6 +20,26 @@ namespace SOEA.Application.Features.Horario.Requests
         /// Null = usar valores por defecto del motor.
         /// </summary>
         public ConfiguracionAlgoritmoDto? Configuracion { get; set; }
+
+        /// <summary>
+        /// Sesiones cuya franja (día+hora) y espacio ya están decididas (horario base).
+        /// CP-SAT las añade como restricciones de igualdad — no se mueven.
+        /// Null o lista vacía = no usar base.
+        /// </summary>
+        public List<SesionFijaDto>? SesionesFijas { get; set; }
+    }
+
+    public class SesionFijaDto
+    {
+        public string  AsignaturaId { get; set; } = string.Empty;
+        public string  DocenteId    { get; set; } = string.Empty;
+        public string? EspacioId    { get; set; }
+        public string  Dia          { get; set; } = "lunes";
+        public string  HoraInicio   { get; set; } = "07:00";
+        public string  HoraFin      { get; set; } = "09:00";
+        public decimal DuracionHoras { get; set; } = 2m;
+        public string? Alternancia  { get; set; }
+        public bool    Virtual      { get; set; }
     }
 
     public class ConfiguracionAlgoritmoDto

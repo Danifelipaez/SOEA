@@ -1,5 +1,5 @@
 import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
-import { CommonModule, TitleCasePipe } from '@angular/common';
+import { CommonModule, DatePipe, TitleCasePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
@@ -39,7 +39,7 @@ interface MergedSesion {
   selector: 'app-horario',
   standalone: true,
   imports: [
-    CommonModule, TitleCasePipe, MatButtonModule, MatDialogModule, MatSnackBarModule,
+    CommonModule, DatePipe, TitleCasePipe, MatButtonModule, MatDialogModule, MatSnackBarModule,
     DragDropModule, RouterModule, MatProgressSpinnerModule, MatIconModule
   ],
   template: `
@@ -50,6 +50,9 @@ interface MergedSesion {
           @if (state.sesiones().length > 0) {
             <button mat-stroked-button (click)="exportarHorario()" title="Descargar horario como JSON">
               <mat-icon>download</mat-icon> Exportar
+            </button>
+            <button mat-stroked-button (click)="guardarComoBase()" title="Guardar este horario como base para la próxima generación">
+              <mat-icon>bookmark_add</mat-icon> Guardar base
             </button>
             <button mat-stroked-button color="primary" (click)="abrirCrearSesion()" [disabled]="loadingBackend()">
               <mat-icon>add_circle_outline</mat-icon> Crear sesión
@@ -100,6 +103,42 @@ interface MergedSesion {
             <span class="week-desc">TipoB presencial · TipoA virtual</span>
           }
         </div>
+
+        <!-- Horarios base guardados -->
+        @if (state.horariosBases().length > 0) {
+          <div class="bases-panel">
+            <div class="bases-header">
+              <mat-icon class="bases-icon">bookmarks</mat-icon>
+              <span class="bases-title">Horarios base guardados</span>
+              <span class="bases-hint">Selecciona uno para usarlo en la próxima generación</span>
+            </div>
+            <div class="bases-list">
+              @for (base of state.horariosBases(); track base.id) {
+                <div class="base-item" [class.selected]="state.baseSeleccionadaId() === base.id">
+                  <button class="base-radio"
+                          [class.active]="state.baseSeleccionadaId() === base.id"
+                          (click)="toggleBase(base.id)"
+                          [title]="state.baseSeleccionadaId() === base.id ? 'Quitar selección' : 'Usar como base'">
+                    <mat-icon>{{ state.baseSeleccionadaId() === base.id ? 'radio_button_checked' : 'radio_button_unchecked' }}</mat-icon>
+                  </button>
+                  <div class="base-info">
+                    <span class="base-nombre">{{ base.nombre }}</span>
+                    <span class="base-meta">{{ base.sesiones.length }} sesiones · {{ base.creadoEn | date:'dd/MM/yyyy HH:mm' }}</span>
+                  </div>
+                  <button mat-icon-button class="base-delete" (click)="eliminarBase(base.id)" title="Eliminar base">
+                    <mat-icon>delete_outline</mat-icon>
+                  </button>
+                </div>
+              }
+            </div>
+            @if (state.baseSeleccionada(); as base) {
+              <div class="base-activa-hint">
+                <mat-icon>check_circle</mat-icon>
+                Usando base "{{ base.nombre }}" — {{ base.sesiones.length }} sesiones fijas en la próxima generación
+              </div>
+            }
+          </div>
+        }
 
         @if (!backendReady()) {
           <div class="backend-alert">
@@ -207,6 +246,23 @@ interface MergedSesion {
     .week-sub { font-size: 9px; color: #9e9e9e; letter-spacing: 0.05em; margin-top: 1px; }
     .pill-button.week-btn.active .week-sub { color: rgba(255,255,255,0.75); }
     .week-desc { font-size: 11px; color: #9e9e9e; align-self: center; margin-left: 4px; font-style: italic; }
+    .bases-panel { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+    .bases-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .bases-icon { font-size: 18px; width: 18px; height: 18px; color: #1976d2; }
+    .bases-title { font-weight: 600; font-size: 13px; }
+    .bases-hint { font-size: 11px; color: #9e9e9e; margin-left: 4px; }
+    .bases-list { display: flex; flex-direction: column; gap: 6px; }
+    .base-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; background: white; border: 1px solid #e0e0e0; transition: 0.15s; }
+    .base-item.selected { border-color: #1976d2; background: #e3f2fd; }
+    .base-radio { background: none; border: none; cursor: pointer; padding: 4px; display: flex; align-items: center; color: #9e9e9e; }
+    .base-radio.active { color: #1976d2; }
+    .base-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .base-nombre { font-size: 13px; font-weight: 500; }
+    .base-meta { font-size: 11px; color: #9e9e9e; }
+    .base-delete { color: #bdbdbd !important; }
+    .base-delete:hover { color: #f44336 !important; }
+    .base-activa-hint { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: #1976d2; font-weight: 500; }
+    .base-activa-hint mat-icon { font-size: 16px; width: 16px; height: 16px; }
     .backend-alert {
       display: flex; align-items: center; gap: 12px; padding: 8px 12px; margin-bottom: 16px;
       border: 1px solid #ffe0b2; border-radius: 8px; background: #fff3e0; color: #8d6e63;
@@ -639,6 +695,27 @@ export class HorarioComponent implements OnInit {
     reader.readAsText(file);
   }
 
+  // ── Horarios base ─────────────────────────────────────────────────────────────
+
+  guardarComoBase() {
+    const nombre = window.prompt('Nombre del horario base:', `Base ${new Date().toLocaleDateString('es-CO')}`);
+    if (!nombre?.trim()) return;
+    const base = this.state.guardarHorarioBase(nombre);
+    this.snackBar.open(`✅ Horario base "${base.nombre}" guardado (${base.sesiones.length} sesiones).`, 'Cerrar', { duration: 4000 });
+  }
+
+  toggleBase(id: string) {
+    this.state.seleccionarBase(this.state.baseSeleccionadaId() === id ? null : id);
+  }
+
+  eliminarBase(id: string) {
+    const base = this.state.horariosBases().find(b => b.id === id);
+    if (!base) return;
+    if (!window.confirm(`¿Eliminar la base "${base.nombre}"?`)) return;
+    this.state.eliminarHorarioBase(id);
+    this.snackBar.open(`Base "${base.nombre}" eliminada.`, '', { duration: 3000 });
+  }
+
   // ── Generación de horario ────────────────────────────────────────────────────
 
   generarHorario() {
@@ -658,7 +735,9 @@ export class HorarioComponent implements OnInit {
         this.state.asignaturas(),
         this.state.docentes(),
         this.state.espacios(),
-        this.state.configuracionAlgoritmo()
+        this.state.configuracionAlgoritmo(),
+        '2026-1',
+        this.state.baseSeleccionada() ?? undefined
       )
       .subscribe({
         next: (respuesta) => {

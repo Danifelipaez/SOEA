@@ -1,5 +1,5 @@
 import { Injectable, signal, computed } from '@angular/core';
-import { Facultad, Programa, Espacio, Docente, Asignatura, Sesion, ConfiguracionAlgoritmo, CONFIGURACION_DEFECTO } from './models';
+import { Facultad, Programa, Espacio, Docente, Asignatura, Sesion, ConfiguracionAlgoritmo, CONFIGURACION_DEFECTO, HorarioBase } from './models';
 
 @Injectable({
   providedIn: 'root'
@@ -85,6 +85,46 @@ export class StateService {
       x.id === id ? { ...x, dia, horaInicio, horaFin } : x));
   }
   setExecutionLogs(logs: string[]) { this.executionLogs.set(logs); }
+
+  // ── Horarios base ────────────────────────────────────────────────────────────
+  horariosBases       = signal<HorarioBase[]>(this.cargarBasesLocalStorage());
+  baseSeleccionadaId  = signal<string | null>(null);
+
+  guardarHorarioBase(nombre: string): HorarioBase {
+    const base: HorarioBase = {
+      id: crypto.randomUUID(),
+      nombre: nombre.trim(),
+      creadoEn: new Date().toISOString(),
+      sesiones: this.sesiones(),
+    };
+    this.horariosBases.update(v => [...v, base]);
+    this.persistirBasesLocalStorage();
+    return base;
+  }
+
+  eliminarHorarioBase(id: string) {
+    this.horariosBases.update(v => v.filter(b => b.id !== id));
+    if (this.baseSeleccionadaId() === id) this.baseSeleccionadaId.set(null);
+    this.persistirBasesLocalStorage();
+  }
+
+  seleccionarBase(id: string | null) { this.baseSeleccionadaId.set(id); }
+
+  readonly baseSeleccionada = computed(() =>
+    this.horariosBases().find(b => b.id === this.baseSeleccionadaId()) ?? null);
+
+  private cargarBasesLocalStorage(): HorarioBase[] {
+    try {
+      const raw = localStorage.getItem('soea_horarios_base');
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  }
+
+  private persistirBasesLocalStorage() {
+    try {
+      localStorage.setItem('soea_horarios_base', JSON.stringify(this.horariosBases()));
+    } catch { /* cuota excedida — ignorar */ }
+  }
 
   // ── Helpers derivados (delegan a los Maps computados) ───────────────────────
   getFacultadById(id: string): Facultad | undefined {

@@ -15,7 +15,7 @@ SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanale
 5. Nunca poner lógica de negocio en controllers ni en repositories.
 6. La duración de cada sesión es un dato de entrada fijo — el algoritmo NO la modifica.
 7. Las asignaturas Tipo A (8+8) son hard constraint — el algoritmo NO puede alterar su distribución.
-8. El horario se genera desde cero en cada ejecución — nunca se itera sobre un horario existente.
+8. El horario se genera desde cero en cada ejecución. Un horario base es un conjunto de restricciones de entrada (sesiones con franja/espacio predefinidos) que CP-SAT trata como hard constraints de igualdad — el algoritmo no itera sobre ellas sino que planifica el resto alrededor.
 9. Sesión virtual = sincrónica online; se registra con la misma franja que su contraparte presencial. `EspacioId = null` en BD.
 
 ## 3 — Estado actual del proyecto
