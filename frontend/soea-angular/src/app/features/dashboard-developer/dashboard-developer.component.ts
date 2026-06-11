@@ -182,22 +182,23 @@ export class DashboardDeveloperComponent implements OnDestroy {
   valChangeSub: any;
 
   constructor() {
+    const cfg = this.state.configuracionAlgoritmo();
     this.configForm = this.fb.group({
-      pobSize: [100, Validators.required],
-      mutRate: [0.05, Validators.required],
-      crossRate: [0.80, Validators.required],
-      maxGen: [500, Validators.required],
+      pobSize: [cfg.pobSize, Validators.required],
+      mutRate: [cfg.mutRate, Validators.required],
+      crossRate: [cfg.crossRate, Validators.required],
+      maxGen: [cfg.maxGen, Validators.required],
       convThresh: [0.001, Validators.required],
       elite: [10, Validators.required],
       maxHoraFin: ['21:30', Validators.required],
       maxHoraSab: ['14:00', Validators.required],
       minIntervalo: [0, Validators.required],
       maxHorasCons: [4, Validators.required],
-      pesoErgo: [5],
-      pesoTiempos: [5],
+      pesoErgo: [cfg.pesoErgo],
+      pesoTiempos: [cfg.pesoTiempos],
       pesoPrio: [5],
       pesoEstab: [5],
-      pesoAlm: [5]
+      pesoAlm: [cfg.pesoAlm]
     });
 
     this.valChangeSub = this.configForm.valueChanges.subscribe(() => {

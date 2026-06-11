@@ -1,10 +1,12 @@
-import { Component, inject, computed } from '@angular/core';
+import { Component, inject, computed, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { BaseChartDirective } from 'ng2-charts';
 import { MatTableModule } from '@angular/material/table';
 import { ChartConfiguration, ChartData } from 'chart.js';
 import { StateService } from '../../core/state.service';
+import { CatalogoService } from '../../core/catalogo.service';
 import { RouterModule } from '@angular/router';
+import { Espacio } from '../../core/models';
 
 @Component({
   selector: 'app-dashboard-admin',
@@ -14,6 +16,7 @@ import { RouterModule } from '@angular/router';
     <div class="dashboard-container">
       <h1 class="page-title text-primary">Dashboard Admin</h1>
 
+      <!-- Métricas del horario -->
       <div class="cards-row">
         <div class="metric-card">
           <div class="metric-title">% Ocupación total</div>
@@ -30,6 +33,31 @@ import { RouterModule } from '@angular/router';
         <div class="metric-card">
           <div class="metric-title">Total franjas ociosas</div>
           <div class="metric-value">{{ franjasOciosas() }}</div>
+        </div>
+      </div>
+
+      <!-- Catálogo cargado -->
+      <div class="section-title-row"><h2 class="section-title">Catálogo cargado</h2></div>
+      <div class="cards-row cards-row-sm">
+        <div class="metric-card metric-card-sm">
+          <div class="metric-title">Asignaturas</div>
+          <div class="metric-value metric-value-sm">{{ state.asignaturas().length }}</div>
+        </div>
+        <div class="metric-card metric-card-sm">
+          <div class="metric-title">Docentes</div>
+          <div class="metric-value metric-value-sm">{{ state.docentes().length }}</div>
+        </div>
+        <div class="metric-card metric-card-sm">
+          <div class="metric-title">Espacios</div>
+          <div class="metric-value metric-value-sm">{{ state.espacios().length }}</div>
+        </div>
+        <div class="metric-card metric-card-sm">
+          <div class="metric-title">Programas</div>
+          <div class="metric-value metric-value-sm">{{ state.programas().length }}</div>
+        </div>
+        <div class="metric-card metric-card-sm">
+          <div class="metric-title">Facultades</div>
+          <div class="metric-value metric-value-sm">{{ state.facultades().length }}</div>
         </div>
       </div>
 
@@ -81,22 +109,37 @@ import { RouterModule } from '@angular/router';
       <div class="mini-matrix-row">
         <div class="card-box flex-1">
           <h2 class="section-title">Mapa de franjas ociosas</h2>
-          <div class="space-selector mb-16">
-            <button class="pill-button active">Laboratorio A</button>
-            <button class="pill-button">Laboratorio B</button>
-            <button class="pill-button">Salón 101</button>
-          </div>
-          <table class="mini-matrix">
-            <tbody>
-              <tr *ngFor="let f of [1,2,3,4,5,6,7,8]">
-                <td *ngFor="let d of [1,2,3,4,5,6]" [class.ociosa]="isOciosa(f,d)" [class.ocupada]="!isOciosa(f,d)"></td>
-              </tr>
-            </tbody>
-          </table>
-          <div class="legend">
-            <span class="legend-item"><span class="box ociosa"></span> Ociosa</span>
-            <span class="legend-item"><span class="box ocupada"></span> Ocupada</span>
-          </div>
+          @if (state.espacios().length === 0) {
+            <p class="no-data-hint">Sin espacios cargados. Ve a <a routerLink="/ingesta">Ingesta</a> para cargar datos.</p>
+          } @else {
+            <div class="space-selector mb-16">
+              @for (esp of state.espacios(); track esp.id) {
+                <button class="pill-button"
+                        [class.active]="matrixSpace()?.id === esp.id"
+                        (click)="matrixSpace.set(esp)">
+                  {{ esp.nombre }}
+                </button>
+              }
+            </div>
+            <div class="matrix-legend-row">
+              <span class="dia-label" *ngFor="let d of diasLabel">{{ d }}</span>
+            </div>
+            <table class="mini-matrix">
+              <tbody>
+                <tr *ngFor="let f of franjasMiniIdx">
+                  <td *ngFor="let d of diasIdx"
+                      [class.ociosa]="isOciosaMini(f, d)"
+                      [class.ocupada]="!isOciosaMini(f, d)"
+                      [title]="franjaLabel(f) + ' · ' + diasLabel[d]">
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="legend">
+              <span class="legend-item"><span class="box ociosa"></span> Ociosa</span>
+              <span class="legend-item"><span class="box ocupada"></span> Ocupada</span>
+            </div>
+          }
         </div>
       </div>
 
@@ -128,16 +171,59 @@ import { RouterModule } from '@angular/router';
     .mb-16 { margin-bottom: 16px; }
     
     .mini-matrix { width: 100%; border-collapse: collapse; }
-    .mini-matrix td { height: 30px; border: 1px solid white; }
-    .ociosa { background-color: #fff59d; } /* amarillo */
-    .ocupada { background-color: #bbdefb; } /* azul claro */
+    .mini-matrix td { height: 28px; border: 1px solid white; cursor: default; }
+    .ociosa { background-color: #fff59d; }
+    .ocupada { background-color: #bbdefb; }
     .legend { display: flex; gap: 16px; margin-top: 16px; font-size: 12px; }
     .legend-item { display: flex; align-items: center; gap: 4px; }
     .legend-item .box { width: 16px; height: 16px; border-radius: 2px; }
+    .matrix-legend-row { display: flex; gap: 1px; margin-bottom: 4px; }
+    .dia-label { flex: 1; text-align: center; font-size: 10px; font-weight: 600; color: #757575; }
+    .no-data-hint { color: #9e9e9e; font-size: 14px; }
+    .section-title-row { margin-bottom: 8px; }
+    .cards-row-sm { gap: 12px; }
+    .metric-card-sm { padding: 16px; }
+    .metric-value-sm { font-size: 24px; }
   `]
 })
-export class DashboardAdminComponent {
-  state = inject(StateService);
+export class DashboardAdminComponent implements OnInit {
+  state    = inject(StateService);
+  catalogo = inject(CatalogoService);
+
+  matrixSpace = signal<Espacio | null>(null);
+
+  ngOnInit() {
+    if (this.state.espacios().length === 0) {
+      this.catalogo.cargarTodo().subscribe({
+        next: () => {
+          this.matrixSpace.set(this.state.espacios()[0] ?? null);
+        }
+      });
+    } else {
+      this.matrixSpace.set(this.state.espacios()[0] ?? null);
+    }
+  }
+
+  readonly diasLabel = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  readonly diasIdx   = [0, 1, 2, 3, 4, 5];
+  readonly diasNombre = ['lunes','martes','miercoles','jueves','viernes','sabado'];
+  /** Franjas de 07:00 a 20:00 (14 franjas de 1 h). */
+  readonly franjasMiniIdx = Array.from({ length: 14 }, (_, i) => i);
+
+  franjaLabel(idx: number): string {
+    return `${String(7 + idx).padStart(2, '0')}:00`;
+  }
+
+  /** Devuelve true si la franja está libre (sin sesiones presenciales) para el espacio activo. */
+  isOciosaMini(franjaIdx: number, diaIdx: number): boolean {
+    const esp = this.matrixSpace() ?? this.state.espacios()[0];
+    if (!esp || this.state.sesiones().length === 0) return true;
+    const hora = this.franjaLabel(franjaIdx);
+    const dia  = this.diasNombre[diaIdx];
+    return !this.state.sesiones().some(s =>
+      s.espacioId === esp.id && s.dia === dia && s.horaInicio === hora && !s.virtual
+    );
+  }
 
   // ── Metrics ──────────────────────────────────────────────────────────────────
 
@@ -208,15 +294,4 @@ export class DashboardAdminComponent {
     };
   });
 
-  // ── Idle-slot mini matrix ────────────────────────────────────────────────────
-
-  isOciosa(franjaIdx: number, diaIdx: number): boolean {
-    const esp = this.state.espacios()[0];
-    if (!esp || this.state.sesiones().length === 0) return true;
-    const dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
-    const hora = `${String(7 + franjaIdx).padStart(2, '0')}:00`;
-    const dia  = dias[diaIdx - 1];
-    return !this.state.sesiones().some(s =>
-      s.espacioId === esp.id && s.dia === dia && s.horaInicio === hora);
-  }
 }
