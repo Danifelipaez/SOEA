@@ -49,7 +49,7 @@ interface MergedSesion {
         <div class="header-buttons">
           @if (state.sesiones().length > 0) {
             <button mat-stroked-button (click)="exportarHorario()" title="Descargar horario como JSON">
-              <mat-icon>download</mat-icon> Exportar
+              <mat-icon>upload</mat-icon> Exportar
             </button>
             <button mat-stroked-button (click)="guardarComoBase()" title="Guardar este horario como base para la próxima generación">
               <mat-icon>bookmark_add</mat-icon> Guardar base
@@ -59,7 +59,7 @@ interface MergedSesion {
             </button>
           }
           <button mat-stroked-button (click)="importarInput.click()" title="Cargar horario desde JSON">
-            <mat-icon>upload</mat-icon> Importar
+            <mat-icon>download</mat-icon> Importar
           </button>
           <input #importarInput type="file" accept=".json" style="display:none"
                  (change)="importarHorario($event)">
