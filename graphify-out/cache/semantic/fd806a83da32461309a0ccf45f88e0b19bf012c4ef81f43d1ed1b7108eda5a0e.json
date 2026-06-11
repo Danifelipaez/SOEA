@@ -1,1 +1,0 @@
-{"nodes": [{"id": "dto_create_asignatura_request", "label": "CreateAsignaturaRequest", "file_type": "code", "source_file": "src/SOEA.Application/Features/Asignaturas/Requests/CreateAsignaturaRequest.cs", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}
