@@ -56,6 +56,7 @@ interface MergedSesion {
                           @if (esTipoA(m)) {
                             <div class="tipo-a-badge">Tipo A</div>
                           }
+                          <div class="card-context">{{ getContextLabel(m) }}</div>
                           <div class="card-title">{{ getCardTitle(m) }}</div>
                           <div class="card-sub">{{ getCardSub(m) }}</div>
                           <div class="card-duration">{{ m.horaInicio }} – {{ m.horaFin }}</div>
@@ -68,6 +69,9 @@ interface MergedSesion {
                             }
                             @if (m.alternancia !== 'SinAlternancia' && !m.semana) {
                               <span class="badge-alt">{{ m.alternancia }}</span>
+                            }
+                            @if (getGrupoLabel(m); as g) {
+                              <span class="badge-grupo">{{ g }}</span>
                             }
                           </div>
                         </div>
@@ -96,6 +100,7 @@ interface MergedSesion {
     .virtual    { background-color: #fafafa;  border-left: 4px solid #9e9e9e; }
     .tipo-a            { border-left-color: #f57c00; }
     .tipo-a.presencial { background-color: #fff8e1; }
+    .card-context  { font-size: 9px; color: #9e9e9e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 1px; }
     .card-title    { font-weight: 600; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .card-sub      { color: #616161; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .card-duration { color: #9e9e9e; font-size: 10px; margin-top: 2px; }
@@ -103,6 +108,7 @@ interface MergedSesion {
     .badge-virtual { padding: 1px 5px; background: #e0e0e0; border-radius: 10px; font-size: 9px; }
     .badge-semana  { padding: 1px 5px; background: #ede7f6; color: #512da8; border-radius: 10px; font-size: 9px; font-weight: 600; }
     .badge-alt     { padding: 1px 5px; background: #e3f2fd; color: #1565c0; border-radius: 10px; font-size: 9px; }
+    .badge-grupo   { padding: 1px 5px; background: #e8f5e9; color: #2e7d32; border-radius: 10px; font-size: 9px; font-weight: 600; }
     .tipo-a-badge  { position: absolute; top: 2px; right: 2px; font-size: 9px; background: #ff9800; color: white; padding: 1px 4px; border-radius: 2px; }
   `]
 })
@@ -205,6 +211,20 @@ export class HorarioGridComponent {
       return this.state.espacioById().get(eid ?? '')?.nombre ?? (m.virtual ? 'Virtual' : '—');
     }
     return this.state.docenteById().get(m.docenteId)?.nombre ?? '';
+  }
+
+  getContextLabel(m: MergedSesion): string {
+    const asig = this.state.asignaturaById().get(m.asignaturaId);
+    if (!asig) return '';
+    const prog = this.state.programaById().get(asig.programaId);
+    if (!prog) return '';
+    const fac = this.state.facultadById().get(prog.facultadId);
+    return fac ? `${fac.nombre} · ${prog.nombre}` : prog.nombre;
+  }
+
+  getGrupoLabel(m: MergedSesion): string | null {
+    const asig = this.state.asignaturaById().get(m.asignaturaId);
+    return asig?.grupoNumero ? `G${asig.grupoNumero}` : null;
   }
 
   // ── Filtros internos ──────────────────────────────────────────────────────────

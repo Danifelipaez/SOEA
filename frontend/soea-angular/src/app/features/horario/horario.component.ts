@@ -150,6 +150,7 @@ interface MergedSesion {
                               @if (esTipoA(merged)) {
                                 <div class="tipo-a-badge">Tipo A</div>
                               }
+                              <div class="card-context">{{ getContextLabel(merged) }}</div>
                               <div class="card-title">{{ getAsignaturaName(merged) }}</div>
                               <div class="card-sub">{{ getDocenteName(merged) }}</div>
                               <div class="card-duration">{{ merged.horaInicio }} – {{ merged.horaFin }}</div>
@@ -162,6 +163,9 @@ interface MergedSesion {
                                 }
                                 @if (merged.alternancia !== 'SinAlternancia' && !merged.semana) {
                                   <span class="badge-alt">{{ merged.alternancia }}</span>
+                                }
+                                @if (getGrupoLabel(merged); as g) {
+                                  <span class="badge-grupo">{{ g }}</span>
                                 }
                               </div>
 
@@ -241,6 +245,7 @@ interface MergedSesion {
     .tipo-a            { border-left-color: #f57c00; }
     .tipo-a.presencial { background-color: #fff8e1; }
 
+    .card-context  { font-size: 9px; color: #9e9e9e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 1px; }
     .card-title    { font-weight: 600; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .card-sub      { color: #616161; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .card-duration { color: #9e9e9e; font-size: 10px; margin-top: 2px; }
@@ -248,6 +253,7 @@ interface MergedSesion {
     .badge-virtual { padding: 1px 5px; background: #e0e0e0; border-radius: 10px; font-size: 9px; }
     .badge-semana  { padding: 1px 5px; background: #ede7f6; color: #512da8; border-radius: 10px; font-size: 9px; font-weight: 600; }
     .badge-alt     { padding: 1px 5px; background: #e3f2fd; color: #1565c0; border-radius: 10px; font-size: 9px; }
+    .badge-grupo   { padding: 1px 5px; background: #e8f5e9; color: #2e7d32; border-radius: 10px; font-size: 9px; font-weight: 600; }
     .tipo-a-badge  { position: absolute; top: 2px; right: 2px; font-size: 9px; background: #ff9800; color: white; padding: 1px 4px; border-radius: 2px; }
 
     .empty-state { text-align: center; padding: 64px 32px; color: #757575; }
@@ -472,6 +478,20 @@ export class HorarioComponent implements OnInit {
 
   getDocenteName(merged: MergedSesion): string {
     return this.state.docenteById().get(merged.docenteId)?.nombre ?? '';
+  }
+
+  getContextLabel(merged: MergedSesion): string {
+    const asig = this.state.asignaturaById().get(merged.asignaturaId);
+    if (!asig) return '';
+    const prog = this.state.programaById().get(asig.programaId);
+    if (!prog) return '';
+    const fac = this.state.facultadById().get(prog.facultadId);
+    return fac ? `${fac.nombre} · ${prog.nombre}` : prog.nombre;
+  }
+
+  getGrupoLabel(merged: MergedSesion): string | null {
+    const asig = this.state.asignaturaById().get(merged.asignaturaId);
+    return asig?.grupoNumero ? `G${asig.grupoNumero}` : null;
   }
 
   // ── Drag & Drop ──────────────────────────────────────────────────────────────
