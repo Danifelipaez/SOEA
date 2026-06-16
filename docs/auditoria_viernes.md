@@ -110,7 +110,7 @@ Resuelto en esta pasada (build verde, 159/159 tests):
 
 Omitido / pendiente (motivo):
 - **P0.5 / 3.2 Auth:** omitido a propósito — la uni usará login con cuenta Microsoft (último paso).
-- **P0.4 Reparador GA:** la Fase 3 (Genetic) está OMITIDA en Incremento 1; el reparador no está en el pipeline activo. Volver a abordar al reactivar Fase 3 (Incremento 2).
+- **P0.4 Reparador GA:** ~~la Fase 3 (Genetic) está OMITIDA en Incremento 1~~ — **Corrección 2026-06-16:** la Fase 3 SÍ está activa en `GenerarHorarioService` (confirmado leyendo `MotorGenetico.cs`); el reparador (`OperadoresGeneticos.Reparar`) sí corre en el pipeline. Lo pendiente real es el Incremento 2: cromosoma con `StartB` independiente para `SinAlternancia` + SC-BAL (ver `docs/algorithms.md`).
 - **P1.1 Extraer ImportCurriculumService / N+1 / SaveChanges:** refactor grande (L) sin tests de cobertura; requiere su propia tarea.
 - **P1.2 HC-S03 RequiereLaboratorio:** depende de datos bloqueantes (clasificación lab de Rosa) + migración EF.
 - **P1.7 Accesibilidad / P1.10-11 Tests front/controllers / P0.6 e2e:** alcance grande, no abordado aquí.

@@ -16,5 +16,12 @@ namespace SOEA.Engine.ConstraintProg
 
         /// <summary>Tiempo máximo de búsqueda del solver en segundos.</summary>
         public int TimeoutSegundos { get; set; } = 120;
+
+        /// <summary>
+        /// Número de workers de búsqueda en paralelo del solver. Default 0: OR-Tools
+        /// auto-detecta los cores disponibles. Útil fijarlo explícitamente al escalar
+        /// el App Service (más cores) para asegurar diversidad de búsqueda.
+        /// </summary>
+        public int NumWorkers { get; set; } = 0;
     }
 }

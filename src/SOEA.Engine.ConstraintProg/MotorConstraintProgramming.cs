@@ -28,6 +28,13 @@ namespace SOEA.Engine.ConstraintProg
 
         private static readonly SemanaAcademica[] Semanas = { SemanaAcademica.A, SemanaAcademica.B };
 
+        /// <summary>
+        /// A partir de este % de la capacidad de espacios, el modelo puede ser factible pero
+        /// agotar el timeout por saturación (muchas sesiones compitiendo por pocos huecos).
+        /// Solo dispara un LogWarning — no cambia el rechazo por demanda &gt; capacidad.
+        /// </summary>
+        private const decimal UmbralSaturacion = 0.95m;
+
         public MotorConstraintProgramming(ILogger<MotorConstraintProgramming> logger, CpSatOptions? options = null)
         {
             _logger = logger;
@@ -85,6 +92,15 @@ namespace SOEA.Engine.ConstraintProg
                 _logger.LogInformation(
                     "Fase 2 (CP-SAT) Semana {W}: demanda presencial={Dem}h vs capacidad={Cap}h ({E} espacios × {B} bloques).",
                     semana, demandaPresencial, capacidadBloquesHora, espacios.Count, bloques.Count);
+
+                if (capacidadBloquesHora > 0 && demandaPresencial / capacidadBloquesHora >= UmbralSaturacion)
+                {
+                    _logger.LogWarning(
+                        "Fase 2 (CP-SAT) Semana {W}: demanda al {Pct:P0} de la capacidad de espacios — " +
+                        "el modelo es factible en teoría pero puede saturarse y agotar el timeout. " +
+                        "Considere más espacios o revisar la distribución de alternancia.",
+                        semana, demandaPresencial / capacidadBloquesHora);
+                }
 
                 if (demandaPresencial > capacidadBloquesHora)
                 {
@@ -162,7 +178,16 @@ namespace SOEA.Engine.ConstraintProg
                 {
                     // Fase 1 warm-start: pista, el solver puede sobreescribirla.
                     foreach (var semana in Semanas)
+                    {
                         model.AddHint(startVars[(sesion.Id, semana)], idx);
+
+                        // Si Fase 1 ya trae espacio asignado, hintear también spaceVars:
+                        // si esa asignación es factible, CP-SAT la valida casi al instante.
+                        if (sesion.EspacioId is Guid espacioHint &&
+                            espacioIndex.TryGetValue(espacioHint, out var espIdx) &&
+                            spaceVars.TryGetValue((sesion.Id, semana), out var spaceVar))
+                            model.AddHint(spaceVar, espIdx);
+                    }
                 }
             }
 
@@ -363,7 +388,9 @@ namespace SOEA.Engine.ConstraintProg
             }
 
             var solver = new CpSolver();
-            solver.StringParameters = $"max_time_in_seconds:{_options.TimeoutSegundos},log_search_progress:true";
+            solver.StringParameters =
+                $"max_time_in_seconds:{_options.TimeoutSegundos},log_search_progress:true" +
+                (_options.NumWorkers > 0 ? $",num_search_workers:{_options.NumWorkers}" : "");
 
             _logger.LogInformation("Resolviendo modelo CP-SAT (timeout: {T}s)...", _options.TimeoutSegundos);
             var status = solver.Solve(model);

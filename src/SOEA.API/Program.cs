@@ -73,6 +73,7 @@ builder.Services.AddConstraintProgEngine(opts =>
 {
     opts.ExportarModelo  = builder.Configuration.GetValue<bool>("CpSat:ExportarModelo");
     opts.TimeoutSegundos = builder.Configuration.GetValue("CpSat:TimeoutSegundos", 120);
+    opts.NumWorkers      = builder.Configuration.GetValue("CpSat:NumWorkers", 0);
 });
 builder.Services.AddGeneticEngine();
 

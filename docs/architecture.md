@@ -123,8 +123,11 @@ GenerarHorarioService.EjecutarAsync()
          │     Output: IReadOnlyList<AsignacionSemanal> (2 por sesión, A y B)
          │             OR InfeasibleResult → HTTP 422
          │
-         ├─► [Fase 3] OMITIDA en Incremento 1 — pendiente Incremento 2
-         │     (cromosoma de pares AsignacionSemanal_A / B + SC-BAL)
+         ├─► [Fase 3] MotorGenetico (activa) — Start compartido A/B (Incremento 1)
+         │     Input:  sesiones + AsignacionSemanal de Fase 2 + bloques/espacios/docentes
+         │     Proceso: selección/cruce/mutación/reparación; fallback a Fase 2 si no factible
+         │     Output: AsignacionSemanal optimizada (fitness SC-01..09)
+         │     Pendiente (Incremento 2): StartB independiente para SinAlternancia + SC-BAL
          │
          └─► Persistencia
                SesionRepositorio.AddRangeAsync(sesiones)
