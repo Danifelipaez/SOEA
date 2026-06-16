@@ -9,14 +9,21 @@ using SOEA.Domain.Services;
 namespace SOEA.Engine.Genetic
 {
     /// <summary>
-    /// Fitness del modelo bi-semanal (menor = mejor). Los tres objetivos son TEMPORALES y
-    /// centrados en el docente — ninguno depende del aula, por eso el aula no está en el cromosoma:
+    /// Fitness del modelo bi-semanal (menor = mejor). Los tres objetivos temporales y centrados en
+    /// el docente — ninguno depende del aula, por eso el aula no está en el cromosoma:
     ///   ① SC-01: minimizar huecos ociosos entre sesiones del mismo docente en un día.
     ///   ② SC-09: penalizar rachas de > 6 horas SEGUIDAS de sesiones (restricción BLANDA fuerte).
     ///   ③ SC-06: balancear la carga del docente entre los días que tiene DISPONIBLES (desviación
     ///            media absoluta sobre todos los días disponibles, contando ceros).
-    /// Como los inicios son compartidos A/B, las dos semanas son idénticas en timing: estos tres
-    /// objetivos se calculan UNA vez (no por semana).
+    /// Desde el Incremento 2, cada sesión tiene un inicio por semana (<c>Start</c>/<c>StartB</c>),
+    /// así que ①②③ se calculan UNA VEZ POR SEMANA (con el arreglo de inicios correspondiente) y se
+    /// suman. Para TipoA/TipoB las dos semanas son idénticas en timing (StartB==Start por
+    /// construcción), así que su aporte se duplica sin distorsionar el balance entre sesiones; solo
+    /// SinAlternancia puede hacer que el aporte de A y B difiera.
+    ///   ④ SC-BAL (nuevo, Incremento 2): por docente y día, penaliza la diferencia de carga horaria
+    ///      total entre Semana A y Semana B. Los genes TipoA/TipoB nunca contribuyen a esta
+    ///      diferencia (StartB==Start ⇒ mismo día, mismas horas en ambas semanas); solo
+    ///      SinAlternancia puede introducir o resolver desbalance, aprovechando la libertad de ALT-06.
     ///
     /// Además, una GUARDA de factibilidad de aulas (no es un objetivo blando): penaliza fuerte si en
     /// alguna (semana, día) hay más sesiones presenciales simultáneas que aulas. Mantiene al GA en la
@@ -33,9 +40,10 @@ namespace SOEA.Engine.Genetic
         private readonly int _nEspacios;
         private readonly Dictionary<Guid, HashSet<DiaDeSemana>> _diasDisponiblesPorDocente;
 
-        private readonly int _pesoSC01; // huecos
-        private readonly int _pesoSC06; // balance entre días
-        private readonly int _pesoSC09; // > 6 horas seguidas
+        private readonly int _pesoSC01;  // huecos
+        private readonly int _pesoSC06;  // balance entre días
+        private readonly int _pesoSC09;  // > 6 horas seguidas
+        private readonly int _pesoSCBAL; // balance entre semanas A/B (Incremento 2)
 
         public EvaluadorFitness(
             List<Sesion> sesiones,
@@ -57,29 +65,33 @@ namespace SOEA.Engine.Genetic
                 d => d.Id,
                 d => d.BloquesDisponibles.Select(b => b.Dia).ToHashSet());
 
-            _pesoSC01 = config?.PesoErgo     ?? 3;
-            _pesoSC06 = config?.PesoTiempos  ?? 2;
-            _pesoSC09 = config?.PesoAlmuerzo ?? 3;
+            _pesoSC01  = config?.PesoErgo           ?? 3;
+            _pesoSC06  = config?.PesoTiempos        ?? 2;
+            _pesoSC09  = config?.PesoAlmuerzo       ?? 3;
+            _pesoSCBAL = config?.PesoBalanceSemanas ?? 2;
         }
 
         public decimal Evaluar(CromosomaHorario c)
         {
-            var spansPorDocenteDia = SpansPorDocenteDia(c);
+            var spansA = SpansPorDocenteDia(c.Start);
+            var spansB = SpansPorDocenteDia(c.StartB);
+
             decimal fitness = 0;
-            fitness += _pesoSC01 * SC01_HuecosOciosos(spansPorDocenteDia);
-            fitness += _pesoSC06 * SC06_BalanceEntreDias(c);
-            fitness += _pesoSC09 * SC09_HorasSeguidas(spansPorDocenteDia);
+            fitness += _pesoSC01  * (SC01_HuecosOciosos(spansA) + SC01_HuecosOciosos(spansB));
+            fitness += _pesoSC06  * (SC06_BalanceEntreDias(c.Start) + SC06_BalanceEntreDias(c.StartB));
+            fitness += _pesoSC09  * (SC09_HorasSeguidas(spansA) + SC09_HorasSeguidas(spansB));
+            fitness += _pesoSCBAL * SCBAL_DesbalanceEntreSemanas(c);
             fitness += PesoFactibilidadSalas * GuardaCapacidadAulas(c);
             return fitness;
         }
 
         // ── Agrupa los genes de cada docente por día, como spans [start, start+dur) en bloques. ──
-        private Dictionary<Guid, Dictionary<DiaDeSemana, List<(int start, int dur)>>> SpansPorDocenteDia(CromosomaHorario c)
+        private Dictionary<Guid, Dictionary<DiaDeSemana, List<(int start, int dur)>>> SpansPorDocenteDia(int[] starts)
         {
             var mapa = new Dictionary<Guid, Dictionary<DiaDeSemana, List<(int, int)>>>();
-            for (int i = 0; i < c.CantidadGenes; i++)
+            for (int i = 0; i < starts.Length; i++)
             {
-                int start = c.Start[i];
+                int start = starts[i];
                 if (start < 0 || start >= _bloques.Count) continue;
                 var docente = _sesiones[i].DocenteId;
                 var dia = _diaPorIdx[start];
@@ -140,22 +152,28 @@ namespace SOEA.Engine.Genetic
             return penalizacion;
         }
 
-        // ③ SC-06: desviación media absoluta de la carga del docente sobre sus días DISPONIBLES.
-        private int SC06_BalanceEntreDias(CromosomaHorario c)
+        // Carga real (horas) por docente y día, para el arreglo de inicios de una semana dada.
+        private Dictionary<Guid, Dictionary<DiaDeSemana, decimal>> CargaPorDocenteDia(int[] starts)
         {
-            // Carga real (horas) por docente y día.
-            var cargaPorDocenteDia = new Dictionary<Guid, Dictionary<DiaDeSemana, decimal>>();
-            for (int i = 0; i < c.CantidadGenes; i++)
+            var mapa = new Dictionary<Guid, Dictionary<DiaDeSemana, decimal>>();
+            for (int i = 0; i < starts.Length; i++)
             {
-                int start = c.Start[i];
+                int start = starts[i];
                 if (start < 0 || start >= _bloques.Count) continue;
                 var docente = _sesiones[i].DocenteId;
                 var dia = _diaPorIdx[start];
 
-                if (!cargaPorDocenteDia.TryGetValue(docente, out var porDia)) { porDia = new(); cargaPorDocenteDia[docente] = porDia; }
+                if (!mapa.TryGetValue(docente, out var porDia)) { porDia = new(); mapa[docente] = porDia; }
                 porDia.TryGetValue(dia, out var actual);
                 porDia[dia] = actual + _sesiones[i].DuracionHoras;
             }
+            return mapa;
+        }
+
+        // ③ SC-06: desviación media absoluta de la carga del docente sobre sus días DISPONIBLES.
+        private int SC06_BalanceEntreDias(int[] starts)
+        {
+            var cargaPorDocenteDia = CargaPorDocenteDia(starts);
 
             decimal penalizacion = 0;
             foreach (var (docente, cargaDia) in cargaPorDocenteDia)
@@ -174,18 +192,44 @@ namespace SOEA.Engine.Genetic
             return (int)Math.Ceiling(penalizacion);
         }
 
+        // ④ SC-BAL: por docente y día, |carga(Semana A) − carga(Semana B)|. TipoA/TipoB nunca
+        // contribuyen (StartB==Start por construcción): solo SinAlternancia puede introducir o
+        // resolver desbalance entre semanas, aprovechando la libertad de ALT-06.
+        private int SCBAL_DesbalanceEntreSemanas(CromosomaHorario c)
+        {
+            var cargaA = CargaPorDocenteDia(c.Start);
+            var cargaB = CargaPorDocenteDia(c.StartB);
+
+            decimal penalizacion = 0;
+            foreach (var docente in cargaA.Keys.Union(cargaB.Keys))
+            {
+                var diasA = cargaA.TryGetValue(docente, out var da) ? da : new Dictionary<DiaDeSemana, decimal>();
+                var diasB = cargaB.TryGetValue(docente, out var db) ? db : new Dictionary<DiaDeSemana, decimal>();
+
+                foreach (var dia in diasA.Keys.Union(diasB.Keys))
+                {
+                    decimal cargaDiaA = diasA.TryGetValue(dia, out var va) ? va : 0m;
+                    decimal cargaDiaB = diasB.TryGetValue(dia, out var vb) ? vb : 0m;
+                    penalizacion += Math.Abs(cargaDiaA - cargaDiaB);
+                }
+            }
+            return (int)Math.Ceiling(penalizacion);
+        }
+
         // Guarda de aulas: máx. sesiones presenciales simultáneas por (semana, día) vs nº de aulas.
         private int GuardaCapacidadAulas(CromosomaHorario c)
         {
             int exceso = 0;
             foreach (var semana in new[] { SemanaAcademica.A, SemanaAcademica.B })
             {
+                var starts = semana == SemanaAcademica.A ? c.Start : c.StartB;
+
                 // Spans presenciales en esta semana, agrupados por día.
                 var porDia = new Dictionary<DiaDeSemana, List<(int start, int dur)>>();
                 for (int i = 0; i < c.CantidadGenes; i++)
                 {
                     if (ModalidadSemanal.Derivar(_sesiones[i], semana) != Modalidad.Presencial) continue;
-                    int start = c.Start[i];
+                    int start = starts[i];
                     if (start < 0 || start >= _bloques.Count) continue;
                     var dia = _diaPorIdx[start];
                     if (!porDia.TryGetValue(dia, out var lista)) { lista = new(); porDia[dia] = lista; }
