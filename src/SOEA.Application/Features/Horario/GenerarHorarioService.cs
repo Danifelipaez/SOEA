@@ -20,6 +20,7 @@ namespace SOEA.Application.Features.Horario
         private readonly IHorarioRepositorio         _horarioRepo;
         private readonly ISesionRepositorio          _sesionRepo;
         private readonly IAsignacionSemanalRepositorio _asignacionRepo;
+        private readonly IUnitOfWork                 _uow;
 
         public GenerarHorarioService(
             IMotorColoracionGrafo       fase1,
@@ -27,7 +28,8 @@ namespace SOEA.Application.Features.Horario
             IMotorGenetico              fase3,
             IHorarioRepositorio         horarioRepo,
             ISesionRepositorio          sesionRepo,
-            IAsignacionSemanalRepositorio asignacionRepo)
+            IAsignacionSemanalRepositorio asignacionRepo,
+            IUnitOfWork                 uow)
         {
             _fase1       = fase1;
             _fase2       = fase2;
@@ -35,9 +37,10 @@ namespace SOEA.Application.Features.Horario
             _horarioRepo = horarioRepo;
             _sesionRepo  = sesionRepo;
             _asignacionRepo = asignacionRepo;
+            _uow         = uow;
         }
 
-        public async Task<GenerarHorarioResponse> EjecutarAsync(GenerarHorarioRequest request)
+        public async Task<GenerarHorarioResponse> EjecutarAsync(GenerarHorarioRequest request, CancellationToken ct = default)
         {
             var logs = new List<string>();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -65,7 +68,7 @@ namespace SOEA.Application.Features.Horario
             // ── 2. Fase 1 — Coloración de Grafo (pre-asignación de bloques) ────
             logs.Add("[INFO] Fase 1: Pre-procesamiento (Coloración de grafos) iniciada.");
             var swFase1 = System.Diagnostics.Stopwatch.StartNew();
-            var sesionesColoreadas = (await _fase1.AsignarBloquesDeTiempoAsync(sesiones, bloques)).ToList();
+            var sesionesColoreadas = (await _fase1.AsignarBloquesDeTiempoAsync(sesiones, bloques, ct)).ToList();
             swFase1.Stop();
             logs.Add($"[INFO] Fase 1 completada en {swFase1.ElapsedMilliseconds}ms.");
 
@@ -74,7 +77,8 @@ namespace SOEA.Application.Features.Horario
             var swFase2 = System.Diagnostics.Stopwatch.StartNew();
             var resultadoFactibilidad = await _fase2.ResolverFactibilidadAsync(
                 sesionesColoreadas, bloques, espacios, docentes,
-                sesionesFijasIds.Count > 0 ? sesionesFijasIds : null);
+                sesionesFijasIds.Count > 0 ? sesionesFijasIds : null,
+                ct);
             swFase2.Stop();
 
             if (!resultadoFactibilidad.EsFactible)
@@ -101,7 +105,7 @@ namespace SOEA.Application.Features.Horario
             var swFase3 = System.Diagnostics.Stopwatch.StartNew();
             var resultadoGA = await _fase3.OptimizarAsync(
                 sesionesColoreadas, resultadoFactibilidad.Asignaciones, bloques, espacios, docentes,
-                MapearConfiguracion(request.Configuracion));
+                MapearConfiguracion(request.Configuracion), ct);
             swFase3.Stop();
             logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness={resultadoGA.PuntajeFitness}, " +
                      $"generaciones={resultadoGA.Generaciones}, fallback={resultadoGA.UsoFallback}.");
@@ -146,8 +150,9 @@ namespace SOEA.Application.Features.Horario
             logs.Add("[INFO] Post-chequeo OK: 0 violaciones de restricciones duras.");
 
             // ── 5. Persistir sesiones lógicas, Horario y asignaciones semanales ─
-            await _sesionRepo.AddRangeAsync(sesionesColoreadas);
-
+            // Las tres escrituras comparten el mismo DbContext (scoped), así que van en UNA
+            // transacción: si la última falla, no quedan sesiones ni horario huérfanos sin
+            // asignaciones. Antes eran tres SaveChanges independientes (auditoría dotnet).
             var horario = new Domain.Entities.Horario(
                 id: Guid.NewGuid(),
                 semestre: request.Semestre,
@@ -155,8 +160,19 @@ namespace SOEA.Application.Features.Horario
                 violacionesRestriccionesDuras: conflictos.Count,
                 puntajeFitness: puntajeFitness);
 
-            await _horarioRepo.AddAsync(horario);
-            await _asignacionRepo.AddRangeAsync(asignaciones);
+            await _uow.BeginTransactionAsync();
+            try
+            {
+                await _sesionRepo.AddRangeAsync(sesionesColoreadas);
+                await _horarioRepo.AddAsync(horario);
+                await _asignacionRepo.AddRangeAsync(asignaciones);
+                await _uow.CommitAsync();
+            }
+            catch
+            {
+                await _uow.RollbackAsync();
+                throw;
+            }
 
             stopwatch.Stop();
             logs.Add($"[INFO] Pipeline total ejecutado en {stopwatch.ElapsedMilliseconds}ms.");

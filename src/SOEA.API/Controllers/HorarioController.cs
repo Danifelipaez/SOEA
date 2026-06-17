@@ -33,7 +33,7 @@ namespace SOEA.API.Controllers
         [ProducesResponseType(typeof(GenerarHorarioResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(GenerarHorarioResponse), StatusCodes.Status422UnprocessableEntity)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> GenerarHorario([FromBody] GenerarHorarioRequest request)
+        public async Task<IActionResult> GenerarHorario([FromBody] GenerarHorarioRequest request, CancellationToken ct)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
@@ -56,7 +56,7 @@ namespace SOEA.API.Controllers
                     request.Docentes.Count,
                     request.Espacios.Count);
 
-                var resultado = await _generarService.EjecutarAsync(request);
+                var resultado = await _generarService.EjecutarAsync(request, ct);
 
                 if (!resultado.EsFactible)
                 {
@@ -72,6 +72,11 @@ namespace SOEA.API.Controllers
                     resultado.HorarioId, resultado.Sesiones.Count, resultado.PuntajeFitness);
 
                 return Ok(resultado);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Generación de horario cancelada por desconexión del cliente.");
+                return StatusCode(499);
             }
             catch (Exception ex)
             {

@@ -28,6 +28,7 @@ namespace SOEA.Domain.Interfaces
             IEnumerable<BloqueTiempo> bloques,
             IEnumerable<Espacio> espacios,
             IEnumerable<Docente> docentes,
-            IEnumerable<Guid>? sesionesFijasIds = null);
+            IEnumerable<Guid>? sesionesFijasIds = null,
+            CancellationToken ct = default);
     }
 }

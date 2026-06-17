@@ -49,6 +49,7 @@ namespace SOEA.Domain.Interfaces
             IEnumerable<BloqueTiempo>       bloques,
             IEnumerable<Espacio>            espacios,
             IEnumerable<Docente>            docentes,
-            ConfiguracionOptimizacion?      config = null);
+            ConfiguracionOptimizacion?      config = null,
+            CancellationToken               ct = default);
     }
 }

@@ -49,42 +49,4 @@
       }
     ]
   }
-};
-{
-  "permissions": {
-    "allow": [
-      "Bash(dotnet build *)",
-      "Bash(dotnet test *)",
-      "Bash(dotnet run *)",
-      "Bash(dotnet ef *)",
-      "Bash(dotnet format *)",
-      "Bash(npm test*)",
-      "Bash(npm run *)",
-      "Bash(ng *)"
-    ]
-  },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell -NoProfile -NonInteractive -File .claude/hooks/format-csharp.ps1"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell -NoProfile -NonInteractive -File .claude/hooks/block-appsettings.ps1"
-          }
-        ]
-      }
-    ]
-  }
 }

@@ -46,7 +46,8 @@ namespace SOEA.Engine.ConstraintProg
             IEnumerable<BloqueTiempo> bloques,
             IEnumerable<Espacio> espacios,
             IEnumerable<Docente> docentes,
-            IEnumerable<Guid>? sesionesFijasIds = null)
+            IEnumerable<Guid>? sesionesFijasIds = null,
+            CancellationToken ct = default)
         {
             var s     = sesiones.ToList();
             var b     = bloques.ToList();
@@ -55,7 +56,7 @@ namespace SOEA.Engine.ConstraintProg
             var fijas = sesionesFijasIds != null
                 ? new HashSet<Guid>(sesionesFijasIds)
                 : new HashSet<Guid>();
-            return Task.Run(() => ResolverSincrono(s, b, e, d, fijas));
+            return Task.Run(() => ResolverSincrono(s, b, e, d, fijas, ct), ct);
         }
 
         /// <summary>
@@ -73,7 +74,8 @@ namespace SOEA.Engine.ConstraintProg
             List<BloqueTiempo> bloques,
             List<Espacio> espacios,
             List<Docente> docentes,
-            HashSet<Guid> sesionesFijasIds)
+            HashSet<Guid> sesionesFijasIds,
+            CancellationToken ct)
         {
             if (!sesiones.Any() || !bloques.Any())
             {
@@ -393,7 +395,9 @@ namespace SOEA.Engine.ConstraintProg
                 (_options.NumWorkers > 0 ? $",num_search_workers:{_options.NumWorkers}" : "");
 
             _logger.LogInformation("Resolviendo modelo CP-SAT (timeout: {T}s)...", _options.TimeoutSegundos);
+            using var reg = ct.Register(() => solver.StopSearch());
             var status = solver.Solve(model);
+            ct.ThrowIfCancellationRequested();
             _logger.LogInformation("CP-SAT terminó con status: {Status}", status);
 
             if (status == CpSolverStatus.Feasible || status == CpSolverStatus.Optimal)

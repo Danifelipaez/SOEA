@@ -37,7 +37,8 @@ namespace SOEA.Engine.Genetic
             IEnumerable<BloqueTiempo>      bloques,
             IEnumerable<Espacio>           espacios,
             IEnumerable<Docente>           docentes,
-            ConfiguracionOptimizacion?     config = null)
+            ConfiguracionOptimizacion?     config = null,
+            CancellationToken              ct = default)
         {
             var s  = sesiones.ToList();
             var a2 = asignacionesFase2.ToList();
@@ -45,7 +46,7 @@ namespace SOEA.Engine.Genetic
             var e  = espacios.ToList();
             var d  = docentes.ToList();
             var c  = config ?? new ConfiguracionOptimizacion();
-            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, c));
+            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, c, ct), ct);
         }
 
         private ResultadoOptimizacion OptimizarSincrono(
@@ -54,7 +55,8 @@ namespace SOEA.Engine.Genetic
             List<BloqueTiempo>      bloques,
             List<Espacio>           espacios,
             List<Docente>           docentes,
-            ConfiguracionOptimizacion config)
+            ConfiguracionOptimizacion config,
+            CancellationToken ct)
         {
             if (sesiones.Count == 0 || bloques.Count == 0)
             {
@@ -108,6 +110,7 @@ namespace SOEA.Engine.Genetic
             // ── Ciclo generacional (estado estable: reemplaza al peor) ───────────────────
             for (int gen = 1; gen <= maxGeneraciones; gen++)
             {
+                ct.ThrowIfCancellationRequested();
                 var p1 = operadores.SeleccionTorneo(poblacion, TamañoTorneo);
                 var p2 = operadores.SeleccionTorneo(poblacion, TamañoTorneo);
                 var hijo = operadores.Cruce(p1, p2, probCruce);
