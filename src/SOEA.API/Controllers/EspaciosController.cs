@@ -71,6 +71,8 @@ namespace SOEA.API.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
+            var existing = await _repo.GetByIdAsync(id);
+            if (existing is null) return NotFound($"Espacio con ID {id} no encontrado.");
             await _repo.DeleteAsync(id);
             return NoContent();
         }

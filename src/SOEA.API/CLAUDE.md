@@ -61,7 +61,7 @@ The final `Horario` entity is persisted to PostgreSQL and the response contains 
 
 ### Key domain entities
 
-- `Asignatura` — immutable duration (`HorasPorSesion`, `SesionesPorSemana`); `Alternancia` auto-derived from name.
+- `Asignatura` — immutable duration (`HorasPorSesion`, `SesionesPorSemana`); `Alternancia` derived from `sesionesLaboratorioSemestre` vs. a threshold (`DeterminarAlternancia`, default 8 → TipoA; >8 → TipoB; <8 → SinAlternancia), or set manually via `EstablecerAlternancia` (Rosa's override).
 - `Sesion` — a single scheduled class occurrence; links asignatura, docente, bloque de tiempo, and espacio.
 - `BloqueTiempo` — canonical 1-hour slot (Mon–Fri 07:00–20:00, Sat 07:00–14:00); generated in memory per request, not stored.
 - `Horario` — persisted aggregate that holds a list of session IDs and fitness score; cannot be published if hard-constraint violations > 0.

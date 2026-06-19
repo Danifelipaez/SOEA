@@ -90,6 +90,7 @@ namespace SOEA.API.Controllers
         public int DocentesCreados { get; set; }
         public int DocentesActualizados { get; set; }
         public int EspaciosCreados { get; set; }
+        public int EspaciosActualizados { get; set; }
         public int AsignaturasCreadas { get; set; }
         public int AsignaturasActualizadas { get; set; }
         public int GruposCreados { get; set; }

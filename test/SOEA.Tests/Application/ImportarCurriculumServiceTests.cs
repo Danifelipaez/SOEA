@@ -147,6 +147,112 @@ namespace SOEA.Tests.Application
         }
 
         [Fact]
+        public async Task Asignatura_Existente_ActualizaDuracionYNombre()
+        {
+            var facId    = Guid.NewGuid();
+            var progId   = Guid.NewGuid();
+            var asigId   = Guid.NewGuid();
+            var uow      = new FakeUnitOfWork();
+            var existente = Asignatura(asigId, "Bioquímica", "BIO201", progId); // 2h, 1 ses/sem, 8 lab
+            var facRepo  = new FakeFacultadRepo(uow,  Facultad(facId, "Ciencias"));
+            var progRepo = new FakeProgramaRepo(uow,  Programa(progId, "Biología", facId));
+            var asigRepo = new FakeAsignaturaRepo(uow, existente);
+
+            var service = Crear(facRepo, progRepo, new FakeDocenteRepo(uow),
+                new FakeEspacioRepo(uow), asigRepo, new FakeGrupoRepo(uow),
+                new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+
+            var facTempId  = Guid.NewGuid();
+            var progTempId = Guid.NewGuid();
+            var resultado = Resultado(
+                facultades:  new[] { Facultad(facTempId, "Ciencias") },
+                programas:   new[] { Programa(progTempId, "Biología", facTempId) },
+                asignaturas: new[] { new Asignatura(Guid.NewGuid(), "Bioquímica Avanzada", "BIO201", 3, 2, 11, progTempId) });
+
+            var stats = await service.EjecutarAsync(resultado);
+
+            Assert.Equal(1, stats.AsignaturasActualizadas);
+            Assert.Equal("Bioquímica Avanzada", existente.Nombre);
+            Assert.Equal(3, existente.HorasPorSesion);
+            Assert.Equal(2, existente.SesionesPorSemana);
+            Assert.Equal(11, existente.SesionesLaboratorioSemestre);
+        }
+
+        [Fact]
+        public async Task Asignatura_Existente_SinAlternanciaEntrante_NoPisaTipoEstablecido()
+        {
+            var facId    = Guid.NewGuid();
+            var progId   = Guid.NewGuid();
+            var uow      = new FakeUnitOfWork();
+            var existente = Asignatura(Guid.NewGuid(), "Bioquímica", "BIO201", progId);
+            existente.EstablecerAlternancia(TipoAlternancia.TipoB); // override manual previo
+            var facRepo  = new FakeFacultadRepo(uow,  Facultad(facId, "Ciencias"));
+            var progRepo = new FakeProgramaRepo(uow,  Programa(progId, "Biología", facId));
+            var asigRepo = new FakeAsignaturaRepo(uow, existente);
+
+            var service = Crear(facRepo, progRepo, new FakeDocenteRepo(uow),
+                new FakeEspacioRepo(uow), asigRepo, new FakeGrupoRepo(uow),
+                new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+
+            var facTempId  = Guid.NewGuid();
+            var progTempId = Guid.NewGuid();
+            // Entrante con 0 sesiones de lab ⇒ SinAlternancia: NO debe pisar el TipoB establecido.
+            var resultado = Resultado(
+                facultades:  new[] { Facultad(facTempId, "Ciencias") },
+                programas:   new[] { Programa(progTempId, "Biología", facTempId) },
+                asignaturas: new[] { new Asignatura(Guid.NewGuid(), "Bioquímica", "BIO201", 2, 1, 0, progTempId) });
+
+            await service.EjecutarAsync(resultado);
+
+            Assert.Equal(TipoAlternancia.TipoB, existente.Alternancia);
+        }
+
+        [Fact]
+        public async Task Espacio_Existente_ActualizaCapacidadYTipo()
+        {
+            var uow      = new FakeUnitOfWork();
+            var existente = new Espacio(Guid.NewGuid(), "Lab Química 1", TipoEspacio.Salon, 20);
+            var espRepo  = new FakeEspacioRepo(uow, existente);
+
+            var service = Crear(new FakeFacultadRepo(uow), new FakeProgramaRepo(uow),
+                new FakeDocenteRepo(uow), espRepo, new FakeAsignaturaRepo(uow),
+                new FakeGrupoRepo(uow), new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+
+            var resultado = Resultado(
+                espacios: new[] { new Espacio(Guid.NewGuid(), "Lab Química 1", TipoEspacio.Laboratorio, 35, "Bloque A", 2) });
+
+            var stats = await service.EjecutarAsync(resultado);
+
+            Assert.Equal(0, stats.EspaciosCreados);
+            Assert.Equal(1, stats.EspaciosActualizados);
+            Assert.Equal(35, existente.Capacidad);
+            Assert.Equal(TipoEspacio.Laboratorio, existente.Tipo);
+            Assert.Equal("Bloque A", existente.Edificio);
+        }
+
+        [Fact]
+        public async Task Docente_Existente_ActualizaMaxHoras()
+        {
+            var uow      = new FakeUnitOfWork();
+            var existente = Docente(Guid.NewGuid(), "Juan Pérez"); // 40 h
+            var docRepo  = new FakeDocenteRepo(uow, existente);
+
+            var service = Crear(new FakeFacultadRepo(uow), new FakeProgramaRepo(uow),
+                docRepo, new FakeEspacioRepo(uow), new FakeAsignaturaRepo(uow),
+                new FakeGrupoRepo(uow), new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+
+            var entrante = new Docente(Guid.NewGuid(), "Juan Pérez", "", "juan.perez@unimag.edu.co", 20m,
+                new List<FranjaHoraria> { FranjaHoraria.Matutino });
+            var resultado = Resultado(docentes: new[] { entrante });
+
+            var stats = await service.EjecutarAsync(resultado);
+
+            Assert.Equal(1, stats.DocentesActualizados);
+            Assert.Equal(20m, existente.MaximoHorasSemanales);
+            Assert.Equal("juan.perez@unimag.edu.co", existente.Correo);
+        }
+
+        [Fact]
         public async Task EstadisticasVacias_CuandoResultadoEsVacio()
         {
             var uow     = new FakeUnitOfWork();

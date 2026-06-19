@@ -9,6 +9,10 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
+import { CatalogoService } from '../../../core/catalogo.service';
+import { mensajeErrorHttp } from '../../../core/http-error.util';
+import { GuardadoResultadoDialogComponent } from '../../../shared/guardado-resultado-dialog/guardado-resultado-dialog.component';
+import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { Espacio } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { forkJoin, of } from 'rxjs';
@@ -75,11 +79,11 @@ export class EspaciosTabComponent {
   dialog = inject(MatDialog);
   snackBar = inject(MatSnackBar);
   persistencia = inject(PersistenciaService);
+  catalogo = inject(CatalogoService);
 
   displayedColumns = ['nombre', 'capacidad', 'tipo', 'acciones'];
   filterStr = signal('');
   saving = signal(false);
-  private bdIds = new Set<string>();
 
   filteredEspacios = computed(() => {
     const f = this.filterStr().toLowerCase();
@@ -109,19 +113,34 @@ export class EspaciosTabComponent {
   }
 
   delete(espacio: Espacio) {
-    if (this.bdIds.has(espacio.id)) {
+    const enBd = this.catalogo.estaEnBd('espacio', espacio.id);
+    const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
+      width: '420px',
+      data: {
+        title: 'Eliminar espacio',
+        message: enBd
+          ? `Se eliminará "${espacio.nombre}" de la base de datos. Esta acción es irreversible.`
+          : `Se eliminará "${espacio.nombre}" (aún no está guardado en la BD).`
+      }
+    });
+    ref.afterClosed().subscribe(confirmado => {
+      if (!confirmado) return;
+      if (!enBd) {
+        this.state.deleteEspacio(espacio.id);
+        this.snackBar.open('Espacio eliminado localmente.', 'Cerrar', { duration: 3000 });
+        return;
+      }
       this.persistencia.eliminarEspacioBD(espacio.id).subscribe({
         next: () => {
-          this.bdIds.delete(espacio.id);
+          this.catalogo.quitarDeBd('espacio', espacio.id);
           this.state.deleteEspacio(espacio.id);
+          this.catalogo.cargarTodo().subscribe();
           this.snackBar.open('Espacio eliminado de la BD.', 'Cerrar', { duration: 3000 });
         },
-        error: () => this.snackBar.open('Error al eliminar de la BD.', 'Cerrar', { duration: 4000 })
+        error: (err) => this.snackBar.open(
+          `Error al eliminar de la BD: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
       });
-    } else {
-      this.state.deleteEspacio(espacio.id);
-      this.snackBar.open('Espacio eliminado localmente.', 'Cerrar', { duration: 3000 });
-    }
+    });
   }
 
   guardarEnBD() {
@@ -136,14 +155,14 @@ export class EspaciosTabComponent {
     const calls$ = espacios.map(e =>
       this.persistencia.actualizarEspacio(e).pipe(
         map(() => {
-          this.bdIds.add(e.id);
+          this.catalogo.marcarEnBd('espacio', e.id);
           return { ok: true, nombre: e.nombre, tipo: 'actualizado' as const };
         }),
         catchError(err => {
           if (err.status === 404) {
             return this.persistencia.guardarEspacio(e).pipe(
               map(() => {
-                this.bdIds.add(e.id);
+                this.catalogo.marcarEnBd('espacio', e.id);
                 return { ok: true, nombre: e.nombre, tipo: 'nuevo' as const };
               }),
               catchError(() => of({ ok: false, nombre: e.nombre, tipo: 'nuevo' as const }))
@@ -168,16 +187,10 @@ export class EspaciosTabComponent {
 
   cargarDesdeBD() {
     this.saving.set(true);
-    this.persistencia.cargarEspacios().subscribe({
-      next: (espacios) => {
+    this.catalogo.cargarTodo().subscribe({
+      next: (resumen) => {
         this.saving.set(false);
-        this.bdIds = new Set(espacios.map(e => e.id));
-        espacios.forEach(e => {
-          const existing = this.state.espacios().find(x => x.id === e.id);
-          if (existing) this.state.updateEspacio(e);
-          else this.state.addEspacio(e);
-        });
-        this.snackBar.open(`${espacios.length} espacio(s) cargados desde la BD.`, 'Cerrar', { duration: 4000 });
+        this.snackBar.open(`${resumen.espacios} espacio(s) cargados desde la BD.`, 'Cerrar', { duration: 4000 });
       },
       error: () => {
         this.saving.set(false);
@@ -243,48 +256,3 @@ export class EspacioDialogComponent {
 
 // ─── Dialog de resultado del guardado ────────────────────────────────────────
 
-interface GuardadoResultado {
-  entidad: string;
-  nuevos: string[];
-  actualizados: string[];
-  errores: string[];
-}
-
-@Component({
-  selector: 'app-guardado-resultado-espacios-dialog',
-  standalone: true,
-  imports: [CommonModule, MatDialogModule, MatButtonModule, MatIconModule],
-  template: `
-    <h2 mat-dialog-title>Resultado: Guardar en BD</h2>
-    <mat-dialog-content>
-      <div *ngIf="data.nuevos.length > 0" class="section">
-        <p class="section-title ok"><mat-icon>check_circle</mat-icon> Nuevos guardados ({{data.nuevos.length}})</p>
-        <ul><li *ngFor="let n of data.nuevos">{{n}}</li></ul>
-      </div>
-      <div *ngIf="data.actualizados.length > 0" class="section">
-        <p class="section-title info"><mat-icon>sync</mat-icon> Ya estaban en BD — actualizados ({{data.actualizados.length}})</p>
-        <ul><li *ngFor="let n of data.actualizados">{{n}}</li></ul>
-      </div>
-      <div *ngIf="data.errores.length > 0" class="section">
-        <p class="section-title err"><mat-icon>error</mat-icon> Errores ({{data.errores.length}})</p>
-        <ul><li *ngFor="let n of data.errores">{{n}}</li></ul>
-      </div>
-      <p *ngIf="!data.nuevos.length && !data.actualizados.length && !data.errores.length" class="empty">
-        No había cambios que guardar.
-      </p>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-flat-button mat-dialog-close color="primary">Aceptar</button>
-    </mat-dialog-actions>
-  `,
-  styles: [`
-    .section { margin-bottom: 14px; }
-    .section-title { display: flex; align-items: center; gap: 6px; font-weight: 500; margin: 0 0 4px; }
-    .ok   { color: #2e7d32; } .info { color: #1565c0; } .err { color: #c62828; }
-    ul { margin: 0 0 0 28px; padding: 0; font-size: 14px; }
-    .empty { color: #757575; font-style: italic; }
-  `]
-})
-export class GuardadoResultadoDialogComponent {
-  data = inject(MAT_DIALOG_DATA) as GuardadoResultado;
-}

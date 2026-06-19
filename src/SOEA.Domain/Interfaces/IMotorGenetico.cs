@@ -33,6 +33,7 @@ namespace SOEA.Domain.Interfaces
         int    PesoErgo             = 3,   // SC-01: minimizar huecos ociosos entre sesiones
         int    PesoTiempos          = 2,   // SC-06: balancear carga entre días disponibles
         int    PesoAlmuerzo         = 3,   // SC-09: evitar > 6 horas seguidas (blanda fuerte: domina un hueco)
+        int    PesoBalanceSemanas   = 2,   // SC-BAL: desbalance de carga por día entre Semana A y B (Incremento 2)
         int?   Semilla              = null);
 
     /// <summary>
@@ -48,6 +49,7 @@ namespace SOEA.Domain.Interfaces
             IEnumerable<BloqueTiempo>       bloques,
             IEnumerable<Espacio>            espacios,
             IEnumerable<Docente>            docentes,
-            ConfiguracionOptimizacion?      config = null);
+            ConfiguracionOptimizacion?      config = null,
+            CancellationToken               ct = default);
     }
 }

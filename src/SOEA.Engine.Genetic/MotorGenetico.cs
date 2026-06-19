@@ -11,13 +11,15 @@ using SOEA.Domain.Services;
 namespace SOEA.Engine.Genetic
 {
     /// <summary>
-    /// Motor de Algoritmo Genético (Fase 3) del modelo bi-semanal.
-    /// Optimiza tres objetivos blandos del docente (huecos, &gt; 6 horas seguidas, balance entre
-    /// días disponibles) moviendo SOLO el inicio de cada sesión, compartido por las semanas A/B.
+    /// Motor de Algoritmo Genético (Fase 3) del modelo bi-semanal (Incremento 2).
+    /// Optimiza objetivos blandos del docente (huecos, &gt; 6 horas seguidas, balance entre días
+    /// disponibles, balance entre semanas SC-BAL) moviendo el inicio de cada sesión por semana:
+    /// <c>Start</c> (Semana A) y <c>StartB</c> (Semana B). Para TipoA/TipoB ambos coinciden
+    /// siempre (regla 9 / ALT-05); para SinAlternancia pueden diferir (ALT-06).
     /// Las restricciones duras se preservan así:
-    ///   - HC-I02 (disponibilidad): los operadores solo eligen inicios válidos.
-    ///   - HC-I01 (solape de docente): reparación + verificación final.
-    ///   - HC-S01/S03 (aulas): pase determinista posterior con los inicios ya fijados.
+    ///   - HC-I02 (disponibilidad): los operadores solo eligen inicios válidos, en ambas semanas.
+    ///   - HC-I01 (solape de docente): reparación + verificación final, por semana.
+    ///   - HC-S01/S03 (aulas): pase determinista posterior con los inicios ya fijados, por semana.
     ///   - HC-I03 (horas semanales): invariante (el GA no cambia duraciones ni asignación docente).
     /// Si el mejor cromosoma no es factible (solape residual o aulas no asignables), hace FALLBACK
     /// a las asignaciones de Fase 2 — nunca devuelve un horario peor o inválido.
@@ -35,7 +37,8 @@ namespace SOEA.Engine.Genetic
             IEnumerable<BloqueTiempo>      bloques,
             IEnumerable<Espacio>           espacios,
             IEnumerable<Docente>           docentes,
-            ConfiguracionOptimizacion?     config = null)
+            ConfiguracionOptimizacion?     config = null,
+            CancellationToken              ct = default)
         {
             var s  = sesiones.ToList();
             var a2 = asignacionesFase2.ToList();
@@ -43,7 +46,7 @@ namespace SOEA.Engine.Genetic
             var e  = espacios.ToList();
             var d  = docentes.ToList();
             var c  = config ?? new ConfiguracionOptimizacion();
-            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, c));
+            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, c, ct), ct);
         }
 
         private ResultadoOptimizacion OptimizarSincrono(
@@ -52,7 +55,8 @@ namespace SOEA.Engine.Genetic
             List<BloqueTiempo>      bloques,
             List<Espacio>           espacios,
             List<Docente>           docentes,
-            ConfiguracionOptimizacion config)
+            ConfiguracionOptimizacion config,
+            CancellationToken ct)
         {
             if (sesiones.Count == 0 || bloques.Count == 0)
             {
@@ -75,10 +79,12 @@ namespace SOEA.Engine.Genetic
             var diaPorIdx  = BloquesPlanner.DiaPorBloqueIdx(bloques);
             var duraciones = sesiones.Select(s => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras))).ToArray();
 
-            // ── Semilla: inicios desde la Semana A de la solución de Fase 2 ───────────────
-            var startSemilla = SembrarInicios(sesiones, asignacionesFase2, bloqueIndex);
+            // ── Semilla: inicios desde Fase 2, Semana A en Start y Semana B en StartB ─────
+            var esIndependiente = sesiones.Select(s => s.Alternancia == TipoAlternancia.SinAlternancia).ToArray();
+            var startSemilla  = SembrarInicios(sesiones, asignacionesFase2, bloqueIndex);
+            var startBSemilla = SembrarInicioB(sesiones, asignacionesFase2, bloqueIndex, startSemilla, esIndependiente);
             var sesionIds = sesiones.Select(s => s.Id).ToArray();
-            var semilla = new CromosomaHorario(sesionIds, startSemilla);
+            var semilla = new CromosomaHorario(sesionIds, startSemilla, startBSemilla);
 
             var operadores = new OperadoresGeneticos(sesiones, bloques, docentes, rng);
             var evaluador  = new EvaluadorFitness(sesiones, bloques, docentes, espacios, config);
@@ -104,6 +110,7 @@ namespace SOEA.Engine.Genetic
             // ── Ciclo generacional (estado estable: reemplaza al peor) ───────────────────
             for (int gen = 1; gen <= maxGeneraciones; gen++)
             {
+                ct.ThrowIfCancellationRequested();
                 var p1 = operadores.SeleccionTorneo(poblacion, TamañoTorneo);
                 var p2 = operadores.SeleccionTorneo(poblacion, TamañoTorneo);
                 var hijo = operadores.Cruce(p1, p2, probCruce);
@@ -139,7 +146,7 @@ namespace SOEA.Engine.Genetic
                 return new ResultadoOptimizacion(asignacionesFase2, mejorFitness, generacionFinal, UsoFallback: true);
             }
 
-            var aulas = AsignadorEspacios.Asignar(sesiones, mejor.Start, duraciones, espacios, diaPorIdx);
+            var aulas = AsignadorEspacios.Asignar(sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx);
             if (aulas is null)
             {
                 _logger.LogWarning("Fase 3: no hay asignación de aulas factible para el mejor cromosoma; fallback a Fase 2.");
@@ -151,8 +158,8 @@ namespace SOEA.Engine.Genetic
             return new ResultadoOptimizacion(asignacionesGA, mejorFitness, generacionFinal, UsoFallback: false);
         }
 
-        // Inicios semilla desde la Semana A de Fase 2 (regla 9: A y B comparten franja en TipoA/TipoB;
-        // para SinAlternancia/virtual tomamos A y aceptamos el modelo de inicio compartido).
+        // Inicios semilla desde la Semana A de Fase 2 (Start). Regla 9: A y B comparten franja en
+        // TipoA/TipoB — ver SembrarInicioB para la Semana B.
         private static int[] SembrarInicios(
             List<Sesion> sesiones,
             List<AsignacionSemanal> asignacionesFase2,
@@ -176,6 +183,38 @@ namespace SOEA.Engine.Genetic
             return start;
         }
 
+        // Inicios semilla de Semana B (StartB). Para TipoA/TipoB se fuerza == startA (regla 9 /
+        // ALT-05), de forma defensiva aunque Fase 2 ya debería traerlos iguales. Para
+        // SinAlternancia se siembra desde la Semana B real de Fase 2 (ALT-06: puede diferir).
+        private static int[] SembrarInicioB(
+            List<Sesion> sesiones,
+            List<AsignacionSemanal> asignacionesFase2,
+            Dictionary<Guid, int> bloqueIndex,
+            int[] startA,
+            bool[] esIndependiente)
+        {
+            var bloquePorSesionB = asignacionesFase2
+                .Where(a => a.Semana == SemanaAcademica.B)
+                .GroupBy(a => a.SesionId)
+                .ToDictionary(g => g.Key, g => g.First().BloqueTiempoId);
+
+            var startB = new int[sesiones.Count];
+            for (int i = 0; i < sesiones.Count; i++)
+            {
+                if (!esIndependiente[i])
+                {
+                    startB[i] = startA[i];
+                    continue;
+                }
+
+                if (bloquePorSesionB.TryGetValue(sesiones[i].Id, out var bid) && bloqueIndex.TryGetValue(bid, out var idx))
+                    startB[i] = idx;
+                else
+                    startB[i] = startA[i];
+            }
+            return startB;
+        }
+
         private static List<AsignacionSemanal> Decodificar(
             List<Sesion> sesiones,
             CromosomaHorario cromosoma,
@@ -186,9 +225,9 @@ namespace SOEA.Engine.Genetic
             for (int i = 0; i < sesiones.Count; i++)
             {
                 var sesion = sesiones[i];
-                var bloque = bloques[cromosoma.Start[i]];
                 foreach (var semana in new[] { SemanaAcademica.A, SemanaAcademica.B })
                 {
+                    var bloque = bloques[semana == SemanaAcademica.A ? cromosoma.Start[i] : cromosoma.StartB[i]];
                     var modalidad = ModalidadSemanal.Derivar(sesion, semana);
                     Guid? espacioId = null;
                     if (modalidad == Modalidad.Presencial &&
@@ -205,12 +244,19 @@ namespace SOEA.Engine.Genetic
         private static bool TieneSolapeDocente(
             CromosomaHorario c, List<Sesion> sesiones, int[] duraciones, DiaDeSemana[] diaPorIdx)
         {
+            return TieneSolapeDocenteSemana(c.Start, sesiones, duraciones, diaPorIdx)
+                || TieneSolapeDocenteSemana(c.StartB, sesiones, duraciones, diaPorIdx);
+        }
+
+        private static bool TieneSolapeDocenteSemana(
+            int[] starts, List<Sesion> sesiones, int[] duraciones, DiaDeSemana[] diaPorIdx)
+        {
             var porDocente = new Dictionary<Guid, List<(int start, int dur)>>();
-            for (int i = 0; i < c.CantidadGenes; i++)
+            for (int i = 0; i < starts.Length; i++)
             {
                 var doc = sesiones[i].DocenteId;
                 if (doc == Guid.Empty) continue;
-                int start = c.Start[i], dur = duraciones[i];
+                int start = starts[i], dur = duraciones[i];
                 if (!porDocente.TryGetValue(doc, out var lista)) { lista = new(); porDocente[doc] = lista; }
                 if (lista.Any(o => BloquesPlanner.Solapan(o.start, o.dur, start, dur, diaPorIdx)))
                     return true;

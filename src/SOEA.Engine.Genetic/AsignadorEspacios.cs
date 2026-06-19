@@ -21,7 +21,8 @@ namespace SOEA.Engine.Genetic
     {
         public static Dictionary<(Guid sesionId, SemanaAcademica semana), Guid>? Asignar(
             IReadOnlyList<Sesion> sesiones,
-            int[] startPorSesion,
+            int[] startAPorSesion,
+            int[] startBPorSesion,
             int[] duracionPorSesion,
             IReadOnlyList<Espacio> espacios,
             DiaDeSemana[] diaPorIdx)
@@ -38,6 +39,8 @@ namespace SOEA.Engine.Genetic
 
             foreach (var semana in new[] { SemanaAcademica.A, SemanaAcademica.B })
             {
+                var startPorSesion = semana == SemanaAcademica.A ? startAPorSesion : startBPorSesion;
+
                 // Sesiones presenciales en esta semana, ordenadas por inicio (greedy óptimo).
                 var presenciales = Enumerable.Range(0, sesiones.Count)
                     .Where(i => ModalidadSemanal.Derivar(sesiones[i], semana) == Modalidad.Presencial)

@@ -23,6 +23,7 @@ namespace SOEA.Infrastructure.Data.Repositories
         {
             var ids = sesionIds.ToList();
             return await _dbSet
+                .AsNoTracking()
                 .Where(a => ids.Contains(a.SesionId))
                 .ToListAsync();
         }

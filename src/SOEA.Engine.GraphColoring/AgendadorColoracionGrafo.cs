@@ -27,11 +27,11 @@ namespace SOEA.Engine.GraphColoring
             _logger = logger;
         }
 
-        public Task<IEnumerable<Sesion>> AsignarBloquesDeTiempoAsync(IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloquesDisponibles)
+        public Task<IEnumerable<Sesion>> AsignarBloquesDeTiempoAsync(IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloquesDisponibles, CancellationToken ct = default)
         {
             var s = sesiones.ToList();
             var b = bloquesDisponibles.ToList();
-            return Task.Run<IEnumerable<Sesion>>(() => AsignarBloquesSincrono(s, b));
+            return Task.Run<IEnumerable<Sesion>>(() => AsignarBloquesSincrono(s, b), ct);
         }
 
         private List<Sesion> AsignarBloquesSincrono(List<Sesion> sesiones, List<BloqueTiempo> bloques)

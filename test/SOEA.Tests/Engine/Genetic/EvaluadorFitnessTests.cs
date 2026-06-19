@@ -10,9 +10,10 @@ using Xunit;
 namespace SOEA.Tests.Engine.Genetic
 {
     /// <summary>
-    /// Verifica los tres objetivos blandos reales del GA: ① huecos, ② &gt; 6 horas seguidas,
-    /// ③ balance entre días disponibles (desviación media absoluta). Cada test aísla un objetivo
-    /// vía los pesos, usando sesiones virtuales para neutralizar la guarda de aulas.
+    /// Verifica los cuatro objetivos blandos reales del GA: ① huecos, ② &gt; 6 horas seguidas,
+    /// ③ balance entre días disponibles (desviación media absoluta), ④ balance de carga entre
+    /// Semana A y B (SC-BAL, Incremento 2). Cada test aísla un objetivo vía los pesos, usando
+    /// sesiones virtuales para neutralizar la guarda de aulas.
     /// </summary>
     public class EvaluadorFitnessTests
     {
@@ -86,6 +87,24 @@ namespace SOEA.Tests.Engine.Genetic
             var balanceado  = new CromosomaHorario(ids, new[] { 0, 4 }); // una Lunes, una Martes
 
             Assert.True(eval.Evaluar(concentrado) > eval.Evaluar(balanceado));
+        }
+
+        [Fact] // ④ SC-BAL: desbalance de carga entre Semana A y B penaliza más que carga simétrica.
+        public void SCBAL_PenalizaDesbalanceEntreSemanas()
+        {
+            var docId = Guid.NewGuid();
+            var sesiones = new List<Sesion> { Virtual(docId, 2m) }; // SinAlternancia: StartB libre
+            var bloques  = Grilla(4, DiaDeSemana.Lunes, DiaDeSemana.Martes); // Lunes 0-3, Martes 4-7
+            var docentes = new List<Docente> { Doc(docId, bloques) };
+            var cfg = new ConfiguracionOptimizacion(
+                PesoErgo: 0, PesoTiempos: 0, PesoAlmuerzo: 0, PesoBalanceSemanas: 1);
+            var eval = new EvaluadorFitness(sesiones, bloques, docentes, new List<Espacio>(), cfg);
+
+            var ids = sesiones.Select(s => s.Id).ToArray();
+            var balanceado    = new CromosomaHorario(ids, new[] { 0 }, new[] { 0 }); // misma franja A y B
+            var desbalanceado = new CromosomaHorario(ids, new[] { 0 }, new[] { 4 }); // Lunes en A, Martes en B
+
+            Assert.True(eval.Evaluar(desbalanceado) > eval.Evaluar(balanceado));
         }
     }
 }

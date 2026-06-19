@@ -107,12 +107,12 @@ función ConstraintProgrammingPhase(sesiones, bloques, espacios, docentes):
 
 ## Fase 3 — Algoritmo genético
 
-> **Estado actual (Incremento 1):** la Fase 3 está **temporalmente omitida** en `GenerarHorarioService`. El horario bi-semanal factible producido por la Fase 2 es el resultado final hasta que se complete el Incremento 2. La reactivación requiere rediseñar el cromosoma como pares `(AsignacionSemanal_A, AsignacionSemanal_B)` y añadir la soft constraint de balance entre semanas (SC-BAL).
+> **Estado actual (Incremento 2):** la Fase 3 está **activa** en `GenerarHorarioService` y optimiza los objetivos blandos del docente (huecos, &gt; 6 horas seguidas, balance entre días disponibles, balance entre semanas) sobre dos genes de inicio por sesión: `CromosomaHorario.Start` (Semana A) y `StartB` (Semana B). Para TipoA/TipoB, `StartB` se mantiene igual a `Start` por construcción (ALT-05: misma franja en ambas semanas). Para `SinAlternancia`, `StartB` puede diferir de `Start` (ALT-06); la soft constraint SC-BAL penaliza el desbalance de carga horaria entre semanas que esa libertad puede introducir.
 
 **Implementación:** `SOEA.Engine.Genetic` · `MotorGenetico`, `CromosomaHorario`, `EvaluadorFitness`, `OperadoresGeneticos`
 **Hiperparámetros:** población 50 · generaciones máx 200 · convergencia 30 generaciones sin mejora
 
-**Input (Incremento 2):** lista de `AsignacionSemanal` de Fase 2 (pares A/B por sesión)
+**Input:** lista de `AsignacionSemanal` de Fase 2 (pares A/B por sesión; ambas semanas siembran `Start`/`StartB`)
 **Output:** lista optimizada de `AsignacionSemanal` (fitness minimizado)
 
 ```pseudocode
@@ -140,7 +140,7 @@ función Fitness(cromosoma):
     retornar score   // menor = mejor; 0 = óptimo
 ```
 
-**Soft constraints procesadas en Fase 3:** SC-01 a SC-09 (ver `docs/domain.md` para pesos)
+**Soft constraints procesadas en Fase 3:** SC-01 a SC-09 y SC-BAL — Incremento 2 (ver `docs/domain.md` para pesos)
 
 ---
 

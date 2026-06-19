@@ -116,6 +116,23 @@ export class PersistenciaService {
     return this.http.get<any[]>(`${this.base}/asignaturas`);
   }
 
+  actualizarAsignatura(a: Asignatura): Observable<any> {
+    const body = {
+      nombre: a.nombre,
+      codigo: a.codigo,
+      horasPorSesion: a.horasPorSesion,
+      sesionesPorSemana: a.sesionesPorSemana,
+      sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
+      programaId: a.programaId,
+      // Se envía la alternancia visible en la UI como override explícito para
+      // que el backend no la re-infiera por umbral y pise un tipo ya establecido.
+      alternancia: a.alternancia,
+      docenteId: a.docenteId ?? null,
+      espacioFijoId: a.espacioFijoId ?? null
+    };
+    return this.http.put<any>(`${this.base}/asignaturas/${a.id}`, body);
+  }
+
   actualizarAlternancia(id: string, alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia'): Observable<void> {
     return this.http.patch<void>(`${this.base}/asignaturas/${id}/alternancia`, { alternancia });
   }

@@ -1,6 +1,5 @@
 import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
-import { forkJoin } from 'rxjs';
-import { CommonModule, TitleCasePipe } from '@angular/common';
+import { CommonModule, DatePipe, TitleCasePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
@@ -14,6 +13,7 @@ import { RouterModule } from '@angular/router';
 import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { PersistenciaService } from '../../core/persistencia.service';
+import { CatalogoService } from '../../core/catalogo.service';
 import { Asignatura, Docente, Espacio, Sesion } from '../../core/models';
 
 /** Representación visual de una sesión atómica multi-slot. */
@@ -39,7 +39,7 @@ interface MergedSesion {
   selector: 'app-horario',
   standalone: true,
   imports: [
-    CommonModule, TitleCasePipe, MatButtonModule, MatDialogModule, MatSnackBarModule,
+    CommonModule, DatePipe, TitleCasePipe, MatButtonModule, MatDialogModule, MatSnackBarModule,
     DragDropModule, RouterModule, MatProgressSpinnerModule, MatIconModule
   ],
   template: `
@@ -48,10 +48,21 @@ interface MergedSesion {
         <h1 class="page-title text-primary">Horario</h1>
         <div class="header-buttons">
           @if (state.sesiones().length > 0) {
+            <button mat-stroked-button (click)="exportarHorario()" title="Descargar horario como JSON">
+              <mat-icon>upload</mat-icon> Exportar
+            </button>
+            <button mat-stroked-button (click)="guardarComoBase()" title="Guardar este horario como base para la próxima generación">
+              <mat-icon>bookmark_add</mat-icon> Guardar base
+            </button>
             <button mat-stroked-button color="primary" (click)="abrirCrearSesion()" [disabled]="loadingBackend()">
               <mat-icon>add_circle_outline</mat-icon> Crear sesión
             </button>
           }
+          <button mat-stroked-button (click)="importarInput.click()" title="Cargar horario desde JSON">
+            <mat-icon>download</mat-icon> Importar
+          </button>
+          <input #importarInput type="file" accept=".json" style="display:none"
+                 (change)="importarHorario($event)">
           <button mat-flat-button color="primary" class="primary-button" (click)="generarHorario()" [disabled]="loadingBackend()">
             <mat-icon>auto_awesome</mat-icon> Generar Horario
           </button>
@@ -92,6 +103,42 @@ interface MergedSesion {
             <span class="week-desc">TipoB presencial · TipoA virtual</span>
           }
         </div>
+
+        <!-- Horarios base guardados -->
+        @if (state.horariosBases().length > 0) {
+          <div class="bases-panel">
+            <div class="bases-header">
+              <mat-icon class="bases-icon">bookmarks</mat-icon>
+              <span class="bases-title">Horarios base guardados</span>
+              <span class="bases-hint">Selecciona uno para usarlo en la próxima generación</span>
+            </div>
+            <div class="bases-list">
+              @for (base of state.horariosBases(); track base.id) {
+                <div class="base-item" [class.selected]="state.baseSeleccionadaId() === base.id">
+                  <button class="base-radio"
+                          [class.active]="state.baseSeleccionadaId() === base.id"
+                          (click)="toggleBase(base.id)"
+                          [title]="state.baseSeleccionadaId() === base.id ? 'Quitar selección' : 'Usar como base'">
+                    <mat-icon>{{ state.baseSeleccionadaId() === base.id ? 'radio_button_checked' : 'radio_button_unchecked' }}</mat-icon>
+                  </button>
+                  <div class="base-info">
+                    <span class="base-nombre">{{ base.nombre }}</span>
+                    <span class="base-meta">{{ base.sesiones.length }} sesiones · {{ base.creadoEn | date:'dd/MM/yyyy HH:mm' }}</span>
+                  </div>
+                  <button mat-icon-button class="base-delete" (click)="eliminarBase(base.id)" title="Eliminar base">
+                    <mat-icon>delete_outline</mat-icon>
+                  </button>
+                </div>
+              }
+            </div>
+            @if (state.baseSeleccionada(); as base) {
+              <div class="base-activa-hint">
+                <mat-icon>check_circle</mat-icon>
+                Usando base "{{ base.nombre }}" — {{ base.sesiones.length }} sesiones fijas en la próxima generación
+              </div>
+            }
+          </div>
+        }
 
         @if (!backendReady()) {
           <div class="backend-alert">
@@ -142,6 +189,7 @@ interface MergedSesion {
                               @if (esTipoA(merged)) {
                                 <div class="tipo-a-badge">Tipo A</div>
                               }
+                              <div class="card-context">{{ getContextLabel(merged) }}</div>
                               <div class="card-title">{{ getAsignaturaName(merged) }}</div>
                               <div class="card-sub">{{ getDocenteName(merged) }}</div>
                               <div class="card-duration">{{ merged.horaInicio }} – {{ merged.horaFin }}</div>
@@ -154,6 +202,9 @@ interface MergedSesion {
                                 }
                                 @if (merged.alternancia !== 'SinAlternancia' && !merged.semana) {
                                   <span class="badge-alt">{{ merged.alternancia }}</span>
+                                }
+                                @if (getGrupoLabel(merged); as g) {
+                                  <span class="badge-grupo">{{ g }}</span>
                                 }
                               </div>
 
@@ -195,6 +246,23 @@ interface MergedSesion {
     .week-sub { font-size: 9px; color: #9e9e9e; letter-spacing: 0.05em; margin-top: 1px; }
     .pill-button.week-btn.active .week-sub { color: rgba(255,255,255,0.75); }
     .week-desc { font-size: 11px; color: #9e9e9e; align-self: center; margin-left: 4px; font-style: italic; }
+    .bases-panel { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+    .bases-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .bases-icon { font-size: 18px; width: 18px; height: 18px; color: #1976d2; }
+    .bases-title { font-weight: 600; font-size: 13px; }
+    .bases-hint { font-size: 11px; color: #9e9e9e; margin-left: 4px; }
+    .bases-list { display: flex; flex-direction: column; gap: 6px; }
+    .base-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; background: white; border: 1px solid #e0e0e0; transition: 0.15s; }
+    .base-item.selected { border-color: #1976d2; background: #e3f2fd; }
+    .base-radio { background: none; border: none; cursor: pointer; padding: 4px; display: flex; align-items: center; color: #9e9e9e; }
+    .base-radio.active { color: #1976d2; }
+    .base-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .base-nombre { font-size: 13px; font-weight: 500; }
+    .base-meta { font-size: 11px; color: #9e9e9e; }
+    .base-delete { color: #bdbdbd !important; }
+    .base-delete:hover { color: #f44336 !important; }
+    .base-activa-hint { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: #1976d2; font-weight: 500; }
+    .base-activa-hint mat-icon { font-size: 16px; width: 16px; height: 16px; }
     .backend-alert {
       display: flex; align-items: center; gap: 12px; padding: 8px 12px; margin-bottom: 16px;
       border: 1px solid #ffe0b2; border-radius: 8px; background: #fff3e0; color: #8d6e63;
@@ -233,6 +301,7 @@ interface MergedSesion {
     .tipo-a            { border-left-color: #f57c00; }
     .tipo-a.presencial { background-color: #fff8e1; }
 
+    .card-context  { font-size: 9px; color: #9e9e9e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 1px; }
     .card-title    { font-weight: 600; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .card-sub      { color: #616161; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .card-duration { color: #9e9e9e; font-size: 10px; margin-top: 2px; }
@@ -240,6 +309,7 @@ interface MergedSesion {
     .badge-virtual { padding: 1px 5px; background: #e0e0e0; border-radius: 10px; font-size: 9px; }
     .badge-semana  { padding: 1px 5px; background: #ede7f6; color: #512da8; border-radius: 10px; font-size: 9px; font-weight: 600; }
     .badge-alt     { padding: 1px 5px; background: #e3f2fd; color: #1565c0; border-radius: 10px; font-size: 9px; }
+    .badge-grupo   { padding: 1px 5px; background: #e8f5e9; color: #2e7d32; border-radius: 10px; font-size: 9px; font-weight: 600; }
     .tipo-a-badge  { position: absolute; top: 2px; right: 2px; font-size: 9px; background: #ff9800; color: white; padding: 1px 4px; border-radius: 2px; }
 
     .empty-state { text-align: center; padding: 64px 32px; color: #757575; }
@@ -253,6 +323,7 @@ export class HorarioComponent implements OnInit {
   snackBar  = inject(MatSnackBar);
   horarioApi = inject(HorarioApiService);
   persistencia = inject(PersistenciaService);
+  catalogo  = inject(CatalogoService);
 
   dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
   franjas = [
@@ -279,19 +350,12 @@ export class HorarioComponent implements OnInit {
 
   syncFromBackend() {
     this.loadingBackend.set(true);
-    forkJoin({
-      espacios: this.persistencia.cargarEspacios(),
-      docentes: this.persistencia.cargarDocentes(),
-      asignaturas: this.persistencia.cargarAsignaturas()
-    }).subscribe({
-      next: ({ espacios, docentes, asignaturas }) => {
+    this.catalogo.cargarTodo().subscribe({
+      next: () => {
         this.loadingBackend.set(false);
         this.backendReady.set(true);
 
-        this.state.espacios.set(espacios);
-        this.state.docentes.set(this.mapDocentes(docentes));
-        this.state.setAsignaturas(this.mapAsignaturas(asignaturas));
-
+        const espacios = this.state.espacios();
         const current = this.activeSpace();
         if (!current || !espacios.find(e => e.id === current.id)) {
           this.activeSpace.set(espacios[0] ?? null);
@@ -472,6 +536,20 @@ export class HorarioComponent implements OnInit {
     return this.state.docenteById().get(merged.docenteId)?.nombre ?? '';
   }
 
+  getContextLabel(merged: MergedSesion): string {
+    const asig = this.state.asignaturaById().get(merged.asignaturaId);
+    if (!asig) return '';
+    const prog = this.state.programaById().get(asig.programaId);
+    if (!prog) return '';
+    const fac = this.state.facultadById().get(prog.facultadId);
+    return fac ? `${fac.nombre} · ${prog.nombre}` : prog.nombre;
+  }
+
+  getGrupoLabel(merged: MergedSesion): string | null {
+    const asig = this.state.asignaturaById().get(merged.asignaturaId);
+    return asig?.grupoNumero ? `G${asig.grupoNumero}` : null;
+  }
+
   // ── Drag & Drop ──────────────────────────────────────────────────────────────
 
   drop(event: CdkDragDrop<{ dia: string; franja: string }>) {
@@ -579,6 +657,65 @@ export class HorarioComponent implements OnInit {
     return `${String(h + horas).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
+  // ── Exportar / Importar horario JSON ─────────────────────────────────────────
+
+  exportarHorario() {
+    const sesiones = this.state.sesiones();
+    const payload = {
+      version: 1,
+      exportadoEn: new Date().toISOString(),
+      sesiones
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `horario-soea-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    this.snackBar.open(`✅ Horario exportado (${sesiones.length} sesiones).`, '', { duration: 3000 });
+  }
+
+  importarHorario(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = JSON.parse(e.target!.result as string);
+        const sesiones = json.sesiones ?? json; // soporta array plano o { sesiones: [...] }
+        if (!Array.isArray(sesiones)) throw new Error('Formato inválido: se espera un array de sesiones.');
+        this.state.setSesiones(sesiones);
+        this.snackBar.open(`✅ Horario importado: ${sesiones.length} sesiones cargadas.`, 'Cerrar', { duration: 5000 });
+      } catch (err: any) {
+        this.snackBar.open(`❌ Error al leer el archivo: ${err.message}`, 'Cerrar', { duration: 6000, panelClass: ['snack-error'] });
+      }
+      (event.target as HTMLInputElement).value = '';
+    };
+    reader.readAsText(file);
+  }
+
+  // ── Horarios base ─────────────────────────────────────────────────────────────
+
+  guardarComoBase() {
+    const nombre = window.prompt('Nombre del horario base:', `Base ${new Date().toLocaleDateString('es-CO')}`);
+    if (!nombre?.trim()) return;
+    const base = this.state.guardarHorarioBase(nombre);
+    this.snackBar.open(`✅ Horario base "${base.nombre}" guardado (${base.sesiones.length} sesiones).`, 'Cerrar', { duration: 4000 });
+  }
+
+  toggleBase(id: string) {
+    this.state.seleccionarBase(this.state.baseSeleccionadaId() === id ? null : id);
+  }
+
+  eliminarBase(id: string) {
+    const base = this.state.horariosBases().find(b => b.id === id);
+    if (!base) return;
+    if (!window.confirm(`¿Eliminar la base "${base.nombre}"?`)) return;
+    this.state.eliminarHorarioBase(id);
+    this.snackBar.open(`Base "${base.nombre}" eliminada.`, '', { duration: 3000 });
+  }
+
   // ── Generación de horario ────────────────────────────────────────────────────
 
   generarHorario() {
@@ -598,7 +735,9 @@ export class HorarioComponent implements OnInit {
         this.state.asignaturas(),
         this.state.docentes(),
         this.state.espacios(),
-        this.state.configuracionAlgoritmo()
+        this.state.configuracionAlgoritmo(),
+        '2026-1',
+        this.state.baseSeleccionada() ?? undefined
       )
       .subscribe({
         next: (respuesta) => {
@@ -627,16 +766,6 @@ export class HorarioComponent implements OnInit {
       });
   }
 
-  private mapDocentes(docentes: Docente[]): Docente[] {
-    return docentes.map(d => ({
-      id: d.id,
-      nombre: d.nombre,
-      cedula: d.cedula ?? '',
-      maxHoras: d.maxHoras ?? 40,
-      disponibilidad: d.disponibilidad ?? {}
-    }));
-  }
-
   // ── Crear sesión manual ──────────────────────────────────────────────────────
 
   abrirCrearSesion() {
@@ -662,21 +791,6 @@ export class HorarioComponent implements OnInit {
     });
   }
 
-  private mapAsignaturas(asignaturas: any[]): Asignatura[] {
-    return asignaturas.map(a => ({
-      id: a.id,
-      codigo: a.codigo ?? '',
-      nombre: a.nombre,
-      horasPorSesion: a.horasPorSesion ?? 2,
-      sesionesPorSemana: a.sesionesPorSemana ?? 1,
-      sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre ?? 0,
-      alternancia: a.alternancia ?? 'SinAlternancia',
-      programaId: a.programaId,
-      docenteId: a.docenteId ?? undefined,
-      grupoNumero: a.grupoNumero ?? undefined,
-      espacioFijoId: a.espacioFijoId ?? undefined
-    }));
-  }
 }
 
 // ─── Diálogo: Crear sesión manual ────────────────────────────────────────────

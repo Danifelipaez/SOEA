@@ -14,8 +14,10 @@ namespace SOEA.Tests.Engine.Genetic
 {
     /// <summary>
     /// Pruebas de orquestación del GA bi-semanal: produce asignaciones A/B válidas, preserva
-    /// la alternancia (regla 9), respeta el espacio solo en semanas presenciales, es determinista
-    /// con semilla fija y hace fallback a Fase 2 cuando no hay solución de aulas factible.
+    /// la alternancia (regla 9) para TipoA/TipoB y permite franjas independientes para
+    /// SinAlternancia (ALT-06, Incremento 2), respeta el espacio solo en semanas presenciales,
+    /// es determinista con semilla fija y hace fallback a Fase 2 cuando no hay solución de aulas
+    /// factible.
     /// </summary>
     public class MotorGeneticoTests
     {
@@ -102,6 +104,33 @@ namespace SOEA.Tests.Engine.Genetic
             Assert.Null(b.EspacioId);
             // Regla 9: misma franja en ambas semanas.
             Assert.Equal(a.BloqueTiempoId, b.BloqueTiempoId);
+        }
+
+        [Fact]
+        public async Task SinAlternancia_PuedeTenerFranjaDistintaEntreSemanaAYB()
+        {
+            // Contraste con TipoA_Presencial_TieneAulaSoloEnSemanaA: para SinAlternancia (ALT-06)
+            // el Incremento 2 permite que la franja de Semana B difiera de la de Semana A.
+            var docId = Guid.NewGuid();
+            var sesiones = new List<Sesion> { Sesion(docId, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m) };
+            var bloques  = Grilla(6); // un solo día (Lunes), bloques 0..5
+            var docentes = new List<Docente> { Doc(docId, bloques) };
+            var espacios = new List<Espacio> { new(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 30) };
+
+            // Fase 2 ya trae franjas distintas entre semanas para esta sesión (a diferencia del
+            // helper Fase2(), que siempre las siembra iguales).
+            var fase2 = new List<AsignacionSemanal>
+            {
+                new(Guid.NewGuid(), sesiones[0].Id, SemanaAcademica.A, bloques[0].Id, espacios[0].Id, Modalidad.Presencial),
+                new(Guid.NewGuid(), sesiones[0].Id, SemanaAcademica.B, bloques[3].Id, espacios[0].Id, Modalidad.Presencial),
+            };
+
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, Cfg());
+
+            Assert.False(r.UsoFallback);
+            var a = r.AsignacionesOptimizadas.Single(x => x.Semana == SemanaAcademica.A);
+            var b = r.AsignacionesOptimizadas.Single(x => x.Semana == SemanaAcademica.B);
+            Assert.NotEqual(a.BloqueTiempoId, b.BloqueTiempoId);
         }
 
         [Fact]

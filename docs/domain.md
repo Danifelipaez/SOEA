@@ -4,7 +4,7 @@
 
 | Entidad | Campos críticos | Notas |
 |---|---|---|
-| `Asignatura` | `Id`, `Nombre`, `Codigo`, `HorasPorSesion`, `SesionesPorSemana`, `TipoAlternancia`, `TipoEspacio`, `DocenteId?` | Duración fija en creación; Alternancia auto-derivada del nombre |
+| `Asignatura` | `Id`, `Nombre`, `Codigo`, `HorasPorSesion`, `SesionesPorSemana`, `TipoAlternancia`, `TipoEspacio`, `DocenteId?` | Duración fija en creación; Alternancia derivada de `sesionesLaboratorioSemestre` vs. umbral (`DeterminarAlternancia`, default 8 → TipoA; &gt;8 → TipoB; &lt;8 → SinAlternancia) o fijada manualmente vía `EstablecerAlternancia` (override de Rosa) |
 | `BloqueTiempo` | `DiaDeSemana`, `HoraInicio`, `HoraFin`, `EsSabado` | Generado en memoria por request; Lun–Vie 07:00–20:00, Sáb 07:00–14:00 |
 | `Docente` | `Id`, `Nombre`, `Apellido`, `Correo`, `MaximoHorasSemanales`, `Disponibilidad[]` | M:N con FranjasHorarias |
 | `Espacio` | `Id`, `Nombre`, `TipoEspacio`, `Capacidad`, `Ubicacion`, `Piso` | `TipoEspacio`: Salon / Laboratorio / Auditorio |
@@ -98,6 +98,7 @@ Usadas en la función de fitness del algoritmo genético (Fase 3). `fitness = Σ
 | SC-07 | Minimizar número de espacios distintos que usa una cohorte en un día | 1 |
 | SC-08 | Asignaturas relacionadas (mismo programa/cohorte) en franjas adyacentes | 1 |
 | SC-09 | Evitar asignar al docente el máximo de horas todos los días | 1 |
+| SC-BAL | Balancear la carga horaria del docente entre Semana A y Semana B (Incremento 2; solo aplica a `SinAlternancia`, vía `StartB`) | 2 |
 
 ---
 

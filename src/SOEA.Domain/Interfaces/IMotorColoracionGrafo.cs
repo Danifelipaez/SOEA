@@ -11,6 +11,6 @@ namespace SOEA.Domain.Interfaces
         /// utilizando un algoritmo de coloración de grafos (Welsh-Powell).
         /// Garantiza no asignar el mismo bloque de tiempo a sesiones que entran en conflicto.
         /// </summary>
-        Task<IEnumerable<Sesion>> AsignarBloquesDeTiempoAsync(IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloquesDisponibles);
+        Task<IEnumerable<Sesion>> AsignarBloquesDeTiempoAsync(IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloquesDisponibles, CancellationToken ct = default);
     }
 }

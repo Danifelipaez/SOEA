@@ -4,8 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { StateService } from '../../core/state.service';
 import { PersistenciaService } from '../../core/persistencia.service';
+import { CatalogoService } from '../../core/catalogo.service';
 import { Asignatura } from '../../core/models';
-import { forkJoin } from 'rxjs';
 
 type TipoAlt = 'TipoA' | 'TipoB' | 'SinAlternancia';
 
@@ -163,6 +163,7 @@ interface AsignaturaFila {
 export class ConfiguracionAlternanciaComponent {
   private state       = inject(StateService);
   private persistencia = inject(PersistenciaService);
+  private catalogo    = inject(CatalogoService);
   private snackBar    = inject(MatSnackBar);
 
   cargando  = signal(false);
@@ -251,28 +252,10 @@ export class ConfiguracionAlternanciaComponent {
 
   cargarDesdeApi(): void {
     this.cargando.set(true);
-    forkJoin({
-      asignaturas: this.persistencia.cargarAsignaturas(),
-      docentes:    this.persistencia.cargarDocentes(),
-      programas:   this.persistencia.cargarProgramas()
-    }).subscribe({
-      next: ({ asignaturas, docentes, programas }) => {
-        this.state.docentes.set(docentes);
-        this.state.programas.set(programas);
-        this.state.setAsignaturas(asignaturas.map((a: any): Asignatura => ({
-          id:             a.id,
-          nombre:         a.nombre,
-          codigo:         a.codigo ?? '',
-          docenteId:      a.docenteId,
-          programaId:     a.programaId,
-          horasPorSesion: a.horasPorSesion,
-          sesionesPorSemana:          a.sesionesPorSemana,
-          sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre ?? 0,
-          alternancia:    (a.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia',
-          espacioFijoId:  a.espacioFijoId,
-        })));
+    this.catalogo.cargarTodo().subscribe({
+      next: (resumen) => {
         this.cargando.set(false);
-        this.snackBar.open(`${asignaturas.length} asignatura(s) cargadas.`, 'Cerrar', { duration: 3000 });
+        this.snackBar.open(`${resumen.asignaturas} asignatura(s) cargadas.`, 'Cerrar', { duration: 3000 });
       },
       error: () => {
         this.cargando.set(false);

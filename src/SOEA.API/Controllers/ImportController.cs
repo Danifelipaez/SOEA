@@ -85,6 +85,7 @@ namespace SOEA.API.Controllers
                 DocentesCreados         = stats.DocentesCreados,
                 DocentesActualizados    = stats.DocentesActualizados,
                 EspaciosCreados         = stats.EspaciosCreados,
+                EspaciosActualizados    = stats.EspaciosActualizados,
                 AsignaturasCreadas      = stats.AsignaturasCreadas,
                 AsignaturasActualizadas = stats.AsignaturasActualizadas,
                 GruposCreados           = stats.GruposCreados,

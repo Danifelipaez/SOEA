@@ -33,8 +33,10 @@ namespace SOEA.Infrastructure.Data.Repositories
         public async Task<T?> GetByIdAsync(Guid id)
             => await _dbSet.FindAsync(id);
 
+        // Lectura de solo lectura: sin change tracking. UpdateAsync usa _dbSet.Update()
+        // explícito, así que una entidad leída aquí puede actualizarse igual si hace falta.
         public virtual async Task<List<T>> GetAllAsync()
-            => await _dbSet.ToListAsync();
+            => await _dbSet.AsNoTracking().ToListAsync();
 
         public async Task UpdateAsync(T entity)
         {

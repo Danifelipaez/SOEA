@@ -3,6 +3,9 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+# Graphify knowledge graph — generado localmente, no se sube al repo
+graphify-out/
+
 # dotenv files
 .env
 

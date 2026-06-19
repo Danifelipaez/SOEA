@@ -11,6 +11,10 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
+import { CatalogoService } from '../../../core/catalogo.service';
+import { mensajeErrorHttp } from '../../../core/http-error.util';
+import { GuardadoResultadoDialogComponent } from '../../../shared/guardado-resultado-dialog/guardado-resultado-dialog.component';
+import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { Docente } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { forkJoin, of } from 'rxjs';
@@ -83,11 +87,11 @@ export class DocentesTabComponent {
   dialog = inject(MatDialog);
   snackBar = inject(MatSnackBar);
   persistencia = inject(PersistenciaService);
+  catalogo = inject(CatalogoService);
 
   displayedColumns = ['nombre', 'cedula', 'maxHoras', 'disponibilidad', 'acciones'];
   filterStr = signal('');
   saving = signal(false);
-  private bdIds = new Set<string>();
 
   filteredDocentes = computed(() => {
     const f = this.filterStr().toLowerCase();
@@ -126,19 +130,34 @@ export class DocentesTabComponent {
   }
 
   delete(docente: Docente) {
-    if (this.bdIds.has(docente.id)) {
+    const enBd = this.catalogo.estaEnBd('docente', docente.id);
+    const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
+      width: '420px',
+      data: {
+        title: 'Eliminar docente',
+        message: enBd
+          ? `Se eliminará "${docente.nombre}" de la base de datos. Esta acción es irreversible.`
+          : `Se eliminará "${docente.nombre}" (aún no está guardado en la BD).`
+      }
+    });
+    ref.afterClosed().subscribe(confirmado => {
+      if (!confirmado) return;
+      if (!enBd) {
+        this.state.deleteDocente(docente.id);
+        this.snackBar.open('Docente eliminado localmente.', 'Cerrar', { duration: 3000 });
+        return;
+      }
       this.persistencia.eliminarDocenteBD(docente.id).subscribe({
         next: () => {
-          this.bdIds.delete(docente.id);
+          this.catalogo.quitarDeBd('docente', docente.id);
           this.state.deleteDocente(docente.id);
+          this.catalogo.cargarTodo().subscribe();
           this.snackBar.open('Docente eliminado de la BD.', 'Cerrar', { duration: 3000 });
         },
-        error: () => this.snackBar.open('Error al eliminar de la BD.', 'Cerrar', { duration: 4000 })
+        error: (err) => this.snackBar.open(
+          `Error al eliminar de la BD: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
       });
-    } else {
-      this.state.deleteDocente(docente.id);
-      this.snackBar.open('Docente eliminado localmente.', 'Cerrar', { duration: 3000 });
-    }
+    });
   }
 
   guardarEnBD() {
@@ -154,14 +173,14 @@ export class DocentesTabComponent {
       this.persistencia.actualizarDocente(d).pipe(
         map(updated => {
           this.state.updateDocente(updated);
-          this.bdIds.add(updated.id);
+          this.catalogo.marcarEnBd('docente', updated.id);
           return { ok: true, nombre: d.nombre, tipo: 'actualizado' as const };
         }),
         catchError(err => {
           if (err.status === 404) {
             return this.persistencia.guardarDocente(d).pipe(
               map(created => {
-                this.bdIds.add(created.id);
+                this.catalogo.marcarEnBd('docente', created.id);
                 this.state.updateDocente(created);
                 return { ok: true, nombre: d.nombre, tipo: 'nuevo' as const };
               }),
@@ -208,16 +227,10 @@ export class DocentesTabComponent {
 
   cargarDesdeBD() {
     this.saving.set(true);
-    this.persistencia.cargarDocentes().subscribe({
-      next: (docentes) => {
+    this.catalogo.cargarTodo().subscribe({
+      next: (resumen) => {
         this.saving.set(false);
-        this.bdIds = new Set(docentes.map(d => d.id));
-        docentes.forEach(d => {
-          const existing = this.state.docentes().find(x => x.id === d.id);
-          if (existing) this.state.updateDocente(d);
-          else this.state.addDocente(d);
-        });
-        this.snackBar.open(`${docentes.length} docente(s) cargados desde la BD.`, 'Cerrar', { duration: 4000 });
+        this.snackBar.open(`${resumen.docentes} docente(s) cargados desde la BD.`, 'Cerrar', { duration: 4000 });
       },
       error: () => {
         this.saving.set(false);
@@ -445,54 +458,6 @@ export class DocenteDialogComponent {
     });
     this.dialogRef.close({ ...this.form.value, disponibilidad });
   }
-}
-
-// ─── Dialog de resultado del guardado ────────────────────────────────────────
-
-interface GuardadoResultado {
-  entidad: string;
-  nuevos: string[];
-  actualizados: string[];
-  errores: string[];
-}
-
-@Component({
-  selector: 'app-guardado-resultado-dialog',
-  standalone: true,
-  imports: [CommonModule, MatDialogModule, MatButtonModule, MatIconModule],
-  template: `
-    <h2 mat-dialog-title>Resultado: Guardar en BD</h2>
-    <mat-dialog-content>
-      <div *ngIf="data.nuevos.length > 0" class="section">
-        <p class="section-title ok"><mat-icon>check_circle</mat-icon> Nuevos guardados ({{data.nuevos.length}})</p>
-        <ul><li *ngFor="let n of data.nuevos">{{n}}</li></ul>
-      </div>
-      <div *ngIf="data.actualizados.length > 0" class="section">
-        <p class="section-title info"><mat-icon>sync</mat-icon> Ya estaban en BD — actualizados ({{data.actualizados.length}})</p>
-        <ul><li *ngFor="let n of data.actualizados">{{n}}</li></ul>
-      </div>
-      <div *ngIf="data.errores.length > 0" class="section">
-        <p class="section-title err"><mat-icon>error</mat-icon> Errores ({{data.errores.length}})</p>
-        <ul><li *ngFor="let n of data.errores">{{n}}</li></ul>
-      </div>
-      <p *ngIf="!data.nuevos.length && !data.actualizados.length && !data.errores.length" class="empty">
-        No había cambios que guardar.
-      </p>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-flat-button mat-dialog-close color="primary">Aceptar</button>
-    </mat-dialog-actions>
-  `,
-  styles: [`
-    .section { margin-bottom: 14px; }
-    .section-title { display: flex; align-items: center; gap: 6px; font-weight: 500; margin: 0 0 4px; }
-    .ok   { color: #2e7d32; } .info { color: #1565c0; } .err { color: #c62828; }
-    ul { margin: 0 0 0 28px; padding: 0; font-size: 14px; }
-    .empty { color: #757575; font-style: italic; }
-  `]
-})
-export class GuardadoResultadoDialogComponent {
-  data = inject(MAT_DIALOG_DATA) as GuardadoResultado;
 }
 
 // ─── Dialog de fusión de docentes duplicados ─────────────────────────────────
