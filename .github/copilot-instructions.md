@@ -31,22 +31,6 @@ Orden obligatorio al agregar una nueva entidad o funcionalidad:
 4. Llamar a un motor de optimización desde un controller o desde Infrastructure
 5. Modificar `BloqueTiempo` desde un motor — son de solo lectura durante la optimización
 
-## Esquema de BD (SOEAdb, PostgreSQL localhost:5432)
-
-| Tabla | Campos clave |
-|---|---|
-| `Horarios` | `Id`, `Semestre`, `Estado` (borrador/validado/aprobado/activo), `Hard_constraint_violations`, `Soft_constraint_fitness_score` |
-| `Sesiones` | `Id`, `Horario_id`, `Asignatura_id`, `Espacio_id` (nullable), `Docente_id`, `Franja_id`, `Tipo_alternancia`, `Modalidad`, `Duracion_horas` |
-| `Asignaturas` | `Id`, `Nombre`, `Codigo`, `BloqueSemanales`, `RequiereLab`, `Alternancia`, `ProgramaId`, `DocenteId` (nullable) |
-| `Docentes` | `Id`, `Nombre`, `Apellido`, `Correo`, `Maximo_hrs_semanales` |
-| `Espacios` | `Id`, `Nombre`, `Tipo`, `Capacidad`, `Ubicacion`, `Piso` |
-| `FranjasHorarias` | `Id`, `Dia_semana`, `Hora_inicio`, `Hora_fin` |
-| `DisponibilidadDocente` | `Docente_id` + `Franja_id` (PK compuesta) |
-| `Programas` | `Id`, `Nombre`, `Codigo` |
-| `Facultades` | `Id`, `Nombre` |
-
-`Espacio_id = null` indica sesión virtual. `TipoAlternancia`: `TypeA`, `TypeB`, `NonAlternating`.
-
 ## Enums y convenciones de código
 
 ```csharp
