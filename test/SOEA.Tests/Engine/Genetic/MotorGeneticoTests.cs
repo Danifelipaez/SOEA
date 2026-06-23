@@ -72,7 +72,7 @@ namespace SOEA.Tests.Engine.Genetic
             var espacios = new List<Espacio>();
             var fase2 = Fase2(sesiones, new[] { 0, 2 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
 
             Assert.False(r.UsoFallback);
             Assert.Equal(4, r.AsignacionesOptimizadas.Count);
@@ -93,7 +93,7 @@ namespace SOEA.Tests.Engine.Genetic
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 30) };
             var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
 
             Assert.False(r.UsoFallback);
             var a = r.AsignacionesOptimizadas.Single(x => x.Semana == SemanaAcademica.A);
@@ -125,7 +125,7 @@ namespace SOEA.Tests.Engine.Genetic
                 new(Guid.NewGuid(), sesiones[0].Id, SemanaAcademica.B, bloques[3].Id, espacios[0].Id, Modalidad.Presencial),
             };
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
 
             Assert.False(r.UsoFallback);
             var a = r.AsignacionesOptimizadas.Single(x => x.Semana == SemanaAcademica.A);
@@ -144,8 +144,8 @@ namespace SOEA.Tests.Engine.Genetic
             var espacios = new List<Espacio>();
             var fase2 = Fase2(sesiones, new[] { 0, 1, 2 }, bloques, espacios);
 
-            var r1 = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, Cfg(99));
-            var r2 = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, Cfg(99));
+            var r1 = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg(99));
+            var r2 = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg(99));
 
             Assert.Equal(r1.PuntajeFitness, r2.PuntajeFitness);
             Assert.Equal(
@@ -169,7 +169,7 @@ namespace SOEA.Tests.Engine.Genetic
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Aula", TipoEspacio.Salon, 30) };
             var fase2 = Fase2(sesiones, new[] { 0, 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
 
             Assert.True(r.UsoFallback);
             Assert.Equal(fase2.Count, r.AsignacionesOptimizadas.Count);

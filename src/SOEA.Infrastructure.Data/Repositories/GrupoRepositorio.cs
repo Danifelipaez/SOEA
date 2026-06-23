@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using SOEA.Domain.Entities;
@@ -14,5 +15,11 @@ namespace SOEA.Infrastructure.Data.Repositories
         public async Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId)
             => await _dbSet.FirstOrDefaultAsync(x =>
                 EF.Functions.ILike(x.Nombre, nombre) && x.ProgramaId == programaId);
+
+        public async Task<Grupo?> GetByCodigoAsync(string codigo)
+            => await _dbSet.FirstOrDefaultAsync(x => x.Codigo == codigo);
+
+        public async Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId)
+            => await _dbSet.Where(x => x.AsignaturaId == asignaturaId).ToListAsync();
     }
 }

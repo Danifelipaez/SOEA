@@ -14,6 +14,12 @@ namespace SOEA.Application.Features.Horario.Requests
         public List<AsignaturaDto> Asignaturas { get; set; } = new();
         public List<DocenteDto>    Docentes    { get; set; } = new();
         public List<EspacioDto>    Espacios    { get; set; } = new();
+        /// <summary>
+        /// Grupos de estudiantes con su disponibilidad horaria.
+        /// HC-G01: si un grupo declara disponibilidad, CP-SAT rechaza slots fuera de esa franja.
+        /// Lista vacía = sin restricción de disponibilidad de grupo.
+        /// </summary>
+        public List<GrupoDto>      Grupos      { get; set; } = new();
 
         /// <summary>
         /// Parámetros del algoritmo genético y pesos de soft constraints.
@@ -74,6 +80,13 @@ namespace SOEA.Application.Features.Horario.Requests
         /// Cuando está presente, CP-SAT solo asigna sesiones presenciales a este espacio.
         /// </summary>
         public string? EspacioFijoId  { get; set; }
+        /// <summary>
+        /// Categoría de la asignatura para priorizar la asignación presencial (SC-PRES).
+        /// Obligatoria tiene máxima prioridad; Electiva se puede virtualizar primero cuando
+        /// la capacidad de espacios está saturada.
+        /// Null o valor no reconocido → Obligatoria (conservador).
+        /// </summary>
+        public string? Categoria { get; set; }
     }
 
     public class DocenteDto
@@ -104,5 +117,21 @@ namespace SOEA.Application.Features.Horario.Requests
         public string Nombre     { get; set; } = string.Empty;
         public int    Capacidad  { get; set; }
         public string? Tipo      { get; set; }
+    }
+
+    public class GrupoDto
+    {
+        public string  Id                  { get; set; } = string.Empty;
+        public string  Nombre              { get; set; } = string.Empty;
+        public string? Codigo              { get; set; }
+        public string? AsignaturaId        { get; set; }
+        public string? FacultadId          { get; set; }
+        public int     EstudiantesInscritos { get; set; } = 1;
+        /// <summary>
+        /// Disponibilidad horaria del grupo. Valores válidos: "Matutino", "Vespertino".
+        /// Lista vacía = sin restricción de franja (el grupo puede tener clase a cualquier hora).
+        /// </summary>
+        public List<string> Disponibilidad { get; set; } = new();
+        public string? DisponibilidadUiJson { get; set; }
     }
 }

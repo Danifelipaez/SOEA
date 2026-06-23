@@ -43,12 +43,18 @@ namespace SOEA.Domain.Interfaces
     /// </summary>
     public interface IMotorGenetico
     {
+        /// <param name="grupos">
+        /// Grupos de estudiantes con su disponibilidad horaria.
+        /// HC-G01 (hard): si un grupo declara Disponibilidad, el GA solo moverá sus sesiones
+        /// a bloques dentro de esa franja — coherencia con lo que CP-SAT ya garantizó en Fase 2.
+        /// </param>
         Task<ResultadoOptimizacion> OptimizarAsync(
             IEnumerable<Sesion>             sesiones,
             IEnumerable<AsignacionSemanal>  asignacionesFase2,
             IEnumerable<BloqueTiempo>       bloques,
             IEnumerable<Espacio>            espacios,
             IEnumerable<Docente>            docentes,
+            IEnumerable<Grupo>?             grupos = null,
             ConfiguracionOptimizacion?      config = null,
             CancellationToken               ct = default);
     }

@@ -10,7 +10,12 @@ namespace SOEA.Domain.Entities
     public class Sesion : EntidadBase
     {
         public Guid AsignaturaId { get; private set; }
-        public Guid DocenteId { get; private set; }
+
+        /// <summary>
+        /// Docente asignado. Opcional (CR-02, modelo presencial-first): el docente deja de ser
+        /// eje de generación, así que una sesión puede existir sin docente. Null = sin docente.
+        /// </summary>
+        public Guid? DocenteId { get; private set; }
         public Guid BloqueTiempoId { get; private set; }
         public Guid? EspacioId { get; private set; }
         public Guid? GrupoId { get; private set; }
@@ -22,13 +27,30 @@ namespace SOEA.Domain.Entities
         public bool EstaDividida { get; private set; }
         public string MotivoConflicto { get; private set; } = string.Empty;
 
+        /// <summary>
+        /// Flujo de la sesión (laboratorio vs aula/virtual). Cada flujo se programa por separado.
+        /// Andamiaje del modelo presencial-first; el mapeo real por sesión se cablea en etapas posteriores.
+        /// </summary>
+        public TipoFlujo TipoFlujo { get; private set; }
+
+        /// <summary>
+        /// Patrón de alternancia aplicado (FK a <see cref="TipoAlternanciaConfig"/>).
+        /// Null = presencial puro. Lo asigna el optimizador solo cuando la presión de aforo lo exige.
+        /// </summary>
+        public Guid? PatronAlternanciaId { get; private set; }
+
+        /// <summary>
+        /// Si es true, el optimizador no puede cambiar la alternancia de esta sesión (caso fijado).
+        /// </summary>
+        public bool Bloqueada { get; private set; }
+
         // Constructor privado para EF Core
         private Sesion() : base() { }
 
         public Sesion(
             Guid id,
             Guid asignaturaId,
-            Guid docenteId,
+            Guid? docenteId,
             Guid bloqueId,
             Guid? espacioId,
             Guid? grupoId,
@@ -36,9 +58,12 @@ namespace SOEA.Domain.Entities
             Modalidad modalidad,
             decimal duracionHoras,
             bool esBloque,
-            bool estaDividida) : base(id)
+            bool estaDividida,
+            TipoFlujo tipoFlujo = TipoFlujo.Laboratorio,
+            Guid? patronAlternanciaId = null,
+            bool bloqueada = false) : base(id)
         {
-            Validar(asignaturaId, docenteId, duracionHoras, esBloque, estaDividida);
+            Validar(asignaturaId, duracionHoras, esBloque, estaDividida);
 
             AsignaturaId = asignaturaId;
             DocenteId = docenteId;
@@ -50,6 +75,9 @@ namespace SOEA.Domain.Entities
             DuracionHoras = duracionHoras;
             EsBloque = esBloque;
             EstaDividida = estaDividida;
+            TipoFlujo = tipoFlujo;
+            PatronAlternanciaId = patronAlternanciaId;
+            Bloqueada = bloqueada;
             Estado = EstadoSesion.Pendiente;
         }
 
@@ -76,12 +104,53 @@ namespace SOEA.Domain.Entities
             MotivoConflicto = motivo;
         }
 
-        private static void Validar(Guid asignaturaId, Guid docenteId, decimal duracionHoras, bool esBloque, bool estaDividida)
+        /// <summary>
+        /// Asigna (o desasigna con null) el docente. CR-02 (presencial-first): el docente
+        /// se asigna después de generar el horario; el solape se valida en Application.
+        /// </summary>
+        public void AsignarDocente(Guid? docenteId)
+        {
+            if (docenteId == Guid.Empty)
+                throw new ArgumentException("El docente asignado no puede ser un Guid vacío (use null para desasignar).");
+            DocenteId = docenteId;
+        }
+
+        /// <summary>
+        /// SC-PRES: convierte una sesión presencial a virtual cuando la capacidad de espacios
+        /// está saturada. Se aplica en orden de prioridad (Electiva → Optativa → Obligatoria)
+        /// antes de pasar el problema a CP-SAT. EspacioId pasa a null.
+        /// </summary>
+        public void VirtualizarSesion()
+        {
+            Modalidad = Modalidad.Virtual;
+            EspacioId = null;
+        }
+
+        public void EstablecerFlujo(TipoFlujo tipoFlujo)
+        {
+            TipoFlujo = tipoFlujo;
+        }
+
+        public void EstablecerPatronAlternancia(Guid? patronAlternanciaId)
+        {
+            PatronAlternanciaId = patronAlternanciaId;
+        }
+
+        public void Bloquear()
+        {
+            Bloqueada = true;
+        }
+
+        public void Desbloquear()
+        {
+            Bloqueada = false;
+        }
+
+        private static void Validar(Guid asignaturaId, decimal duracionHoras, bool esBloque, bool estaDividida)
         {
             if (asignaturaId == Guid.Empty)
                 throw new ArgumentException("El ID de la asignatura no puede ser vacío.");
-            if (docenteId == Guid.Empty)
-                throw new ArgumentException("El ID del docente no puede ser vacío.");
+            // CR-02: el docente es opcional — no se valida su presencia.
             if (duracionHoras <= 0 || duracionHoras > 8)
                 throw new ArgumentException("La duración debe estar entre 0 y 8 horas.");
             if (esBloque && estaDividida)

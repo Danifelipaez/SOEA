@@ -52,18 +52,38 @@ namespace SOEA.Application.Features.Horario
             var bloques   = GenerarBloquesTiempo();
             var docentes  = MapearDocentes(request.Docentes, bloques);
 
-            var sesiones = MapearSesionesIniciales(request.Asignaturas, docentes);
+            // CR-08: cohorte implícita — todas las materias de este run pertenecen al mismo grupo
+            // de estudiantes y deben serializarse (un grupo no puede estar en dos sesiones a la vez).
+            var cohorteId = Guid.NewGuid();
+
+            // SC-PRES: mapa de categoria por asignatura para priorizar asignación presencial.
+            // Obligatoria > Optativa > Electiva (se virtualiza en orden inverso si hay saturación).
+            var categoriaPorAsig = request.Asignaturas
+                .ToDictionary(
+                    dto => Guid.TryParse(dto.Id, out var aid) ? aid : Guid.Empty,
+                    dto => ParseCategoria(dto.Categoria));
+
+            var sesiones = MapearSesionesIniciales(request.Asignaturas, cohorteId);
             logs.Add($"[INFO] Sesiones creadas a partir de asignaturas: {sesiones.Count}.");
 
             // ── 1b. Sesiones fijas (horario base) — se añaden con bloque pre-asignado ──
             var sesionesFijasIds = new HashSet<Guid>();
             if (request.SesionesFijas is { Count: > 0 })
             {
-                var fijas = MapearSesionesFijas(request.SesionesFijas, bloques, docentes);
+                var fijas = MapearSesionesFijas(request.SesionesFijas, bloques, cohorteId);
                 sesionesFijasIds = fijas.Select(s => s.Id).ToHashSet();
                 sesiones.AddRange(fijas);
                 logs.Add($"[INFO] {fijas.Count} sesión(es) fijas del horario base añadidas.");
             }
+
+            // ── 1c. SC-PRES: presencial-first — virtualizar por prioridad si hay saturación ──
+            // Si la demanda presencial supera la capacidad estimada, se virtualizan sesiones
+            // en orden: Electiva → Optativa → Obligatoria (nunca se toca lo que el usuario
+            // marcó como virtual desde el principio).
+            int downgradeados = AplicarPrioridadPresencial(sesiones, espacios, categoriaPorAsig);
+            if (downgradeados > 0)
+                logs.Add($"[INFO] SC-PRES: {downgradeados} sesión(es) convertida(s) a virtual por saturación de espacios " +
+                         "(prioridad: Electiva → Optativa → Obligatoria).");
 
             // ── 2. Fase 1 — Coloración de Grafo (pre-asignación de bloques) ────
             logs.Add("[INFO] Fase 1: Pre-procesamiento (Coloración de grafos) iniciada.");
@@ -73,11 +93,15 @@ namespace SOEA.Application.Features.Horario
             logs.Add($"[INFO] Fase 1 completada en {swFase1.ElapsedMilliseconds}ms.");
 
             // ── 3. Fase 2 — Constraint Programming (factibilidad) ─────────────
+            // HC-G01: se pasan los grupos para que CP-SAT aplique la disponibilidad horaria
+            // como restricción dura (presencial-first: el pipeline se optimiza alrededor del
+            // horario de los grupos, no de los docentes).
             logs.Add("[INFO] Fase 2: Viabilidad (CP-SAT) iniciada.");
             var swFase2 = System.Diagnostics.Stopwatch.StartNew();
             var resultadoFactibilidad = await _fase2.ResolverFactibilidadAsync(
                 sesionesColoreadas, bloques, espacios, docentes,
-                sesionesFijasIds.Count > 0 ? sesionesFijasIds : null,
+                grupos: MapearGrupos(request.Grupos),
+                sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null,
                 ct);
             swFase2.Stop();
 
@@ -105,7 +129,9 @@ namespace SOEA.Application.Features.Horario
             var swFase3 = System.Diagnostics.Stopwatch.StartNew();
             var resultadoGA = await _fase3.OptimizarAsync(
                 sesionesColoreadas, resultadoFactibilidad.Asignaciones, bloques, espacios, docentes,
-                MapearConfiguracion(request.Configuracion), ct);
+                grupos: MapearGrupos(request.Grupos),
+                config: MapearConfiguracion(request.Configuracion),
+                ct: ct);
             swFase3.Stop();
             logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness={resultadoGA.PuntajeFitness}, " +
                      $"generaciones={resultadoGA.Generaciones}, fallback={resultadoGA.UsoFallback}.");
@@ -120,15 +146,14 @@ namespace SOEA.Application.Features.Horario
             var sesionPorIdValidacion = sesionesColoreadas.ToDictionary(s => s.Id);
             var bloqueIndex = new Dictionary<Guid, int>(bloques.Count);
             for (int i = 0; i < bloques.Count; i++) bloqueIndex[bloques[i].Id] = i;
-            var maxHorasPorDocente = docentes.ToDictionary(d => d.Id, d => d.MaximoHorasSemanales);
 
-            var conflictos = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, sesionesColoreadas, maxHorasPorDocente);
+            var conflictos = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex);
             if (conflictos.Count > 0)
             {
                 logs.Add($"[WARN] Post-chequeo detectó {conflictos.Count} violación(es) en la salida del GA; usando la solución de Fase 2.");
                 asignaciones   = resultadoFactibilidad.Asignaciones;
                 puntajeFitness = 0m;
-                conflictos     = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, sesionesColoreadas, maxHorasPorDocente);
+                conflictos     = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex);
             }
 
             if (conflictos.Count > 0)
@@ -206,20 +231,16 @@ namespace SOEA.Application.Features.Horario
         }
 
         /// <summary>
-        /// Post-chequeo combinado de restricciones duras sobre las asignaciones finales:
-        /// HC-I01/HC-S01 (solapes de docente/espacio) + HC-I03 (horas semanales por docente).
+        /// Post-chequeo de restricciones duras sobre las asignaciones finales:
+        /// HC-C01 (solapes de cohorte) + HC-S01 (solapes de espacio). El docente está fuera del
+        /// pipeline (CR-08), así que ya no se valida carga semanal de docente (HC-I03).
         /// </summary>
         private static IReadOnlyList<string> Validar(
             IReadOnlyList<AsignacionSemanal> asignaciones,
             IReadOnlyDictionary<Guid, Sesion> sesionPorId,
-            IReadOnlyDictionary<Guid, int> bloqueIndex,
-            IReadOnlyList<Sesion> sesiones,
-            IReadOnlyDictionary<Guid, decimal> maxHorasPorDocente)
+            IReadOnlyDictionary<Guid, int> bloqueIndex)
         {
-            var conflictos = new List<string>();
-            conflictos.AddRange(ValidadorRestriccionesDuras.Validar(asignaciones, sesionPorId, bloqueIndex));
-            conflictos.AddRange(ValidadorRestriccionesDuras.ValidarCargaSemanal(sesiones, maxHorasPorDocente));
-            return conflictos;
+            return ValidadorRestriccionesDuras.Validar(asignaciones, sesionPorId, bloqueIndex);
         }
 
         // ── Helpers de mapeo ─────────────────────────────────────────────────────
@@ -232,7 +253,7 @@ namespace SOEA.Application.Features.Horario
         private static List<Sesion> MapearSesionesFijas(
             List<SesionFijaDto> dtos,
             List<BloqueTiempo> bloques,
-            List<Docente> docentes)
+            Guid cohorteId)
         {
             // Índice rápido: (dia, horaInicio) → BloqueTiempo
             var bloqueDict = bloques.ToDictionary(
@@ -245,7 +266,6 @@ namespace SOEA.Application.Features.Horario
                     continue;
 
                 var asigId  = Guid.TryParse(dto.AsignaturaId, out var aid) ? aid : Guid.NewGuid();
-                var docId   = Guid.TryParse(dto.DocenteId,    out var did) ? did : Guid.NewGuid();
                 Guid? espId = Guid.TryParse(dto.EspacioId, out var eid) ? eid : null;
 
                 var alternancia = dto.Alternancia?.Trim().ToLowerInvariant() switch
@@ -259,10 +279,10 @@ namespace SOEA.Application.Features.Horario
                 var sesion = new Sesion(
                     id: Guid.NewGuid(),
                     asignaturaId: asigId,
-                    docenteId: docId,
+                    docenteId: null,
                     bloqueId: bloque.Id,
                     espacioId: espId,
-                    grupoId: null,
+                    grupoId: cohorteId,
                     alternancia: alternancia,
                     modalidad: dto.Virtual ? Modalidad.Virtual : Modalidad.Presencial,
                     duracionHoras: dto.DuracionHoras > 0 ? dto.DuracionHoras : 2m,
@@ -400,37 +420,19 @@ namespace SOEA.Application.Features.Horario
 
         private static List<Sesion> MapearSesionesIniciales(
             List<AsignaturaDto> asignaturasDtos,
-            List<Docente> docentes)
+            Guid cohorteId)
         {
             var sesiones = new List<Sesion>();
             // Bloque placeholder — Fase 1 lo reemplazará
             var bloqueTemp = Guid.NewGuid();
 
-            int roundRobinIdx = 0;
-
             foreach (var dto in asignaturasDtos)
             {
                 var asigId   = Guid.TryParse(dto.Id, out var aid) ? aid : Guid.NewGuid();
-                var programaId = Guid.TryParse(dto.ProgramaId, out var pid) ? pid : Guid.NewGuid();
 
-                Guid docenteId;
-                if (!string.IsNullOrWhiteSpace(dto.DocenteId) &&
-                    Guid.TryParse(dto.DocenteId, out var docId) &&
-                    docentes.Any(d => d.Id == docId))
-                {
-                    docenteId = docId;
-                }
-                else if (docentes.Count > 0)
-                {
-                    // Round-robin across available docentes to avoid piling all unassigned
-                    // sessions onto the first one and blowing past their weekly hour limit.
-                    docenteId = docentes[roundRobinIdx % docentes.Count].Id;
-                    roundRobinIdx++;
-                }
-                else
-                {
-                    docenteId = Guid.NewGuid();
-                }
+                // CR-08 / presencial-first: el docente sale del pipeline (se asigna DESPUÉS de
+                // generar el horario). Las sesiones se generan sin docente; el eje de conflicto
+                // y de optimización es la cohorte (GrupoId), no el docente.
 
                 // Fix #5: case-insensitive alternancia matching
                 var alternancia = dto.Alternancia?.Trim().ToLowerInvariant() switch
@@ -473,10 +475,10 @@ namespace SOEA.Application.Features.Horario
                 sesiones.Add(new Sesion(
                         id: Guid.NewGuid(),
                         asignaturaId: asigId,
-                        docenteId: docenteId,
+                        docenteId: null,
                         bloqueId: bloqueTemp,
                         espacioId: espacioFijo,
-                        grupoId: null,
+                        grupoId: cohorteId,
                         alternancia: alternancia,
                         modalidad: modalidad,
                         duracionHoras: duracionPorSesion,
@@ -539,7 +541,7 @@ namespace SOEA.Application.Features.Horario
             {
                 Id            = s.Id.ToString(),
                 AsignaturaId  = s.AsignaturaId.ToString(),
-                DocenteId     = s.DocenteId.ToString(),
+                DocenteId     = s.DocenteId?.ToString() ?? string.Empty,
                 EspacioId     = a.EspacioId?.ToString(),
                 EspacioIdHogar = espacioIdHogar ?? a.EspacioId?.ToString(),
                 Dia           = dia,
@@ -565,6 +567,50 @@ namespace SOEA.Application.Features.Horario
                     PesoTiempos:          dto.PesoTiempos,
                     PesoAlmuerzo:         dto.PesoAlmuerzo);
 
+        /// <summary>
+        /// Convierte los GrupoDtos del request a entidades de dominio Grupo con su disponibilidad.
+        /// Los grupos informan HC-G01 en CP-SAT: si Disponibilidad no está vacía, el solver
+        /// solo asignará sus sesiones en bloques dentro de esa franja.
+        /// </summary>
+        private static List<Grupo> MapearGrupos(List<GrupoDto> dtos)
+        {
+            var grupos = new List<Grupo>();
+            foreach (var dto in dtos)
+            {
+                if (!Guid.TryParse(dto.Id, out var id)) continue;
+
+                var disponibilidad = dto.Disponibilidad
+                    .Select(s => s.Trim().ToLowerInvariant() switch
+                    {
+                        "matutino"   => (FranjaHoraria?)FranjaHoraria.Matutino,
+                        "vespertino" => (FranjaHoraria?)FranjaHoraria.Vespertino,
+                        _            => null
+                    })
+                    .Where(f => f.HasValue)
+                    .Select(f => f!.Value)
+                    .Distinct()
+                    .ToList();
+
+                Guid? asigId    = Guid.TryParse(dto.AsignaturaId, out var aid) ? aid : null;
+                Guid? facId     = Guid.TryParse(dto.FacultadId,   out var fid) ? fid : null;
+
+                var grupo = new Grupo(
+                    id:                  id,
+                    nombre:              dto.Nombre,
+                    programaId:          Guid.Empty,   // no requerido para el pipeline
+                    semestre:            1,
+                    estudiantesInscritos: Math.Max(1, dto.EstudiantesInscritos),
+                    disponibilidad:      disponibilidad,
+                    codigo:              dto.Codigo,
+                    asignaturaId:        asigId,
+                    facultadId:          facId);
+
+                grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
+                grupos.Add(grupo);
+            }
+            return grupos;
+        }
+
         private static string DiaToString(DiaDeSemana dia) => dia switch
         {
             DiaDeSemana.Lunes     => "lunes",
@@ -582,5 +628,68 @@ namespace SOEA.Application.Features.Horario
             "auditorio"   => TipoEspacio.Auditorio,
             _             => TipoEspacio.Salon
         };
+
+        private static CategoriaAsignatura ParseCategoria(string? categoria) =>
+            categoria?.Trim().ToLowerInvariant() switch
+            {
+                "optativa"   => CategoriaAsignatura.Optativa,
+                "electiva"   => CategoriaAsignatura.Electiva,
+                _            => CategoriaAsignatura.Obligatoria   // conservador: si no se especifica → Obligatoria
+            };
+
+        /// <summary>
+        /// SC-PRES: cuando la demanda presencial supera la capacidad estimada de espacios,
+        /// virtualiza sesiones en orden de menor a mayor prioridad:
+        ///   Electiva → Optativa → Obligatoria
+        /// Solo actúa sobre sesiones que el usuario NO marcó como virtuales desde el principio
+        /// (EsVirtual=true en el DTO). Retorna cuántas sesiones fueron convertidas.
+        /// </summary>
+        private static int AplicarPrioridadPresencial(
+            List<Sesion> sesiones,
+            List<Espacio> espacios,
+            Dictionary<Guid, CategoriaAsignatura> categoriaPorAsig)
+        {
+            if (espacios.Count == 0) return 0; // sin espacios → todas son virtuales por naturaleza
+
+            // Capacidad máxima estimada: nro_espacios × días × horas_útiles / 1h_bloque.
+            // Estimación conservadora: 5 días, 8 horas/día útiles de pico.
+            int capacidadMaxEstimada = espacios.Count * 5 * 8;
+
+            var presenciales = sesiones
+                .Where(s => s.Modalidad == Modalidad.Presencial)
+                .ToList();
+
+            int demandaHoras = presenciales.Sum(s => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras)));
+            if (demandaHoras <= capacidadMaxEstimada) return 0;  // sin saturación → no tocar nada
+
+            // Ordenar candidatos de menor a mayor prioridad presencial.
+            int PrioridadDowngrade(Sesion s)
+            {
+                if (!categoriaPorAsig.TryGetValue(s.AsignaturaId, out var cat)) return 0;
+                return cat switch
+                {
+                    CategoriaAsignatura.Electiva  => 2,   // downgrade primero
+                    CategoriaAsignatura.Optativa  => 1,   // downgrade segundo
+                    _                             => 0    // Obligatoria → downgrade último
+                };
+            }
+
+            var candidatos = presenciales
+                .OrderByDescending(PrioridadDowngrade)
+                .ToList();
+
+            int excesohoras = demandaHoras - capacidadMaxEstimada;
+            int convertidas = 0;
+
+            foreach (var s in candidatos)
+            {
+                if (excesohoras <= 0) break;
+                s.VirtualizarSesion();
+                excesohoras -= Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
+                convertidas++;
+            }
+
+            return convertidas;
+        }
     }
 }

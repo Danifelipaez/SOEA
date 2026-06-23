@@ -23,11 +23,17 @@ namespace SOEA.Domain.Interfaces
         /// IDs de sesiones cuya franja ya está decidida (horario base).
         /// CP-SAT les añade una restricción de igualdad en vez de un hint — no se mueven.
         /// </param>
+        /// <param name="grupos">
+        /// Grupos de estudiantes con su disponibilidad horaria.
+        /// HC-G01 (hard): si un grupo declara Disponibilidad, sus sesiones solo se pueden
+        /// asignar en bloques que caigan dentro de esa franja (Matutino/Vespertino).
+        /// </param>
         Task<ResultadoFactibilidad> ResolverFactibilidadAsync(
             IEnumerable<Sesion> sesiones,
             IEnumerable<BloqueTiempo> bloques,
             IEnumerable<Espacio> espacios,
             IEnumerable<Docente> docentes,
+            IEnumerable<Grupo>? grupos = null,
             IEnumerable<Guid>? sesionesFijasIds = null,
             CancellationToken ct = default);
     }
