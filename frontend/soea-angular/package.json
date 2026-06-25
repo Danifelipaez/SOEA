@@ -25,7 +25,6 @@
 "ng2-charts": "^10.0.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
-    "xlsx": "^0.18.5",
     "zone.js": "^0.16.2"
   },
   "devDependencies": {

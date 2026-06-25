@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Google.OrTools" Version="9.15.6755" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0-preview.4.25258.110" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
   </ItemGroup>
 
   <ItemGroup>

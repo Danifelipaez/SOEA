@@ -40,7 +40,7 @@ public class ArchitectureTests
     [Fact]
     public void Infraestructura_NoDebeReferenciarAPI()
     {
-        var result = Types.InAssembly(typeof(SOEA.Infrastructure.Data.BaseInfraestructuraDatos).Assembly)
+        var result = Types.InAssembly(typeof(SOEA.Infrastructure.Data.UnitOfWork).Assembly)
             .ShouldNot()
             .HaveDependencyOnAny(ApiNs)
             .GetResult();
@@ -53,7 +53,7 @@ public class ArchitectureTests
     [Fact]
     public void Repositorios_DebenImplementarInterfacesDeDomain()
     {
-        var result = Types.InAssembly(typeof(SOEA.Infrastructure.Data.BaseInfraestructuraDatos).Assembly)
+        var result = Types.InAssembly(typeof(SOEA.Infrastructure.Data.UnitOfWork).Assembly)
             .That()
             .HaveNameEndingWith("Repository")
             .Should()
