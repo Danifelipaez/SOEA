@@ -39,6 +39,7 @@ namespace SOEA.Engine.Genetic
             IEnumerable<Docente>           docentes,
             IEnumerable<Grupo>?            grupos = null,
             ConfiguracionOptimizacion?     config = null,
+            IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,
             CancellationToken              ct = default)
         {
             var s  = sesiones.ToList();
@@ -48,7 +49,8 @@ namespace SOEA.Engine.Genetic
             var d  = docentes.ToList();
             var g  = grupos?.ToList();
             var c  = config ?? new ConfiguracionOptimizacion();
-            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, g, c, ct), ct);
+            var ia = infoAsignatura ?? new Dictionary<Guid, (int, CategoriaAsignatura)>();
+            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, g, c, ia, ct), ct);
         }
 
         private ResultadoOptimizacion OptimizarSincrono(
@@ -59,6 +61,7 @@ namespace SOEA.Engine.Genetic
             List<Docente>           docentes,
             List<Grupo>?            grupos,
             ConfiguracionOptimizacion config,
+            IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)> infoAsignatura,
             CancellationToken ct)
         {
             if (sesiones.Count == 0 || bloques.Count == 0)
@@ -76,8 +79,7 @@ namespace SOEA.Engine.Genetic
             // RNG inyectable: semilla fija = reproducible (tests); null = aleatorio (producción).
             var rng = config.Semilla.HasValue ? new Random(config.Semilla.Value) : new Random();
 
-            var bloqueIndex = new Dictionary<Guid, int>(bloques.Count);
-            for (int i = 0; i < bloques.Count; i++) bloqueIndex[bloques[i].Id] = i;
+            var bloqueIndex = Enumerable.Range(0, bloques.Count).ToDictionary(i => bloques[i].Id, i => i);
 
             var diaPorIdx  = BloquesPlanner.DiaPorBloqueIdx(bloques);
             var duraciones = sesiones.Select(s => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras))).ToArray();
@@ -90,7 +92,7 @@ namespace SOEA.Engine.Genetic
             var semilla = new CromosomaHorario(sesionIds, startSemilla, startBSemilla);
 
             var operadores = new OperadoresGeneticos(sesiones, bloques, docentes, rng, grupos);
-            var evaluador  = new EvaluadorFitness(sesiones, bloques, docentes, espacios, config);
+            var evaluador  = new EvaluadorFitness(sesiones, bloques, docentes, espacios, config, infoAsignatura);
 
             _logger.LogInformation("Fase 3 (Genético): {S} sesiones, población={P}, maxGen={G}.",
                 sesiones.Count, tamañoPoblacion, maxGeneraciones);
@@ -121,15 +123,12 @@ namespace SOEA.Engine.Genetic
                 operadores.Reparar(hijo);
                 var fitnessHijo = evaluador.Evaluar(hijo);
 
-                int peorIdx = 0;
-                for (int i = 1; i < poblacion.Count; i++)
-                    if (poblacion[i].fitness > poblacion[peorIdx].fitness) peorIdx = i;
+                int peorIdx = Enumerable.Range(0, poblacion.Count).MaxBy(i => poblacion[i].fitness);
 
                 if (fitnessHijo < poblacion[peorIdx].fitness)
                     poblacion[peorIdx] = (hijo, fitnessHijo);
 
-                var mejorActual = poblacion.Min(p => p.fitness);
-                if (mejorActual < mejorFitness) { mejorFitness = mejorActual; sinMejora = 0; }
+                if (fitnessHijo < mejorFitness) { mejorFitness = fitnessHijo; sinMejora = 0; }
                 else sinMejora++;
 
                 generacionFinal = gen;

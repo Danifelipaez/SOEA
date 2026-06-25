@@ -49,6 +49,7 @@ namespace SOEA.Engine.ConstraintProg
             IEnumerable<Docente> docentes,
             IEnumerable<Grupo>? grupos = null,
             IEnumerable<Guid>? sesionesFijasIds = null,
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
             CancellationToken ct = default)
         {
             var s     = sesiones.ToList();
@@ -59,7 +60,8 @@ namespace SOEA.Engine.ConstraintProg
             var fijas = sesionesFijasIds != null
                 ? new HashSet<Guid>(sesionesFijasIds)
                 : new HashSet<Guid>();
-            return Task.Run(() => ResolverSincrono(s, b, e, d, g, fijas, ct), ct);
+            var ventanas = ventanaPorAsignatura ?? new Dictionary<Guid, (TimeOnly?, TimeOnly?)>();
+            return Task.Run(() => ResolverSincrono(s, b, e, d, g, fijas, ventanas, ct), ct);
         }
 
         /// <summary>
@@ -79,6 +81,7 @@ namespace SOEA.Engine.ConstraintProg
             List<Docente> docentes,
             List<Grupo> grupos,
             HashSet<Guid> sesionesFijasIds,
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)> ventanaPorAsignatura,
             CancellationToken ct)
         {
             if (!sesiones.Any() || !bloques.Any())
@@ -150,6 +153,13 @@ namespace SOEA.Engine.ConstraintProg
                 if (permitidos.Count > 0)
                     bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
             }
+
+            // HC-CAP: estudiantes por grupo. Un espacio solo es candidato si su aforo alcanza
+            // para los estudiantes del grupo de la sesión (Espacio.Capacidad >= EstudiantesInscritos).
+            var estudiantesPorGrupo = grupos
+                .Where(gr => gr.Id != Guid.Empty)
+                .GroupBy(gr => gr.Id)
+                .ToDictionary(gr => gr.Key, gr => gr.First().EstudiantesInscritos);
 
             // ── Variables: intervalo de longitud DuracionHoras por (sesión, semana) ─────
             var startVars    = new Dictionary<(Guid, SemanaAcademica), IntVar>();
@@ -251,6 +261,31 @@ namespace SOEA.Engine.ConstraintProg
                     return new ResultadoFactibilidad(false, SinAsignaciones, msg);
                 }
 
+                // HC-VH: ventana horaria de la asignatura (hard). El intervalo completo
+                // [inicio, inicio+dur] debe caer dentro de [min, max]. Como StartsValidos ya
+                // garantiza que la sesión no cruza día, inicio+dur nunca se desborda al día siguiente.
+                if (ventanaPorAsignatura.TryGetValue(sesion.AsignaturaId, out var ventana) &&
+                    (ventana.min.HasValue || ventana.max.HasValue))
+                {
+                    startsValidos = startsValidos.Where(s =>
+                    {
+                        var inicio = bloques[(int)s].HoraInicio;
+                        var fin    = inicio.AddHours(dur);
+                        if (ventana.min.HasValue && inicio < ventana.min.Value) return false;
+                        if (ventana.max.HasValue && fin    > ventana.max.Value) return false;
+                        return true;
+                    }).ToArray();
+
+                    if (startsValidos.Length == 0)
+                    {
+                        var msg = $"HC-VH infactible: la sesión de {dur}h de la asignatura {sesion.AsignaturaId} no " +
+                                  $"cabe dentro de su ventana horaria [{ventana.min:HH\\:mm}–{ventana.max:HH\\:mm}] " +
+                                  "en ningún día de la grilla. Amplíe la ventana o reduzca la duración.";
+                        _logger.LogError(msg);
+                        return new ResultadoFactibilidad(false, SinAsignaciones, msg);
+                    }
+                }
+
                 var dominio = CpDomain.FromValues(startsValidos);
                 foreach (var semana in Semanas)
                     model.AddLinearExpressionInDomain(startVars[(sesion.Id, semana)], dominio);
@@ -313,6 +348,25 @@ namespace SOEA.Engine.ConstraintProg
                         _logger.LogError(msg);
                         return new ResultadoFactibilidad(false, SinAsignaciones, msg);
                     }
+
+                    // HC-CAP: descartar espacios con aforo insuficiente para el grupo de la sesión.
+                    int estudiantes = sesion.GrupoId.HasValue &&
+                        estudiantesPorGrupo.TryGetValue(sesion.GrupoId.Value, out var nEst) ? nEst : 0;
+                    if (estudiantes > 0)
+                    {
+                        var conAforo = lista.Where(e => espacios[e].Capacidad >= estudiantes).ToList();
+                        if (conAforo.Count == 0)
+                        {
+                            int aforoMax = lista.Max(e => espacios[e].Capacidad);
+                            var msg = $"HC-CAP infactible: la sesión {sesion.Id} necesita un espacio para {estudiantes} " +
+                                      $"estudiantes, pero el aforo máximo disponible entre sus candidatos es {aforoMax}. " +
+                                      "Añada un espacio con mayor capacidad o reduzca el grupo.";
+                            _logger.LogError(msg);
+                            return new ResultadoFactibilidad(false, SinAsignaciones, msg);
+                        }
+                        lista = conAforo;
+                    }
+
                     candidatosPorSesion[sesion.Id] = lista;
                 }
 

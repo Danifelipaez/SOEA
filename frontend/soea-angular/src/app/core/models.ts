@@ -26,6 +26,19 @@ export interface Docente {
   disponibilidad: any; // { lunes: { noDisponible, tipo, franjaGeneral, desde, hasta }, ... }
 }
 
+export interface Grupo {
+  id: string;
+  /** Asignatura a la que pertenece el grupo. Requerido en creación — invariante de dominio. */
+  asignaturaId: string;
+  nombre: string;
+  estudiantesInscritos: number;
+  semestre: number;
+  programaId: string;
+  facultadId?: string;
+  codigo?: string;
+  disponibilidadUiJson?: string; // JSON crudo por día que envía/recibe la API
+}
+
 /**
  * Asignatura académica de la malla curricular.
  * Una misma asignatura (mismo código) puede aparecer en distintos programas/facultades,
@@ -37,6 +50,8 @@ export interface Asignatura {
   nombre: string;
   /** TipoA = presencial en semanas A (pares), virtual en B; TipoB = presencial en B (impares), virtual en A; SinAlternancia */
   alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia';
+  /** Prioridad de presencialidad: Obligatoria > Optativa > Electiva (CR-05) */
+  categoria?: 'Obligatoria' | 'Optativa' | 'Electiva';
   /** Número de grupo dentro de la asignatura (1..N). Opcional; usado en importaciones para diferenciar repeticiones */
   grupoNumero?: number;
   horasPorSesion: number;    // 2 o 3 horas
@@ -90,7 +105,7 @@ export interface HorarioBase {
 export interface Sesion {
   id: string;
   asignaturaId: string;
-  docenteId: string;
+  docenteId?: string;
   dia: string;           // 'lunes' | 'martes' | ...
   horaInicio: string;    // "07:00"
   horaFin: string;       // "09:00"

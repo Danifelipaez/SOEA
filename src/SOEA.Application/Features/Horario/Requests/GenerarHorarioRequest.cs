@@ -87,6 +87,13 @@ namespace SOEA.Application.Features.Horario.Requests
         /// Null o valor no reconocido → Obligatoria (conservador).
         /// </summary>
         public string? Categoria { get; set; }
+        /// <summary>
+        /// Ventana horaria de la asignatura (hard constraint HC-VH, la fija Secretaría Académica).
+        /// Formato "HH:mm". Ninguna sesión de la asignatura puede asignarse fuera de [Min, Max].
+        /// Null = sin restricción de ventana.
+        /// </summary>
+        public string? HoraInicioMin { get; set; }
+        public string? HoraFinMax    { get; set; }
     }
 
     public class DocenteDto

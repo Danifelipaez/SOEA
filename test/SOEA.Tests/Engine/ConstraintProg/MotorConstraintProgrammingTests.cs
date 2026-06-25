@@ -24,14 +24,17 @@ namespace SOEA.Tests.Engine.ConstraintProg
             return docente;
         }
 
-        private static Sesion CrearSesion(Guid docenteId, decimal duracion = 2m) =>
-            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), null, null,
+        // CR-08: el eje de no-solapamiento es la cohorte (GrupoId); el docente queda fuera del
+        // pipeline. El primer parámetro es la cohorte: sesiones que la comparten se serializan,
+        // sesiones con cohortes distintas son independientes.
+        private static Sesion CrearSesion(Guid grupoId, decimal duracion = 2m) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, duracion, false, false);
 
         // Sesión presencial con alternancia (presencial una semana, virtual la otra).
         private static Sesion CrearSesionPresencial(
-            Guid docenteId, TipoAlternancia alternancia, decimal duracion = 1m, Guid? espacioId = null) =>
-            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), espacioId, null,
+            Guid grupoId, TipoAlternancia alternancia, decimal duracion = 1m, Guid? espacioId = null) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), espacioId, grupoId,
                 alternancia, Modalidad.Presencial, duracion, false, false);
 
         private static Espacio CrearLaboratorio(string nombre = "Lab") =>
@@ -44,9 +47,10 @@ namespace SOEA.Tests.Engine.ConstraintProg
                     new TimeOnly(7 + i, 0), new TimeOnly(8 + i, 0)))
                 .ToList();
 
-        // HC-I03: docente with zero available blocks must be rejected before CP-SAT runs
+        // CR-08 / degradación HC-I02: la disponibilidad docente ya NO es hard constraint de
+        // generación. Un docente sin bloques disponibles se agenda igual (cabe en la grilla).
         [Fact]
-        public async Task Docente_SinBloques_RetornaInfactible()
+        public async Task Docente_SinDisponibilidad_SeAgendaIgual()
         {
             var bloques = CrearBloques(2);
             var docente = CrearDocente(bloquesDisponibles: null);
@@ -55,24 +59,23 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var resultado = await Motor.ResolverFactibilidadAsync(
                 new[] { sesion }, bloques, Enumerable.Empty<Espacio>(), new[] { docente });
 
-            Assert.False(resultado.EsFactible);
-            Assert.Contains("no tiene disponibilidad", resultado.MensajeError, StringComparison.OrdinalIgnoreCase);
+            Assert.True(resultado.EsFactible);
         }
 
-        // HC-I03: total session hours exceeding docente max must be rejected
+        // HC-C01 (serialización de cohorte): las sesiones de un grupo no pueden solaparse. Tres
+        // sesiones de 2h del mismo grupo necesitan 6 bloques disjuntos; en una grilla de 5 no caben.
         [Fact]
-        public async Task Docente_MaxHorasExcedidas_RetornaInfactible()
+        public async Task Cohorte_NoCabeEnLaGrilla_RetornaInfactible()
         {
             var bloques = CrearBloques(5);
-            var docente = CrearDocente(maxHoras: 4m, bloquesDisponibles: bloques);
-            // 3 sessions × 2h = 6h > 4h max
-            var sesiones = Enumerable.Range(0, 3).Select(_ => CrearSesion(docente.Id, 2m)).ToList();
+            var cohorte = Guid.NewGuid();
+            // 3 sesiones × 2h del MISMO grupo = 6 bloques disjuntos necesarios > 5 disponibles.
+            var sesiones = Enumerable.Range(0, 3).Select(_ => CrearSesion(cohorte, 2m)).ToList();
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                sesiones, bloques, Enumerable.Empty<Espacio>(), new[] { docente });
+                sesiones, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>());
 
             Assert.False(resultado.EsFactible);
-            Assert.Contains("excede su máximo", resultado.MensajeError, StringComparison.OrdinalIgnoreCase);
         }
 
         // HC-I02 + HC-I03: docente with sufficient blocks and 1 session must yield a feasible assignment
@@ -89,26 +92,27 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.True(resultado.EsFactible);
         }
 
-        // HC-I03: sessions exceeding available block count must be rejected (more sessions than slots)
+        // HC-C01 (NoOverlap por cohorte): 3 sesiones de 1h del mismo grupo no caben en una grilla
+        // de solo 2 bloques sin solaparse → infactible por serialización de cohorte.
         [Fact]
-        public async Task Docente_MasSesioneQuesBloques_RetornaInfactible()
+        public async Task Cohorte_MasSesionesQueBloques_RetornaInfactible()
         {
             var bloques = CrearBloques(2);
-            var docente = CrearDocente(maxHoras: 40m, bloquesDisponibles: bloques); // 2 blocks
-            var sesiones = Enumerable.Range(0, 3).Select(_ => CrearSesion(docente.Id, 1m)).ToList(); // 3 sessions
+            var cohorte = Guid.NewGuid();
+            var sesiones = Enumerable.Range(0, 3).Select(_ => CrearSesion(cohorte, 1m)).ToList(); // 3 sessions
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                sesiones, bloques, Enumerable.Empty<Espacio>(), new[] { docente });
+                sesiones, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>());
 
             Assert.False(resultado.EsFactible);
         }
 
-        // Sesión de 2h con sólo 1 bloque disponible al final del día → infactible.
-        // El último bloque del día no debe poder ser start de un span de 2h.
+        // Sesión de 2h en una grilla de un solo bloque → infactible por estructura: no hay dos
+        // bloques contiguos donde colocar el span de 2h (no por disponibilidad, ya degradada).
         [Fact]
-        public async Task Sesion2h_DocenteSoloUnBloque_RetornaInfactible()
+        public async Task Sesion2h_GrillaDeUnBloque_RetornaInfactible()
         {
-            // 1 sólo bloque disponible (último del día efectivo): no cabe sesión de 2h
+            // Grilla de 1 solo bloque: no cabe una sesión de 2h
             var bloques = CrearBloques(1);
             var docente = CrearDocente(maxHoras: 20m, bloquesDisponibles: bloques);
             var sesion = CrearSesion(docente.Id, 2m);
@@ -119,18 +123,18 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.False(resultado.EsFactible);
         }
 
-        // Dos sesiones del mismo docente con duraciones distintas no pueden solapar
-        // en ninguno de los bloques cubiertos por sus spans (NoOverlap por docente).
+        // Dos sesiones de la misma cohorte con duraciones distintas no pueden solapar
+        // en ninguno de los bloques cubiertos por sus spans (NoOverlap por grupo — HC-C01).
         [Fact]
-        public async Task DosSesionesMismoDocente_NoSolapan_RetornaFactible()
+        public async Task DosSesionesMismaCohorte_NoSolapan_RetornaFactible()
         {
             var bloques = CrearBloques(5); // 7:00 a 12:00
-            var docente = CrearDocente(maxHoras: 20m, bloquesDisponibles: bloques);
-            var a = CrearSesion(docente.Id, 2m);
-            var b = CrearSesion(docente.Id, 1m);
+            var cohorte = Guid.NewGuid();
+            var a = CrearSesion(cohorte, 2m);
+            var b = CrearSesion(cohorte, 1m);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { a, b }, bloques, Enumerable.Empty<Espacio>(), new[] { docente });
+                new[] { a, b }, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>());
 
             Assert.True(resultado.EsFactible);
             // Cada sesión produce dos AsignacionSemanal (A/B). El no-solapamiento se verifica
@@ -245,6 +249,94 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 Assert.Equal(Modalidad.Virtual, a.Modalidad);
                 Assert.Null(a.EspacioId);
             });
+        }
+
+        // ── HC-CAP: aforo del espacio >= estudiantes del grupo ──────────────────────
+
+        // El único espacio (aforo 30) no alcanza para un grupo de 40 → infactible con mensaje HC-CAP.
+        [Fact]
+        public async Task HCCAP_EspacioSinAforoSuficiente_RetornaInfactible()
+        {
+            var bloques = CrearBloques(4);
+            var cohorte = Guid.NewGuid();
+            var grupo = new Grupo(cohorte, "G", Guid.NewGuid(), 1, 40); // 40 estudiantes
+            var sesion = CrearSesionPresencial(cohorte, TipoAlternancia.SinAlternancia, 1m);
+            var labPequeno = new Espacio(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 30);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesion }, bloques, new[] { labPequeno }, Enumerable.Empty<Docente>(),
+                grupos: new[] { grupo });
+
+            Assert.False(resultado.EsFactible);
+            Assert.Contains("HC-CAP", resultado.MensajeError);
+        }
+
+        // Con un espacio de aforo 50 para el mismo grupo de 40 → factible.
+        [Fact]
+        public async Task HCCAP_EspacioConAforoSuficiente_RetornaFactible()
+        {
+            var bloques = CrearBloques(4);
+            var cohorte = Guid.NewGuid();
+            var grupo = new Grupo(cohorte, "G", Guid.NewGuid(), 1, 40);
+            var sesion = CrearSesionPresencial(cohorte, TipoAlternancia.SinAlternancia, 1m);
+            var labGrande = new Espacio(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 50);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesion }, bloques, new[] { labGrande }, Enumerable.Empty<Docente>(),
+                grupos: new[] { grupo });
+
+            Assert.True(resultado.EsFactible);
+        }
+
+        // ── HC-VH: ventana horaria de la asignatura ─────────────────────────────────
+
+        // Con ventana [09:00, 11:00], toda asignación de la sesión cae dentro del rango.
+        [Fact]
+        public async Task HCVH_VentanaHoraria_AsignaDentroDelRango()
+        {
+            var bloques = CrearBloques(6); // starts 07:00..12:00
+            var asigId = Guid.NewGuid();
+            var cohorte = Guid.NewGuid();
+            var sesion = new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, cohorte,
+                TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false);
+            var ventana = new Dictionary<Guid, (TimeOnly?, TimeOnly?)>
+            {
+                [asigId] = (new TimeOnly(9, 0), new TimeOnly(11, 0))
+            };
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesion }, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>(),
+                ventanaPorAsignatura: ventana);
+
+            Assert.True(resultado.EsFactible);
+            foreach (var a in resultado.Asignaciones)
+            {
+                var bl = bloques.First(b => b.Id == a.BloqueTiempoId);
+                Assert.True(bl.HoraInicio >= new TimeOnly(9, 0));
+                Assert.True(bl.HoraInicio.AddHours(1) <= new TimeOnly(11, 0));
+            }
+        }
+
+        // Una sesión de 2h no cabe en una ventana de 1h → infactible con mensaje HC-VH.
+        [Fact]
+        public async Task HCVH_SesionNoCabeEnVentana_RetornaInfactible()
+        {
+            var bloques = CrearBloques(6);
+            var asigId = Guid.NewGuid();
+            var cohorte = Guid.NewGuid();
+            var sesion = new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, cohorte,
+                TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m, false, false);
+            var ventana = new Dictionary<Guid, (TimeOnly?, TimeOnly?)>
+            {
+                [asigId] = (new TimeOnly(9, 0), new TimeOnly(10, 0)) // ventana de 1h
+            };
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesion }, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>(),
+                ventanaPorAsignatura: ventana);
+
+            Assert.False(resultado.EsFactible);
+            Assert.Contains("HC-VH", resultado.MensajeError);
         }
     }
 }

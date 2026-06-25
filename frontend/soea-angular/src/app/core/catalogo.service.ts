@@ -1,9 +1,9 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { Observable, forkJoin } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { Observable, forkJoin, of } from 'rxjs';
+import { map, catchError } from 'rxjs/operators';
 import { PersistenciaService } from './persistencia.service';
 import { StateService } from './state.service';
-import { Asignatura, Docente, Espacio } from './models';
+import { Asignatura, Docente, Espacio, Grupo } from './models';
 
 export interface ResumenCatalogo {
   facultades: number;
@@ -11,9 +11,10 @@ export interface ResumenCatalogo {
   asignaturas: number;
   docentes: number;
   espacios: number;
+  grupos: number;
 }
 
-export type EntidadCatalogo = 'asignatura' | 'docente' | 'espacio';
+export type EntidadCatalogo = 'asignatura' | 'docente' | 'espacio' | 'grupo';
 
 /**
  * Fuente de verdad única para hidratar el StateService desde la BD.
@@ -34,12 +35,14 @@ export class CatalogoService {
   readonly asignaturasEnBd = signal<ReadonlySet<string>>(new Set());
   readonly docentesEnBd    = signal<ReadonlySet<string>>(new Set());
   readonly espaciosEnBd    = signal<ReadonlySet<string>>(new Set());
+  readonly gruposEnBd      = signal<ReadonlySet<string>>(new Set());
 
   private bdIds(tipo: EntidadCatalogo) {
     switch (tipo) {
       case 'asignatura': return this.asignaturasEnBd;
       case 'docente':    return this.docentesEnBd;
       case 'espacio':    return this.espaciosEnBd;
+      case 'grupo':      return this.gruposEnBd;
     }
   }
 
@@ -72,9 +75,11 @@ export class CatalogoService {
       programas:   this.persistencia.cargarProgramas(),
       asignaturas: this.persistencia.cargarAsignaturas(),
       docentes:    this.persistencia.cargarDocentes(),
-      espacios:    this.persistencia.cargarEspacios()
+      espacios:    this.persistencia.cargarEspacios(),
+      // ponytail: catchError para que un /grupos 404 no rompa el resto del forkJoin
+      grupos:      this.persistencia.cargarGrupos().pipe(catchError(() => of([])))
     }).pipe(
-      map(({ facultades, programas, asignaturas, docentes, espacios }) => {
+      map(({ facultades, programas, asignaturas, docentes, espacios, grupos }) => {
         this.state.facultades.set(facultades.map((f: any) => ({ id: f.id, nombre: f.nombre })));
         this.state.programas.set(programas.map((p: any) => ({
           id: p.id, nombre: p.nombre, facultadId: p.facultadId
@@ -82,17 +87,20 @@ export class CatalogoService {
         this.state.docentes.set(docentes.map(d => this.mapDocente(d)));
         this.state.espacios.set(espacios.map(e => this.mapEspacio(e)));
         this.state.setAsignaturas(asignaturas.map((a: any) => this.mapAsignatura(a)));
+        this.state.grupos.set((grupos as any[]).map(g => this.mapGrupo(g)));
 
         this.asignaturasEnBd.set(new Set(asignaturas.map((a: any) => a.id as string)));
         this.docentesEnBd.set(new Set(docentes.map(d => d.id)));
         this.espaciosEnBd.set(new Set(espacios.map(e => e.id)));
+        this.gruposEnBd.set(new Set((grupos as any[]).map(g => g.id as string)));
 
         return {
           facultades: facultades.length,
           programas: programas.length,
           asignaturas: asignaturas.length,
           docentes: docentes.length,
-          espacios: espacios.length
+          espacios: espacios.length,
+          grupos: (grupos as any[]).length
         };
       })
     );
@@ -130,10 +138,25 @@ export class CatalogoService {
       sesionesPorSemana: a.sesionesPorSemana ?? 1,
       sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre ?? 0,
       alternancia: a.alternancia ?? 'SinAlternancia',
+      categoria: a.categoria ?? undefined,
       programaId: a.programaId,
       docenteId: a.docenteId ?? undefined,
       grupoNumero: a.grupoNumero ?? undefined,
       espacioFijoId: a.espacioFijoId ?? undefined
+    };
+  }
+
+  private mapGrupo(g: any): Grupo {
+    return {
+      id: g.id,
+      asignaturaId: g.asignaturaId ?? '',
+      nombre: g.nombre,
+      estudiantesInscritos: g.estudiantesInscritos ?? 0,
+      semestre: g.semestre ?? 1,
+      programaId: g.programaId ?? '',
+      facultadId: g.facultadId ?? undefined,
+      codigo: g.codigo ?? undefined,
+      disponibilidadUiJson: g.disponibilidadUiJson ?? undefined
     };
   }
 }

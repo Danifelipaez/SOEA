@@ -91,6 +91,13 @@ import { ImportExcelStatsDto } from '../../../core/persistencia.service';
           <td mat-cell *matCellDef="let element"> {{element.nombre}} </td>
         </ng-container>
 
+        <ng-container matColumnDef="categoria">
+          <th mat-header-cell *matHeaderCellDef> Tipo </th>
+          <td mat-cell *matCellDef="let element">
+            <span class="badge" [ngClass]="categoriaBadgeClass(element.categoria)">{{ element.categoria ?? '—' }}</span>
+          </td>
+        </ng-container>
+
         <ng-container matColumnDef="alternancia">
           <th mat-header-cell *matHeaderCellDef> Alternancia </th>
           <td mat-cell *matCellDef="let element">
@@ -148,7 +155,10 @@ import { ImportExcelStatsDto } from '../../../core/persistencia.service';
     .badge { padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500; }
     .badge-a { background: #fff3e0; color: #e65100; }
     .badge-b { background: #e3f2fd; color: #1565c0; }
-    .badge-sin { background: #f3e5f5; color: #6a1b9a; }
+    .badge-sin   { background: #f3e5f5; color: #6a1b9a; }
+    .badge-oblig { background: #e8f5e9; color: #1b5e20; }
+    .badge-opt   { background: #fff8e1; color: #f57f17; }
+    .badge-elec  { background: #fce4ec; color: #880e4f; }
     .empty-hint { display: flex; flex-direction: column; align-items: center; padding: 32px; color: #757575; }
     .empty-hint mat-icon { font-size: 48px; width: 48px; height: 48px; margin-bottom: 8px; }
   `]
@@ -160,7 +170,7 @@ export class AsignaturasTabComponent {
   persistencia = inject(PersistenciaService);
   catalogo = inject(CatalogoService);
 
-  displayedColumns = ['facultad', 'programa', 'codigo', 'nombre', 'alternancia', 'horas', 'sesiones', 'docente', 'acciones'];
+  displayedColumns = ['facultad', 'programa', 'codigo', 'nombre', 'categoria', 'alternancia', 'horas', 'sesiones', 'docente', 'acciones'];
   saving = signal(false);
   uploading = signal(false);
   filterStr = signal('');
@@ -202,6 +212,13 @@ export class AsignaturasTabComponent {
   badgeClass(alt: string): string {
     if (alt === 'TipoA') return 'badge badge-a';
     if (alt === 'TipoB') return 'badge badge-b';
+    return 'badge badge-sin';
+  }
+
+  categoriaBadgeClass(cat?: string): string {
+    if (cat === 'Obligatoria') return 'badge badge-oblig';
+    if (cat === 'Optativa')    return 'badge badge-opt';
+    if (cat === 'Electiva')    return 'badge badge-elec';
     return 'badge badge-sin';
   }
 
@@ -357,8 +374,8 @@ export class AsignaturasTabComponent {
         id: a.id, nombre: a.nombre, codigo: a.codigo,
         horasPorSesion: a.horasPorSesion, sesionesPorSemana: a.sesionesPorSemana,
         sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
-        alternancia: a.alternancia, programaId: a.programaId,
-        grupoNumero: a.grupoNumero,
+        alternancia: a.alternancia, categoria: a.categoria ?? null,
+        programaId: a.programaId, grupoNumero: a.grupoNumero,
         docenteId: a.docenteId ?? null
       }))
     };
@@ -437,6 +454,14 @@ export class AsignaturasTabComponent {
             <mat-label>Nombre</mat-label>
             <input matInput formControlName="nombre" required>
           </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Tipo</mat-label>
+            <mat-select formControlName="categoria">
+              <mat-option value="Obligatoria">Obligatoria</mat-option>
+              <mat-option value="Optativa">Optativa</mat-option>
+              <mat-option value="Electiva">Electiva</mat-option>
+            </mat-select>
+          </mat-form-field>
         </div>
 
         <div class="form-row">
@@ -509,6 +534,7 @@ export class AsignaturaDialogComponent {
     nuevoPrograma: [''],
     codigo:        [this.data?.codigo ?? '', Validators.required],
     nombre:        [this.data?.nombre ?? '', Validators.required],
+    categoria:     [this.data?.categoria ?? ''],
     horasPorSesion:[this.data?.horasPorSesion ?? 2, Validators.required],
     sesionesPorSemana: [this.data?.sesionesPorSemana ?? 2, [Validators.required, Validators.min(1)]],
     sesionesLaboratorioSemestre: [this.data?.sesionesLaboratorioSemestre ?? 0, [Validators.required, Validators.min(0)]],
@@ -577,6 +603,7 @@ export class AsignaturaDialogComponent {
     const result: Partial<Asignatura> = {
       codigo: v.codigo!,
       nombre: v.nombre!,
+      categoria: (v.categoria as 'Obligatoria' | 'Optativa' | 'Electiva') || undefined,
       horasPorSesion: Number(v.horasPorSesion) || 2,
       sesionesPorSemana: Number(v.sesionesPorSemana) || 2,
       sesionesLaboratorioSemestre: sesionesLab,

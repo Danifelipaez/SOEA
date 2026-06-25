@@ -39,12 +39,7 @@ namespace SOEA.Domain.Services
         /// Útil para comparaciones rápidas de "misma jornada" sin volver a buscar.
         /// </summary>
         public static DiaDeSemana[] DiaPorBloqueIdx(IReadOnlyList<BloqueTiempo> bloques)
-        {
-            var arr = new DiaDeSemana[bloques.Count];
-            for (int i = 0; i < bloques.Count; i++)
-                arr[i] = bloques[i].Dia;
-            return arr;
-        }
+            => bloques.Select(b => b.Dia).ToArray();
 
         /// <summary>
         /// Verifica que un span [startIdx, startIdx+duracion) cabe en el mismo día,

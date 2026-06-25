@@ -265,7 +265,10 @@ namespace SOEA.Application.Features.Import
                     if (s.BloqueTiempoId == Guid.Empty) continue;
 
                     var asigRealId = asignaturaIdMap.TryGetValue(s.AsignaturaId, out var asid) ? asid : s.AsignaturaId;
-                    var docRealId  = docenteIdMap.TryGetValue(s.DocenteId, out var sdid) ? sdid : s.DocenteId;
+                    // CR-02: Sesion.DocenteId es nullable; las sesiones del curriculum traen docente.
+                    var docRealId  = s.DocenteId is Guid did
+                        ? (docenteIdMap.TryGetValue(did, out var sdid) ? sdid : did)
+                        : Guid.Empty;
 
                     if (await _asignaturas.GetByIdAsync(asigRealId) == null) continue;
                     if (await _sesiones.ExisteAsync(asigRealId, docRealId, s.BloqueTiempoId)) continue;
@@ -296,7 +299,7 @@ namespace SOEA.Application.Features.Import
 
             var todosDocentes = await _docentes.GetAllAsync();
             var gruposDup = DetectorDocentesDuplicados.AgruparPosiblesDuplicados(
-                todosDocentes.Select(d => new DetectorDocentesDuplicados.Docente(d.Id, d.Nombre)));
+                todosDocentes.Select(d => (d.Id, d.Nombre)));
             foreach (var grupo in gruposDup)
                 stats.Advertencias.Add(
                     "Posibles docentes duplicados (revisar/unificar): " +

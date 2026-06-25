@@ -4,6 +4,8 @@
 
 SOEA resuelve una variante bi-semanal del University Course Timetabling Problem (UCTP): asignar a cada sesión lógica `s` **dos asignaciones** `(t(s,A), r(s,A))` y `(t(s,B), r(s,B))` — una por semana del ciclo de alternancia — de forma que se satisfagan todas las restricciones duras en ambas semanas y se minimice la suma ponderada de violaciones de restricciones blandas. La modalidad por semana (presencial/virtual) es un dato derivado fijo de `TipoAlternancia`, no una variable de decisión. El espacio de búsqueda es combinatorio y NP-completo; se usa un pipeline de 3 fases para hacerlo tratable en la práctica piloto (≤ 200 cohortes).
 
+> **Migración a Presencial-First (en curso).** El modelo está virando hacia un eje **asignatura + grupo + espacio** (ya no disponibilidad docente), con lógica presencial-first. La **Etapa 1** ya añadió el *soporte de datos*: `Sesion.TipoFlujo` (dos flujos schedulables), `Sesion.PatronAlternanciaId?`/`Bloqueada` (alternancia opcional por sesión) y `Asignatura.Categoria`/ventana horaria. La **Etapa 2** sacó al docente del núcleo de generación: `Sesion.DocenteId` es nullable (CR-02) y la disponibilidad docente quedó **degradada** (HC-I02). La **Etapa 3** cerró CR-08: el **grupo/cohorte** es ahora el eje de conflicto (HC-C01: grafo por grupo en Fase 1 + NoOverlap por `(grupo, semana)` en Fase 2) y de optimización (ergonomía por cohorte en Fase 3); el docente quedó **fuera del pipeline** (se asigna después de generar). Un run = una sola cohorte implícita ⇒ todas las sesiones se serializan. La **lógica restante** — HC-CAP (aforo), HC-VH (ventana), SC-PRES (prioridad por categoría), flujos/patrón por sesión, y HU-04 (editar sesión) — es de etapas posteriores. Estado y secuencia en `docs/PLAN_MAESTRO_PresencialFirst.md`.
+
 ---
 
 ## Fase 1 — Coloración de grafos (Welsh-Powell)
@@ -27,14 +29,14 @@ función GraphColoringPhase(sesiones, bloques):
 función ConstruirGrafoConflictos(sesiones):
     G = grafo vacío
     para cada par (s1, s2) con s1 ≠ s2:
-        si MismoDocente(s1, s2)
-           O MismaCohorte(s1, s2)
+        si MismaCohorte(s1, s2)               // CR-08: eje primario (el docente sale del pipeline)
+           O MismoEspacioFijo(s1, s2)
            O ConflictoAlternancia(s1, s2):  // mismo tipo O alguna es SinAlternancia
             G.agregarArista(s1, s2)
     retornar G
 ```
 
-**Hard constraints procesadas en Fase 1:** HC-I01 (docente), HC-C01 (cohorte), ALT-02/03 (alternancia espacial)
+**Hard constraints procesadas en Fase 1:** HC-C01 (cohorte — eje primario, CR-08), ALT-02/03 (alternancia espacial). El docente quedó fuera del pipeline (CR-08).
 
 ---
 
@@ -68,17 +70,16 @@ función ConstraintProgrammingPhase(sesiones, bloques, espacios, docentes):
     para cada sesión s con bloque preasignado:
         modelo.AddHint(start[(s,A)], indice(bloque)); modelo.AddHint(start[(s,B)], indice(bloque))
 
-    // 4. HC-I02 + no-cruzar-día: dominio de start = StartsValidos(disponibilidad(docente))
+    // 4. No-cruzar-día: dominio de start = StartsValidos(estructural, sin disponibilidad docente)
+    //    HC-I02 degradada (Etapa 2 / CR-08): la disponibilidad docente ya NO restringe el dominio.
     para cada sesión s, semana w:
         modelo.AddLinearExpressionInDomain(start[(s,w)], StartsValidos(s, bloques))
 
-    // 5. HC-I03 pre-solve: totalHoras(docente) ≤ MaximoHorasSemanales (por semana)
-    para cada docente d:
-        si Σ DuracionHoras(sesiones de d) > d.MaximoHorasSemanales → InfeasibleResult
-
-    // 6. HC-I01: NoOverlap por (docente, semana) — presenciales + virtuales
-    para cada docente d, semana w:
-        modelo.AddNoOverlap([interval[(s,w)] para s de d])
+    // 5. HC-C01: NoOverlap por (grupo, semana) — presenciales + virtuales (CR-08).
+    //    El grupo no puede estar en dos sesiones a la vez. Cohorte única ⇒ serialización global.
+    //    El docente sale del pipeline: ya no hay HC-I01 (docente) ni HC-I03 (máx. horas) aquí.
+    para cada grupo g, semana w:
+        modelo.AddNoOverlap([interval[(s,w)] para s de g])
 
     // 7. HC-S01 + HC-S03 + HC-S04: intervalos opcionales por (espacio, semana), solo presenciales
     para cada sesión s, semana w con Modalidad=Presencial:
@@ -101,7 +102,7 @@ función ConstraintProgrammingPhase(sesiones, bloques, espacios, docentes):
         retornar InfeasibleResult
 ```
 
-**Hard constraints procesadas en Fase 2:** HC-I01, HC-I02, HC-I03, HC-S01, HC-S03, HC-S04 — evaluadas por semana.
+**Hard constraints procesadas en Fase 2:** HC-C01 (cohorte — eje primario, CR-08), HC-S01, HC-S03, HC-S04 — evaluadas por semana. **Docente fuera de generación (CR-08):** HC-I01 (lo subsume HC-C01) y HC-I03 salieron; HC-I02 degradada (Etapa 2). El docente se asigna después de generar el horario.
 
 ---
 
@@ -148,9 +149,9 @@ función Fitness(cromosoma):
 
 | Restricción | Fase 1 | Fase 2 | Fase 3 (Inc.2) |
 |---|---|---|---|
-| Sin solapamiento de docente (HC-I01) | Grafo ✓ | CP-SAT ✓ por semana | reparación |
-| Disponibilidad docente (HC-I02) | — | CP-SAT ✓ por semana | reparación |
-| Máx horas docente (HC-I03) | — | CP-SAT ✓ por semana | reparación |
+| Sin solapamiento de docente (HC-I01) | — | fuera de generación (CR-08): lo subsume HC-C01 | — |
+| Disponibilidad docente (HC-I02) | — | ~~CP-SAT~~ degradada (CR-08): solo blanda vía SC-06 | — |
+| Máx horas docente (HC-I03) | — | fuera de generación (CR-08): docente post-generación | — |
 | Sin solapamiento de espacio (HC-S01) | — | CP-SAT ✓ por `(espacio, semana)` | reparación |
 | Capacidad espacio (HC-S02) | — | CP-SAT ✓ | reparación |
 | Lab → espacio lab (HC-S03) | — | CP-SAT ✓ | reparación |
@@ -158,8 +159,8 @@ función Fitness(cromosoma):
 | Regla 9 — misma franja A/B (ALT-05) | — | CP-SAT ✓ `start[A]==start[B]` | se restaura tras cruce |
 | Sin solapamiento cohorte (HC-C01) | Grafo ✓ | CP-SAT ✓ por semana | reparación |
 | Conflicto alternancia (ALT-02/03) | Grafo ✓ | CP-SAT ✓ por semana | reparación |
-| Compacidad docente (SC-01) | — | — | fitness ✓ |
+| Compacidad cohorte (SC-01) | — | — | fitness ✓ (por grupo, CR-08) |
 | Compacidad cohorte (SC-02) | — | — | fitness ✓ |
-| Uniformidad carga docente (SC-06) | — | — | fitness ✓ |
+| Uniformidad carga cohorte (SC-06) | — | — | fitness ✓ (por grupo, CR-08) |
 | Estabilidad aula (SC-05) | — | — | fitness ✓ |
 | Balance carga entre semanas (SC-BAL) | — | — | fitness ✓ (Inc.2) |

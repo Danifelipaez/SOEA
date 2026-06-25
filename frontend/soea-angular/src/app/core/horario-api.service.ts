@@ -20,7 +20,7 @@ export interface ConfiguracionAlgoritmoApiDto {
 
 export interface SesionFijaApiDto {
   asignaturaId: string;
-  docenteId: string;
+  docenteId?: string;
   espacioId?: string;
   dia: string;
   horaInicio: string;

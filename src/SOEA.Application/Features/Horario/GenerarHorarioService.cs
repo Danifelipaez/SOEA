@@ -63,6 +63,13 @@ namespace SOEA.Application.Features.Horario
                     dto => Guid.TryParse(dto.Id, out var aid) ? aid : Guid.Empty,
                     dto => ParseCategoria(dto.Categoria));
 
+            // HC-VH: ventana horaria por asignatura (la fija Secretaría Académica). Se pasa a CP-SAT
+            // como hard constraint — ninguna sesión se asigna fuera de [HoraInicioMin, HoraFinMax].
+            var ventanaPorAsig = request.Asignaturas
+                .ToDictionary(
+                    dto => Guid.TryParse(dto.Id, out var aid) ? aid : Guid.Empty,
+                    dto => (ParseHora(dto.HoraInicioMin), ParseHora(dto.HoraFinMax)));
+
             var sesiones = MapearSesionesIniciales(request.Asignaturas, cohorteId);
             logs.Add($"[INFO] Sesiones creadas a partir de asignaturas: {sesiones.Count}.");
 
@@ -82,8 +89,10 @@ namespace SOEA.Application.Features.Horario
             // marcó como virtual desde el principio).
             int downgradeados = AplicarPrioridadPresencial(sesiones, espacios, categoriaPorAsig);
             if (downgradeados > 0)
-                logs.Add($"[INFO] SC-PRES: {downgradeados} sesión(es) convertida(s) a virtual por saturación de espacios " +
-                         "(prioridad: Electiva → Optativa → Obligatoria).");
+                logs.Add($"[INFO] SC-PRES: {downgradeados} sesión(es) cedieron presencialidad por saturación de espacios. " +
+                         "Prioridad de cesión — nivel 1: 2ª sesión de materias con 2 sesiones/sem antes que materias " +
+                         "de sesión única; nivel 2: Electiva → Optativa → Obligatoria. Se alterna (\"Tipo C\" dinámico: " +
+                         "presencial 1 semana) antes de virtualizar por completo.");
 
             // ── 2. Fase 1 — Coloración de Grafo (pre-asignación de bloques) ────
             logs.Add("[INFO] Fase 1: Pre-procesamiento (Coloración de grafos) iniciada.");
@@ -102,6 +111,7 @@ namespace SOEA.Application.Features.Horario
                 sesionesColoreadas, bloques, espacios, docentes,
                 grupos: MapearGrupos(request.Grupos),
                 sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null,
+                ventanaPorAsignatura: ventanaPorAsig,
                 ct);
             swFase2.Stop();
 
@@ -126,11 +136,21 @@ namespace SOEA.Application.Features.Horario
             // Preserva todas las restricciones duras de la Fase 2; ante cualquier duda hace
             // fallback interno a la solución de Fase 2.
             logs.Add("[INFO] Fase 3: Optimización (Algoritmo Genético) iniciada.");
+            // SC-PRES: info por asignatura (sesiones/semana reales + categoría) para que el fitness
+            // penalice proporcionalmente las sesiones que cedieron presencialidad (ver EvaluadorFitness).
+            var infoAsignatura = sesionesColoreadas
+                .GroupBy(s => s.AsignaturaId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => (g.Count(),
+                          categoriaPorAsig.TryGetValue(g.Key, out var cat) ? cat : CategoriaAsignatura.Obligatoria));
+
             var swFase3 = System.Diagnostics.Stopwatch.StartNew();
             var resultadoGA = await _fase3.OptimizarAsync(
                 sesionesColoreadas, resultadoFactibilidad.Asignaciones, bloques, espacios, docentes,
                 grupos: MapearGrupos(request.Grupos),
                 config: MapearConfiguracion(request.Configuracion),
+                infoAsignatura: infoAsignatura,
                 ct: ct);
             swFase3.Stop();
             logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness={resultadoGA.PuntajeFitness}, " +
@@ -144,8 +164,7 @@ namespace SOEA.Application.Features.Horario
             // y semana) y HC-I03 (horas semanales por docente). Si el GA introdujo cualquier
             // violación, hacemos fallback a las asignaciones factibles de la Fase 2.
             var sesionPorIdValidacion = sesionesColoreadas.ToDictionary(s => s.Id);
-            var bloqueIndex = new Dictionary<Guid, int>(bloques.Count);
-            for (int i = 0; i < bloques.Count; i++) bloqueIndex[bloques[i].Id] = i;
+            var bloqueIndex = Enumerable.Range(0, bloques.Count).ToDictionary(i => bloques[i].Id, i => i);
 
             var conflictos = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex);
             if (conflictos.Count > 0)
@@ -629,6 +648,9 @@ namespace SOEA.Application.Features.Horario
             _             => TipoEspacio.Salon
         };
 
+        private static TimeOnly? ParseHora(string? hhmm) =>
+            !string.IsNullOrWhiteSpace(hhmm) && TimeOnly.TryParse(hhmm, out var t) ? t : null;
+
         private static CategoriaAsignatura ParseCategoria(string? categoria) =>
             categoria?.Trim().ToLowerInvariant() switch
             {
@@ -644,52 +666,88 @@ namespace SOEA.Application.Features.Horario
         /// Solo actúa sobre sesiones que el usuario NO marcó como virtuales desde el principio
         /// (EsVirtual=true en el DTO). Retorna cuántas sesiones fueron convertidas.
         /// </summary>
-        private static int AplicarPrioridadPresencial(
+        // internal (no private) para verificación directa de la prioridad de cesión en SOEA.Tests.
+        internal static int AplicarPrioridadPresencial(
             List<Sesion> sesiones,
             List<Espacio> espacios,
             Dictionary<Guid, CategoriaAsignatura> categoriaPorAsig)
         {
             if (espacios.Count == 0) return 0; // sin espacios → todas son virtuales por naturaleza
 
-            // Capacidad máxima estimada: nro_espacios × días × horas_útiles / 1h_bloque.
-            // Estimación conservadora: 5 días, 8 horas/día útiles de pico.
+            // Capacidad máxima estimada: nro_espacios × días × horas_útiles. Heurística de pre-pase;
+            // el gate duro real es CP-SAT (HC-CAP / demanda-vs-capacidad por semana).
             int capacidadMaxEstimada = espacios.Count * 5 * 8;
+            int Horas(Sesion s) => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
 
-            var presenciales = sesiones
-                .Where(s => s.Modalidad == Modalidad.Presencial)
-                .ToList();
+            int demandaHoras = sesiones.Where(s => s.Modalidad == Modalidad.Presencial).Sum(Horas);
+            int excesohoras  = demandaHoras - capacidadMaxEstimada;
+            if (excesohoras <= 0) return 0; // sin saturación → no tocar nada
 
-            int demandaHoras = presenciales.Sum(s => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras)));
-            if (demandaHoras <= capacidadMaxEstimada) return 0;  // sin saturación → no tocar nada
+            // Sesiones por asignatura (cohorte implícita = 1 grupo/run ⇒ = sesiones/semana).
+            var totalPorAsig = sesiones
+                .GroupBy(s => s.AsignaturaId)
+                .ToDictionary(g => g.Key, g => g.Count());
 
-            // Ordenar candidatos de menor a mayor prioridad presencial.
-            int PrioridadDowngrade(Sesion s)
+            // Nivel 2 (desempate por categoría): Electiva cede primero, Obligatoria última.
+            int CategoriaRank(Sesion s) =>
+                categoriaPorAsig.TryGetValue(s.AsignaturaId, out var cat)
+                    ? cat switch
+                    {
+                        CategoriaAsignatura.Electiva => 0,
+                        CategoriaAsignatura.Optativa => 1,
+                        _                            => 2
+                    }
+                    : 2;
+
+            // Nivel 1 (estructural): asignatura con ≥2 sesiones cede primero (0); con 1 sesión, último (1).
+            int EstructuralRank(Sesion s) =>
+                totalPorAsig.TryGetValue(s.AsignaturaId, out var n) && n >= 2 ? 0 : 1;
+
+            // Orden de cesión: estructural y luego categoría (ascendente ⇒ cede primero).
+            List<Sesion> OrdenarCesion(IEnumerable<Sesion> ss) =>
+                ss.OrderBy(EstructuralRank).ThenBy(CategoriaRank).ToList();
+
+            int cedidas = 0;
+            var tiposAB = new[] { TipoAlternancia.TipoA, TipoAlternancia.TipoB };
+            var patronDeTipo = new Dictionary<TipoAlternancia, Guid>
             {
-                if (!categoriaPorAsig.TryGetValue(s.AsignaturaId, out var cat)) return 0;
-                return cat switch
-                {
-                    CategoriaAsignatura.Electiva  => 2,   // downgrade primero
-                    CategoriaAsignatura.Optativa  => 1,   // downgrade segundo
-                    _                             => 0    // Obligatoria → downgrade último
-                };
+                [TipoAlternancia.TipoA] = TipoAlternanciaConfig.IdTipoA,
+                [TipoAlternancia.TipoB] = TipoAlternanciaConfig.IdTipoB
+            };
+
+            // ── Pase 1 — "Tipo C" dinámico: alternar (presencial 1 semana) en vez de virtualizar.
+            // Solo asignaturas con ≥2 sesiones y conservando SIEMPRE ≥1 sesión presencial pura por
+            // asignatura. Respeta Bloqueada. Alterna A/B en zigzag para repartir la huella entre semanas.
+            var presencialesPurasPorAsig = new Dictionary<Guid, int>(totalPorAsig);
+            int ab = 0;
+            foreach (var s in OrdenarCesion(sesiones.Where(s =>
+                         s.Modalidad == Modalidad.Presencial &&
+                         s.Alternancia == TipoAlternancia.SinAlternancia &&
+                         !s.Bloqueada)))
+            {
+                if (excesohoras <= 0) break;
+                if (!totalPorAsig.TryGetValue(s.AsignaturaId, out var n) || n < 2) continue; // single → pase 2
+                if (presencialesPurasPorAsig[s.AsignaturaId] <= 1) continue;                  // conserva ≥1 presencial
+
+                var tipo = tiposAB[ab++ % 2];
+                s.AplicarAlternancia(tipo, patronDeTipo[tipo]);
+                presencialesPurasPorAsig[s.AsignaturaId]--;
+                excesohoras -= (Horas(s) + 1) / 2; // alterna ⇒ ~la mitad de huella presencial (heurística)
+                cedidas++;
             }
 
-            var candidatos = presenciales
-                .OrderByDescending(PrioridadDowngrade)
-                .ToList();
-
-            int excesohoras = demandaHoras - capacidadMaxEstimada;
-            int convertidas = 0;
-
-            foreach (var s in candidatos)
+            // ── Pase 2 — último recurso: virtualización total, mismo orden de prioridad.
+            // Aquí sí pueden caer las sesiones únicas (single-session), solo si alternar no bastó.
+            foreach (var s in OrdenarCesion(sesiones.Where(s =>
+                         s.Modalidad == Modalidad.Presencial && !s.Bloqueada)))
             {
                 if (excesohoras <= 0) break;
                 s.VirtualizarSesion();
-                excesohoras -= Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
-                convertidas++;
+                excesohoras -= Horas(s);
+                cedidas++;
             }
 
-            return convertidas;
+            return cedidas;
         }
     }
 }

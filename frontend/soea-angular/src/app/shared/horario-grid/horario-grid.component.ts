@@ -13,7 +13,7 @@ interface MergedSesion {
   alternancia: string;
   semana?: 'A' | 'B';
   asignaturaId: string;
-  docenteId: string;
+  docenteId?: string;
   espacioId?: string;
   espacioIdHogar?: string;
 }
@@ -210,6 +210,7 @@ export class HorarioGridComponent {
       const eid = m.espacioId ?? m.espacioIdHogar;
       return this.state.espacioById().get(eid ?? '')?.nombre ?? (m.virtual ? 'Virtual' : '—');
     }
+    if (!m.docenteId) return '';
     return this.state.docenteById().get(m.docenteId)?.nombre ?? '';
   }
 

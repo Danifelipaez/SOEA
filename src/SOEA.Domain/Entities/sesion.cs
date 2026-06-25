@@ -136,6 +136,19 @@ namespace SOEA.Domain.Entities
             PatronAlternanciaId = patronAlternanciaId;
         }
 
+        /// <summary>
+        /// SC-PRES / "Tipo C" dinámico: bajo saturación de aforo, alterna la sesión (presencial una
+        /// semana, virtual la otra) en lugar de virtualizarla por completo — conserva más
+        /// presencialidad. Fija a la vez el <see cref="PatronAlternanciaId"/> de trazabilidad.
+        /// Regla 8: no toca sesiones <see cref="Bloqueada"/> (el optimizador no altera su alternancia).
+        /// </summary>
+        public void AplicarAlternancia(TipoAlternancia tipo, Guid? patronAlternanciaId = null)
+        {
+            if (Bloqueada) return;
+            Alternancia = tipo;
+            PatronAlternanciaId = patronAlternanciaId;
+        }
+
         public void Bloquear()
         {
             Bloqueada = true;

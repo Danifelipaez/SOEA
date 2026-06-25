@@ -3,7 +3,6 @@ using SOEA.Application.Features.Asignaturas;
 using SOEA.Application.Features.Asignaturas.Requests;
 using SOEA.Application.Features.Asignaturas.Responses;
 using SOEA.Domain.Enums;
-using SOEA.Domain.Interfaces;
 
 namespace SOEA.API.Controllers
 {
@@ -11,28 +10,9 @@ namespace SOEA.API.Controllers
     [Route("api/[controller]")]
     public class AsignaturasController : ControllerBase
     {
-        private readonly CreateAsignaturaService _createService;
-        private readonly GetAsignaturaByIdService _getByIdService;
-        private readonly GetAsignaturasService _getAllService;
-        private readonly DeleteAsignaturaService _deleteService;
-        private readonly UpdateAlternanciaService _updateAlternanciaService;
-        private readonly UpdateAsignaturaService _updateService;
+        private readonly AsignaturaService _service;
 
-        public AsignaturasController(
-            CreateAsignaturaService createService,
-            GetAsignaturaByIdService getByIdService,
-            GetAsignaturasService getAllService,
-            DeleteAsignaturaService deleteService,
-            UpdateAlternanciaService updateAlternanciaService,
-            UpdateAsignaturaService updateService)
-        {
-            _createService = createService;
-            _getByIdService = getByIdService;
-            _getAllService = getAllService;
-            _deleteService = deleteService;
-            _updateAlternanciaService = updateAlternanciaService;
-            _updateService = updateService;
-        }
+        public AsignaturasController(AsignaturaService service) => _service = service;
 
         [HttpPost]
         public async Task<ActionResult<AsignaturaResponse>> CreateAsignatura(
@@ -43,7 +23,7 @@ namespace SOEA.API.Controllers
 
             try
             {
-                var response = await _createService.ExecuteAsync(request);
+                var response = await _service.CreateAsync(request);
                 return CreatedAtAction(nameof(GetAsignatura), new { id = response.Id }, response);
             }
             catch (ArgumentException ex)
@@ -57,7 +37,7 @@ namespace SOEA.API.Controllers
         {
             try
             {
-                var response = await _getByIdService.ExecuteAsync(id);
+                var response = await _service.GetByIdAsync(id);
                 return Ok(response);
             }
             catch (InvalidOperationException ex)
@@ -71,7 +51,7 @@ namespace SOEA.API.Controllers
         {
             try
             {
-                var responses = await _getAllService.ExecuteAsync();
+                var responses = await _service.GetAllAsync();
                 return Ok(responses);
             }
             catch (Exception ex)
@@ -93,7 +73,7 @@ namespace SOEA.API.Controllers
 
             try
             {
-                var response = await _updateService.ExecuteAsync(id, request);
+                var response = await _service.UpdateAsync(id, request);
                 return Ok(response);
             }
             catch (InvalidOperationException ex)
@@ -111,7 +91,7 @@ namespace SOEA.API.Controllers
         {
             try
             {
-                await _deleteService.ExecuteAsync(id);
+                await _service.DeleteAsync(id);
                 return NoContent();
             }
             catch (InvalidOperationException ex)
@@ -130,7 +110,7 @@ namespace SOEA.API.Controllers
             if (!ModelState.IsValid) return BadRequest(ModelState);
             try
             {
-                await _updateAlternanciaService.ExecuteAsync(id, dto.Alternancia);
+                await _service.UpdateAlternanciaAsync(id, dto.Alternancia);
                 return NoContent();
             }
             catch (InvalidOperationException ex)

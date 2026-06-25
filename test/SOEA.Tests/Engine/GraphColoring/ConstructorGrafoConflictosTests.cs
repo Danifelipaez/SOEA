@@ -10,20 +10,21 @@ namespace SOEA.Tests.Engine.GraphColoring
     {
         private static readonly ConstructorGrafoConflictos Constructor = new();
 
-        private static Sesion CrearSesion(Guid docenteId, Guid? espacioId, TipoAlternancia alt) =>
-            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), espacioId, null,
+        // CR-08: el eje de conflicto es la cohorte (GrupoId), no el docente (fuera del pipeline).
+        private static Sesion CrearSesion(Guid grupoId, Guid? espacioId, TipoAlternancia alt) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), espacioId, grupoId,
                 alt, Modalidad.Presencial, 2m, false, false);
 
-        // ALT-01: TipoA and TipoB sharing the same room must NOT conflict in the graph
+        // ALT-01: TipoA y TipoB de DISTINTAS cohortes compartiendo aula no entran en conflicto.
         [Fact]
-        public void TipoA_y_TipoB_MismoEspacio_NoTienenConflicto()
+        public void TipoA_y_TipoB_DistintaCohorte_MismoEspacio_NoTienenConflicto()
         {
             var espacioId = Guid.NewGuid();
-            var docente1 = Guid.NewGuid();
-            var docente2 = Guid.NewGuid();
+            var cohorte1 = Guid.NewGuid();
+            var cohorte2 = Guid.NewGuid();
 
-            var sesionA = CrearSesion(docente1, espacioId, TipoAlternancia.TipoA);
-            var sesionB = CrearSesion(docente2, espacioId, TipoAlternancia.TipoB);
+            var sesionA = CrearSesion(cohorte1, espacioId, TipoAlternancia.TipoA);
+            var sesionB = CrearSesion(cohorte2, espacioId, TipoAlternancia.TipoB);
 
             var grafo = Constructor.Construir(new List<Sesion> { sesionA, sesionB });
 
@@ -31,9 +32,9 @@ namespace SOEA.Tests.Engine.GraphColoring
             Assert.DoesNotContain(sesionA.Id, grafo[sesionB.Id]);
         }
 
-        // SinAlternancia sessions sharing the same room must conflict
+        // SinAlternancia de distintas cohortes compartiendo aula sí entran en conflicto (espacio).
         [Fact]
-        public void SinAlternancia_MismoEspacio_TienenConflicto()
+        public void SinAlternancia_DistintaCohorte_MismoEspacio_TienenConflicto()
         {
             var espacioId = Guid.NewGuid();
             var sesion1 = CrearSesion(Guid.NewGuid(), espacioId, TipoAlternancia.SinAlternancia);
@@ -45,13 +46,14 @@ namespace SOEA.Tests.Engine.GraphColoring
             Assert.Contains(sesion1.Id, grafo[sesion2.Id]);
         }
 
-        // Same docente always conflicts regardless of room
+        // CR-08: la misma cohorte siempre entra en conflicto, sin importar el aula
+        // (un grupo no puede estar en dos sesiones a la vez).
         [Fact]
-        public void MismoDocente_SinImportarEspacio_TienenConflicto()
+        public void MismaCohorte_SinImportarEspacio_TienenConflicto()
         {
-            var docenteId = Guid.NewGuid();
-            var sesion1 = CrearSesion(docenteId, Guid.NewGuid(), TipoAlternancia.SinAlternancia);
-            var sesion2 = CrearSesion(docenteId, Guid.NewGuid(), TipoAlternancia.SinAlternancia);
+            var cohorteId = Guid.NewGuid();
+            var sesion1 = CrearSesion(cohorteId, Guid.NewGuid(), TipoAlternancia.SinAlternancia);
+            var sesion2 = CrearSesion(cohorteId, Guid.NewGuid(), TipoAlternancia.SinAlternancia);
 
             var grafo = Constructor.Construir(new List<Sesion> { sesion1, sesion2 });
 

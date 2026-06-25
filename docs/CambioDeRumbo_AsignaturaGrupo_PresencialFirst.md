@@ -5,6 +5,7 @@
 > **Audiencia:** Agente de IA de codificación + Daniel (líder de desarrollo).
 > **Idioma de trabajo:** Español. Terminología en inglés solo donde es estándar (hard constraint, fitness function, etc.).
 > **Estado:** Propuesta de cambio aprobada por el líder de desarrollo. Algunos puntos requieren ratificación (ver §11) y dependen de datos bloqueados (ver §8).
+> **Progreso de implementación (segmentado):** ver `docs/PLAN_MAESTRO_PresencialFirst.md` (fuente única de verdad). **Etapa 1 cerrada (2026-06-19):** andamiaje de datos de **CR-03** (`Sesion.TipoFlujo`), **CR-04** (`Sesion.PatronAlternanciaId?`/`Bloqueada`), **CR-05** (`Asignatura.Categoria`) y **CR-07** (`Asignatura.HoraInicioMin?`/`HoraFinMax?`) implementado vía migración `EtapaInicialPresencialFirst`. La **lógica de motor** de esos CR y los cambios rompedores (**CR-02** `DocenteId` nullable, **CR-06** HC-CAP, **CR-08** grafo por grupo) quedan **pendientes** para etapas posteriores.
 > **Supersede parcialmente:** `SOEA_Arquitectura.md` (§9 hard constraints, §9 Fase 1, §13.2) y `BasedeConocimientov6.md` (§4, §5, Fase 1, §11 roadmap).
 
 ---

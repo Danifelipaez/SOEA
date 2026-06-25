@@ -28,7 +28,9 @@ namespace SOEA.Application.Features.TiposAlternancia
         {
             var id = dto.Id == Guid.Empty ? Guid.NewGuid() : dto.Id;
             var entidad = new TipoAlternanciaConfig(
-                id, dto.Nombre, ParsePatron(dto.PatronBase), dto.SemanasPresenciales, dto.Color, esSistema: false);
+                id, dto.Nombre,
+                Enum.TryParse<PatronBaseAlternancia>(dto.PatronBase, ignoreCase: true, out var p1) ? p1 : PatronBaseAlternancia.SinAlternancia,
+                dto.SemanasPresenciales, dto.Color, esSistema: false);
             await _repo.AddAsync(entidad);
             return MapToDto(entidad);
         }
@@ -38,7 +40,9 @@ namespace SOEA.Application.Features.TiposAlternancia
             var existing = await _repo.GetByIdAsync(id);
             if (existing is null) return null;
 
-            existing.ActualizarDatos(dto.Nombre, ParsePatron(dto.PatronBase), dto.SemanasPresenciales, dto.Color, dto.Activo);
+            existing.ActualizarDatos(dto.Nombre,
+                Enum.TryParse<PatronBaseAlternancia>(dto.PatronBase, ignoreCase: true, out var p2) ? p2 : PatronBaseAlternancia.SinAlternancia,
+                dto.SemanasPresenciales, dto.Color, dto.Activo);
             await _repo.UpdateAsync(existing);
             return MapToDto(existing);
         }
@@ -64,9 +68,6 @@ namespace SOEA.Application.Features.TiposAlternancia
             Activo = t.Activo
         };
 
-        private static PatronBaseAlternancia ParsePatron(string? patron) =>
-            Enum.TryParse<PatronBaseAlternancia>(patron, ignoreCase: true, out var p)
-                ? p : PatronBaseAlternancia.SinAlternancia;
     }
 
     public class TipoAlternanciaConfigDto

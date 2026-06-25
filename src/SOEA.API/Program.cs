@@ -79,12 +79,7 @@ builder.Services.AddGeneticEngine();
 
 // ── Application services ──────────────────────────────────────────────────────
 // CRUD Asignaturas
-builder.Services.AddScoped<CreateAsignaturaService>();
-builder.Services.AddScoped<GetAsignaturaByIdService>();
-builder.Services.AddScoped<GetAsignaturasService>();
-builder.Services.AddScoped<DeleteAsignaturaService>();
-builder.Services.AddScoped<UpdateAlternanciaService>();
-builder.Services.AddScoped<UpdateAsignaturaService>();
+builder.Services.AddScoped<AsignaturaService>();
 builder.Services.AddScoped<CrearSesionManualService>();
 // CRUD Docentes
 builder.Services.AddScoped<DocenteService>();
@@ -95,6 +90,8 @@ builder.Services.AddScoped<TipoAlternanciaConfigService>();
 builder.Services.AddScoped<GenerarHorarioService>();
 // Importación de curriculum
 builder.Services.AddScoped<ImportarCurriculumService>();
+// Asignación de docente post-generación (HU-04, Etapa 4)
+builder.Services.AddScoped<AsignarDocenteSesionService>();
 
 // ── OpenAPI + Controladores ───────────────────────────────────────────────────
 builder.Services.AddControllers()

@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using SOEA.Domain.Entities;
+using SOEA.Domain.Enums;
 
 namespace SOEA.Domain.Interfaces
 {
@@ -34,12 +36,14 @@ namespace SOEA.Domain.Interfaces
         int    PesoTiempos          = 2,   // SC-06: balancear carga entre días disponibles
         int    PesoAlmuerzo         = 3,   // SC-09: evitar > 6 horas seguidas (blanda fuerte: domina un hueco)
         int    PesoBalanceSemanas   = 2,   // SC-BAL: desbalance de carga por día entre Semana A y B (Incremento 2)
+        int    PesoPresencialFirst  = 4,   // SC-PRES: penaliza ceder presencialidad de sesiones de alta prioridad
         int?   Semilla              = null);
 
     /// <summary>
     /// Motor de Algoritmo Genético (Fase 3).
     /// Parte de la solución factible bi-semanal de la Fase 2 y la optimiza minimizando
-    /// restricciones blandas centradas en el docente, preservando todas las restricciones duras.
+    /// restricciones blandas centradas en la cohorte (CR-08: el docente sale del pipeline),
+    /// preservando todas las restricciones duras.
     /// </summary>
     public interface IMotorGenetico
     {
@@ -47,6 +51,10 @@ namespace SOEA.Domain.Interfaces
         /// Grupos de estudiantes con su disponibilidad horaria.
         /// HC-G01 (hard): si un grupo declara Disponibilidad, el GA solo moverá sus sesiones
         /// a bloques dentro de esa franja — coherencia con lo que CP-SAT ya garantizó en Fase 2.
+        /// </param>
+        /// <param name="infoAsignatura">
+        /// Por asignatura: (sesiones/semana, categoría). Alimenta SC-PRES — la penalización
+        /// proporcional por ceder presencialidad de sesiones de alta prioridad. Null = sin SC-PRES.
         /// </param>
         Task<ResultadoOptimizacion> OptimizarAsync(
             IEnumerable<Sesion>             sesiones,
@@ -56,6 +64,7 @@ namespace SOEA.Domain.Interfaces
             IEnumerable<Docente>            docentes,
             IEnumerable<Grupo>?             grupos = null,
             ConfiguracionOptimizacion?      config = null,
+            IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,
             CancellationToken               ct = default);
     }
 }

@@ -133,7 +133,7 @@ namespace SOEA.Application.Features.Horario
             {
                 Id           = sesion.Id.ToString(),
                 AsignaturaId = sesion.AsignaturaId.ToString(),
-                DocenteId    = sesion.DocenteId.ToString(),
+                DocenteId    = sesion.DocenteId?.ToString() ?? string.Empty,
                 EspacioId    = a.EspacioId?.ToString(),
                 EspacioIdHogar = labId,           // lab de origen (aunque sea virtual)
                 Dia          = diaStr,

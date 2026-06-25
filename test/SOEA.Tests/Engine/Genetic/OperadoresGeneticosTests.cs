@@ -12,16 +12,17 @@ namespace SOEA.Tests.Engine.Genetic
     /// <summary>
     /// Operadores del GA bi-semanal (cromosoma = dos inicios por sesión: Start en Semana A,
     /// StartB en Semana B — Incremento 2). Verifica los invariantes: inicios siempre válidos
-    /// (cabe-en-día ∩ disponibilidad docente), reparación de solapes de docente (HC-I01),
+    /// (cabe-en-día), reparación de solapes de cohorte (HC-C01, CR-08),
     /// StartB == Start para TipoA/TipoB (regla 9 / ALT-05) y divergencia libre de StartB para
     /// SinAlternancia (ALT-06).
     /// </summary>
     public class OperadoresGeneticosTests
     {
+        // CR-08: el eje de no-solapamiento es la cohorte (GrupoId); el docente queda fuera.
         private static Sesion CrearSesion(
-            Guid docenteId, decimal duracion = 2m, Modalidad modalidad = Modalidad.Presencial,
+            Guid grupoId, decimal duracion = 2m, Modalidad modalidad = Modalidad.Presencial,
             TipoAlternancia alternancia = TipoAlternancia.SinAlternancia) =>
-            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), null, null,
+            new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
                 alternancia, modalidad, duracion, false, false);
 
         // Lunes y Martes con `bloquesPorDia` bloques de 1h cada uno.
@@ -43,12 +44,12 @@ namespace SOEA.Tests.Engine.Genetic
         }
 
         [Fact]
-        public void Reparar_ConflictoDocente_EliminaSolape()
+        public void Reparar_ConflictoCohorte_EliminaSolape()
         {
-            var docenteId = Guid.NewGuid();
-            var sesiones = new List<Sesion> { CrearSesion(docenteId, 2m), CrearSesion(docenteId, 2m) };
+            var cohorteId = Guid.NewGuid();
+            var sesiones = new List<Sesion> { CrearSesion(cohorteId, 2m), CrearSesion(cohorteId, 2m) };
             var bloques  = CrearGrilla(10);
-            var docentes = new List<Docente> { CrearDocente(docenteId, bloques) };
+            var docentes = new List<Docente>();
 
             // Ambas en el bloque 0, duración 2 → solapan en los bloques 0 y 1.
             var c = new CromosomaHorario(sesiones.Select(s => s.Id).ToArray(), new[] { 0, 0 });
@@ -57,7 +58,7 @@ namespace SOEA.Tests.Engine.Genetic
 
             var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
             Assert.False(BloquesPlanner.Solapan(c.Start[0], 2, c.Start[1], 2, diaPorIdx),
-                "La reparación no eliminó el solape de docente.");
+                "La reparación no eliminó el solape de cohorte.");
         }
 
         [Fact]
@@ -82,10 +83,13 @@ namespace SOEA.Tests.Engine.Genetic
             }
         }
 
+        // CR-08 / degradación HC-I02: la mutación ya NO se confina a la disponibilidad del docente.
+        // El único invariante que conserva es estructural: el inicio cabe-en-día (no cruza el límite
+        // del día para la duración dada). El docente está disponible solo Lunes, pero la mutación
+        // puede colocar la sesión también en Martes.
         [Fact]
-        public void Mutar_RespetaDisponibilidadDelDocente()
+        public void Mutar_RespetaCabeEnDia()
         {
-            // Docente disponible SOLO los bloques de Lunes (idx 0..4). Duración 2.
             var docenteId = Guid.NewGuid();
             var sesion   = CrearSesion(docenteId, 2m);
             var sesiones = new List<Sesion> { sesion };
@@ -93,6 +97,7 @@ namespace SOEA.Tests.Engine.Genetic
             var soloLunes = bloques.Take(5).ToList();
             var docentes = new List<Docente> { CrearDocente(docenteId, soloLunes) };
             var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
+            var rangos    = BloquesPlanner.RangosPorDia(bloques);
 
             var c  = new CromosomaHorario(new[] { sesion.Id }, new[] { 0 });
             var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(7));
@@ -100,7 +105,8 @@ namespace SOEA.Tests.Engine.Genetic
             for (int i = 0; i < 200; i++)
             {
                 op.Mutar(c, 1.0);
-                Assert.Equal(DiaDeSemana.Lunes, diaPorIdx[c.Start[0]]);
+                Assert.True(BloquesPlanner.CabeEnDia(c.Start[0], 2, rangos, diaPorIdx),
+                    $"Mutación generó inicio {c.Start[0]} que cruza día (duración 2).");
             }
         }
 

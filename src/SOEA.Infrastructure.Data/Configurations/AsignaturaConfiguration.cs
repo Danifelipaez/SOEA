@@ -57,6 +57,20 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasColumnName("espacio_fijo_id")
                 .IsRequired(false);
 
+            builder.Property(a => a.Categoria)
+                .HasColumnName("categoria")
+                .HasConversion<string>()
+                .HasDefaultValue(Domain.Enums.CategoriaAsignatura.Obligatoria)
+                .IsRequired();
+
+            builder.Property(a => a.HoraInicioMin)
+                .HasColumnName("hora_inicio_min")
+                .IsRequired(false);
+
+            builder.Property(a => a.HoraFinMax)
+                .HasColumnName("hora_fin_max")
+                .IsRequired(false);
+
             // Indexes
             builder.HasIndex(a => new { a.Codigo, a.ProgramaId })
                 .IsUnique()

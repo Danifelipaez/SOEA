@@ -37,6 +37,19 @@ namespace SOEA.Domain.Entities
         /// </summary>
         public Guid? EspacioFijoId { get; private set; }
 
+        /// <summary>
+        /// Categoría curricular que rige la prioridad de presencialidad (presencial-first).
+        /// Andamiaje del modelo: la lógica de orden (SC-PRES) se implementa en etapas posteriores.
+        /// </summary>
+        public CategoriaAsignatura Categoria { get; private set; }
+
+        /// <summary>
+        /// Ventana horaria definida por la Secretaría Académica (CR-07). Acota la generación al rango
+        /// [HoraInicioMin, HoraFinMax]. Null = sin acotamiento por asignatura (rigen los límites operativos globales).
+        /// </summary>
+        public TimeOnly? HoraInicioMin { get; private set; }
+        public TimeOnly? HoraFinMax { get; private set; }
+
         // Constructor privado para EF Core
         private Asignatura() : base() { }
 
@@ -51,7 +64,10 @@ namespace SOEA.Domain.Entities
             int sesionesPorSemana,
             int sesionesLaboratorioSemestre,
             Guid programaId,
-            int umbralTipoA = UmbralTipoAPorDefecto) : base(id)
+            int umbralTipoA = UmbralTipoAPorDefecto,
+            CategoriaAsignatura categoria = CategoriaAsignatura.Obligatoria,
+            TimeOnly? horaInicioMin = null,
+            TimeOnly? horaFinMax = null) : base(id)
         {
             if (string.IsNullOrWhiteSpace(codigo))
             {
@@ -61,6 +77,7 @@ namespace SOEA.Domain.Entities
             }
 
             Validar(nombre, codigo, horasPorSesion, sesionesPorSemana, programaId);
+            ValidarVentana(horaInicioMin, horaFinMax);
 
             Nombre = nombre;
             Codigo = codigo;
@@ -69,6 +86,9 @@ namespace SOEA.Domain.Entities
             SesionesLaboratorioSemestre = sesionesLaboratorioSemestre;
             Alternancia = DeterminarAlternancia(sesionesLaboratorioSemestre, umbralTipoA);
             ProgramaId = programaId;
+            Categoria = categoria;
+            HoraInicioMin = horaInicioMin;
+            HoraFinMax = horaFinMax;
         }
 
         public void AsignarDocente(Guid? docenteId)
@@ -79,6 +99,22 @@ namespace SOEA.Domain.Entities
         public void AsignarEspacioFijo(Guid? espacioId)
         {
             EspacioFijoId = espacioId;
+        }
+
+        public void EstablecerCategoria(CategoriaAsignatura categoria)
+        {
+            Categoria = categoria;
+        }
+
+        /// <summary>
+        /// Fija la ventana horaria por asignatura (Secretaría Académica, CR-07).
+        /// Pasar (null, null) elimina el acotamiento.
+        /// </summary>
+        public void EstablecerVentanaHoraria(TimeOnly? horaInicioMin, TimeOnly? horaFinMax)
+        {
+            ValidarVentana(horaInicioMin, horaFinMax);
+            HoraInicioMin = horaInicioMin;
+            HoraFinMax = horaFinMax;
         }
 
         /// <summary>
@@ -103,10 +139,14 @@ namespace SOEA.Domain.Entities
             int sesionesLaboratorioSemestre,
             Guid programaId,
             TipoAlternancia? alternanciaExplicita = null,
-            int umbralTipoA = UmbralTipoAPorDefecto)
+            int umbralTipoA = UmbralTipoAPorDefecto,
+            CategoriaAsignatura? categoria = null,
+            TimeOnly? horaInicioMin = null,
+            TimeOnly? horaFinMax = null)
         {
             var codigoFinal = string.IsNullOrWhiteSpace(codigo) ? Codigo : codigo;
             Validar(nombre, codigoFinal, horasPorSesion, sesionesPorSemana, programaId);
+            ValidarVentana(horaInicioMin, horaFinMax);
 
             Nombre = nombre;
             Codigo = codigoFinal;
@@ -116,6 +156,10 @@ namespace SOEA.Domain.Entities
             // Si se pasa un tipo explícito (override manual) se respeta; si no, se infiere por umbral.
             Alternancia = alternanciaExplicita ?? DeterminarAlternancia(sesionesLaboratorioSemestre, umbralTipoA);
             ProgramaId = programaId;
+            // Si no se especifica categoría, se conserva la actual.
+            Categoria = categoria ?? Categoria;
+            HoraInicioMin = horaInicioMin;
+            HoraFinMax = horaFinMax;
         }
 
         /// <summary>
@@ -144,6 +188,16 @@ namespace SOEA.Domain.Entities
                 throw new ArgumentException("Las sesiones por semana deben ser un valor positivo.");
             if (programaId == Guid.Empty)
                 throw new ArgumentException("El ID del programa no puede ser vacío.");
+        }
+
+        /// <summary>
+        /// La ventana horaria es opcional, pero si ambos extremos están presentes el inicio debe
+        /// ser estrictamente anterior al fin (guardrail de integridad de datos).
+        /// </summary>
+        private static void ValidarVentana(TimeOnly? horaInicioMin, TimeOnly? horaFinMax)
+        {
+            if (horaInicioMin.HasValue && horaFinMax.HasValue && horaInicioMin.Value >= horaFinMax.Value)
+                throw new ArgumentException("La hora de inicio de la ventana debe ser anterior a la hora de fin.");
         }
     }
 }

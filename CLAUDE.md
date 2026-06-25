@@ -24,15 +24,19 @@ SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanale
 - [x] Entidades de dominio: `Asignatura`, `BloqueTiempo`, `Docente`, `Espacio`, `Facultad`, `Grupo`, `Horario`, `Programa`, `Sesion`
 - [x] Interfaces de repositorio: `IAsignaturaRepositorio`, `IDocenteRepositorio`, `IEspacioRepositorio`, `IGrupoRepositorio`, `IHorarioRepositorio`, `ISesionRepositorio`, `IRepositorio<T>`
 - [x] Interfaces de motor: `IMotorColoracionGrafo`, `IMotorConstraintProgramming`, `IMotorGenetico`, `IMotorOptimizacion`
-- [x] Enums: `TipoAlternancia`, `TipoEspacio`, `Modalidad`, `DiaDeSemana`, `EstadoHorario`, `EstadoSesion`, `FranjaHoraria`, `TipoRestriccion`
+- [x] Enums: `TipoAlternancia`, `TipoEspacio`, `Modalidad`, `DiaDeSemana`, `EstadoHorario`, `EstadoSesion`, `FranjaHoraria`, `TipoRestriccion`, `SemanaAcademica`, `PatronBaseAlternancia`, `TipoFlujo`, `CategoriaAsignatura`
 - [x] Value Objects: `CodigoCohorte`, `CodigoEspacio`, `IntervaloTiempo`
+- [x] Andamiaje Presencial-First (Etapa 1, solo datos): `Sesion.TipoFlujo`/`PatronAlternanciaId?`/`Bloqueada`, `Asignatura.Categoria`/`HoraInicioMin?`/`HoraFinMax?` + migración `EtapaInicialPresencialFirst`. Lógica de motor pendiente — ver `docs/PLAN_MAESTRO_PresencialFirst.md`
+- [x] Presencial-First Etapa 2 (CR-02): `Sesion.DocenteId` nullable (docente opcional) + null-guards en motores/validador + migración `Etapa2DocenteOpcional`. **HC-I02 degradada**: la disponibilidad docente ya no es hard constraint de generación (Fase 2/Fase 3); solo preferencia blanda (SC-06)
+- [x] Presencial-First Etapa 3 (CR-08 cerrado): **grupo/cohorte como eje** de conflicto y optimización. Cohorte implícita (un run = un grupo; `GrupoId` sintético por run). Fase 1 arista por `GrupoId`; Fase 2 **HC-C01** NoOverlap por `(grupo, semana)`; Fase 3 ergonomía por cohorte. HC-I01/HC-I03 fuera de generación; **docente fuera del pipeline** (se asigna después de generar). Sin migración (`grupo_id` ya existía). HU-04 (editar sesión) y multi-cohorte → etapas posteriores
+- [x] Presencial-First Etapa 4 (CR-02 2º rol): **docente post-generación**. Mutador `Sesion.AsignarDocente(Guid?)` + `AsignarDocenteSesionService` (solape duro → 409; disponibilidad/carga → advertencias) + `PATCH /api/sesiones/{id}/docente` (nuevo `SesionesController`). Sin migración. 224/224 verde.
 - [x] `SOEA.Engine.GraphColoring`: `AgendadorColoracionGrafo`, `ConstructorGrafoConflictos`
 - [x] `SOEA.Engine.ConstraintProg`: `MotorConstraintProgramming` (OR-Tools CP-SAT, 120 s timeout)
 - [x] `SOEA.Engine.Genetic`: `CromosomaHorario`, `EvaluadorFitness`, `MotorGenetico`, `OperadoresGeneticos` (200 gen, pop 50, convergencia 30)
 - [x] `SOEA.Infrastructure.Data`: `SOEABdContext`, 9 configuraciones EF, 7 repositorios, 5 migraciones aplicadas
 - [x] `SOEA.Infrastructure.Excel`: `LectorExcel` (3 modos: curriculum, modo2, disponibilidad)
 - [x] `SOEA.Application`: `GenerarHorarioService`, CRUD completo de asignaturas
-- [x] `SOEA.API`: 5 controllers (`AsignaturaController`, `DocentesController`, `EspaciosController`, `HorarioController`, `ImportController`)
+- [x] `SOEA.API`: 6 controllers (`AsignaturaController`, `DocentesController`, `EspaciosController`, `HorarioController`, `ImportController`, `SesionesController`)
 - [x] Tests: arquitectura (NetArchTest), entidades de dominio, motores, value objects
 - [ ] Validador post-generación de hard constraints (Application layer)
 - [ ] `PublicarHorarioService` — impide publicar con violaciones > 0
@@ -58,7 +62,7 @@ El agente NO debe asumir ni inventar estos valores — provienen de Rosa (coordi
 ## 5 — Convenciones de código
 
 - **Idioma:** clases y archivos en inglés; comentarios y docs en español
-- **Enums clave:** `TipoAlternancia { TipoA, TipoB, SinAlternancia }` · `TipoEspacio { Salon, Laboratorio, Auditorio }`
+- **Enums clave:** `TipoAlternancia { TipoA, TipoB, SinAlternancia }` · `TipoEspacio { Salon, Laboratorio, Auditorio }` · `TipoFlujo { Laboratorio, AulaVirtual }` · `CategoriaAsignatura { Obligatoria, Optativa, Electiva }`
 - **Tests:** xUnit · NSubstitute para mocks · datos de prueba en `TestData/`
 - **DI:** cada proyecto de infraestructura/motor expone `AddX()`. Application registra servicios concretos con `AddScoped<ConcreteService>()` — sin interfaz adicional.
 - **Docs:** `docs/architecture.md`, `docs/domain.md`, `docs/algorithms.md`

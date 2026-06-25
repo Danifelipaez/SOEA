@@ -44,7 +44,7 @@ namespace SOEA.Application.Features.Docentes
             var porId = docentes.ToDictionary(d => d.Id);
 
             var grupos = DetectorDocentesDuplicados.AgruparPosiblesDuplicados(
-                docentes.Select(d => new DetectorDocentesDuplicados.Docente(d.Id, d.Nombre)));
+                docentes.Select(d => (d.Id, d.Nombre)));
 
             return grupos
                 .Select(g => g.Where(x => porId.ContainsKey(x.Id)).Select(x => porId[x.Id]).ToList())

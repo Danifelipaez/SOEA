@@ -42,8 +42,11 @@ namespace SOEA.Engine.GraphColoring
 
         private bool TienenConflicto(Sesion s1, Sesion s2)
         {
-            // 1. Mismo Docente
-            if (s1.DocenteId != Guid.Empty && s1.DocenteId == s2.DocenteId)
+            // 1. Misma cohorte (CR-08, eje presencial-first): un grupo de estudiantes no puede
+            //    estar en dos sesiones a la vez (presencial o virtual). Con cohorte única por run,
+            //    esto hace que toda pareja de sesiones tenga arista (deben serializarse). El
+            //    HasValue evita la arista null==null. El docente queda fuera del pipeline.
+            if (s1.GrupoId.HasValue && s1.GrupoId == s2.GrupoId)
                 return true;
 
             // 2. Mismo Espacio (Laboratorio/Salón)

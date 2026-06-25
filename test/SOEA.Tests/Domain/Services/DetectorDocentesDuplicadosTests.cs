@@ -12,8 +12,7 @@ namespace SOEA.Tests.Domain.Services
     /// </summary>
     public class DetectorDocentesDuplicadosTests
     {
-        private static DetectorDocentesDuplicados.Docente D(string nombre) =>
-            new(Guid.NewGuid(), nombre);
+        private static (Guid Id, string Nombre) D(string nombre) => (Guid.NewGuid(), nombre);
 
         [Fact]
         public void Truncamiento_DeApellido_SeDetecta()

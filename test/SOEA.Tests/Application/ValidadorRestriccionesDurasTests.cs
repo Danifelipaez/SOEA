@@ -10,7 +10,7 @@ namespace SOEA.Tests.Application
 {
     /// <summary>
     /// Verifica el validador post-generación de restricciones duras (P0.3 auditoría):
-    /// detecta solapes reales de docente (HC-I01) y de espacio (HC-S01) sobre las
+    /// detecta solapes reales de cohorte (HC-C01) y de espacio (HC-S01) sobre las
     /// asignaciones finales, en lugar de confiar en un conteo hardcodeado.
     /// </summary>
     public class ValidadorRestriccionesDurasTests
@@ -27,17 +27,18 @@ namespace SOEA.Tests.Application
             return (bloques, indice);
         }
 
-        private static Sesion CrearSesion(Guid docenteId, decimal duracion) =>
-            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), null, null,
+        // CR-08: el eje de no-solapamiento es la cohorte (GrupoId); el docente queda fuera.
+        private static Sesion CrearSesion(Guid grupoId, decimal duracion) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, duracion, false, false);
 
         [Fact]
         public void SinSolapes_DevuelveListaVacia()
         {
             var (bloques, indice) = CrearGrilla(5);
-            var docente = Guid.NewGuid();
-            var s1 = CrearSesion(docente, 1m);
-            var s2 = CrearSesion(docente, 1m);
+            var cohorte = Guid.NewGuid();
+            var s1 = CrearSesion(cohorte, 1m);
+            var s2 = CrearSesion(cohorte, 1m);
             var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2 };
 
             // s1 en bloque 0, s2 en bloque 2 → no solapan
@@ -53,12 +54,12 @@ namespace SOEA.Tests.Application
         }
 
         [Fact]
-        public void MismoDocente_BloquesSolapados_DetectaHCI01()
+        public void MismaCohorte_BloquesSolapados_DetectaHCC01()
         {
             var (bloques, indice) = CrearGrilla(5);
-            var docente = Guid.NewGuid();
-            var s1 = CrearSesion(docente, 2m); // ocupa bloques 0-1
-            var s2 = CrearSesion(docente, 1m); // empieza en bloque 1 → solapa con s1
+            var cohorte = Guid.NewGuid();
+            var s1 = CrearSesion(cohorte, 2m); // ocupa bloques 0-1
+            var s2 = CrearSesion(cohorte, 1m); // empieza en bloque 1 → solapa con s1
             var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2 };
 
             var asignaciones = new[]
@@ -70,7 +71,7 @@ namespace SOEA.Tests.Application
             var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice);
 
             Assert.NotEmpty(conflictos);
-            Assert.Contains(conflictos, c => c.StartsWith("HC-I01"));
+            Assert.Contains(conflictos, c => c.StartsWith("HC-C01"));
         }
 
         [Fact]

@@ -1,5 +1,5 @@
 import { Injectable, signal, computed } from '@angular/core';
-import { Facultad, Programa, Espacio, Docente, Asignatura, Sesion, ConfiguracionAlgoritmo, CONFIGURACION_DEFECTO, HorarioBase } from './models';
+import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, ConfiguracionAlgoritmo, CONFIGURACION_DEFECTO, HorarioBase } from './models';
 
 @Injectable({
   providedIn: 'root'
@@ -10,6 +10,7 @@ export class StateService {
   programas   = signal<Programa[]>([]);
   espacios    = signal<Espacio[]>([]);
   docentes    = signal<Docente[]>([]);
+  grupos      = signal<Grupo[]>([]);
   asignaturas = signal<Asignatura[]>([]);
   sesiones    = signal<Sesion[]>([]);
 
@@ -57,6 +58,11 @@ export class StateService {
   addDocente(d: Docente)        { this.docentes.update(v => [...v, d]); }
   updateDocente(d: Docente)     { this.docentes.update(v => v.map(x => x.id === d.id ? d : x)); }
   deleteDocente(id: string)     { this.docentes.update(v => v.filter(x => x.id !== id)); }
+
+  // ── Grupos ───────────────────────────────────────────────────────────────────
+  addGrupo(g: Grupo)            { this.grupos.update(v => [...v, g]); }
+  updateGrupo(g: Grupo)         { this.grupos.update(v => v.map(x => x.id === g.id ? g : x)); }
+  deleteGrupo(id: string)       { this.grupos.update(v => v.filter(x => x.id !== id)); }
 
   // ── Asignaturas ──────────────────────────────────────────────────────────────
   addAsignatura(a: Asignatura)      { this.asignaturas.update(v => [...v, a]); }

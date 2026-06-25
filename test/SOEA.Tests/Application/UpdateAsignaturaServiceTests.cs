@@ -15,7 +15,7 @@ namespace SOEA.Tests.Application
     /// Verifica que el PUT de asignaturas actualice los campos editables (Bug 2 de Ingesta:
     /// las ediciones de duración se descartaban porque no existía vía de actualización).
     /// </summary>
-    public class UpdateAsignaturaServiceTests
+    public class AsignaturaServiceTests
     {
         private static Asignatura Existente(Guid id, Guid progId) =>
             new(id, "Bioquímica", "BIO201", 2, 1, 8, progId);
@@ -36,9 +36,9 @@ namespace SOEA.Tests.Application
             var progId = Guid.NewGuid();
             var asig   = Existente(Guid.NewGuid(), progId);
             var repo   = new FakeAsignaturaRepo(asig);
-            var service = new UpdateAsignaturaService(repo);
+            var service = new AsignaturaService(repo);
 
-            var response = await service.ExecuteAsync(asig.Id, Request(progId));
+            var response = await service.UpdateAsync(asig.Id, Request(progId));
 
             Assert.Equal(1, repo.Actualizaciones);
             Assert.Equal("Bioquímica Avanzada", response.Nombre);
@@ -54,12 +54,12 @@ namespace SOEA.Tests.Application
         {
             var progId = Guid.NewGuid();
             var asig   = Existente(Guid.NewGuid(), progId);
-            var service = new UpdateAsignaturaService(new FakeAsignaturaRepo(asig));
+            var service = new AsignaturaService(new FakeAsignaturaRepo(asig));
 
             var request = Request(progId);
             request.Alternancia = TipoAlternancia.TipoA; // override manual (11 lab inferiría TipoB)
 
-            var response = await service.ExecuteAsync(asig.Id, request);
+            var response = await service.UpdateAsync(asig.Id, request);
 
             Assert.Equal(TipoAlternancia.TipoA, response.Alternancia);
         }
@@ -71,13 +71,13 @@ namespace SOEA.Tests.Application
             var docenteId = Guid.NewGuid();
             var espacioId = Guid.NewGuid();
             var asig      = Existente(Guid.NewGuid(), progId);
-            var service   = new UpdateAsignaturaService(new FakeAsignaturaRepo(asig));
+            var service   = new AsignaturaService(new FakeAsignaturaRepo(asig));
 
             var request = Request(progId);
             request.DocenteId = docenteId;
             request.EspacioFijoId = espacioId;
 
-            var response = await service.ExecuteAsync(asig.Id, request);
+            var response = await service.UpdateAsync(asig.Id, request);
 
             Assert.Equal(docenteId, response.DocenteId);
             Assert.Equal(espacioId, response.EspacioFijoId);
@@ -86,10 +86,10 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task LanzaInvalidOperation_SiNoExiste()
         {
-            var service = new UpdateAsignaturaService(new FakeAsignaturaRepo());
+            var service = new AsignaturaService(new FakeAsignaturaRepo());
 
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => service.ExecuteAsync(Guid.NewGuid(), Request(Guid.NewGuid())));
+                () => service.UpdateAsync(Guid.NewGuid(), Request(Guid.NewGuid())));
         }
 
         [Fact]
@@ -97,13 +97,13 @@ namespace SOEA.Tests.Application
         {
             var progId  = Guid.NewGuid();
             var asig    = Existente(Guid.NewGuid(), progId);
-            var service = new UpdateAsignaturaService(new FakeAsignaturaRepo(asig));
+            var service = new AsignaturaService(new FakeAsignaturaRepo(asig));
 
             var request = Request(progId);
             request.HorasPorSesion = 0; // el dominio exige > 0
 
             await Assert.ThrowsAsync<ArgumentException>(
-                () => service.ExecuteAsync(asig.Id, request));
+                () => service.UpdateAsync(asig.Id, request));
         }
 
         // ── Repo fake ────────────────────────────────────────────────────────────
