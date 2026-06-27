@@ -54,7 +54,12 @@ namespace SOEA.Application.Features.Horario
 
             // CR-08: cohorte implícita — todas las materias de este run pertenecen al mismo grupo
             // de estudiantes y deben serializarse (un grupo no puede estar en dos sesiones a la vez).
-            var cohorteId = Guid.NewGuid();
+            // "Un run = un grupo": si el request trae un grupo, usamos SU Id como cohorteId para que
+            // sus sesiones crucen con la disponibilidad declarada (HC-G01). Sin grupo → id sintético
+            // (comportamiento previo: serialización de cohorte sin restricción de franja).
+            var cohorteId = request.Grupos
+                .Select(g => Guid.TryParse(g.Id, out var gid) ? gid : (Guid?)null)
+                .FirstOrDefault(g => g.HasValue) ?? Guid.NewGuid();
 
             // SC-PRES: mapa de categoria por asignatura para priorizar asignación presencial.
             // Obligatoria > Optativa > Electiva (se virtualiza en orden inverso si hay saturación).

@@ -11,7 +11,7 @@ import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { PersistenciaService } from '../../core/persistencia.service';
 import { CatalogoService } from '../../core/catalogo.service';
-import { Asignatura, Docente, Espacio, Sesion } from '../../core/models';
+import { Asignatura, Docente, Espacio, Grupo, Sesion } from '../../core/models';
 
 /** Representación visual de una sesión atómica multi-slot. */
 interface MergedSesion {
@@ -36,7 +36,7 @@ interface MergedSesion {
   selector: 'app-horario',
   standalone: true,
   imports: [
-    CommonModule, DatePipe, TitleCasePipe, MatButtonModule, MatDialogModule, MatSnackBarModule,
+    CommonModule, DatePipe, TitleCasePipe, FormsModule, MatButtonModule, MatDialogModule, MatSnackBarModule,
     RouterModule, MatProgressSpinnerModule, MatIconModule
   ],
   template: `
@@ -100,6 +100,27 @@ interface MergedSesion {
             <span class="week-desc">TipoB presencial · TipoA virtual</span>
           }
         </div>
+
+        <!-- Selector de grupo (cohorte) — aplica su disponibilidad (HC-G01) al generar -->
+        @if (state.grupos().length > 0) {
+          <div class="grupo-selector">
+            <span class="grupo-label"><mat-icon class="grupo-ico">groups</mat-icon> Grupo a generar</span>
+            <select class="grupo-select"
+                    [ngModel]="activeGrupo()?.id ?? ''"
+                    (ngModelChange)="selectGrupo($event)">
+              <option value="">Todos — sin restricción de disponibilidad</option>
+              @for (g of state.grupos(); track g.id) {
+                <option [value]="g.id">{{ g.nombre }} · {{ grupoAsignaturaNombre(g) }}</option>
+              }
+            </select>
+            @if (activeGrupo(); as g) {
+              <span class="grupo-hint">
+                <mat-icon>event_available</mat-icon>
+                {{ g.estudiantesInscritos }} estudiantes · {{ grupoDisponibilidadLabel(g) }}
+              </span>
+            }
+          </div>
+        }
 
         <!-- Horarios base guardados -->
         @if (state.horariosBases().length > 0) {
@@ -233,6 +254,13 @@ interface MergedSesion {
     .week-sub { font-size: 9px; color: #9e9e9e; letter-spacing: 0.05em; margin-top: 1px; }
     .pill-button.week-btn.active .week-sub { color: rgba(255,255,255,0.75); }
     .week-desc { font-size: 11px; color: #9e9e9e; align-self: center; margin-left: 4px; font-style: italic; }
+    .grupo-selector { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .grupo-label { display: flex; align-items: center; gap: 4px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #757575; }
+    .grupo-ico { font-size: 16px; width: 16px; height: 16px; color: #1976d2; }
+    .grupo-select { padding: 7px 10px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; background: white; cursor: pointer; outline: none; min-width: 280px; }
+    .grupo-select:focus { border-color: #1976d2; box-shadow: 0 0 0 2px rgba(25,118,210,.2); }
+    .grupo-hint { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #2e7d32; }
+    .grupo-hint mat-icon { font-size: 15px; width: 15px; height: 15px; }
     .bases-panel { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
     .bases-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .bases-icon { font-size: 18px; width: 18px; height: 18px; color: #1976d2; }
@@ -309,6 +337,7 @@ export class HorarioComponent implements OnInit {
 
   activeSpace = signal<Espacio | null>(null);
   activeWeek = signal<'A' | 'B'>('A');
+  activeGrupo = signal<Grupo | null>(null);
   loadingBackend = signal(false);
   backendReady = signal(false);
 
@@ -323,6 +352,23 @@ export class HorarioComponent implements OnInit {
 
   selectSpace(esp: Espacio) { this.activeSpace.set(esp); }
   selectWeek(week: 'A' | 'B') { this.activeWeek.set(week); }
+
+  selectGrupo(id: string) {
+    this.activeGrupo.set(this.state.grupos().find(g => g.id === id) ?? null);
+  }
+
+  grupoAsignaturaNombre(g: Grupo): string {
+    return this.state.asignaturaById().get(g.asignaturaId)?.nombre ?? 'sin asignatura';
+  }
+
+  /** Resume la disponibilidad por día del grupo en una etiqueta legible. */
+  grupoDisponibilidadLabel(g: Grupo): string {
+    if (!g.disponibilidadUiJson) return 'disponibilidad sin configurar';
+    let disp: Record<string, any>;
+    try { disp = JSON.parse(g.disponibilidadUiJson); } catch { return 'disponibilidad sin configurar'; }
+    const libres = Object.entries(disp).filter(([, d]: [string, any]) => d && !d.noDisponible).length;
+    return libres > 0 ? `${libres} día(s) disponibles` : 'sin días disponibles';
+  }
 
   syncFromBackend() {
     this.loadingBackend.set(true);
@@ -615,7 +661,8 @@ export class HorarioComponent implements OnInit {
         this.state.espacios(),
         this.state.configuracionAlgoritmo(),
         '2026-1',
-        this.state.baseSeleccionada() ?? undefined
+        this.state.baseSeleccionada() ?? undefined,
+        this.activeGrupo() ? [this.activeGrupo()!] : undefined
       )
       .subscribe({
         next: (respuesta) => {
