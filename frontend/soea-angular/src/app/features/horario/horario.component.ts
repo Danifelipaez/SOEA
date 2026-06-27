@@ -110,7 +110,7 @@ interface MergedSesion {
                     (ngModelChange)="selectGrupo($event)">
               <option value="">Todos — sin restricción de disponibilidad</option>
               @for (g of state.grupos(); track g.id) {
-                <option [value]="g.id">{{ g.nombre }} · {{ grupoAsignaturaNombre(g) }}</option>
+                <option [value]="g.id">{{ grupoOptionLabel(g) }}</option>
               }
             </select>
             @if (activeGrupo(); as g) {
@@ -359,6 +359,13 @@ export class HorarioComponent implements OnInit {
 
   grupoAsignaturaNombre(g: Grupo): string {
     return this.state.asignaturaById().get(g.asignaturaId)?.nombre ?? 'sin asignatura';
+  }
+
+  /** Etiqueta del dropdown: distingue grupos homónimos por programa + semestre (+ código). */
+  grupoOptionLabel(g: Grupo): string {
+    const prog = this.state.programaById().get(g.programaId)?.nombre ?? '—';
+    const cod  = g.codigo ? ` [${g.codigo}]` : '';
+    return `${g.nombre}${cod} · ${prog} · S${g.semestre} · ${this.grupoAsignaturaNombre(g)}`;
   }
 
   /** Resume la disponibilidad por día del grupo en una etiqueta legible. */
@@ -652,17 +659,31 @@ export class HorarioComponent implements OnInit {
       return;
     }
 
+    // Cohorte = programa: al elegir un grupo, el run agenda SOLO las asignaturas de su programa
+    // (evita serializar todo el catálogo como una cohorte infactible). "Todos" = sin restricción.
+    const grupo = this.activeGrupo();
+    const asignaturas = grupo
+      ? (this.state.asignaturasByPrograma().get(grupo.programaId) ?? [])
+      : this.state.asignaturas();
+
+    if (grupo && asignaturas.length === 0) {
+      this.snackBar.open(
+        `El programa del grupo "${grupo.nombre}" no tiene asignaturas cargadas.`,
+        'Cerrar', { duration: 5000 });
+      return;
+    }
+
     const dialogRef = this.dialog.open(ProgressDialogComponent, { disableClose: true, width: '500px' });
 
     this.horarioApi
       .generarHorario(
-        this.state.asignaturas(),
+        asignaturas,
         this.state.docentes(),
         this.state.espacios(),
         this.state.configuracionAlgoritmo(),
         '2026-1',
         this.state.baseSeleccionada() ?? undefined,
-        this.activeGrupo() ? [this.activeGrupo()!] : undefined
+        grupo ? [grupo] : undefined
       )
       .subscribe({
         next: (respuesta) => {
@@ -682,11 +703,12 @@ export class HorarioComponent implements OnInit {
           if (err.logs && Array.isArray(err.logs)) {
              this.state.setExecutionLogs(err.logs);
           }
-          this.snackBar.open(
-            `❌ ${mensaje}`,
-            'Cerrar',
-            { duration: 8000, panelClass: ['snack-error'] }
-          );
+          const texto = /factible|infeasible/i.test(mensaje)
+            ? `❌ No se encontró un horario factible para ${asignaturas.length} asignatura(s) en ` +
+              `${this.state.espacios().length} espacio(s). Acota eligiendo un grupo (se agenda solo ` +
+              `su programa) o revisa la cantidad/capacidad de laboratorios.`
+            : `❌ ${mensaje}`;
+          this.snackBar.open(texto, 'Cerrar', { duration: 9000, panelClass: ['snack-error'] });
         }
       });
   }
