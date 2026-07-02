@@ -156,10 +156,11 @@ namespace SOEA.Domain.Entities
             // Si se pasa un tipo explícito (override manual) se respeta; si no, se infiere por umbral.
             Alternancia = alternanciaExplicita ?? DeterminarAlternancia(sesionesLaboratorioSemestre, umbralTipoA);
             ProgramaId = programaId;
-            // Si no se especifica categoría, se conserva la actual.
+            // Si no se especifica categoría o ventana horaria, se conserva la actual
+            // (evita que un PUT de campos no relacionados borre la ventana CR-07 fijada por Excel/otro flujo).
             Categoria = categoria ?? Categoria;
-            HoraInicioMin = horaInicioMin;
-            HoraFinMax = horaFinMax;
+            HoraInicioMin = horaInicioMin ?? HoraInicioMin;
+            HoraFinMax = horaFinMax ?? HoraFinMax;
         }
 
         /// <summary>

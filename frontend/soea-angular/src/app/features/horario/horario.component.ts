@@ -662,7 +662,7 @@ export class HorarioComponent implements OnInit {
     // Cohorte = programa: al elegir un grupo, el run agenda SOLO las asignaturas de su programa
     // (evita serializar todo el catálogo como una cohorte infactible). "Todos" = sin restricción.
     const grupo = this.activeGrupo();
-    const asignaturas = grupo
+    const asignaturas = (grupo && grupo.programaId)
       ? (this.state.asignaturasByPrograma().get(grupo.programaId) ?? [])
       : this.state.asignaturas();
 

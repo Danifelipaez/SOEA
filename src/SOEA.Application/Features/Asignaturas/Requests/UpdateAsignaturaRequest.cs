@@ -19,5 +19,10 @@ namespace SOEA.Application.Features.Asignaturas.Requests
 
         public Guid? DocenteId { get; set; }
         public Guid? EspacioFijoId { get; set; }
+
+        /// <summary>
+        /// Categoría curricular (prioridad de presencialidad, SC-PRES). Null = conservar la actual.
+        /// </summary>
+        public CategoriaAsignatura? Categoria { get; set; }
     }
 }

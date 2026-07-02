@@ -47,7 +47,7 @@ Usado en conjunto con el Formato 2 para definir cuándo pueden dictar clases los
 │
 ├── docs/                            ← toda la documentación del proyecto (contexto de Copilot)
 │   ├── requirements/                ← alcance, stakeholders, glosario, SRS
-│   ├── business-rules/              ← alternancia, restricciones duras/blandas, límites del piloto
+│   ├── business-rules/              ← alternancia, restricciones duras/blandas, reglas de negocio
 │   ├── architecture/                ← visión general de arquitectura, mapa de módulos, despliegue
 │   ├── data/                        ← diccionario de datos, modelo ER, especificación JSON de salida
 │   ├── algorithm/                   ← definición del problema UCTP + 3 fases del algoritmo

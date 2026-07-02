@@ -2,7 +2,7 @@
 
 ## 1 — Identidad del proyecto
 
-SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanales universitarios para instituciones con modelo de alternancia (presencial/virtual por semanas alternas). Dado un conjunto de asignaturas, docentes y espacios, ejecuta un pipeline de 3 fases de optimización y retorna un horario factible. El piloto objetivo son los laboratorios de química de la Universidad del Magdalena.
+SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanales universitarios para instituciones con modelo de alternancia (presencial/virtual por semanas alternas). Dado un conjunto de asignaturas, docentes y espacios, ejecuta un pipeline de 3 fases de optimización y retorna un horario factible. La institución objetivo es la Universidad del Magdalena.
 
 **Stack:** ASP.NET Core 10 Web API · PostgreSQL · Angular 21 · Google OR-Tools CP-SAT · Clean Architecture.
 
@@ -36,16 +36,16 @@ SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanale
 - [x] `SOEA.Infrastructure.Data`: `SOEABdContext`, 9 configuraciones EF, 7 repositorios, 5 migraciones aplicadas
 - [x] `SOEA.Infrastructure.Excel`: `LectorExcel` (3 modos: curriculum, modo2, disponibilidad)
 - [x] `SOEA.Application`: `GenerarHorarioService`, CRUD completo de asignaturas
-- [x] `SOEA.API`: 6 controllers (`AsignaturaController`, `DocentesController`, `EspaciosController`, `HorarioController`, `ImportController`, `SesionesController`)
+- [x] `SOEA.API`: 8 controllers (`AsignaturaController`, `DocentesController`, `EspaciosController`, `GruposController`, `HorarioController`, `ImportController`, `SesionesController`, `TiposAlternanciaController`)
 - [x] Tests: arquitectura (NetArchTest), entidades de dominio, motores, value objects
-- [ ] Validador post-generación de hard constraints (Application layer)
+- [x] Validador post-generación de hard constraints (`ValidadorRestriccionesDuras` en Application, wired en `GenerarHorarioService` paso 4b — fallback a Fase 2 si el GA viola alguna HC)
 - [ ] `PublicarHorarioService` — impide publicar con violaciones > 0
 - [ ] Autenticación JWT y control de acceso por rol (Admin / Coordinador / Docente / Estudiante)
 
 **Frontend** (`frontend/soea-angular`)
-- [x] Rutas: `/ingesta`, `/horario`, `/dashboard-admin`, `/dashboard-developer`
+- [x] Rutas: `/ingesta`, `/horario`, `/dashboard-admin`, `/dashboard-developer`, `/horario-docente`, `/tipos-alternancia`, `/configuracion-alternancia`
 - [x] `StateService` (estado global en memoria), `HorarioApiService`, `PersistenciaService`
-- [x] Tabs en `/ingesta`: Asignaturas, Docentes, Espacios
+- [x] Tabs en `/ingesta`: Asignaturas, Docentes, Espacios, Grupos
 - [ ] Carga de Excel en pestaña Ingesta
 - [ ] Vista de reporte de conflictos
 - [ ] Control de acceso por rol en UI
@@ -54,7 +54,7 @@ SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanale
 
 El agente NO debe asumir ni inventar estos valores — provienen de Rosa (coordinadora académica):
 
-- Capacidad exacta de cada laboratorio de química
+- Capacidad exacta de cada espacio (laboratorio, salón, auditorio)
 - Clasificación de prioridad de cursos (1 / 2 / 3)
 - Lista definitiva de asignaturas Tipo A y Tipo B
 - Duración fija por asignatura (horas por sesión y sesiones por semana)
@@ -122,3 +122,42 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+<!-- code-review-graph MCP tools -->
+## MCP Tools: code-review-graph
+
+**IMPORTANT: This project has a knowledge graph. ALWAYS use the
+code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
+the codebase.** The graph is faster, cheaper (fewer tokens), and gives
+you structural context (callers, dependents, test coverage) that file
+scanning cannot.
+
+### When to use graph tools FIRST
+
+- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
+- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
+- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
+- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
+- **Architecture questions**: `get_architecture_overview` + `list_communities`
+
+Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
+
+### Key Tools
+
+| Tool | Use when |
+| ------ | ---------- |
+| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
+| `get_review_context` | Need source snippets for review — token-efficient |
+| `get_impact_radius` | Understanding blast radius of a change |
+| `get_affected_flows` | Finding which execution paths are impacted |
+| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
+| `semantic_search_nodes` | Finding functions/classes by name or keyword |
+| `get_architecture_overview` | Understanding high-level codebase structure |
+| `refactor_tool` | Planning renames, finding dead code |
+
+### Workflow
+
+1. The graph auto-updates on file changes (via hooks).
+2. Use `detect_changes` for code review.
+3. Use `get_affected_flows` to understand impact.
+4. Use `query_graph` pattern="tests_for" to check coverage.

@@ -110,6 +110,9 @@ namespace SOEA.API.Controllers
             try
             {
                 grupo.ActualizarNombre(dto.Nombre);
+                grupo.ActualizarCodigo(dto.Codigo);
+                grupo.ActualizarPrograma(dto.ProgramaId);
+                grupo.ActualizarSemestre(dto.Semestre);
                 grupo.ActualizarEstudiantes(dto.EstudiantesInscritos);
                 grupo.ActualizarAsignatura(dto.AsignaturaId, dto.FacultadId ?? grupo.FacultadId);
                 grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);

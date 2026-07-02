@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnDestroy } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatButtonModule } from '@angular/material/button';
@@ -171,7 +171,7 @@ import { ConfiguracionAlgoritmo } from '../../core/models';
     .form-actions { display: flex; justify-content: flex-end; gap: 16px; margin-top: 24px; }
   `]
 })
-export class DashboardDeveloperComponent implements OnDestroy {
+export class DashboardDeveloperComponent {
   fb = inject(FormBuilder);
   snackBar = inject(MatSnackBar);
   state = inject(StateService);
@@ -179,7 +179,6 @@ export class DashboardDeveloperComponent implements OnDestroy {
   logs = this.state.executionLogs;
 
   configForm: FormGroup;
-  valChangeSub: any;
 
   constructor() {
     const cfg = this.state.configuracionAlgoritmo();
@@ -201,9 +200,6 @@ export class DashboardDeveloperComponent implements OnDestroy {
       pesoAlm: [cfg.pesoAlm]
     });
 
-    this.valChangeSub = this.configForm.valueChanges.subscribe(() => {
-      // Re-evaluate signals if needed, or we just compute on demand
-    });
   }
 
   mutCrossWarning(): boolean {
@@ -262,7 +258,4 @@ export class DashboardDeveloperComponent implements OnDestroy {
     this.snackBar.open('Configuración guardada — se aplicará en la próxima generación.', 'Cerrar', { duration: 3500 });
   }
 
-  ngOnDestroy() {
-    if (this.valChangeSub) this.valChangeSub.unsubscribe();
-  }
 }

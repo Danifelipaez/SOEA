@@ -330,9 +330,9 @@ namespace SOEA.Engine.ConstraintProg
                     }
                     else
                     {
-                        // HC-S03: sin espacio fijo → filtrar por tipo de espacio
-                        bool requiereLab = sesion.EspacioId.HasValue &&
-                            espacios.FirstOrDefault(e => e.Id == sesion.EspacioId)?.Tipo == TipoEspacio.Laboratorio;
+                        // HC-S03: sesiones de tipo Laboratorio solo pueden ir a espacios Laboratorio.
+                        // TipoFlujo.Laboratorio es el default; AulaVirtual permite cualquier espacio.
+                        bool requiereLab = sesion.TipoFlujo == TipoFlujo.Laboratorio;
 
                         lista = new List<int>();
                         for (int e = 0; e < espacios.Count; e++)

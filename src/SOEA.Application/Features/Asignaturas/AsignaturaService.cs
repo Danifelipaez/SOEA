@@ -52,7 +52,8 @@ public class AsignaturaService
             request.SesionesPorSemana,
             request.SesionesLaboratorioSemestre,
             request.ProgramaId,
-            request.Alternancia);
+            request.Alternancia,
+            categoria: request.Categoria);
         asignatura.AsignarDocente(request.DocenteId);
         asignatura.AsignarEspacioFijo(request.EspacioFijoId);
 

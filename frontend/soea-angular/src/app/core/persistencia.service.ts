@@ -207,6 +207,7 @@ export interface ImportExcelStatsDto {
   docentesCreados: number;
   docentesActualizados: number;
   espaciosCreados: number;
+  espaciosActualizados: number;
   asignaturasCreadas: number;
   asignaturasActualizadas: number;
   gruposCreados: number;

@@ -483,7 +483,7 @@ Como Secretaría Académica, quiero seleccionar una asignatura con cupo libre y 
 3. **Disponibilidad docente residual:** ¿se conserva `Docente.Disponibilidad` como validación blanda en edición cuando hay docente, o se elimina por completo? Determina si los campos permanecen en `src/SOEA.Domain/Entities/Docente.cs`.
 4. **Ratificación de la relajación de Tipo A** (KB §13.2 → alternancia por sesión via `Sesion.Bloqueada`) por Profe Rafa, dado que §13 exige firma explícita.
 5. **¿La ventana horaria por asignatura (CR-07) es hard o soft constraint?** Determina si va en `MotorConstraintProgramming` (HC-VH) o en `EvaluadorFitness` (SC-VH).
-6. **Alcance del piloto:** ¿arrancar con Química General como caso único (como se planteó en reunión) o con el conjunto completo desde el inicio?
+6. ~~**Alcance del piloto:** ¿arrancar con Química General como caso único o con el conjunto completo desde el inicio?~~ — **Resuelto:** conjunto completo de programas de la Universidad del Magdalena.
 
 ---
 

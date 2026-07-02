@@ -118,7 +118,8 @@ export interface Sesion {
   virtual: boolean;
   alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia';
   /** Semana del ciclo de alternancia. Presente desde el modelo bi-semanal (Incremento 1).
-   *  'A' = semanas pares (TipoA presencial), 'B' = semanas impares (TipoB presencial).
+   *  'A' = semanas impares (TipoA presencial), 'B' = semanas pares (TipoB presencial)
+   *  (convención del backend: SemanaAcademica.cs).
    *  El horario (día/franja) es idéntico en A y B; solo cambia la modalidad presencial↔virtual. */
   semana?: 'A' | 'B';
 }

@@ -15,6 +15,7 @@ namespace SOEA.Application.Features.Asignaturas.Responses
         public Guid ProgramaId { get; set; }
         public Guid? DocenteId { get; set; }
         public Guid? EspacioFijoId { get; set; }
+        public CategoriaAsignatura Categoria { get; set; }
 
         public static AsignaturaResponse FromEntity(Asignatura a) => new()
         {
@@ -27,7 +28,8 @@ namespace SOEA.Application.Features.Asignaturas.Responses
             Alternancia = a.Alternancia,
             ProgramaId = a.ProgramaId,
             DocenteId = a.DocenteId,
-            EspacioFijoId = a.EspacioFijoId
+            EspacioFijoId = a.EspacioFijoId,
+            Categoria = a.Categoria
         };
     }
 }

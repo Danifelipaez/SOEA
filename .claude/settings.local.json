@@ -14,7 +14,37 @@
       "Bash(graphify query *)",
       "Bash(xargs grep -l \"Modalidad\\\\|IntervaloTiempo\\\\|CodigoCohorte\\\\|CodigoEspacio\")",
       "Bash(xargs wc -l)",
-      "Bash(git clean *)"
+      "Bash(git clean *)",
+      "mcp__code-review-graph__get_architecture_overview_tool",
+      "mcp__code-review-graph__list_graph_stats_tool",
+      "mcp__code-review-graph__list_communities_tool",
+      "mcp__code-review-graph__detect_changes_tool",
+      "mcp__code-review-graph__list_flows_tool",
+      "mcp__code-review-graph__get_community_tool",
+      "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\danie\\\\.claude\\\\projects\\\\A--Unversidad--PRACTICAS-UNI-CODIGO-SOEA\\\\b33cf3ff-8f1b-4f5f-a232-85fe0c1332d5\\\\tool-results\\\\mcp-code-review-graph-detect_changes_tool-1782780206031.txt' | ConvertFrom-Json | Select-Object status, summary, risk_score, changed_files, functions_truncated | ConvertTo-Json -Depth 3\")",
+      "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\danie\\\\.claude\\\\projects\\\\A--Unversidad--PRACTICAS-UNI-CODIGO-SOEA\\\\b33cf3ff-8f1b-4f5f-a232-85fe0c1332d5\\\\tool-results\\\\mcp-code-review-graph-detect_changes_tool-1782780206031.txt' | ConvertFrom-Json | Select-Object -ExpandProperty review_priorities | ConvertTo-Json -Depth 5\")",
+      "mcp__code-review-graph__refactor_tool",
+      "mcp__code-review-graph__get_hub_nodes_tool",
+      "mcp__code-review-graph__get_knowledge_gaps_tool",
+      "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\danie\\\\.claude\\\\projects\\\\A--Unversidad--PRACTICAS-UNI-CODIGO-SOEA\\\\b33cf3ff-8f1b-4f5f-a232-85fe0c1332d5\\\\tool-results\\\\mcp-code-review-graph-refactor_tool-1782781148879.txt' | ConvertFrom-Json | Select-Object status, summary, total | ConvertTo-Json\")",
+      "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\danie\\\\.claude\\\\projects\\\\A--Unversidad--PRACTICAS-UNI-CODIGO-SOEA\\\\b33cf3ff-8f1b-4f5f-a232-85fe0c1332d5\\\\tool-results\\\\mcp-code-review-graph-refactor_tool-1782781150454.txt' | ConvertFrom-Json | Select-Object status, summary, total | ConvertTo-Json\")",
+      "Bash(powershell -Command \"Select-String -Path 'A:\\\\Unversidad\\\\_PRACTICAS_UNI\\\\CODIGO\\\\SOEA\\\\frontend\\\\soea-angular\\\\src\\\\app\\\\features\\\\horario\\\\horario.component.ts' -Pattern 'valChangeSub|ngOnDestroy|valueChanges' | Format-Table -Property LineNumber, Line -AutoSize\")",
+      "Bash(powershell -Command \"Select-String -Path 'A:\\\\Unversidad\\\\_PRACTICAS_UNI\\\\CODIGO\\\\SOEA\\\\frontend\\\\soea-angular\\\\src\\\\app\\\\features\\\\dashboard-developer\\\\dashboard-developer.component.ts' -Pattern 'valChangeSub|subscribe\\\\\\(\\\\s*\\\\\\(\\\\s*\\\\\\)\\\\s*=>' | Format-Table -Property LineNumber, Line -AutoSize\")",
+      "Bash(powershell -Command \"Select-String -Path 'A:\\\\Unversidad\\\\_PRACTICAS_UNI\\\\CODIGO\\\\SOEA\\\\frontend\\\\soea-angular\\\\src\\\\app\\\\core\\\\state.service.ts' -Pattern '^\\\\s+\\(?:private \\)?\\(a|d|e|f|p|v\\)\\\\s*=' | Select-Object -First 15 | Format-Table -Property LineNumber, Line -AutoSize\")",
+      "Bash(git -C \"A:\\\\Unversidad\\\\_PRACTICAS_UNI\\\\CODIGO\\\\SOEA\" diff HEAD -- \"frontend/soea-angular/src/app/features/horario/horario.component.ts\")",
+      "Bash(git -C \"A:\\\\Unversidad\\\\_PRACTICAS_UNI\\\\CODIGO\\\\SOEA\" diff HEAD -- \"src/SOEA.Engine.ConstraintProg/MotorConstraintProgramming.cs\")"
     ]
+  },
+  "enabledMcpjsonServers": [
+    "code-review-graph"
+  ],
+  "skillOverrides": {
+    "add-entity": "name-only",
+    "debug-issue": "user-invocable-only",
+    "explore-codebase": "off",
+    "find-skills": "off",
+    "graphify": "name-only",
+    "refactor-safely": "name-only",
+    "review-changes": "user-invocable-only"
   }
 }

@@ -112,4 +112,4 @@ HC-I01 (solape físico) → **duro** (409). HC-I02 (disponibilidad) y HC-I03 (ca
 2. `Categoria` (obligatoria/optativa/electiva) ¿reemplaza o coexiste con niveles 1/2/3 de Rosa?
 3. Ratificación de la relajación de Tipo A (Profe Rafa).
 4. Ventana horaria (CR-07): ¿hard (HC-VH) o soft (SC-VH)?
-5. Alcance del piloto: ¿Química General único o conjunto completo?
+5. ~~Alcance del piloto: ¿Química General único o conjunto completo?~~ — **Resuelto:** conjunto completo de programas de la Universidad del Magdalena.

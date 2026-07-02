@@ -64,6 +64,8 @@ export interface AsignaturaApiDto {
   alternancia?: string;
   esVirtual: boolean;
   espacioFijoId?: string;
+  /** Prioridad de presencialidad (SC-PRES): 'Obligatoria' | 'Optativa' | 'Electiva'. */
+  categoria?: string;
 }
 
 export interface DocenteApiDto {
@@ -171,7 +173,8 @@ export class HorarioApiService {
         programaId: a.programaId,
         alternancia: a.alternancia,
         esVirtual: false,
-        espacioFijoId: a.espacioFijoId
+        espacioFijoId: a.espacioFijoId,
+        categoria: a.categoria
       })),
       docentes: docentes.map(d => ({
         id: d.id,
@@ -196,6 +199,7 @@ export class HorarioApiService {
   mapearSesiones(sesiones: GenerarHorarioResponse['sesiones']): Sesion[] {
     return sesiones.map(s => ({
       ...s,
+      docenteId: s.docenteId || undefined,
       duracionHoras: s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin),
       alternancia: (s.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia',
       semana: (s.semana === 'A' || s.semana === 'B') ? s.semana : undefined,

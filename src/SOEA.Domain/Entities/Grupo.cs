@@ -93,6 +93,15 @@ namespace SOEA.Domain.Entities
             EstudiantesInscritos = nuevaCantidad;
         }
 
+        public void ActualizarPrograma(Guid programaId) => ProgramaId = programaId;
+
+        public void ActualizarSemestre(int nuevoSemestre)
+        {
+            if (nuevoSemestre < 1 || nuevoSemestre > 10)
+                throw new ArgumentException("El semestre debe estar entre 1 y 10.");
+            Semestre = nuevoSemestre;
+        }
+
         public void ActualizarAlternancia(TipoAlternancia nuevaAlternancia) =>
             Alternancia = nuevaAlternancia;
 

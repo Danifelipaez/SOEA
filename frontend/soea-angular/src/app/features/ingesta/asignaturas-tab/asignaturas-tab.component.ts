@@ -367,10 +367,10 @@ export class AsignaturasTabComponent {
 
   private construirPayloadImport(asignaturas: Asignatura[]) {
     return {
-      Facultades: this.state.facultades().map(f => ({ id: f.id, nombre: f.nombre })),
-      Programas: this.state.programas().map(p => ({ id: p.id, nombre: p.nombre, facultadId: p.facultadId })),
-      Docentes: this.state.docentes().map(d => ({ id: d.id, nombre: d.nombre, cedula: d.cedula, maxHoras: d.maxHoras })),
-      Asignaturas: asignaturas.map(a => ({
+      facultades: this.state.facultades().map(f => ({ id: f.id, nombre: f.nombre })),
+      programas: this.state.programas().map(p => ({ id: p.id, nombre: p.nombre, facultadId: p.facultadId })),
+      docentes: this.state.docentes().map(d => ({ id: d.id, nombre: d.nombre, cedula: d.cedula, maxHoras: d.maxHoras })),
+      asignaturas: asignaturas.map(a => ({
         id: a.id, nombre: a.nombre, codigo: a.codigo,
         horasPorSesion: a.horasPorSesion, sesionesPorSemana: a.sesionesPorSemana,
         sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,

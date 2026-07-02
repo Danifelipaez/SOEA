@@ -79,9 +79,11 @@ namespace SOEA.API.Controllers
 
         private static TipoEspacio ParseTipo(string tipo) => tipo switch
         {
+            "Salón"       => TipoEspacio.Salon,
             "Laboratorio" => TipoEspacio.Laboratorio,
             "Auditorio"   => TipoEspacio.Auditorio,
-            _             => TipoEspacio.Salon   // "Salón" or anything else
+            _             => throw new ArgumentException(
+                $"Tipo de espacio '{tipo}' no reconocido. Valores válidos: 'Salón', 'Laboratorio', 'Auditorio'.")
         };
 
         private static EspacioDto MapToDto(Espacio e) => new()
