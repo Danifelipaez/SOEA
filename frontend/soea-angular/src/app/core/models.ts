@@ -54,8 +54,16 @@ export interface Asignatura {
   categoria?: 'Obligatoria' | 'Optativa' | 'Electiva';
   /** Número de grupo dentro de la asignatura (1..N). Opcional; usado en importaciones para diferenciar repeticiones */
   grupoNumero?: number;
-  horasPorSesion: number;    // 2 o 3 horas
-  sesionesPorSemana: number;
+  /** Sesiones de teoría presencial por semana. */
+  sesionesTeoriaPresencialSemana: number;
+  horasTeoriaPresencial: number;
+  /** Sesiones de teoría virtual por semana. Modo fijo, independiente de alternancia (sin pareja presencial). */
+  sesionesTeoriaVirtualSemana: number;
+  horasTeoriaVirtual: number;
+  /** Sesiones de laboratorio por semana. Único track sujeto a alternancia (TipoA/TipoB). */
+  sesionesLaboratorioSemana: number;
+  horasLaboratorio: number;
+  /** Total semestral de sesiones de laboratorio — distinto del conteo semanal; solo alimenta la inferencia de alternancia. */
   sesionesLaboratorioSemestre: number;
   programaId: string;
   docenteId?: string;        // Docente asignado (puede quedar vacío para que el algoritmo decida)
@@ -122,4 +130,22 @@ export interface Sesion {
    *  (convención del backend: SemanaAcademica.cs).
    *  El horario (día/franja) es idéntico en A y B; solo cambia la modalidad presencial↔virtual. */
   semana?: 'A' | 'B';
+  /** Laboratorio | AulaVirtual. Distingue teoría (presencial o virtual) de laboratorio. */
+  tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
+}
+
+/** Vista de UI de los 3 tipos de sesión combinables por asignatura (desglose por tipo). */
+export type TipoSesionUi = 'TeoriaPresencial' | 'TeoriaVirtual' | 'Laboratorio';
+
+export function tipoSesionUiDesde(tipoFlujo: 'Laboratorio' | 'AulaVirtual' | undefined, virtual: boolean): TipoSesionUi {
+  if (tipoFlujo === 'Laboratorio') return 'Laboratorio';
+  return virtual ? 'TeoriaVirtual' : 'TeoriaPresencial';
+}
+
+export function tipoFlujoDesde(tipo: TipoSesionUi): 'Laboratorio' | 'AulaVirtual' {
+  return tipo === 'Laboratorio' ? 'Laboratorio' : 'AulaVirtual';
+}
+
+export function esVirtualDesde(tipo: TipoSesionUi): boolean {
+  return tipo === 'TeoriaVirtual';
 }

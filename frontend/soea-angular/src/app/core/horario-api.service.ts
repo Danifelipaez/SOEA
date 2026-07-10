@@ -28,6 +28,8 @@ export interface SesionFijaApiDto {
   duracionHoras: number;
   alternancia?: string;
   virtual: boolean;
+  /** Laboratorio | AulaVirtual. Null/no reconocido → Laboratorio (default histórico del backend). */
+  tipoFlujo?: string;
 }
 
 export interface GrupoApiDto {
@@ -56,13 +58,15 @@ export interface AsignaturaApiDto {
   id: string;
   nombre: string;
   docenteId?: string;
-  creditos: number;
-  horasSemanales: number;
-  horasPorSesion: number;
-  sesionesPorSemana: number;
+  sesionesTeoriaPresencialSemana: number;
+  horasTeoriaPresencial: number;
+  sesionesTeoriaVirtualSemana: number;
+  horasTeoriaVirtual: number;
+  sesionesLaboratorioSemana: number;
+  horasLaboratorio: number;
   programaId?: string;
+  /** TipoA | TipoB | SinAlternancia — solo aplica al track de laboratorio. */
   alternancia?: string;
-  esVirtual: boolean;
   espacioFijoId?: string;
   /** Prioridad de presencialidad (SC-PRES): 'Obligatoria' | 'Optativa' | 'Electiva'. */
   categoria?: string;
@@ -135,6 +139,7 @@ export class HorarioApiService {
       duracionHoras: s.duracionHoras,
       alternancia:  s.alternancia,
       virtual:      s.virtual,
+      tipoFlujo:    s.tipoFlujo,
     }));
 
     const gruposDto: GrupoApiDto[] | undefined = grupos?.map(g => ({
@@ -166,13 +171,14 @@ export class HorarioApiService {
         id: a.id,
         nombre: a.nombre,
         docenteId: a.docenteId,
-        creditos: (a.sesionesPorSemana || 0) * (a.horasPorSesion || 0),
-        horasSemanales: (a.horasPorSesion || 0) * (a.sesionesPorSemana || 0),
-        horasPorSesion: a.horasPorSesion,
-        sesionesPorSemana: a.sesionesPorSemana,
+        sesionesTeoriaPresencialSemana: a.sesionesTeoriaPresencialSemana,
+        horasTeoriaPresencial: a.horasTeoriaPresencial,
+        sesionesTeoriaVirtualSemana: a.sesionesTeoriaVirtualSemana,
+        horasTeoriaVirtual: a.horasTeoriaVirtual,
+        sesionesLaboratorioSemana: a.sesionesLaboratorioSemana,
+        horasLaboratorio: a.horasLaboratorio,
         programaId: a.programaId,
         alternancia: a.alternancia,
-        esVirtual: false,
         espacioFijoId: a.espacioFijoId,
         categoria: a.categoria
       })),

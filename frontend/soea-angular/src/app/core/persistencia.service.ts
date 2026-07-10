@@ -148,8 +148,12 @@ export class PersistenciaService {
     const body = {
       nombre: a.nombre,
       codigo: a.codigo,
-      horasPorSesion: a.horasPorSesion,
-      sesionesPorSemana: a.sesionesPorSemana,
+      sesionesTeoriaPresencialSemana: a.sesionesTeoriaPresencialSemana,
+      horasTeoriaPresencial: a.horasTeoriaPresencial,
+      sesionesTeoriaVirtualSemana: a.sesionesTeoriaVirtualSemana,
+      horasTeoriaVirtual: a.horasTeoriaVirtual,
+      sesionesLaboratorioSemana: a.sesionesLaboratorioSemana,
+      horasLaboratorio: a.horasLaboratorio,
       sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
       programaId: a.programaId,
       alternancia: a.alternancia,
@@ -186,6 +190,8 @@ export class PersistenciaService {
     horaInicio: string;
     duracionHoras: number;
     alternancia: string;
+    tipoFlujo: 'Laboratorio' | 'AulaVirtual';
+    esVirtual: boolean;
   }): Observable<Sesion[]> {
     return this.http.post<Sesion[]>(`${this.base}/horario/sesion-manual`, payload);
   }
