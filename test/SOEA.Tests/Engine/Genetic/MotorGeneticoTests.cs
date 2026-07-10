@@ -32,8 +32,10 @@ namespace SOEA.Tests.Engine.Genetic
             return bloques;
         }
 
-        private static Sesion Sesion(Guid docenteId, TipoAlternancia alt, Modalidad modalidad, decimal dur) =>
-            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), null, null, alt, modalidad, dur, false, false);
+        private static Sesion Sesion(Guid docenteId, TipoAlternancia alt, Modalidad modalidad, decimal dur,
+            TipoFlujo tipoFlujo = TipoFlujo.Laboratorio) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), null, null, alt, modalidad, dur, false, false,
+                tipoFlujo: tipoFlujo);
 
         private static Docente Doc(Guid id, IEnumerable<BloqueTiempo> bloques)
         {
@@ -173,6 +175,46 @@ namespace SOEA.Tests.Engine.Genetic
 
             Assert.True(r.UsoFallback);
             Assert.Equal(fase2.Count, r.AsignacionesOptimizadas.Count);
+        }
+
+        [Fact]
+        public async Task Laboratorio_ConSoloEspacioSalon_HaceFallback()
+        {
+            // HC-S03: una sesión TipoFlujo.Laboratorio exige un espacio tipo Laboratorio.
+            // Con un único Salon disponible, no hay candidato válido → fallback a Fase 2.
+            var docId = Guid.NewGuid();
+            var sesiones = new List<Sesion> { Sesion(docId, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m,
+                tipoFlujo: TipoFlujo.Laboratorio) };
+            var bloques  = Grilla(6);
+            var docentes = new List<Docente> { Doc(docId, bloques) };
+            var espacios = new List<Espacio> { new(Guid.NewGuid(), "Salon", TipoEspacio.Salon, 30) };
+            var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
+
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
+
+            Assert.True(r.UsoFallback);
+        }
+
+        [Fact]
+        public async Task TeoriaPresencial_ConSoloEspacioSalon_Exito()
+        {
+            // Una sesión TipoFlujo.AulaVirtual (teoría presencial) no exige laboratorio: un Salon
+            // le basta. Antes del fix de HC-S03 en AsignadorEspacios, el heurístico viejo dependía
+            // de un EspacioId previo (siempre null pre-generación) y este caso ya "pasaba" por
+            // accidente; ahora pasa por la razón correcta (TipoFlujo).
+            var docId = Guid.NewGuid();
+            var sesiones = new List<Sesion> { Sesion(docId, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m,
+                tipoFlujo: TipoFlujo.AulaVirtual) };
+            var bloques  = Grilla(6);
+            var docentes = new List<Docente> { Doc(docId, bloques) };
+            var espacios = new List<Espacio> { new(Guid.NewGuid(), "Salon", TipoEspacio.Salon, 30) };
+            var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
+
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
+
+            Assert.False(r.UsoFallback);
+            Assert.All(r.AsignacionesOptimizadas.Where(a => a.Modalidad == Modalidad.Presencial),
+                a => Assert.NotNull(a.EspacioId));
         }
     }
 }
