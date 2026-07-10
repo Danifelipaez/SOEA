@@ -120,9 +120,17 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("time without time zone")
                         .HasColumnName("hora_inicio_min");
 
-                    b.Property<int>("HorasPorSesion")
+                    b.Property<int>("HorasLaboratorio")
                         .HasColumnType("integer")
-                        .HasColumnName("horas_por_sesion");
+                        .HasColumnName("horas_laboratorio");
+
+                    b.Property<int>("HorasTeoriaPresencial")
+                        .HasColumnType("integer")
+                        .HasColumnName("horas_teoria_presencial");
+
+                    b.Property<int>("HorasTeoriaVirtual")
+                        .HasColumnType("integer")
+                        .HasColumnName("horas_teoria_virtual");
 
                     b.Property<string>("Nombre")
                         .IsRequired()
@@ -134,13 +142,21 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("programa_id");
 
+                    b.Property<int>("SesionesLaboratorioSemana")
+                        .HasColumnType("integer")
+                        .HasColumnName("sesiones_laboratorio_semana");
+
                     b.Property<int>("SesionesLaboratorioSemestre")
                         .HasColumnType("integer")
                         .HasColumnName("sesiones_laboratorio_semestre");
 
-                    b.Property<int>("SesionesPorSemana")
+                    b.Property<int>("SesionesTeoriaPresencialSemana")
                         .HasColumnType("integer")
-                        .HasColumnName("sesiones_por_semana");
+                        .HasColumnName("sesiones_teoria_presencial_semana");
+
+                    b.Property<int>("SesionesTeoriaVirtualSemana")
+                        .HasColumnType("integer")
+                        .HasColumnName("sesiones_teoria_virtual_semana");
 
                     b.HasKey("Id");
 

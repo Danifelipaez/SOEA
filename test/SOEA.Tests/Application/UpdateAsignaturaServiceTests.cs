@@ -17,6 +17,7 @@ namespace SOEA.Tests.Application
     /// </summary>
     public class AsignaturaServiceTests
     {
+        // Shape legado: 2h, 1 sesión/semana → mapea a teoría presencial.
         private static Asignatura Existente(Guid id, Guid progId) =>
             new(id, "Bioquímica", "BIO201", 2, 1, 8, progId);
 
@@ -24,8 +25,8 @@ namespace SOEA.Tests.Application
         {
             Nombre = "Bioquímica Avanzada",
             Codigo = "BIO201",
-            HorasPorSesion = 3,
-            SesionesPorSemana = 2,
+            SesionesTeoriaPresencialSemana = 2,
+            HorasTeoriaPresencial = 3,
             SesionesLaboratorioSemestre = 11,
             ProgramaId = progId
         };
@@ -42,8 +43,8 @@ namespace SOEA.Tests.Application
 
             Assert.Equal(1, repo.Actualizaciones);
             Assert.Equal("Bioquímica Avanzada", response.Nombre);
-            Assert.Equal(3, response.HorasPorSesion);
-            Assert.Equal(2, response.SesionesPorSemana);
+            Assert.Equal(3, response.HorasTeoriaPresencial);
+            Assert.Equal(2, response.SesionesTeoriaPresencialSemana);
             Assert.Equal(11, response.SesionesLaboratorioSemestre);
             // Sin alternancia explícita se infiere por umbral: 11 > 8 ⇒ TipoB.
             Assert.Equal(TipoAlternancia.TipoB, response.Alternancia);
@@ -100,7 +101,7 @@ namespace SOEA.Tests.Application
             var service = new AsignaturaService(new FakeAsignaturaRepo(asig));
 
             var request = Request(progId);
-            request.HorasPorSesion = 0; // el dominio exige > 0
+            request.HorasTeoriaPresencial = 0; // conteo > 0 con horas = 0 → el dominio exige horas > 0
 
             await Assert.ThrowsAsync<ArgumentException>(
                 () => service.UpdateAsync(asig.Id, request));

@@ -28,12 +28,28 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasMaxLength(50)
                 .IsRequired();
 
-            builder.Property(a => a.HorasPorSesion)
-                .HasColumnName("horas_por_sesion")
+            builder.Property(a => a.SesionesTeoriaPresencialSemana)
+                .HasColumnName("sesiones_teoria_presencial_semana")
                 .IsRequired();
 
-            builder.Property(a => a.SesionesPorSemana)
-                .HasColumnName("sesiones_por_semana")
+            builder.Property(a => a.HorasTeoriaPresencial)
+                .HasColumnName("horas_teoria_presencial")
+                .IsRequired();
+
+            builder.Property(a => a.SesionesTeoriaVirtualSemana)
+                .HasColumnName("sesiones_teoria_virtual_semana")
+                .IsRequired();
+
+            builder.Property(a => a.HorasTeoriaVirtual)
+                .HasColumnName("horas_teoria_virtual")
+                .IsRequired();
+
+            builder.Property(a => a.SesionesLaboratorioSemana)
+                .HasColumnName("sesiones_laboratorio_semana")
+                .IsRequired();
+
+            builder.Property(a => a.HorasLaboratorio)
+                .HasColumnName("horas_laboratorio")
                 .IsRequired();
 
             builder.Property(a => a.SesionesLaboratorioSemestre)
@@ -70,6 +86,11 @@ namespace SOEA.Infrastructure.Data.Configurations
             builder.Property(a => a.HoraFinMax)
                 .HasColumnName("hora_fin_max")
                 .IsRequired(false);
+
+            // Alias legado de solo lectura (HorasPorSesion/SesionesPorSemana delegan a los campos
+            // de teoría presencial) — no son columnas propias, EF no debe intentar mapearlos.
+            builder.Ignore(a => a.HorasPorSesion);
+            builder.Ignore(a => a.SesionesPorSemana);
 
             // Indexes
             builder.HasIndex(a => new { a.Codigo, a.ProgramaId })

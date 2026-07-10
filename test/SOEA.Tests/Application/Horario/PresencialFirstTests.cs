@@ -18,10 +18,18 @@ namespace SOEA.Tests.Application.Horario
     /// </summary>
     public class PresencialFirstTests
     {
+        // TipoFlujo.AulaVirtual (teoría): tras el desglose por tipo de sesión, SC-PRES solo cede
+        // presencialidad en el track de teoría — el de laboratorio quedó exento (ver
+        // Laboratorio_NuncaSeAlternaNiVirtualiza más abajo).
         private static Sesion Pres(Guid asig, Guid grupo, decimal dur, bool bloqueada = false) =>
             new(Guid.NewGuid(), asig, null, Guid.NewGuid(), null, grupo,
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, dur, false, false,
-                bloqueada: bloqueada);
+                tipoFlujo: TipoFlujo.AulaVirtual, bloqueada: bloqueada);
+
+        private static Sesion PresLab(Guid asig, Guid grupo, decimal dur) =>
+            new(Guid.NewGuid(), asig, null, Guid.NewGuid(), null, grupo,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, dur, false, false,
+                tipoFlujo: TipoFlujo.Laboratorio);
 
         [Fact]
         public void Cesion_RespetaPrioridadDosNiveles_YBloqueada()
@@ -88,6 +96,28 @@ namespace SOEA.Tests.Application.Horario
 
             Assert.Equal(0, cedidas);
             Assert.All(sesiones, s => Assert.Equal(TipoAlternancia.SinAlternancia, s.Alternancia));
+        }
+
+        [Fact]
+        public void Laboratorio_NuncaSeAlternaNiVirtualiza()
+        {
+            var grupo = Guid.NewGuid();
+            var asigLab = Guid.NewGuid();
+
+            // 1 espacio → umbral de saturación = 40h. Todas las sesiones son de laboratorio,
+            // así que ninguna es candidata a cesión (decisión: labs no tienen contraparte virtual).
+            var espacios = new List<Espacio> { new(Guid.NewGuid(), "E", TipoEspacio.Laboratorio, 30) };
+            var labs = Enumerable.Range(0, 6).Select(_ => PresLab(asigLab, grupo, 8m)).ToList(); // 48h > 40h
+            var categoria = new Dictionary<Guid, CategoriaAsignatura> { [asigLab] = CategoriaAsignatura.Electiva };
+
+            int cedidas = GenerarHorarioService.AplicarPrioridadPresencial(labs, espacios, categoria);
+
+            Assert.Equal(0, cedidas);
+            Assert.All(labs, s =>
+            {
+                Assert.Equal(TipoAlternancia.SinAlternancia, s.Alternancia);
+                Assert.Equal(Modalidad.Presencial, s.Modalidad);
+            });
         }
     }
 }
