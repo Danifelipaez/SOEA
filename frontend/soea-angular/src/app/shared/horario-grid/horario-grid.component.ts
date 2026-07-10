@@ -16,6 +16,7 @@ interface MergedSesion {
   docenteId?: string;
   espacioId?: string;
   espacioIdHogar?: string;
+  tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
 }
 
 /**
@@ -61,6 +62,7 @@ interface MergedSesion {
                           <div class="card-sub">{{ getCardSub(m) }}</div>
                           <div class="card-duration">{{ m.horaInicio }} – {{ m.horaFin }}</div>
                           <div class="card-badges">
+                            <span class="badge-tipo" [class.badge-tipo-lab]="m.tipoFlujo === 'Laboratorio'">{{ tipoLabel(m) }}</span>
                             @if (m.virtual) {
                               <span class="badge-virtual">Virtual</span>
                             }
@@ -106,6 +108,8 @@ interface MergedSesion {
     .card-duration { color: #9e9e9e; font-size: 10px; margin-top: 2px; }
     .card-badges   { display: flex; gap: 4px; margin-top: 3px; flex-wrap: wrap; }
     .badge-virtual { padding: 1px 5px; background: #e0e0e0; border-radius: 10px; font-size: 9px; }
+    .badge-tipo     { padding: 1px 5px; background: #eceff1; color: #37474f; border-radius: 10px; font-size: 9px; font-weight: 600; }
+    .badge-tipo-lab { background: #e0f2f1; color: #00695c; }
     .badge-semana  { padding: 1px 5px; background: #ede7f6; color: #512da8; border-radius: 10px; font-size: 9px; font-weight: 600; }
     .badge-alt     { padding: 1px 5px; background: #e3f2fd; color: #1565c0; border-radius: 10px; font-size: 9px; }
     .badge-grupo   { padding: 1px 5px; background: #e8f5e9; color: #2e7d32; border-radius: 10px; font-size: 9px; font-weight: 600; }
@@ -148,6 +152,7 @@ export class HorarioGridComponent {
         alternancia: s.alternancia, semana: s.semana,
         asignaturaId: s.asignaturaId, docenteId: s.docenteId,
         espacioId: s.espacioId, espacioIdHogar: s.espacioIdHogar,
+        tipoFlujo: s.tipoFlujo,
       };
       const cid = this.cellId(s.dia, s.horaInicio);
       if (!map.has(cid)) map.set(cid, []);
@@ -200,6 +205,8 @@ export class HorarioGridComponent {
   }
 
   esTipoA(m: MergedSesion): boolean { return m.alternancia === 'TipoA'; }
+
+  tipoLabel(m: MergedSesion): string { return m.tipoFlujo === 'Laboratorio' ? 'Lab' : 'Teoría'; }
 
   getCardTitle(m: MergedSesion): string {
     return this.state.asignaturaById().get(m.asignaturaId)?.nombre ?? 'Desconocida';

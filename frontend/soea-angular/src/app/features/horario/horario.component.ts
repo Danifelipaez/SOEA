@@ -11,7 +11,7 @@ import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { PersistenciaService } from '../../core/persistencia.service';
 import { CatalogoService } from '../../core/catalogo.service';
-import { Asignatura, Docente, Espacio, Grupo, Sesion } from '../../core/models';
+import { Asignatura, Docente, Espacio, Grupo, Sesion, TipoSesionUi, tipoFlujoDesde, esVirtualDesde } from '../../core/models';
 
 /** Representación visual de una sesión atómica multi-slot. */
 interface MergedSesion {
@@ -30,6 +30,7 @@ interface MergedSesion {
   espacioId?: string;
   /** Lab de origen (donde es presencial); usado para ubicar la fila virtual en su lab. */
   espacioIdHogar?: string;
+  tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
 }
 
 @Component({
@@ -205,6 +206,7 @@ interface MergedSesion {
                               <div class="card-sub">{{ getDocenteName(merged) }}</div>
                               <div class="card-duration">{{ merged.horaInicio }} – {{ merged.horaFin }}</div>
                               <div class="card-badges">
+                                <span class="badge-tipo" [class.badge-tipo-lab]="merged.tipoFlujo === 'Laboratorio'">{{ tipoLabel(merged) }}</span>
                                 @if (merged.virtual) {
                                   <span class="badge-virtual">Virtual</span>
                                 }
@@ -312,6 +314,8 @@ interface MergedSesion {
     .card-badges   { display: flex; gap: 4px; margin-top: 3px; flex-wrap: wrap; }
     .badge-virtual { padding: 1px 5px; background: #e0e0e0; border-radius: 10px; font-size: 9px; }
     .badge-semana  { padding: 1px 5px; background: #ede7f6; color: #512da8; border-radius: 10px; font-size: 9px; font-weight: 600; }
+    .badge-tipo     { padding: 1px 5px; background: #eceff1; color: #37474f; border-radius: 10px; font-size: 9px; font-weight: 600; }
+    .badge-tipo-lab { background: #e0f2f1; color: #00695c; }
     .badge-alt     { padding: 1px 5px; background: #e3f2fd; color: #1565c0; border-radius: 10px; font-size: 9px; }
     .badge-grupo   { padding: 1px 5px; background: #e8f5e9; color: #2e7d32; border-radius: 10px; font-size: 9px; font-weight: 600; }
     .tipo-a-badge  { position: absolute; top: 2px; right: 2px; font-size: 9px; background: #ff9800; color: white; padding: 1px 4px; border-radius: 2px; }
@@ -436,6 +440,7 @@ export class HorarioComponent implements OnInit {
         docenteId:     s.docenteId,
         espacioId:     s.espacioId,
         espacioIdHogar: s.espacioIdHogar,
+        tipoFlujo:     s.tipoFlujo,
       };
       const cid = this.cellId(s.dia, s.horaInicio);
       if (!map.has(cid)) map.set(cid, []);
@@ -531,6 +536,10 @@ export class HorarioComponent implements OnInit {
 
   esTipoA(merged: MergedSesion): boolean {
     return merged.alternancia === 'TipoA';
+  }
+
+  tipoLabel(merged: MergedSesion): string {
+    return merged.tipoFlujo === 'Laboratorio' ? 'Lab' : 'Teoría';
   }
 
   getAsignaturaName(merged: MergedSesion): string {
@@ -786,6 +795,10 @@ interface EditarSesionResult {
       <mat-icon class="info-icon">{{ data.sesion.virtual ? 'videocam' : 'science' }}</mat-icon>
       <span>{{ data.sesion.virtual ? 'Virtual (sincrónica)' : 'Presencial' }}</span>
     </div>
+    <div class="info-item">
+      <mat-icon class="info-icon">{{ data.sesion.tipoFlujo === 'Laboratorio' ? 'biotech' : 'menu_book' }}</mat-icon>
+      <span>{{ data.sesion.tipoFlujo === 'Laboratorio' ? 'Laboratorio' : 'Teoría' }}</span>
+    </div>
     @if (contexto()) {
       <div class="info-item">
         <mat-icon class="info-icon">account_tree</mat-icon>
@@ -847,34 +860,38 @@ interface EditarSesionResult {
   </section>
 
   <!-- ── Sección 3: Alternancia y semana ── -->
-  <section class="form-section">
-    <div class="section-label"><span class="step-num">3</span> Alternancia</div>
-    <div class="alt-pills">
-      <button type="button" class="alt-pill" [class.active]="alternancia() === 'TipoA'"
-              (click)="alternancia.set('TipoA')">
-        <strong>Tipo A</strong><br><small>Presencial S.A · Virtual S.B</small>
-      </button>
-      <button type="button" class="alt-pill" [class.active]="alternancia() === 'TipoB'"
-              (click)="alternancia.set('TipoB')">
-        <strong>Tipo B</strong><br><small>Virtual S.A · Presencial S.B</small>
-      </button>
-      <button type="button" class="alt-pill" [class.active]="alternancia() === 'SinAlternancia'"
-              (click)="alternancia.set('SinAlternancia')">
-        <strong>Sin alternancia</strong><br><small>Presencial siempre</small>
-      </button>
-    </div>
-
-    @if (alternancia() !== 'SinAlternancia') {
-      <div class="field-group" style="margin-top:10px">
-        <span class="field-label">Semana del ciclo</span>
-        <div class="day-pills">
-          <button type="button" class="day-pill" [class.active]="semana() === 'A'" (click)="semana.set('A')">A (pares)</button>
-          <button type="button" class="day-pill" [class.active]="semana() === 'B'" (click)="semana.set('B')">B (impares)</button>
-          <button type="button" class="day-pill" [class.active]="semana() === undefined" (click)="semana.set(undefined)">Ambas</button>
-        </div>
+  <!-- Solo el track de Laboratorio alterna (decisión de diseño); teoría queda fija en
+       Sin alternancia — ver ModalidadSemanal.Derivar en el backend. -->
+  @if (esLaboratorio()) {
+    <section class="form-section">
+      <div class="section-label"><span class="step-num">3</span> Alternancia</div>
+      <div class="alt-pills">
+        <button type="button" class="alt-pill" [class.active]="alternancia() === 'TipoA'"
+                (click)="alternancia.set('TipoA')">
+          <strong>Tipo A</strong><br><small>Presencial S.A · Virtual S.B</small>
+        </button>
+        <button type="button" class="alt-pill" [class.active]="alternancia() === 'TipoB'"
+                (click)="alternancia.set('TipoB')">
+          <strong>Tipo B</strong><br><small>Virtual S.A · Presencial S.B</small>
+        </button>
+        <button type="button" class="alt-pill" [class.active]="alternancia() === 'SinAlternancia'"
+                (click)="alternancia.set('SinAlternancia')">
+          <strong>Sin alternancia</strong><br><small>Presencial siempre</small>
+        </button>
       </div>
-    }
-  </section>
+
+      @if (alternancia() !== 'SinAlternancia') {
+        <div class="field-group" style="margin-top:10px">
+          <span class="field-label">Semana del ciclo</span>
+          <div class="day-pills">
+            <button type="button" class="day-pill" [class.active]="semana() === 'A'" (click)="semana.set('A')">A (pares)</button>
+            <button type="button" class="day-pill" [class.active]="semana() === 'B'" (click)="semana.set('B')">B (impares)</button>
+            <button type="button" class="day-pill" [class.active]="semana() === undefined" (click)="semana.set(undefined)">Ambas</button>
+          </div>
+        </div>
+      }
+    </section>
+  }
 
   <!-- ── Panel de validación ── -->
   @if (validaciones().length > 0) {
@@ -1006,6 +1023,9 @@ export class EditarSesionDialogComponent {
     return fac ? `${fac.nombre} · ${prog.nombre}` : prog.nombre;
   });
 
+  /** Solo el track de laboratorio alterna — teoría (presencial o virtual) queda fija. */
+  esLaboratorio = computed(() => this.data.sesion.tipoFlujo === 'Laboratorio');
+
   hayCambioDocente = computed(() => this.docenteId() !== (this.orig.docenteId ?? ''));
 
   hayCambios = computed(() =>
@@ -1038,7 +1058,7 @@ export class EditarSesionDialogComponent {
     const espacioId  = this.espacioId();
     const docenteId  = this.docenteId();
     const sesionId   = this.data.sesion.id;
-    const dur        = this.asignatura()?.horasPorSesion ?? (this.data.sesion.duracionHoras ?? 2);
+    const dur        = this.data.sesion.duracionHoras ?? 2;
     const chks: Check[] = [];
 
     if (!dia || !inicio) return chks;
@@ -1116,7 +1136,7 @@ export class EditarSesionDialogComponent {
   }
 
   private commitLocal() {
-    const dur      = Math.round(this.asignatura()?.horasPorSesion ?? (this.data.sesion.duracionHoras ?? 2));
+    const dur      = Math.round(this.data.sesion.duracionHoras ?? 2);
     const startIdx = this.horasDisponibles.indexOf(this.horaInicio());
     const endIdx   = startIdx + dur;
     const horaFin  = endIdx < this.horasDisponibles.length
@@ -1205,12 +1225,22 @@ interface Check { ok: boolean; texto: string; }
       </select>
 
       @if (asignaturaSeleccionada()) {
+        <div class="field-group" style="margin-top:8px">
+          <label class="field-label">Tipo de sesión <span class="req">*</span></label>
+          <div class="alt-pills">
+            @for (t of tiposDisponibles(); track t.tipo) {
+              <button type="button" class="alt-pill" [class.active]="tipoSesion() === t.tipo"
+                      (click)="setTipoSesion(t.tipo)">{{ t.label }}</button>
+            }
+          </div>
+        </div>
+
         <div class="asig-hint">
           <mat-icon class="hint-icon">person</mat-icon>
           <span>{{ nombreDocente(asignaturaSeleccionada()?.docenteId) }}</span>
           <span class="sep">·</span>
           <mat-icon class="hint-icon">timer</mat-icon>
-          <span>{{ asignaturaSeleccionada()?.horasPorSesion }}h por sesión
+          <span>{{ duracionSeleccionada() }}h por sesión
             <em>(fijo por plan de estudios, no editable)</em>
           </span>
         </div>
@@ -1248,50 +1278,61 @@ interface Check { ok: boolean; texto: string; }
         </select>
       </div>
       <div class="field-group">
-        <label class="field-label">Laboratorio / Espacio <span class="req">*</span></label>
-        <select class="field-select" [(ngModel)]="espacioId" (ngModelChange)="recheck()"
-                [disabled]="espacioFijoBloqueado()">
-          <option value="">— Seleccione —</option>
-          @for (e of espaciosDisponibles(); track e.id) {
-            <option [value]="e.id">{{ e.nombre }}</option>
-          }
-        </select>
-        @if (espacioFijoBloqueado()) {
+        <label class="field-label">Espacio {{ tipoSesion() === 'TeoriaVirtual' ? '' : '(requerido)' }}</label>
+        @if (tipoSesion() === 'TeoriaVirtual') {
           <div class="lock-hint">
-            <mat-icon class="hint-icon lock">lock</mat-icon>
-            Fijo por currículum — no se puede cambiar
+            <mat-icon class="hint-icon lock">videocam</mat-icon>
+            Sincrónica online — sin espacio físico
           </div>
+        } @else {
+          <select class="field-select" [(ngModel)]="espacioId" (ngModelChange)="recheck()"
+                  [disabled]="espacioFijoBloqueado()">
+            <option value="">— Seleccione —</option>
+            @for (e of espaciosDisponibles(); track e.id) {
+              <option [value]="e.id">{{ e.nombre }}</option>
+            }
+          </select>
+          @if (espacioFijoBloqueado()) {
+            <div class="lock-hint">
+              <mat-icon class="hint-icon lock">lock</mat-icon>
+              Fijo por currículum — no se puede cambiar
+            </div>
+          }
         }
       </div>
     </div>
   </section>
 
   <!-- ── Paso 3: Alternancia ── -->
-  <section class="form-section">
-    <div class="section-label">
-      <span class="step-num">3</span> ¿Cómo alterna?
-    </div>
-    <div class="alt-pills">
-      <button type="button" class="alt-pill" [class.active]="alternancia === 'TipoA'"
-              (click)="alternancia = 'TipoA'; recheck()">
-        <strong>Tipo A</strong><br>
-        <small>Presencial S.A · Virtual S.B</small>
-      </button>
-      <button type="button" class="alt-pill" [class.active]="alternancia === 'TipoB'"
-              (click)="alternancia = 'TipoB'; recheck()">
-        <strong>Tipo B</strong><br>
-        <small>Virtual S.A · Presencial S.B</small>
-      </button>
-      <button type="button" class="alt-pill" [class.active]="alternancia === 'SinAlternancia'"
-              (click)="alternancia = 'SinAlternancia'; recheck()">
-        <strong>Sin alternancia</strong><br>
-        <small>Presencial todas las semanas</small>
-      </button>
-    </div>
-  </section>
+  <!-- Solo el track de Laboratorio alterna (decisión de diseño); teoría queda fija en
+       Sin alternancia — ver ModalidadSemanal.Derivar en el backend. -->
+  @if (tipoSesion() === 'Laboratorio') {
+    <section class="form-section">
+      <div class="section-label">
+        <span class="step-num">3</span> ¿Cómo alterna?
+      </div>
+      <div class="alt-pills">
+        <button type="button" class="alt-pill" [class.active]="alternancia === 'TipoA'"
+                (click)="alternancia = 'TipoA'; recheck()">
+          <strong>Tipo A</strong><br>
+          <small>Presencial S.A · Virtual S.B</small>
+        </button>
+        <button type="button" class="alt-pill" [class.active]="alternancia === 'TipoB'"
+                (click)="alternancia = 'TipoB'; recheck()">
+          <strong>Tipo B</strong><br>
+          <small>Virtual S.A · Presencial S.B</small>
+        </button>
+        <button type="button" class="alt-pill" [class.active]="alternancia === 'SinAlternancia'"
+                (click)="alternancia = 'SinAlternancia'; recheck()">
+          <strong>Sin alternancia</strong><br>
+          <small>Presencial todas las semanas</small>
+        </button>
+      </div>
+    </section>
+  }
 
   <!-- ── Panel de verificación ── -->
-  @if (asignaturaId && dia && horaInicio && espacioId) {
+  @if (asignaturaId && dia && horaInicio && (espacioId || tipoSesion() === 'TeoriaVirtual')) {
     <section class="checks-panel">
       <div class="checks-title">Verificación de restricciones</div>
       @for (c of checks(); track c.texto) {
@@ -1404,6 +1445,8 @@ export class CrearSesionDialogComponent {
 
   // ── Computed helpers ──────────────────────────────────────────────────────
   asignaturaSeleccionada = signal<Asignatura | undefined>(undefined);
+  /** Cuál de los 3 tracks combinables representa esta sesión manual. */
+  tipoSesion              = signal<TipoSesionUi>('Laboratorio');
   espacioFijoBloqueado   = signal(false);
   checks                 = signal<Check[]>([]);
   checksOk               = signal(false);
@@ -1411,14 +1454,42 @@ export class CrearSesionDialogComponent {
   // Grupos de asignaturas por programa para el <optgroup>
   readonly gruposAsignatura = this.buildGrupos();
 
-  // Solo espacios laboratorio (filtra por tipo si la asignatura lo requiere)
+  /** Solo los tracks que la asignatura realmente tiene configurados (conteo > 0) — evitar
+   *  ofrecer un tipo con 0 sesiones/0 horas, que no corresponde a nada real. */
+  tiposDisponibles = computed<{ tipo: TipoSesionUi; label: string }[]>(() => {
+    const a = this.asignaturaSeleccionada();
+    if (!a) return [];
+    const list: { tipo: TipoSesionUi; label: string }[] = [];
+    if (a.sesionesTeoriaPresencialSemana > 0) list.push({ tipo: 'TeoriaPresencial', label: 'Teoría presencial' });
+    if (a.sesionesTeoriaVirtualSemana > 0) list.push({ tipo: 'TeoriaVirtual', label: 'Teoría virtual' });
+    if (a.sesionesLaboratorioSemana > 0) list.push({ tipo: 'Laboratorio', label: 'Laboratorio' });
+    return list;
+  });
+
+  /** Duración fija del track seleccionado (CLAUDE.md regla 6: input fijo, no editable). */
+  duracionSeleccionada = computed(() => {
+    const a = this.asignaturaSeleccionada();
+    if (!a) return 2;
+    switch (this.tipoSesion()) {
+      case 'TeoriaVirtual': return a.horasTeoriaVirtual;
+      case 'Laboratorio':   return a.horasLaboratorio;
+      default:              return a.horasTeoriaPresencial;
+    }
+  });
+
+  // Teoría virtual no usa espacio (regla 9); Laboratorio exige tipo Laboratorio;
+  // teoría presencial exige un espacio no-laboratorio (salvo espacio fijo del currículum).
   espaciosDisponibles = computed(() => {
     const a = this.asignaturaSeleccionada();
+    const tipo = this.tipoSesion();
+    if (tipo === 'TeoriaVirtual') return [];
     if (!a) return this.data.espacios;
     if (a.espacioFijoId) {
       return this.data.espacios.filter(e => e.id === a.espacioFijoId);
     }
-    return this.data.espacios.filter(e => e.tipo === 'Laboratorio');
+    return tipo === 'Laboratorio'
+      ? this.data.espacios.filter(e => e.tipo === 'Laboratorio')
+      : this.data.espacios.filter(e => e.tipo !== 'Laboratorio');
   });
 
   resumen = signal('');
@@ -1427,7 +1498,7 @@ export class CrearSesionDialogComponent {
     !!this.asignaturaId &&
     !!this.dia &&
     !!this.horaInicio &&
-    !!this.espacioId &&
+    (!!this.espacioId || this.tipoSesion() === 'TeoriaVirtual') &&
     this.checksOk() &&
     !this.guardando()
   );
@@ -1437,29 +1508,53 @@ export class CrearSesionDialogComponent {
     const a = this.data.asignaturas.find(x => x.id === id);
     this.asignaturaSeleccionada.set(a);
 
-    if (a?.alternancia && a.alternancia !== 'SinAlternancia') {
+    this.tipoSesion.set(
+      a && a.sesionesTeoriaPresencialSemana > 0 ? 'TeoriaPresencial' :
+      a && a.sesionesLaboratorioSemana > 0      ? 'Laboratorio' :
+      a && a.sesionesTeoriaVirtualSemana > 0    ? 'TeoriaVirtual' :
+      'TeoriaPresencial'
+    );
+    this.aplicarReglasTipo();
+    this.recheck();
+  }
+
+  setTipoSesion(tipo: TipoSesionUi) {
+    this.tipoSesion.set(tipo);
+    this.aplicarReglasTipo();
+    this.recheck();
+  }
+
+  /** Decisión de diseño: solo Laboratorio alterna; teoría (presencial o virtual) nunca tiene espacio propio si es virtual. */
+  private aplicarReglasTipo() {
+    const a = this.asignaturaSeleccionada();
+    const tipo = this.tipoSesion();
+
+    if (tipo === 'Laboratorio' && a?.alternancia && a.alternancia !== 'SinAlternancia') {
       this.alternancia = a.alternancia as 'TipoA' | 'TipoB';
     } else {
       this.alternancia = 'SinAlternancia';
     }
 
-    if (a?.espacioFijoId) {
+    if (tipo === 'TeoriaVirtual') {
+      this.espacioId = '';
+      this.espacioFijoBloqueado.set(false);
+    } else if (a?.espacioFijoId) {
       this.espacioId = a.espacioFijoId;
       this.espacioFijoBloqueado.set(true);
     } else {
       this.espacioFijoBloqueado.set(false);
       this.espacioId = '';
     }
-    this.recheck();
   }
 
   recheck() {
     const a   = this.asignaturaSeleccionada();
-    const dur = a?.horasPorSesion ?? 2;
+    const dur = this.duracionSeleccionada();
+    const esVirtual = this.tipoSesion() === 'TeoriaVirtual';
     const chks: Check[] = [];
     let ok = true;
 
-    if (!a || !this.dia || !this.horaInicio || !this.espacioId) {
+    if (!a || !this.dia || !this.horaInicio || (!this.espacioId && !esVirtual)) {
       this.checks.set([]);
       this.checksOk.set(false);
       this.resumen.set('');
@@ -1509,37 +1604,38 @@ export class CrearSesionDialogComponent {
         : 'El docente está libre en esa franja horaria'
     });
 
-    // ── HC-S01: espacio libre ──────────────────────────────────────────────
-    const presencialSemana = (s: Sesion): boolean => {
-      if (s.virtual) return false;
-      if (!s.semana) return s.alternancia === 'SinAlternancia';
-      // Para la semana presencial de la nueva sesión
-      const semPres = this.alternancia === 'TipoA' ? 'A'
-                    : this.alternancia === 'TipoB' ? 'B'
-                    : null; // SinAlternancia: ambas
-      return semPres === null || s.semana === semPres;
-    };
+    // ── HC-S01 + HC-S05: espacio (solo aplica a sesiones presenciales) ─────
+    if (!esVirtual) {
+      const presencialSemana = (s: Sesion): boolean => {
+        if (s.virtual) return false;
+        if (!s.semana) return s.alternancia === 'SinAlternancia';
+        // Para la semana presencial de la nueva sesión
+        const semPres = this.alternancia === 'TipoA' ? 'A'
+                      : this.alternancia === 'TipoB' ? 'B'
+                      : null; // SinAlternancia: ambas
+        return semPres === null || s.semana === semPres;
+      };
 
-    const conflictoEspacio = this.data.sesiones.find(s =>
-      s.espacioId === this.espacioId &&
-      s.dia === this.dia &&
-      presencialSemana(s) &&
-      this.overlaps(s, startIdx, endIdx)
-    );
-    if (conflictoEspacio) ok = false;
-    const espNombre = this.data.espacios.find(e => e.id === this.espacioId)?.nombre ?? this.espacioId;
-    chks.push({
-      ok: !conflictoEspacio,
-      texto: conflictoEspacio
-        ? `${espNombre} ya está ocupado por ${this.nomAsig(conflictoEspacio.asignaturaId)} (${conflictoEspacio.horaInicio}–${conflictoEspacio.horaFin})`
-        : `${espNombre} está libre en esa franja`
-    });
+      const conflictoEspacio = this.data.sesiones.find(s =>
+        s.espacioId === this.espacioId &&
+        s.dia === this.dia &&
+        presencialSemana(s) &&
+        this.overlaps(s, startIdx, endIdx)
+      );
+      if (conflictoEspacio) ok = false;
+      const espNombre = this.data.espacios.find(e => e.id === this.espacioId)?.nombre ?? this.espacioId;
+      chks.push({
+        ok: !conflictoEspacio,
+        texto: conflictoEspacio
+          ? `${espNombre} ya está ocupado por ${this.nomAsig(conflictoEspacio.asignaturaId)} (${conflictoEspacio.horaInicio}–${conflictoEspacio.horaFin})`
+          : `${espNombre} está libre en esa franja`
+      });
 
-    // ── HC-S05: espacio fijo ───────────────────────────────────────────────
-    if (a.espacioFijoId && this.espacioId && this.espacioId !== a.espacioFijoId) {
-      ok = false;
-      const nomFijo = this.data.espacios.find(e => e.id === a.espacioFijoId)?.nombre ?? 'lab asignado';
-      chks.push({ ok: false, texto: `Esta asignatura tiene laboratorio fijo: ${nomFijo}` });
+      if (a.espacioFijoId && this.espacioId && this.espacioId !== a.espacioFijoId) {
+        ok = false;
+        const nomFijo = this.data.espacios.find(e => e.id === a.espacioFijoId)?.nombre ?? 'lab asignado';
+        chks.push({ ok: false, texto: `Esta asignatura tiene laboratorio fijo: ${nomFijo}` });
+      }
     }
 
     this.checks.set(chks);
@@ -1563,14 +1659,17 @@ export class CrearSesionDialogComponent {
     this.errorServidor.set('');
 
     const a = this.asignaturaSeleccionada()!;
+    const tipo = this.tipoSesion();
     const payload = {
       asignaturaId:  a.id,
       docenteId:     a.docenteId ?? '',
-      espacioId:     this.espacioId || null,
+      espacioId:     tipo === 'TeoriaVirtual' ? null : (this.espacioId || null),
       dia:           this.dia,
       horaInicio:    this.horaInicio,
-      duracionHoras: a.horasPorSesion,
-      alternancia:   this.alternancia
+      duracionHoras: this.duracionSeleccionada(),
+      alternancia:   this.alternancia,
+      tipoFlujo:     tipoFlujoDesde(tipo),
+      esVirtual:     esVirtualDesde(tipo)
     };
 
     this.persistencia.crearSesionManual(payload).subscribe({
