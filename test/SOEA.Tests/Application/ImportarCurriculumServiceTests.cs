@@ -487,6 +487,16 @@ namespace SOEA.Tests.Application
             public Task AddAsync(Grupo e) { _store[e.Id] = e; return Task.CompletedTask; }
             public Task UpdateAsync(Grupo e) { _store[e.Id] = e; return Task.CompletedTask; }
             public Task DeleteAsync(Guid id) { _store.Remove(id); return Task.CompletedTask; }
+
+            public Task<Grupo?> GetByCodigoAsync(string codigo)
+            {
+                var result = _store.Values.FirstOrDefault(x =>
+                    x.Codigo != null && x.Codigo.Equals(codigo, StringComparison.OrdinalIgnoreCase));
+                return Task.FromResult(result);
+            }
+
+            public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) =>
+                Task.FromResult<IEnumerable<Grupo>>(_store.Values.Where(x => x.AsignaturaId == asignaturaId).ToList());
         }
 
         private sealed class FakeSesionRepo : ISesionRepositorio

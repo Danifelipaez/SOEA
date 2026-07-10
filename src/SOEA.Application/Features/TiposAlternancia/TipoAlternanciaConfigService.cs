@@ -28,7 +28,8 @@ namespace SOEA.Application.Features.TiposAlternancia
         {
             var id = dto.Id == Guid.Empty ? Guid.NewGuid() : dto.Id;
             var entidad = new TipoAlternanciaConfig(
-                id, dto.Nombre, ParsePatron(dto.PatronBase), dto.SemanasPresenciales, dto.Color, esSistema: false);
+                id, dto.Nombre, ParsePatronBase(dto.PatronBase),
+                dto.SemanasPresenciales, dto.Color, esSistema: false);
             await _repo.AddAsync(entidad);
             return MapToDto(entidad);
         }
@@ -38,10 +39,18 @@ namespace SOEA.Application.Features.TiposAlternancia
             var existing = await _repo.GetByIdAsync(id);
             if (existing is null) return null;
 
-            existing.ActualizarDatos(dto.Nombre, ParsePatron(dto.PatronBase), dto.SemanasPresenciales, dto.Color, dto.Activo);
+            existing.ActualizarDatos(dto.Nombre, ParsePatronBase(dto.PatronBase),
+                dto.SemanasPresenciales, dto.Color, dto.Activo);
             await _repo.UpdateAsync(existing);
             return MapToDto(existing);
         }
+
+        private static PatronBaseAlternancia ParsePatronBase(string patronBase) =>
+            Enum.TryParse<PatronBaseAlternancia>(patronBase, ignoreCase: true, out var p)
+                ? p
+                : throw new ArgumentException(
+                    $"PatronBase '{patronBase}' no reconocido. Valores válidos: " +
+                    $"'PresencialEnSemanaA', 'PresencialEnSemanaB', 'SinAlternancia'.");
 
         public async Task<bool> DeleteAsync(Guid id)
         {
@@ -64,9 +73,6 @@ namespace SOEA.Application.Features.TiposAlternancia
             Activo = t.Activo
         };
 
-        private static PatronBaseAlternancia ParsePatron(string? patron) =>
-            Enum.TryParse<PatronBaseAlternancia>(patron, ignoreCase: true, out var p)
-                ? p : PatronBaseAlternancia.SinAlternancia;
     }
 
     public class TipoAlternanciaConfigDto

@@ -23,14 +23,12 @@ namespace SOEA.Domain.Services
     {
         public const int LongitudPrefijoApellido = 3;
 
-        public readonly record struct Docente(Guid Id, string Nombre);
-
         /// <summary>
         /// Agrupa los docentes que parecen duplicados entre sí. Cada grupo del resultado contiene
         /// 2+ docentes sospechosos de ser la misma persona. Los docentes sin pareja no se incluyen.
         /// </summary>
-        public static IReadOnlyList<IReadOnlyList<Docente>> AgruparPosiblesDuplicados(
-            IEnumerable<Docente> docentes)
+        public static IReadOnlyList<IReadOnlyList<(Guid Id, string Nombre)>> AgruparPosiblesDuplicados(
+            IEnumerable<(Guid Id, string Nombre)> docentes)
         {
             var lista = docentes
                 .Where(d => !string.IsNullOrWhiteSpace(d.Nombre))
@@ -38,13 +36,13 @@ namespace SOEA.Domain.Services
                 .Where(x => x.tokens.Length > 0)
                 .ToList();
 
-            var grupos = new List<List<Docente>>();
+            var grupos = new List<List<(Guid Id, string Nombre)>>();
             var asignado = new bool[lista.Count];
 
             for (int i = 0; i < lista.Count; i++)
             {
                 if (asignado[i]) continue;
-                List<Docente>? grupo = null;
+                List<(Guid Id, string Nombre)>? grupo = null;
 
                 for (int j = i + 1; j < lista.Count; j++)
                 {
@@ -52,7 +50,7 @@ namespace SOEA.Domain.Services
                     if (lista[i].d.Id == lista[j].d.Id) continue;
                     if (!SonProbablesDuplicados(lista[i].tokens, lista[j].tokens)) continue;
 
-                    grupo ??= new List<Docente> { lista[i].d };
+                    grupo ??= new List<(Guid Id, string Nombre)> { lista[i].d };
                     grupo.Add(lista[j].d);
                     asignado[j] = true;
                 }

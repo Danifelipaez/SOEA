@@ -9,6 +9,7 @@ using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.Services;
 using CpDomain = Google.OrTools.Util.Domain;
+#pragma warning disable CA1860 // Evitar usar el método 'Contains' de Enumerable -- se usa HashSet<int>
 
 namespace SOEA.Engine.ConstraintProg
 {
@@ -46,17 +47,21 @@ namespace SOEA.Engine.ConstraintProg
             IEnumerable<BloqueTiempo> bloques,
             IEnumerable<Espacio> espacios,
             IEnumerable<Docente> docentes,
+            IEnumerable<Grupo>? grupos = null,
             IEnumerable<Guid>? sesionesFijasIds = null,
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
             CancellationToken ct = default)
         {
             var s     = sesiones.ToList();
             var b     = bloques.ToList();
             var e     = espacios.ToList();
             var d     = docentes.ToList();
+            var g     = grupos?.ToList() ?? new List<Grupo>();
             var fijas = sesionesFijasIds != null
                 ? new HashSet<Guid>(sesionesFijasIds)
                 : new HashSet<Guid>();
-            return Task.Run(() => ResolverSincrono(s, b, e, d, fijas, ct), ct);
+            var ventanas = ventanaPorAsignatura ?? new Dictionary<Guid, (TimeOnly?, TimeOnly?)>();
+            return Task.Run(() => ResolverSincrono(s, b, e, d, g, fijas, ventanas, ct), ct);
         }
 
         /// <summary>
@@ -74,7 +79,9 @@ namespace SOEA.Engine.ConstraintProg
             List<BloqueTiempo> bloques,
             List<Espacio> espacios,
             List<Docente> docentes,
+            List<Grupo> grupos,
             HashSet<Guid> sesionesFijasIds,
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)> ventanaPorAsignatura,
             CancellationToken ct)
         {
             if (!sesiones.Any() || !bloques.Any())
@@ -123,9 +130,36 @@ namespace SOEA.Engine.ConstraintProg
             var espacioIndex = new Dictionary<Guid, int>();
             for (int i = 0; i < espacios.Count; i++) espacioIndex[espacios[i].Id] = i;
 
-            var docenteDict = docentes.ToDictionary(d => d.Id);
             var rangosPorDia = BloquesPlanner.RangosPorDia(bloques);
             var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
+
+            // HC-G01: índice de disponibilidad por GrupoId.
+            // Si el grupo declara Disponibilidad (Matutino/Vespertino), los starts de sus sesiones
+            // quedan confinados a los bloques que caen dentro de esa franja (hard constraint).
+            // Matutino = HoraInicio < 12:00 | Vespertino = HoraInicio >= 12:00.
+            var bloquesPermitidosPorGrupo = new Dictionary<Guid, HashSet<int>>();
+            foreach (var grupo in grupos)
+            {
+                if (grupo.Id == Guid.Empty || grupo.Disponibilidad.Count == 0) continue;
+                var permiteMatutino   = grupo.Disponibilidad.Contains(FranjaHoraria.Matutino);
+                var permiteVespertino = grupo.Disponibilidad.Contains(FranjaHoraria.Vespertino);
+                var permitidos = new HashSet<int>();
+                for (int i = 0; i < bloques.Count; i++)
+                {
+                    var hora = bloques[i].HoraInicio;
+                    if (permiteMatutino   && hora.Hour < 12) permitidos.Add(i);
+                    if (permiteVespertino && hora.Hour >= 12) permitidos.Add(i);
+                }
+                if (permitidos.Count > 0)
+                    bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
+            }
+
+            // HC-CAP: estudiantes por grupo. Un espacio solo es candidato si su aforo alcanza
+            // para los estudiantes del grupo de la sesión (Espacio.Capacidad >= EstudiantesInscritos).
+            var estudiantesPorGrupo = grupos
+                .Where(gr => gr.Id != Guid.Empty)
+                .GroupBy(gr => gr.Id)
+                .ToDictionary(gr => gr.Key, gr => gr.First().EstudiantesInscritos);
 
             // ── Variables: intervalo de longitud DuracionHoras por (sesión, semana) ─────
             var startVars    = new Dictionary<(Guid, SemanaAcademica), IntVar>();
@@ -193,48 +227,63 @@ namespace SOEA.Engine.ConstraintProg
                 }
             }
 
-            // ── HC-I02 + "no cruzar día": dominio de start filtrado por sesión y semana ─
-            // Las sesiones fijas ya tienen una restricción de igualdad; se omite el dominio
-            // para no provocar conflicto si su bloque no está en la disponibilidad del docente.
+            // ── HC-G01 + "No cruzar día": dominio de start por sesión y semana ────────────
+            // HC-G01 (presencial-first): si el grupo del grupo declara Disponibilidad, los starts
+            // quedan confinados a los bloques de esa franja (hard constraint).
+            // La disponibilidad docente YA NO restringe (CR-08): bloquesDisponibles para el
+            // filtro de docente siempre es null. Las sesiones fijas ya tienen igualdad — se omiten.
             foreach (var sesion in sesiones)
             {
-                // Sesiones del horario base: su start ya está fijado por igualdad — no aplicar dominio.
                 if (sesionesFijasIds.Contains(sesion.Id)) continue;
 
                 int dur = duraciones[sesion.Id];
-                ISet<int>? bloquesDocente = null;
 
-                if (docenteDict.TryGetValue(sesion.DocenteId, out var docente))
-                {
-                    bloquesDocente = docente.BloquesDisponibles
-                        .Where(b => bloqueIndex.ContainsKey(b.Id))
-                        .Select(b => bloqueIndex[b.Id])
-                        .ToHashSet();
+                // Obtener restricción de disponibilidad del grupo (HC-G01)
+                HashSet<int>? permitidosPorGrupo = null;
+                if (sesion.GrupoId.HasValue &&
+                    bloquesPermitidosPorGrupo.TryGetValue(sesion.GrupoId.Value, out var perm))
+                    permitidosPorGrupo = perm;
 
-                    if (bloquesDocente.Count == 0)
-                    {
-                        // HC-I02 (P1.3 auditoría): un docente sin bloques disponibles que calcen con
-                        // la grilla está explícitamente NO disponible. No se trata como "sin
-                        // restricción" (lo que permitiría agendarlo en cualquier bloque): se rechaza
-                        // con un mensaje claro, en vez de agendar silenciosamente a quien el usuario
-                        // marcó como no disponible.
-                        var msg = $"Docente {docente.NombreCompleto} no tiene disponibilidad configurada que coincida con la grilla; no se pueden agendar sus sesiones.";
-                        _logger.LogError(msg);
-                        return new ResultadoFactibilidad(false, SinAsignaciones, msg);
-                    }
-                }
+                var todosStarts = BloquesPlanner
+                    .StartsValidos(dur, bloques.Count, rangosPorDia, diaPorIdx, bloquesDisponibles: null);
 
-                var startsValidos = BloquesPlanner
-                    .StartsValidos(dur, bloques.Count, rangosPorDia, diaPorIdx, bloquesDocente)
-                    .Select(v => (long)v)
-                    .ToArray();
+                // Aplicar filtro HC-G01 si el grupo tiene disponibilidad declarada
+                var startsValidos = (permitidosPorGrupo is not null)
+                    ? todosStarts.Where(s => permitidosPorGrupo.Contains(s)).Select(v => (long)v).ToArray()
+                    : todosStarts.Select(v => (long)v).ToArray();
 
                 if (startsValidos.Length == 0)
                 {
-                    var nombre = docenteDict.TryGetValue(sesion.DocenteId, out var d) ? d.NombreCompleto : sesion.DocenteId.ToString();
-                    var msg = $"No hay bloques válidos para una sesión de {dur}h del docente {nombre} (disponibilidad insuficiente o no cabe sin cruzar día).";
+                    var msg = permitidosPorGrupo is not null
+                        ? $"HC-G01: no hay bloques válidos para la sesión de {dur}h dentro de la disponibilidad declarada del grupo (GrupoId={sesion.GrupoId})."
+                        : $"No hay bloques válidos para una sesión de {dur}h (no cabe sin cruzar día en la grilla canónica).";
                     _logger.LogError(msg);
                     return new ResultadoFactibilidad(false, SinAsignaciones, msg);
+                }
+
+                // HC-VH: ventana horaria de la asignatura (hard). El intervalo completo
+                // [inicio, inicio+dur] debe caer dentro de [min, max]. Como StartsValidos ya
+                // garantiza que la sesión no cruza día, inicio+dur nunca se desborda al día siguiente.
+                if (ventanaPorAsignatura.TryGetValue(sesion.AsignaturaId, out var ventana) &&
+                    (ventana.min.HasValue || ventana.max.HasValue))
+                {
+                    startsValidos = startsValidos.Where(s =>
+                    {
+                        var inicio = bloques[(int)s].HoraInicio;
+                        var fin    = inicio.AddHours(dur);
+                        if (ventana.min.HasValue && inicio < ventana.min.Value) return false;
+                        if (ventana.max.HasValue && fin    > ventana.max.Value) return false;
+                        return true;
+                    }).ToArray();
+
+                    if (startsValidos.Length == 0)
+                    {
+                        var msg = $"HC-VH infactible: la sesión de {dur}h de la asignatura {sesion.AsignaturaId} no " +
+                                  $"cabe dentro de su ventana horaria [{ventana.min:HH\\:mm}–{ventana.max:HH\\:mm}] " +
+                                  "en ningún día de la grilla. Amplíe la ventana o reduzca la duración.";
+                        _logger.LogError(msg);
+                        return new ResultadoFactibilidad(false, SinAsignaciones, msg);
+                    }
                 }
 
                 var dominio = CpDomain.FromValues(startsValidos);
@@ -242,47 +291,14 @@ namespace SOEA.Engine.ConstraintProg
                     model.AddLinearExpressionInDomain(startVars[(sesion.Id, semana)], dominio);
             }
 
-            // ── HC-I03: pre-solve de carga semanal y capacidad por docente ─────────────
-            // Cada sesión ocupa tiempo de docente en AMBAS semanas (la virtual es sincrónica),
-            // por lo que la carga por semana = suma de duraciones de sus sesiones.
-            // Las sesiones del horario base se incluyen en la suma pero se excluyen de la
-            // comprobación de bloques válidos (su bloque ya está fijado — es siempre válido).
-            var sesionesPorDocente = sesiones.GroupBy(s => s.DocenteId).Where(g => g.Key != Guid.Empty).ToList();
-            foreach (var grupo in sesionesPorDocente)
-            {
-                if (!docenteDict.TryGetValue(grupo.Key, out var docente)) continue;
-
-                if (docente.BloquesDisponibles.Count == 0)
-                {
-                    _logger.LogWarning(
-                        "Docente {D} no tiene disponibilidad definida — sus sesiones usarán cualquier bloque de la grilla.",
-                        docente.NombreCompleto);
-                    continue;
-                }
-
-                var totalHoras = grupo.Sum(s => s.DuracionHoras);
-                if (totalHoras > docente.MaximoHorasSemanales)
-                {
-                    var msg = $"Docente {docente.NombreCompleto} tiene {totalHoras}h asignadas por semana, excede su máximo de {docente.MaximoHorasSemanales}h semanales.";
-                    _logger.LogError(msg);
-                    return new ResultadoFactibilidad(false, SinAsignaciones, msg);
-                }
-
-                // Hojas libres = bloques disponibles del docente - bloques ya ocupados por sesiones fijas.
-                var horasFijas = grupo.Where(s => sesionesFijasIds.Contains(s.Id)).Sum(s => s.DuracionHoras);
-                var bloquesValidos = docente.BloquesDisponibles.Count(b => bloqueIndex.ContainsKey(b.Id));
-                var horasLibresNecesarias = totalHoras - horasFijas;
-                if (horasLibresNecesarias > bloquesValidos)
-                {
-                    var msg = $"Docente {docente.NombreCompleto} requiere {horasLibresNecesarias}h libres pero solo {bloquesValidos} bloques de 1h coinciden con la grilla canónica — imposible agendar sin solapamientos.";
-                    _logger.LogError(msg);
-                    return new ResultadoFactibilidad(false, SinAsignaciones, msg);
-                }
-            }
-
-            // ── HC-I01: conflicto de docente — NoOverlap por (docente, semana) ─────────
-            // Incluye presenciales y virtuales: ambos consumen tiempo del docente.
-            foreach (var grupo in sesionesPorDocente)
+            // ── HC-C01: conflicto de cohorte — NoOverlap por (grupo, semana) ──────────
+            // CR-08 (presencial-first): el grupo de estudiantes es el eje de no-solapamiento (el
+            // docente sale del pipeline y se asigna después de generar). Incluye presenciales y
+            // virtuales: ambos consumen el tiempo del grupo. Con cohorte única por run ⇒ un
+            // NoOverlap global por semana (todas las sesiones se serializan). No hay equivalente
+            // de "máx. horas" para el grupo, así que HC-I03 (carga docente) desaparece.
+            var sesionesPorGrupo = sesiones.GroupBy(s => s.GrupoId).Where(g => g.Key.HasValue).ToList();
+            foreach (var grupo in sesionesPorGrupo)
             {
                 foreach (var semana in Semanas)
                 {
@@ -314,9 +330,9 @@ namespace SOEA.Engine.ConstraintProg
                     }
                     else
                     {
-                        // HC-S03: sin espacio fijo → filtrar por tipo de espacio
-                        bool requiereLab = sesion.EspacioId.HasValue &&
-                            espacios.FirstOrDefault(e => e.Id == sesion.EspacioId)?.Tipo == TipoEspacio.Laboratorio;
+                        // HC-S03: sesiones de tipo Laboratorio solo pueden ir a espacios Laboratorio.
+                        // TipoFlujo.Laboratorio es el default; AulaVirtual permite cualquier espacio.
+                        bool requiereLab = sesion.TipoFlujo == TipoFlujo.Laboratorio;
 
                         lista = new List<int>();
                         for (int e = 0; e < espacios.Count; e++)
@@ -332,6 +348,25 @@ namespace SOEA.Engine.ConstraintProg
                         _logger.LogError(msg);
                         return new ResultadoFactibilidad(false, SinAsignaciones, msg);
                     }
+
+                    // HC-CAP: descartar espacios con aforo insuficiente para el grupo de la sesión.
+                    int estudiantes = sesion.GrupoId.HasValue &&
+                        estudiantesPorGrupo.TryGetValue(sesion.GrupoId.Value, out var nEst) ? nEst : 0;
+                    if (estudiantes > 0)
+                    {
+                        var conAforo = lista.Where(e => espacios[e].Capacidad >= estudiantes).ToList();
+                        if (conAforo.Count == 0)
+                        {
+                            int aforoMax = lista.Max(e => espacios[e].Capacidad);
+                            var msg = $"HC-CAP infactible: la sesión {sesion.Id} necesita un espacio para {estudiantes} " +
+                                      $"estudiantes, pero el aforo máximo disponible entre sus candidatos es {aforoMax}. " +
+                                      "Añada un espacio con mayor capacidad o reduzca el grupo.";
+                            _logger.LogError(msg);
+                            return new ResultadoFactibilidad(false, SinAsignaciones, msg);
+                        }
+                        lista = conAforo;
+                    }
+
                     candidatosPorSesion[sesion.Id] = lista;
                 }
 

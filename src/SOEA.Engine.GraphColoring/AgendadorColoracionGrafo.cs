@@ -46,7 +46,7 @@ namespace SOEA.Engine.GraphColoring
                 "Welsh-Powell duration-aware: {S} sesiones, {B} bloques.",
                 sesiones.Count, bloques.Count);
 
-            // 1. Grafo de conflictos (estructural: comparten docente o espacio)
+            // 1. Grafo de conflictos (estructural: comparten cohorte/grupo o espacio)
             var grafo = _constructorGrafo.Construir(sesiones);
 
             // 2. Helpers de planeación temporal

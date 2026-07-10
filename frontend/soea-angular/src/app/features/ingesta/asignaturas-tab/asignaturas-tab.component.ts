@@ -91,6 +91,13 @@ import { ImportExcelStatsDto } from '../../../core/persistencia.service';
           <td mat-cell *matCellDef="let element"> {{element.nombre}} </td>
         </ng-container>
 
+        <ng-container matColumnDef="categoria">
+          <th mat-header-cell *matHeaderCellDef> Tipo </th>
+          <td mat-cell *matCellDef="let element">
+            <span class="badge" [ngClass]="categoriaBadgeClass(element.categoria)">{{ element.categoria ?? '—' }}</span>
+          </td>
+        </ng-container>
+
         <ng-container matColumnDef="alternancia">
           <th mat-header-cell *matHeaderCellDef> Alternancia </th>
           <td mat-cell *matCellDef="let element">
@@ -98,14 +105,9 @@ import { ImportExcelStatsDto } from '../../../core/persistencia.service';
           </td>
         </ng-container>
 
-        <ng-container matColumnDef="horas">
-          <th mat-header-cell *matHeaderCellDef> Horas/sesión </th>
-          <td mat-cell *matCellDef="let element"> {{element.horasPorSesion}}h </td>
-        </ng-container>
-
         <ng-container matColumnDef="sesiones">
-          <th mat-header-cell *matHeaderCellDef> Sesiones/sem </th>
-          <td mat-cell *matCellDef="let element"> {{element.sesionesPorSemana}} </td>
+          <th mat-header-cell *matHeaderCellDef> Sesiones/semana </th>
+          <td mat-cell *matCellDef="let element"> {{ resumenSesiones(element) }} </td>
         </ng-container>
 
         <ng-container matColumnDef="docente">
@@ -148,7 +150,10 @@ import { ImportExcelStatsDto } from '../../../core/persistencia.service';
     .badge { padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500; }
     .badge-a { background: #fff3e0; color: #e65100; }
     .badge-b { background: #e3f2fd; color: #1565c0; }
-    .badge-sin { background: #f3e5f5; color: #6a1b9a; }
+    .badge-sin   { background: #f3e5f5; color: #6a1b9a; }
+    .badge-oblig { background: #e8f5e9; color: #1b5e20; }
+    .badge-opt   { background: #fff8e1; color: #f57f17; }
+    .badge-elec  { background: #fce4ec; color: #880e4f; }
     .empty-hint { display: flex; flex-direction: column; align-items: center; padding: 32px; color: #757575; }
     .empty-hint mat-icon { font-size: 48px; width: 48px; height: 48px; margin-bottom: 8px; }
   `]
@@ -160,7 +165,7 @@ export class AsignaturasTabComponent {
   persistencia = inject(PersistenciaService);
   catalogo = inject(CatalogoService);
 
-  displayedColumns = ['facultad', 'programa', 'codigo', 'nombre', 'alternancia', 'horas', 'sesiones', 'docente', 'acciones'];
+  displayedColumns = ['facultad', 'programa', 'codigo', 'nombre', 'categoria', 'alternancia', 'sesiones', 'docente', 'acciones'];
   saving = signal(false);
   uploading = signal(false);
   filterStr = signal('');
@@ -203,6 +208,22 @@ export class AsignaturasTabComponent {
     if (alt === 'TipoA') return 'badge badge-a';
     if (alt === 'TipoB') return 'badge badge-b';
     return 'badge badge-sin';
+  }
+
+  categoriaBadgeClass(cat?: string): string {
+    if (cat === 'Obligatoria') return 'badge badge-oblig';
+    if (cat === 'Optativa')    return 'badge badge-opt';
+    if (cat === 'Electiva')    return 'badge badge-elec';
+    return 'badge badge-sin';
+  }
+
+  /** Resumen compacto de los 3 tracks combinables (desglose por tipo de sesión). */
+  resumenSesiones(a: Asignatura): string {
+    const partes: string[] = [];
+    if (a.sesionesTeoriaPresencialSemana > 0) partes.push(`${a.sesionesTeoriaPresencialSemana}×${a.horasTeoriaPresencial}h presencial`);
+    if (a.sesionesTeoriaVirtualSemana > 0) partes.push(`${a.sesionesTeoriaVirtualSemana}×${a.horasTeoriaVirtual}h virtual`);
+    if (a.sesionesLaboratorioSemana > 0) partes.push(`${a.sesionesLaboratorioSemana}×${a.horasLaboratorio}h lab`);
+    return partes.length > 0 ? partes.join(' · ') : '—';
   }
 
   // ── Importar Excel ────────────────────────────────────────────────────────────
@@ -350,15 +371,20 @@ export class AsignaturasTabComponent {
 
   private construirPayloadImport(asignaturas: Asignatura[]) {
     return {
-      Facultades: this.state.facultades().map(f => ({ id: f.id, nombre: f.nombre })),
-      Programas: this.state.programas().map(p => ({ id: p.id, nombre: p.nombre, facultadId: p.facultadId })),
-      Docentes: this.state.docentes().map(d => ({ id: d.id, nombre: d.nombre, cedula: d.cedula, maxHoras: d.maxHoras })),
-      Asignaturas: asignaturas.map(a => ({
+      facultades: this.state.facultades().map(f => ({ id: f.id, nombre: f.nombre })),
+      programas: this.state.programas().map(p => ({ id: p.id, nombre: p.nombre, facultadId: p.facultadId })),
+      docentes: this.state.docentes().map(d => ({ id: d.id, nombre: d.nombre, cedula: d.cedula, maxHoras: d.maxHoras })),
+      asignaturas: asignaturas.map(a => ({
         id: a.id, nombre: a.nombre, codigo: a.codigo,
-        horasPorSesion: a.horasPorSesion, sesionesPorSemana: a.sesionesPorSemana,
+        // ponytail: /import/curriculum (Excel, fuera de alcance del desglose por tipo) solo
+        // entiende 1 bloque de sesiones — colapsa al primer track no vacío (presencial → lab →
+        // virtual). Una asignatura NUEVA con varios tracks pierde los demás por esta vía la
+        // primera vez que se guarda; volver a editarla y guardar (PUT, ya en BD) la completa.
+        horasPorSesion: a.horasTeoriaPresencial || a.horasLaboratorio || a.horasTeoriaVirtual || 2,
+        sesionesPorSemana: a.sesionesTeoriaPresencialSemana || a.sesionesLaboratorioSemana || a.sesionesTeoriaVirtualSemana || 1,
         sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
-        alternancia: a.alternancia, programaId: a.programaId,
-        grupoNumero: a.grupoNumero,
+        alternancia: a.alternancia, categoria: a.categoria ?? null,
+        programaId: a.programaId, grupoNumero: a.grupoNumero,
         docenteId: a.docenteId ?? null
       }))
     };
@@ -437,19 +463,48 @@ export class AsignaturasTabComponent {
             <mat-label>Nombre</mat-label>
             <input matInput formControlName="nombre" required>
           </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Tipo</mat-label>
+            <mat-select formControlName="categoria">
+              <mat-option value="Obligatoria">Obligatoria</mat-option>
+              <mat-option value="Optativa">Optativa</mat-option>
+              <mat-option value="Electiva">Electiva</mat-option>
+            </mat-select>
+          </mat-form-field>
+        </div>
+
+        <!-- Desglose por tipo de sesión: hasta 3 tracks combinables, cada uno con su propio
+             conteo semanal y duración. Todo curso es modular; no todo curso usa los 3. -->
+        <div class="form-row">
+          <mat-form-field appearance="outline">
+            <mat-label>Teoría presencial: sesiones/sem</mat-label>
+            <input matInput type="number" formControlName="sesionesTeoriaPresencialSemana" min="0">
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Horas/sesión</mat-label>
+            <input matInput type="number" formControlName="horasTeoriaPresencial" min="1">
+          </mat-form-field>
         </div>
 
         <div class="form-row">
           <mat-form-field appearance="outline">
-            <mat-label>Horas por sesión</mat-label>
-            <mat-select formControlName="horasPorSesion" required>
-              <mat-option [value]="2">2 horas</mat-option>
-              <mat-option [value]="3">3 horas</mat-option>
-            </mat-select>
+            <mat-label>Teoría virtual: sesiones/sem</mat-label>
+            <input matInput type="number" formControlName="sesionesTeoriaVirtualSemana" min="0">
           </mat-form-field>
           <mat-form-field appearance="outline">
-            <mat-label>Sesiones por semana</mat-label>
-            <input matInput type="number" formControlName="sesionesPorSemana" required min="1">
+            <mat-label>Horas/sesión</mat-label>
+            <input matInput type="number" formControlName="horasTeoriaVirtual" min="1">
+          </mat-form-field>
+        </div>
+
+        <div class="form-row">
+          <mat-form-field appearance="outline">
+            <mat-label>Laboratorio: sesiones/sem</mat-label>
+            <input matInput type="number" formControlName="sesionesLaboratorioSemana" min="0">
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Horas/sesión</mat-label>
+            <input matInput type="number" formControlName="horasLaboratorio" min="1">
           </mat-form-field>
           <mat-form-field appearance="outline">
             <mat-label>Sesiones lab/semestre</mat-label>
@@ -509,8 +564,13 @@ export class AsignaturaDialogComponent {
     nuevoPrograma: [''],
     codigo:        [this.data?.codigo ?? '', Validators.required],
     nombre:        [this.data?.nombre ?? '', Validators.required],
-    horasPorSesion:[this.data?.horasPorSesion ?? 2, Validators.required],
-    sesionesPorSemana: [this.data?.sesionesPorSemana ?? 2, [Validators.required, Validators.min(1)]],
+    categoria:     [this.data?.categoria ?? ''],
+    sesionesTeoriaPresencialSemana: [this.data?.sesionesTeoriaPresencialSemana ?? 2, [Validators.required, Validators.min(0)]],
+    horasTeoriaPresencial: [this.data?.horasTeoriaPresencial ?? 2, [Validators.required, Validators.min(1)]],
+    sesionesTeoriaVirtualSemana: [this.data?.sesionesTeoriaVirtualSemana ?? 0, [Validators.required, Validators.min(0)]],
+    horasTeoriaVirtual: [this.data?.horasTeoriaVirtual ?? 2, [Validators.required, Validators.min(1)]],
+    sesionesLaboratorioSemana: [this.data?.sesionesLaboratorioSemana ?? 0, [Validators.required, Validators.min(0)]],
+    horasLaboratorio: [this.data?.horasLaboratorio ?? 2, [Validators.required, Validators.min(1)]],
     sesionesLaboratorioSemestre: [this.data?.sesionesLaboratorioSemestre ?? 0, [Validators.required, Validators.min(0)]],
     docenteId:     [this.data?.docenteId ?? ''],
     reqEspacio:    [!!this.data?.espacioFijoId],
@@ -549,6 +609,10 @@ export class AsignaturaDialogComponent {
     if (v.facultadId === '__nueva__' && !v.nuevaFacultad) return false;
     if (!v.programaId) return false;
     if (v.programaId === '__nuevo__' && !v.nuevoPrograma) return false;
+    const totalSesiones = (Number(v.sesionesTeoriaPresencialSemana) || 0)
+      + (Number(v.sesionesTeoriaVirtualSemana) || 0)
+      + (Number(v.sesionesLaboratorioSemana) || 0);
+    if (totalSesiones <= 0) return false;
     return true;
   }
 
@@ -577,8 +641,13 @@ export class AsignaturaDialogComponent {
     const result: Partial<Asignatura> = {
       codigo: v.codigo!,
       nombre: v.nombre!,
-      horasPorSesion: Number(v.horasPorSesion) || 2,
-      sesionesPorSemana: Number(v.sesionesPorSemana) || 2,
+      categoria: (v.categoria as 'Obligatoria' | 'Optativa' | 'Electiva') || undefined,
+      sesionesTeoriaPresencialSemana: Number(v.sesionesTeoriaPresencialSemana) || 0,
+      horasTeoriaPresencial: Number(v.horasTeoriaPresencial) || 2,
+      sesionesTeoriaVirtualSemana: Number(v.sesionesTeoriaVirtualSemana) || 0,
+      horasTeoriaVirtual: Number(v.horasTeoriaVirtual) || 2,
+      sesionesLaboratorioSemana: Number(v.sesionesLaboratorioSemana) || 0,
+      horasLaboratorio: Number(v.horasLaboratorio) || 2,
       sesionesLaboratorioSemestre: sesionesLab,
       alternancia,
       programaId,

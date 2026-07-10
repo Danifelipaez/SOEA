@@ -55,6 +55,8 @@ namespace SOEA.API.Controllers
         public string ProgramaId { get; set; } = string.Empty;
         public string Alternancia { get; set; } = "SinAlternancia";
         public int? GrupoNumero { get; set; }
+        /// <summary>Obligatoria | Optativa | Electiva. Null o no reconocido → Obligatoria (conservador).</summary>
+        public string? Categoria { get; set; }
     }
 
     public class MappingDto

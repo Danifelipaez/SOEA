@@ -11,9 +11,10 @@ namespace SOEA.Tests.Engine.Genetic
 {
     /// <summary>
     /// Verifica los cuatro objetivos blandos reales del GA: ① huecos, ② &gt; 6 horas seguidas,
-    /// ③ balance entre días disponibles (desviación media absoluta), ④ balance de carga entre
-    /// Semana A y B (SC-BAL, Incremento 2). Cada test aísla un objetivo vía los pesos, usando
-    /// sesiones virtuales para neutralizar la guarda de aulas.
+    /// ③ balance entre los días operativos de la grilla (desviación media absoluta), ④ balance de
+    /// carga entre Semana A y B (SC-BAL, Incremento 2). CR-08: la ergonomía se mide por cohorte
+    /// (GrupoId), no por docente. Cada test aísla un objetivo vía los pesos, usando sesiones
+    /// virtuales para neutralizar la guarda de aulas.
     /// </summary>
     public class EvaluadorFitnessTests
     {
@@ -26,8 +27,9 @@ namespace SOEA.Tests.Engine.Genetic
             return bloques;
         }
 
-        private static Sesion Virtual(Guid docenteId, decimal dur) =>
-            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), null, null,
+        // CR-08: la ergonomía se mide por cohorte (GrupoId); el docente queda fuera.
+        private static Sesion Virtual(Guid grupoId, decimal dur) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, dur, false, false);
 
         private static Docente Doc(Guid id, IEnumerable<BloqueTiempo> bloques)
@@ -72,8 +74,8 @@ namespace SOEA.Tests.Engine.Genetic
             Assert.True(eval.Evaluar(contiguo) > eval.Evaluar(conCorte));
         }
 
-        [Fact] // ③ SC-06: concentrar en un día penaliza más que repartir entre los días disponibles.
-        public void SC06_BalanceaEntreDiasDisponibles()
+        [Fact] // ③ SC-06: concentrar en un día penaliza más que repartir entre los días de la grilla.
+        public void SC06_BalanceaEntreDiasDeGrilla()
         {
             var docId = Guid.NewGuid();
             var sesiones = new List<Sesion> { Virtual(docId, 1m), Virtual(docId, 1m) };
@@ -105,6 +107,36 @@ namespace SOEA.Tests.Engine.Genetic
             var desbalanceado = new CromosomaHorario(ids, new[] { 0 }, new[] { 4 }); // Lunes en A, Martes en B
 
             Assert.True(eval.Evaluar(desbalanceado) > eval.Evaluar(balanceado));
+        }
+
+        // ⑤ SC-PRES: ceder presencialidad (Alternancia != SinAlternancia) de una sesión única +
+        // Obligatoria penaliza MÁS que la de una 2ª sesión + Electiva. El término es constante por
+        // cromosoma (no lo mueve el GA), así que comparamos dos evaluadores con info distinta.
+        [Fact]
+        public void SCPRES_PenalizaProporcionalALaPrioridad()
+        {
+            var grupo = Guid.NewGuid();
+            var asig = Guid.NewGuid();
+            // Sesión que cedió presencialidad (TipoA). Modalidad.Virtual neutraliza la guarda de aulas.
+            var sesion = new Sesion(Guid.NewGuid(), asig, null, Guid.NewGuid(), null, grupo,
+                TipoAlternancia.TipoA, Modalidad.Virtual, 1m, false, false);
+            var bloques = Grilla(4);
+            var docentes = new List<Docente>();
+            var cfg = new ConfiguracionOptimizacion(
+                PesoErgo: 0, PesoTiempos: 0, PesoAlmuerzo: 0, PesoBalanceSemanas: 0, PesoPresencialFirst: 1);
+
+            var infoAlta = new Dictionary<Guid, (int, CategoriaAsignatura)>
+                { [asig] = (1, CategoriaAsignatura.Obligatoria) }; // única + Obligatoria → peor
+            var infoBaja = new Dictionary<Guid, (int, CategoriaAsignatura)>
+                { [asig] = (2, CategoriaAsignatura.Electiva) };    // 2/sem + Electiva → menor
+
+            var evalAlta = new EvaluadorFitness(new List<Sesion> { sesion }, bloques, docentes, new List<Espacio>(), cfg, infoAlta);
+            var evalBaja = new EvaluadorFitness(new List<Sesion> { sesion }, bloques, docentes, new List<Espacio>(), cfg, infoBaja);
+
+            var ids = new[] { sesion.Id };
+            var crom = new CromosomaHorario(ids, new[] { 0 }, new[] { 0 });
+
+            Assert.True(evalAlta.Evaluar(crom) > evalBaja.Evaluar(crom));
         }
     }
 }

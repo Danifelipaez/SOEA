@@ -15,8 +15,9 @@ namespace SOEA.Tests.Application
     /// Verifica que el PUT de asignaturas actualice los campos editables (Bug 2 de Ingesta:
     /// las ediciones de duración se descartaban porque no existía vía de actualización).
     /// </summary>
-    public class UpdateAsignaturaServiceTests
+    public class AsignaturaServiceTests
     {
+        // Shape legado: 2h, 1 sesión/semana → mapea a teoría presencial.
         private static Asignatura Existente(Guid id, Guid progId) =>
             new(id, "Bioquímica", "BIO201", 2, 1, 8, progId);
 
@@ -24,8 +25,8 @@ namespace SOEA.Tests.Application
         {
             Nombre = "Bioquímica Avanzada",
             Codigo = "BIO201",
-            HorasPorSesion = 3,
-            SesionesPorSemana = 2,
+            SesionesTeoriaPresencialSemana = 2,
+            HorasTeoriaPresencial = 3,
             SesionesLaboratorioSemestre = 11,
             ProgramaId = progId
         };
@@ -36,14 +37,14 @@ namespace SOEA.Tests.Application
             var progId = Guid.NewGuid();
             var asig   = Existente(Guid.NewGuid(), progId);
             var repo   = new FakeAsignaturaRepo(asig);
-            var service = new UpdateAsignaturaService(repo);
+            var service = new AsignaturaService(repo);
 
-            var response = await service.ExecuteAsync(asig.Id, Request(progId));
+            var response = await service.UpdateAsync(asig.Id, Request(progId));
 
             Assert.Equal(1, repo.Actualizaciones);
             Assert.Equal("Bioquímica Avanzada", response.Nombre);
-            Assert.Equal(3, response.HorasPorSesion);
-            Assert.Equal(2, response.SesionesPorSemana);
+            Assert.Equal(3, response.HorasTeoriaPresencial);
+            Assert.Equal(2, response.SesionesTeoriaPresencialSemana);
             Assert.Equal(11, response.SesionesLaboratorioSemestre);
             // Sin alternancia explícita se infiere por umbral: 11 > 8 ⇒ TipoB.
             Assert.Equal(TipoAlternancia.TipoB, response.Alternancia);
@@ -54,12 +55,12 @@ namespace SOEA.Tests.Application
         {
             var progId = Guid.NewGuid();
             var asig   = Existente(Guid.NewGuid(), progId);
-            var service = new UpdateAsignaturaService(new FakeAsignaturaRepo(asig));
+            var service = new AsignaturaService(new FakeAsignaturaRepo(asig));
 
             var request = Request(progId);
             request.Alternancia = TipoAlternancia.TipoA; // override manual (11 lab inferiría TipoB)
 
-            var response = await service.ExecuteAsync(asig.Id, request);
+            var response = await service.UpdateAsync(asig.Id, request);
 
             Assert.Equal(TipoAlternancia.TipoA, response.Alternancia);
         }
@@ -71,13 +72,13 @@ namespace SOEA.Tests.Application
             var docenteId = Guid.NewGuid();
             var espacioId = Guid.NewGuid();
             var asig      = Existente(Guid.NewGuid(), progId);
-            var service   = new UpdateAsignaturaService(new FakeAsignaturaRepo(asig));
+            var service   = new AsignaturaService(new FakeAsignaturaRepo(asig));
 
             var request = Request(progId);
             request.DocenteId = docenteId;
             request.EspacioFijoId = espacioId;
 
-            var response = await service.ExecuteAsync(asig.Id, request);
+            var response = await service.UpdateAsync(asig.Id, request);
 
             Assert.Equal(docenteId, response.DocenteId);
             Assert.Equal(espacioId, response.EspacioFijoId);
@@ -86,10 +87,10 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task LanzaInvalidOperation_SiNoExiste()
         {
-            var service = new UpdateAsignaturaService(new FakeAsignaturaRepo());
+            var service = new AsignaturaService(new FakeAsignaturaRepo());
 
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => service.ExecuteAsync(Guid.NewGuid(), Request(Guid.NewGuid())));
+                () => service.UpdateAsync(Guid.NewGuid(), Request(Guid.NewGuid())));
         }
 
         [Fact]
@@ -97,13 +98,13 @@ namespace SOEA.Tests.Application
         {
             var progId  = Guid.NewGuid();
             var asig    = Existente(Guid.NewGuid(), progId);
-            var service = new UpdateAsignaturaService(new FakeAsignaturaRepo(asig));
+            var service = new AsignaturaService(new FakeAsignaturaRepo(asig));
 
             var request = Request(progId);
-            request.HorasPorSesion = 0; // el dominio exige > 0
+            request.HorasTeoriaPresencial = 0; // conteo > 0 con horas = 0 → el dominio exige horas > 0
 
             await Assert.ThrowsAsync<ArgumentException>(
-                () => service.ExecuteAsync(asig.Id, request));
+                () => service.UpdateAsync(asig.Id, request));
         }
 
         // ── Repo fake ────────────────────────────────────────────────────────────

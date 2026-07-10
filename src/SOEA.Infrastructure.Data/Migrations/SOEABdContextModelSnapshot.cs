@@ -91,6 +91,13 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("alternancia");
 
+                    b.Property<string>("Categoria")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("Obligatoria")
+                        .HasColumnName("categoria");
+
                     b.Property<string>("Codigo")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -105,9 +112,25 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("espacio_fijo_id");
 
-                    b.Property<int>("HorasPorSesion")
+                    b.Property<TimeOnly?>("HoraFinMax")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("hora_fin_max");
+
+                    b.Property<TimeOnly?>("HoraInicioMin")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("hora_inicio_min");
+
+                    b.Property<int>("HorasLaboratorio")
                         .HasColumnType("integer")
-                        .HasColumnName("horas_por_sesion");
+                        .HasColumnName("horas_laboratorio");
+
+                    b.Property<int>("HorasTeoriaPresencial")
+                        .HasColumnType("integer")
+                        .HasColumnName("horas_teoria_presencial");
+
+                    b.Property<int>("HorasTeoriaVirtual")
+                        .HasColumnType("integer")
+                        .HasColumnName("horas_teoria_virtual");
 
                     b.Property<string>("Nombre")
                         .IsRequired()
@@ -119,13 +142,21 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("programa_id");
 
+                    b.Property<int>("SesionesLaboratorioSemana")
+                        .HasColumnType("integer")
+                        .HasColumnName("sesiones_laboratorio_semana");
+
                     b.Property<int>("SesionesLaboratorioSemestre")
                         .HasColumnType("integer")
                         .HasColumnName("sesiones_laboratorio_semestre");
 
-                    b.Property<int>("SesionesPorSemana")
+                    b.Property<int>("SesionesTeoriaPresencialSemana")
                         .HasColumnType("integer")
-                        .HasColumnName("sesiones_por_semana");
+                        .HasColumnName("sesiones_teoria_presencial_semana");
+
+                    b.Property<int>("SesionesTeoriaVirtualSemana")
+                        .HasColumnType("integer")
+                        .HasColumnName("sesiones_teoria_virtual_semana");
 
                     b.HasKey("Id");
 
@@ -284,9 +315,30 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("alternancia");
 
+                    b.Property<Guid?>("AsignaturaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asignatura_id");
+
+                    b.Property<string>("Codigo")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("codigo");
+
+                    b.Property<string>("Disponibilidad")
+                        .HasColumnType("text")
+                        .HasColumnName("disponibilidad");
+
+                    b.Property<string>("DisponibilidadUiJson")
+                        .HasColumnType("text")
+                        .HasColumnName("disponibilidad_ui_json");
+
                     b.Property<int>("EstudiantesInscritos")
                         .HasColumnType("integer")
                         .HasColumnName("estudiantes_inscritos");
+
+                    b.Property<Guid?>("FacultadId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("facultad_id");
 
                     b.Property<string>("Nombre")
                         .IsRequired()
@@ -303,6 +355,14 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnName("semestre");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AsignaturaId")
+                        .HasDatabaseName("ix_grupo_asignatura_id");
+
+                    b.HasIndex("Codigo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_grupo_codigo")
+                        .HasFilter("codigo IS NOT NULL");
 
                     b.HasIndex("Nombre")
                         .HasDatabaseName("ix_grupo_nombre");
@@ -412,7 +472,13 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("bloque_tiempo_id");
 
-                    b.Property<Guid>("DocenteId")
+                    b.Property<bool>("Bloqueada")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("bloqueada");
+
+                    b.Property<Guid?>("DocenteId")
                         .HasColumnType("uuid")
                         .HasColumnName("docente_id");
 
@@ -450,6 +516,17 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("PatronAlternanciaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("patron_alternancia_id");
+
+                    b.Property<string>("TipoFlujo")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("Laboratorio")
+                        .HasColumnName("tipo_flujo");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AsignaturaId")
@@ -463,6 +540,9 @@ namespace SOEA.Infrastructure.Data.Migrations
 
                     b.HasIndex("EspacioId")
                         .HasDatabaseName("ix_sesion_espacio_id");
+
+                    b.HasIndex("PatronAlternanciaId")
+                        .HasDatabaseName("ix_sesion_patron_alternancia_id");
 
                     b.HasIndex("DocenteId", "BloqueTiempoId")
                         .HasDatabaseName("ix_sesion_docente_bloque_conflicto");
@@ -559,6 +639,14 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasForeignKey("DocenteId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("SOEA.Domain.Entities.Sesion", b =>
+                {
+                    b.HasOne("SOEA.Domain.Entities.TipoAlternanciaConfig", null)
+                        .WithMany()
+                        .HasForeignKey("PatronAlternanciaId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 #pragma warning restore 612, 618
         }

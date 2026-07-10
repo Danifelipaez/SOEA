@@ -22,9 +22,10 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasColumnName("asignatura_id")
                 .IsRequired();
 
+            // CR-02: docente opcional (modelo presencial-first). Columna nullable.
             builder.Property(s => s.DocenteId)
                 .HasColumnName("docente_id")
-                .IsRequired();
+                .IsRequired(false);
 
             builder.Property(s => s.BloqueTiempoId)
                 .HasColumnName("bloque_tiempo_id")
@@ -66,6 +67,28 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasColumnName("esta_dividida")
                 .IsRequired();
 
+            builder.Property(s => s.TipoFlujo)
+                .HasColumnName("tipo_flujo")
+                .HasConversion<string>()
+                .HasDefaultValue(Domain.Enums.TipoFlujo.Laboratorio)
+                .IsRequired();
+
+            builder.Property(s => s.PatronAlternanciaId)
+                .HasColumnName("patron_alternancia_id")
+                .IsRequired(false);
+
+            builder.Property(s => s.Bloqueada)
+                .HasColumnName("bloqueada")
+                .HasDefaultValue(false)
+                .IsRequired();
+
+            // Relación opcional al catálogo de alternancia (sin navegación inversa).
+            // Al borrar el patrón, las sesiones quedan en presencial puro (SetNull).
+            builder.HasOne<TipoAlternanciaConfig>()
+                .WithMany()
+                .HasForeignKey(s => s.PatronAlternanciaId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             // Indexes
             builder.HasIndex(s => s.AsignaturaId)
                 .HasDatabaseName("ix_sesion_asignatura_id");
@@ -84,6 +107,9 @@ namespace SOEA.Infrastructure.Data.Configurations
 
             builder.HasIndex(s => new { s.EspacioId, s.BloqueTiempoId })
                 .HasDatabaseName("ix_sesion_espacio_bloque_conflicto");
+
+            builder.HasIndex(s => s.PatronAlternanciaId)
+                .HasDatabaseName("ix_sesion_patron_alternancia_id");
         }
     }
 }

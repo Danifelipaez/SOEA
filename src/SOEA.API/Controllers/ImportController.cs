@@ -264,6 +264,9 @@ namespace SOEA.API.Controllers
                     && altP != TipoAlternancia.SinAlternancia)
                     entidad.EstablecerAlternancia(altP);
 
+                if (Enum.TryParse<CategoriaAsignatura>(a.Categoria, ignoreCase: true, out var catP))
+                    entidad.EstablecerCategoria(catP);
+
                 Guid? docTempId = null;
                 if (!string.IsNullOrWhiteSpace(a.DocenteId))
                 {

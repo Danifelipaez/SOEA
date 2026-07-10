@@ -8,19 +8,16 @@ using SOEA.Domain.Services;
 namespace SOEA.Engine.Genetic
 {
     /// <summary>
-    /// Operadores genéticos del modelo bi-semanal (Incremento 2). Cada sesión tiene dos genes de
+    /// Operadores genéticos del modelo bi-semanal presencial-first. Cada sesión tiene dos genes de
     /// inicio: <c>Start</c> (Semana A) y <c>StartB</c> (Semana B). Invariantes preservados por
     /// construcción:
     ///   I1: todo inicio elegido pertenece a <see cref="_startsValidos"/>[i] = cabe-en-día ∩
-    ///       disponibilidad del docente (HC-I02). Mutación, cruce y perturbación solo eligen de
-    ///       ahí, para AMBOS genes.
+    ///       franja disponible del grupo (HC-G01). El docente NO restringe el dominio.
+    ///       Mutación, cruce y perturbación solo eligen de ahí, para AMBOS genes.
     ///   Regla 9 / ALT-05: para TipoA/TipoB, <c>StartB[i] == Start[i]</c> siempre — los operadores
     ///       solo mueven StartB de forma independiente para SinAlternancia (ALT-06);
     ///       <see cref="Reparar"/> re-sincroniza incondicionalmente el resto en cada llamada.
-    /// La reparación elimina solapes de docente (HC-I01) en dos pasadas: Semana A (Start) y luego
-    /// Semana B (StartB), tratando los genes TipoA/TipoB como fijos en la segunda pasada (su
-    /// franja de Semana B ya quedó resuelta en la primera, por la regla 9). Los aulas (HC-S01) se
-    /// resuelven en un pase posterior (<see cref="AsignadorEspacios"/>), no aquí.
+    /// Los aulas (HC-S01) se resuelven en un pase posterior (<see cref="AsignadorEspacios"/>), no aquí.
     /// </summary>
     public class OperadoresGeneticos
     {
@@ -35,17 +32,34 @@ namespace SOEA.Engine.Genetic
             List<Sesion> sesiones,
             List<BloqueTiempo> bloques,
             IReadOnlyList<Docente> docentes,
-            Random rng)
+            Random rng,
+            IReadOnlyList<Grupo>? grupos = null)
         {
             _sesiones  = sesiones;
             _rng       = rng;
             _diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
             var rangos = BloquesPlanner.RangosPorDia(bloques);
 
-            var bloqueIndex = new Dictionary<Guid, int>(bloques.Count);
-            for (int i = 0; i < bloques.Count; i++) bloqueIndex[bloques[i].Id] = i;
-
-            var docentePorId = docentes.ToDictionary(d => d.Id);
+            // HC-G01: índice de disponibilidad por GrupoId (coherencia con CP-SAT Fase 2).
+            var bloquesPermitidosPorGrupo = new Dictionary<Guid, HashSet<int>>();
+            if (grupos != null)
+            {
+                foreach (var grupo in grupos)
+                {
+                    if (grupo.Id == Guid.Empty || grupo.Disponibilidad.Count == 0) continue;
+                    var permiteMatutino   = grupo.Disponibilidad.Contains(FranjaHoraria.Matutino);
+                    var permiteVespertino = grupo.Disponibilidad.Contains(FranjaHoraria.Vespertino);
+                    var permitidos = new HashSet<int>();
+                    for (int idx = 0; idx < bloques.Count; idx++)
+                    {
+                        var hora = bloques[idx].HoraInicio;
+                        if (permiteMatutino   && hora.Hour < 12) permitidos.Add(idx);
+                        if (permiteVespertino && hora.Hour >= 12) permitidos.Add(idx);
+                    }
+                    if (permitidos.Count > 0)
+                        bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
+                }
+            }
 
             _duraciones      = new int[sesiones.Count];
             _startsValidos   = new int[sesiones.Count][];
@@ -55,22 +69,22 @@ namespace SOEA.Engine.Genetic
                 _duraciones[i]      = Math.Max(1, (int)Math.Ceiling(sesiones[i].DuracionHoras));
                 _esIndependiente[i] = sesiones[i].Alternancia == TipoAlternancia.SinAlternancia;
 
-                // HC-I02: filtrar los inicios por los bloques disponibles del docente.
-                ISet<int>? disponibles = null;
-                if (docentePorId.TryGetValue(sesiones[i].DocenteId, out var doc))
-                {
-                    disponibles = doc.BloquesDisponibles
-                        .Where(b => bloqueIndex.ContainsKey(b.Id))
-                        .Select(b => bloqueIndex[b.Id])
-                        .ToHashSet();
-                    // Sin info de disponibilidad ⇒ sin filtro (no debería ocurrir: Fase 2 ya
-                    // rechaza a un docente sin bloques que calcen con la grilla).
-                    if (disponibles.Count == 0) disponibles = null;
-                }
+                // Disponibilidad docente ya no confina los inicios (CR-08).
+                // HC-G01: sí confina cuando el grupo declara disponibilidad.
+                var todosStarts = BloquesPlanner
+                    .StartsValidos(_duraciones[i], bloques.Count, rangos, _diaPorIdx, bloquesDisponibles: null);
 
-                _startsValidos[i] = BloquesPlanner
-                    .StartsValidos(_duraciones[i], bloques.Count, rangos, _diaPorIdx, disponibles)
-                    .ToArray();
+                if (sesiones[i].GrupoId.HasValue &&
+                    bloquesPermitidosPorGrupo.TryGetValue(sesiones[i].GrupoId.Value, out var perm))
+                {
+                    _startsValidos[i] = todosStarts.Where(s => perm.Contains(s)).ToArray();
+                    if (_startsValidos[i].Length == 0)
+                        _startsValidos[i] = todosStarts.ToArray(); // fallback: no dejar sin opciones
+                }
+                else
+                {
+                    _startsValidos[i] = todosStarts.ToArray();
+                }
             }
         }
 
@@ -177,7 +191,8 @@ namespace SOEA.Engine.Genetic
 
         private void RepararSemana(int[] starts, Func<int, bool> movible)
         {
-            var colocadosPorDocente = new Dictionary<Guid, List<(int start, int dur)>>();
+            // CR-08: la reparación de solapes es por cohorte (GrupoId), no por docente.
+            var colocadosPorGrupo = new Dictionary<Guid, List<(int start, int dur)>>();
 
             // 1) Genes fijos primero: solo registran su ocupación (no se mueven). Necesario para
             //    que los genes movibles, procesados después, vean el panorama completo y no
@@ -185,9 +200,9 @@ namespace SOEA.Engine.Genetic
             for (int i = 0; i < starts.Length; i++)
             {
                 if (movible(i)) continue;
-                var docente = _sesiones[i].DocenteId;
-                if (docente == Guid.Empty) continue;
-                ObtenerLista(colocadosPorDocente, docente).Add((starts[i], _duraciones[i]));
+                if (!_sesiones[i].GrupoId.HasValue) continue;
+                var grupo = _sesiones[i].GrupoId.Value;
+                ObtenerLista(colocadosPorGrupo, grupo).Add((starts[i], _duraciones[i]));
             }
 
             // 2) Genes movibles, en orden: se reparan contra todo lo ya colocado (fijos + movibles
@@ -195,12 +210,12 @@ namespace SOEA.Engine.Genetic
             for (int i = 0; i < starts.Length; i++)
             {
                 if (!movible(i)) continue;
-                var docente = _sesiones[i].DocenteId;
-                if (docente == Guid.Empty) continue;
+                if (!_sesiones[i].GrupoId.HasValue) continue;
+                var grupo = _sesiones[i].GrupoId.Value;
 
                 int start = starts[i];
                 int dur   = _duraciones[i];
-                var lista = ObtenerLista(colocadosPorDocente, docente);
+                var lista = ObtenerLista(colocadosPorGrupo, grupo);
 
                 bool solapa = lista.Any(p => BloquesPlanner.Solapan(p.start, p.dur, start, dur, _diaPorIdx));
                 if (solapa)
@@ -208,7 +223,7 @@ namespace SOEA.Engine.Genetic
                     var nuevo = BuscarStartLibre(i, lista);
                     if (nuevo.HasValue) start = nuevo.Value;
                     // Si no hay libre, fallback: queda tal cual. El post-chequeo del orquestador
-                    // (HC-I01) lo detecta y hace fallback a Fase 2 — nunca se publica un horario inválido.
+                    // (HC-C01) lo detecta y hace fallback a Fase 2 — nunca se publica un horario inválido.
                 }
 
                 starts[i] = start;
@@ -217,12 +232,12 @@ namespace SOEA.Engine.Genetic
         }
 
         private static List<(int start, int dur)> ObtenerLista(
-            Dictionary<Guid, List<(int start, int dur)>> mapa, Guid docente)
+            Dictionary<Guid, List<(int start, int dur)>> mapa, Guid clave)
         {
-            if (!mapa.TryGetValue(docente, out var lista))
+            if (!mapa.TryGetValue(clave, out var lista))
             {
                 lista = new List<(int, int)>();
-                mapa[docente] = lista;
+                mapa[clave] = lista;
             }
             return lista;
         }

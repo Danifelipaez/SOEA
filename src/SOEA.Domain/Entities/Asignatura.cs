@@ -6,24 +6,42 @@ namespace SOEA.Domain.Entities
     /// <summary>
     /// Asignatura académica de la malla curricular.
     /// Duración fija: el algoritmo la lee, nunca la modifica (decisión inamovible).
+    /// Un curso es modular: combina hasta 3 tracks independientes (teoría presencial, teoría
+    /// virtual fija, laboratorio), cada uno con su propio número de sesiones/semana y duración.
     /// </summary>
     public class Asignatura : EntidadBase
     {
         public string Nombre { get; private set; } = "";
         public string Codigo { get; private set; } = "";
 
-        /// <summary>
-        /// Duración de cada sesión en horas (ej: 2 o 3 horas).
-        /// </summary>
-        public int HorasPorSesion { get; private set; }
+        /// <summary>Sesiones de teoría presencial por semana.</summary>
+        public int SesionesTeoriaPresencialSemana { get; private set; }
+
+        /// <summary>Duración en horas de cada sesión de teoría presencial.</summary>
+        public int HorasTeoriaPresencial { get; private set; }
 
         /// <summary>
-        /// Número de veces que se dicta la asignatura a la semana.
+        /// Sesiones de teoría virtual por semana. Modo fijo e independiente de <see cref="Alternancia"/>:
+        /// siempre se dictan en modalidad virtual, sin contraparte presencial ni toggle semanal.
         /// </summary>
-        public int SesionesPorSemana { get; private set; }
+        public int SesionesTeoriaVirtualSemana { get; private set; }
+
+        /// <summary>Duración en horas de cada sesión de teoría virtual.</summary>
+        public int HorasTeoriaVirtual { get; private set; }
 
         /// <summary>
-        /// Cantidad de sesiones de laboratorio que requiere en el semestre.
+        /// Sesiones de laboratorio por semana. Distinto de <see cref="SesionesLaboratorioSemestre"/>
+        /// (total semestral, solo alimenta la inferencia de <see cref="Alternancia"/>). Es el único
+        /// track sujeto a Alternancia (TipoA/TipoB).
+        /// </summary>
+        public int SesionesLaboratorioSemana { get; private set; }
+
+        /// <summary>Duración en horas de cada sesión de laboratorio.</summary>
+        public int HorasLaboratorio { get; private set; }
+
+        /// <summary>
+        /// Cantidad de sesiones de laboratorio que requiere en el semestre (total, no semanal).
+        /// Alimenta únicamente <see cref="DeterminarAlternancia"/> — no genera sesiones por sí sola.
         /// </summary>
         public int SesionesLaboratorioSemestre { get; private set; }
 
@@ -37,21 +55,51 @@ namespace SOEA.Domain.Entities
         /// </summary>
         public Guid? EspacioFijoId { get; private set; }
 
+        /// <summary>
+        /// Categoría curricular que rige la prioridad de presencialidad (presencial-first).
+        /// Andamiaje del modelo: la lógica de orden (SC-PRES) se implementa en etapas posteriores.
+        /// </summary>
+        public CategoriaAsignatura Categoria { get; private set; }
+
+        /// <summary>
+        /// Ventana horaria definida por la Secretaría Académica (CR-07). Acota la generación al rango
+        /// [HoraInicioMin, HoraFinMax]. Null = sin acotamiento por asignatura (rigen los límites operativos globales).
+        /// </summary>
+        public TimeOnly? HoraInicioMin { get; private set; }
+        public TimeOnly? HoraFinMax { get; private set; }
+
+        /// <summary>Alias legado de <see cref="HorasTeoriaPresencial"/>. Lo lee ImportarCurriculumService
+        /// sobre entidades construidas por LectorExcel (shape legado) — no usar en código nuevo.</summary>
+        public int HorasPorSesion => HorasTeoriaPresencial;
+
+        /// <summary>Alias legado de <see cref="SesionesTeoriaPresencialSemana"/>. Ídem <see cref="HorasPorSesion"/>.</summary>
+        public int SesionesPorSemana => SesionesTeoriaPresencialSemana;
+
         // Constructor privado para EF Core
         private Asignatura() : base() { }
 
         /// <summary>Umbral por defecto de sesiones de lab/semestre que distingue TipoA de TipoB.</summary>
         public const int UmbralTipoAPorDefecto = 8;
 
+        /// <summary>Horas por defecto para un track que el shape legado no especifica.</summary>
+        public const int HorasPorSesionPorDefecto = 2;
+
         public Asignatura(
             Guid id,
             string nombre,
             string codigo,
-            int horasPorSesion,
-            int sesionesPorSemana,
+            int sesionesTeoriaPresencialSemana,
+            int horasTeoriaPresencial,
+            int sesionesTeoriaVirtualSemana,
+            int horasTeoriaVirtual,
+            int sesionesLaboratorioSemana,
+            int horasLaboratorio,
             int sesionesLaboratorioSemestre,
             Guid programaId,
-            int umbralTipoA = UmbralTipoAPorDefecto) : base(id)
+            int umbralTipoA = UmbralTipoAPorDefecto,
+            CategoriaAsignatura categoria = CategoriaAsignatura.Obligatoria,
+            TimeOnly? horaInicioMin = null,
+            TimeOnly? horaFinMax = null) : base(id)
         {
             if (string.IsNullOrWhiteSpace(codigo))
             {
@@ -60,15 +108,53 @@ namespace SOEA.Domain.Entities
                 codigo = $"{prefix}-{Guid.NewGuid().ToString().Substring(0, 5)}";
             }
 
-            Validar(nombre, codigo, horasPorSesion, sesionesPorSemana, programaId);
+            Validar(nombre, codigo,
+                sesionesTeoriaPresencialSemana, horasTeoriaPresencial,
+                sesionesTeoriaVirtualSemana, horasTeoriaVirtual,
+                sesionesLaboratorioSemana, horasLaboratorio,
+                programaId);
+            ValidarVentana(horaInicioMin, horaFinMax);
 
             Nombre = nombre;
             Codigo = codigo;
-            HorasPorSesion = horasPorSesion;
-            SesionesPorSemana = sesionesPorSemana;
+            SesionesTeoriaPresencialSemana = sesionesTeoriaPresencialSemana;
+            HorasTeoriaPresencial = horasTeoriaPresencial;
+            SesionesTeoriaVirtualSemana = sesionesTeoriaVirtualSemana;
+            HorasTeoriaVirtual = horasTeoriaVirtual;
+            SesionesLaboratorioSemana = sesionesLaboratorioSemana;
+            HorasLaboratorio = horasLaboratorio;
             SesionesLaboratorioSemestre = sesionesLaboratorioSemestre;
             Alternancia = DeterminarAlternancia(sesionesLaboratorioSemestre, umbralTipoA);
             ProgramaId = programaId;
+            Categoria = categoria;
+            HoraInicioMin = horaInicioMin;
+            HoraFinMax = horaFinMax;
+        }
+
+        /// <summary>
+        /// Shape legado (pre-desglose por tipo de sesión): un solo bloque de sesiones, mapeado como
+        /// teoría presencial. Lo usan LectorExcel / ImportarCurriculumService / ImportController
+        /// (carga por Excel — fuera de alcance del desglose por tipo). No usar en código nuevo.
+        /// </summary>
+        public Asignatura(
+            Guid id,
+            string nombre,
+            string codigo,
+            int horasPorSesion,
+            int sesionesPorSemana,
+            int sesionesLaboratorioSemestre,
+            Guid programaId,
+            int umbralTipoA = UmbralTipoAPorDefecto,
+            CategoriaAsignatura categoria = CategoriaAsignatura.Obligatoria,
+            TimeOnly? horaInicioMin = null,
+            TimeOnly? horaFinMax = null)
+            : this(id, nombre, codigo,
+                   sesionesTeoriaPresencialSemana: sesionesPorSemana, horasTeoriaPresencial: horasPorSesion,
+                   sesionesTeoriaVirtualSemana: 0, horasTeoriaVirtual: HorasPorSesionPorDefecto,
+                   sesionesLaboratorioSemana: 0, horasLaboratorio: HorasPorSesionPorDefecto,
+                   sesionesLaboratorioSemestre: sesionesLaboratorioSemestre, programaId: programaId,
+                   umbralTipoA: umbralTipoA, categoria: categoria, horaInicioMin: horaInicioMin, horaFinMax: horaFinMax)
+        {
         }
 
         public void AsignarDocente(Guid? docenteId)
@@ -79,6 +165,22 @@ namespace SOEA.Domain.Entities
         public void AsignarEspacioFijo(Guid? espacioId)
         {
             EspacioFijoId = espacioId;
+        }
+
+        public void EstablecerCategoria(CategoriaAsignatura categoria)
+        {
+            Categoria = categoria;
+        }
+
+        /// <summary>
+        /// Fija la ventana horaria por asignatura (Secretaría Académica, CR-07).
+        /// Pasar (null, null) elimina el acotamiento.
+        /// </summary>
+        public void EstablecerVentanaHoraria(TimeOnly? horaInicioMin, TimeOnly? horaFinMax)
+        {
+            ValidarVentana(horaInicioMin, horaFinMax);
+            HoraInicioMin = horaInicioMin;
+            HoraFinMax = horaFinMax;
         }
 
         /// <summary>
@@ -98,24 +200,70 @@ namespace SOEA.Domain.Entities
         public void ActualizarDatos(
             string nombre,
             string? codigo,
+            int sesionesTeoriaPresencialSemana,
+            int horasTeoriaPresencial,
+            int sesionesTeoriaVirtualSemana,
+            int horasTeoriaVirtual,
+            int sesionesLaboratorioSemana,
+            int horasLaboratorio,
+            int sesionesLaboratorioSemestre,
+            Guid programaId,
+            TipoAlternancia? alternanciaExplicita = null,
+            int umbralTipoA = UmbralTipoAPorDefecto,
+            CategoriaAsignatura? categoria = null,
+            TimeOnly? horaInicioMin = null,
+            TimeOnly? horaFinMax = null)
+        {
+            var codigoFinal = string.IsNullOrWhiteSpace(codigo) ? Codigo : codigo;
+            Validar(nombre, codigoFinal,
+                sesionesTeoriaPresencialSemana, horasTeoriaPresencial,
+                sesionesTeoriaVirtualSemana, horasTeoriaVirtual,
+                sesionesLaboratorioSemana, horasLaboratorio,
+                programaId);
+            ValidarVentana(horaInicioMin, horaFinMax);
+
+            Nombre = nombre;
+            Codigo = codigoFinal;
+            SesionesTeoriaPresencialSemana = sesionesTeoriaPresencialSemana;
+            HorasTeoriaPresencial = horasTeoriaPresencial;
+            SesionesTeoriaVirtualSemana = sesionesTeoriaVirtualSemana;
+            HorasTeoriaVirtual = horasTeoriaVirtual;
+            SesionesLaboratorioSemana = sesionesLaboratorioSemana;
+            HorasLaboratorio = horasLaboratorio;
+            SesionesLaboratorioSemestre = sesionesLaboratorioSemestre;
+            // Si se pasa un tipo explícito (override manual) se respeta; si no, se infiere por umbral.
+            Alternancia = alternanciaExplicita ?? DeterminarAlternancia(sesionesLaboratorioSemestre, umbralTipoA);
+            ProgramaId = programaId;
+            // Si no se especifica categoría o ventana horaria, se conserva la actual
+            // (evita que un PUT de campos no relacionados borre la ventana CR-07 fijada por Excel/otro flujo).
+            Categoria = categoria ?? Categoria;
+            HoraInicioMin = horaInicioMin ?? HoraInicioMin;
+            HoraFinMax = horaFinMax ?? HoraFinMax;
+        }
+
+        /// <summary>
+        /// Shape legado de <see cref="ActualizarDatos"/> — ver constructor legado. No usar en código nuevo.
+        /// </summary>
+        public void ActualizarDatos(
+            string nombre,
+            string? codigo,
             int horasPorSesion,
             int sesionesPorSemana,
             int sesionesLaboratorioSemestre,
             Guid programaId,
             TipoAlternancia? alternanciaExplicita = null,
-            int umbralTipoA = UmbralTipoAPorDefecto)
+            int umbralTipoA = UmbralTipoAPorDefecto,
+            CategoriaAsignatura? categoria = null,
+            TimeOnly? horaInicioMin = null,
+            TimeOnly? horaFinMax = null)
         {
-            var codigoFinal = string.IsNullOrWhiteSpace(codigo) ? Codigo : codigo;
-            Validar(nombre, codigoFinal, horasPorSesion, sesionesPorSemana, programaId);
-
-            Nombre = nombre;
-            Codigo = codigoFinal;
-            HorasPorSesion = horasPorSesion;
-            SesionesPorSemana = sesionesPorSemana;
-            SesionesLaboratorioSemestre = sesionesLaboratorioSemestre;
-            // Si se pasa un tipo explícito (override manual) se respeta; si no, se infiere por umbral.
-            Alternancia = alternanciaExplicita ?? DeterminarAlternancia(sesionesLaboratorioSemestre, umbralTipoA);
-            ProgramaId = programaId;
+            ActualizarDatos(nombre, codigo,
+                sesionesTeoriaPresencialSemana: sesionesPorSemana, horasTeoriaPresencial: horasPorSesion,
+                sesionesTeoriaVirtualSemana: 0, horasTeoriaVirtual: HorasPorSesionPorDefecto,
+                sesionesLaboratorioSemana: 0, horasLaboratorio: HorasPorSesionPorDefecto,
+                sesionesLaboratorioSemestre: sesionesLaboratorioSemestre, programaId: programaId,
+                alternanciaExplicita: alternanciaExplicita, umbralTipoA: umbralTipoA, categoria: categoria,
+                horaInicioMin: horaInicioMin, horaFinMax: horaFinMax);
         }
 
         /// <summary>
@@ -132,18 +280,39 @@ namespace SOEA.Domain.Entities
             return TipoAlternancia.SinAlternancia;
         }
 
-        private static void Validar(string nombre, string codigo, int horasPorSesion, int sesionesPorSemana, Guid programaId)
+        private static void Validar(
+            string nombre, string codigo,
+            int sesionesTeoriaPresencialSemana, int horasTeoriaPresencial,
+            int sesionesTeoriaVirtualSemana, int horasTeoriaVirtual,
+            int sesionesLaboratorioSemana, int horasLaboratorio,
+            Guid programaId)
         {
             if (string.IsNullOrWhiteSpace(nombre))
                 throw new ArgumentException("El nombre de la asignatura no puede estar vacío.");
             if (string.IsNullOrWhiteSpace(codigo))
                 throw new ArgumentException("El código de la asignatura no puede estar vacío.");
-            if (horasPorSesion <= 0)
-                throw new ArgumentException("Las horas por sesión deben ser un valor positivo.");
-            if (sesionesPorSemana <= 0)
-                throw new ArgumentException("Las sesiones por semana deben ser un valor positivo.");
+            if (sesionesTeoriaPresencialSemana < 0 || sesionesTeoriaVirtualSemana < 0 || sesionesLaboratorioSemana < 0)
+                throw new ArgumentException("Las sesiones por semana no pueden ser negativas.");
+            if (sesionesTeoriaPresencialSemana == 0 && sesionesTeoriaVirtualSemana == 0 && sesionesLaboratorioSemana == 0)
+                throw new ArgumentException("La asignatura debe tener al menos un tipo de sesión (teoría presencial, teoría virtual o laboratorio) con al menos una sesión por semana.");
+            if (sesionesTeoriaPresencialSemana > 0 && horasTeoriaPresencial <= 0)
+                throw new ArgumentException("Las horas por sesión de teoría presencial deben ser un valor positivo.");
+            if (sesionesTeoriaVirtualSemana > 0 && horasTeoriaVirtual <= 0)
+                throw new ArgumentException("Las horas por sesión de teoría virtual deben ser un valor positivo.");
+            if (sesionesLaboratorioSemana > 0 && horasLaboratorio <= 0)
+                throw new ArgumentException("Las horas por sesión de laboratorio deben ser un valor positivo.");
             if (programaId == Guid.Empty)
                 throw new ArgumentException("El ID del programa no puede ser vacío.");
+        }
+
+        /// <summary>
+        /// La ventana horaria es opcional, pero si ambos extremos están presentes el inicio debe
+        /// ser estrictamente anterior al fin (guardrail de integridad de datos).
+        /// </summary>
+        private static void ValidarVentana(TimeOnly? horaInicioMin, TimeOnly? horaFinMax)
+        {
+            if (horaInicioMin.HasValue && horaFinMax.HasValue && horaInicioMin.Value >= horaFinMax.Value)
+                throw new ArgumentException("La hora de inicio de la ventana debe ser anterior a la hora de fin.");
         }
     }
 }

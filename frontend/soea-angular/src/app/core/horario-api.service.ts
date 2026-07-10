@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, HorarioBase, Sesion } from './models';
+import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, HorarioBase, Sesion } from './models';
 import { environment } from '../../environments/environment';
 
 // ── Tipos del contrato con la API ──────────────────────────────────────────────
@@ -20,7 +20,7 @@ export interface ConfiguracionAlgoritmoApiDto {
 
 export interface SesionFijaApiDto {
   asignaturaId: string;
-  docenteId: string;
+  docenteId?: string;
   espacioId?: string;
   dia: string;
   horaInicio: string;
@@ -28,6 +28,20 @@ export interface SesionFijaApiDto {
   duracionHoras: number;
   alternancia?: string;
   virtual: boolean;
+  /** Laboratorio | AulaVirtual. Null/no reconocido → Laboratorio (default histórico del backend). */
+  tipoFlujo?: string;
+}
+
+export interface GrupoApiDto {
+  id: string;
+  nombre: string;
+  codigo?: string;
+  asignaturaId?: string;
+  facultadId?: string;
+  estudiantesInscritos: number;
+  /** Franjas válidas para el grupo: "Matutino" | "Vespertino". Vacío = sin restricción (HC-G01). */
+  disponibilidad: string[];
+  disponibilidadUiJson?: string;
 }
 
 export interface GenerarHorarioRequest {
@@ -35,6 +49,7 @@ export interface GenerarHorarioRequest {
   asignaturas: AsignaturaApiDto[];
   docentes: DocenteApiDto[];
   espacios: EspacioApiDto[];
+  grupos?: GrupoApiDto[];
   configuracion?: ConfiguracionAlgoritmoApiDto;
   sesionesFijas?: SesionFijaApiDto[];
 }
@@ -43,14 +58,18 @@ export interface AsignaturaApiDto {
   id: string;
   nombre: string;
   docenteId?: string;
-  creditos: number;
-  horasSemanales: number;
-  horasPorSesion: number;
-  sesionesPorSemana: number;
+  sesionesTeoriaPresencialSemana: number;
+  horasTeoriaPresencial: number;
+  sesionesTeoriaVirtualSemana: number;
+  horasTeoriaVirtual: number;
+  sesionesLaboratorioSemana: number;
+  horasLaboratorio: number;
   programaId?: string;
+  /** TipoA | TipoB | SinAlternancia — solo aplica al track de laboratorio. */
   alternancia?: string;
-  esVirtual: boolean;
   espacioFijoId?: string;
+  /** Prioridad de presencialidad (SC-PRES): 'Obligatoria' | 'Optativa' | 'Electiva'. */
+  categoria?: string;
 }
 
 export interface DocenteApiDto {
@@ -107,7 +126,8 @@ export class HorarioApiService {
     espacios: Espacio[],
     config?: ConfiguracionAlgoritmo,
     semestre = '2026-1',
-    base?: HorarioBase
+    base?: HorarioBase,
+    grupos?: Grupo[]
   ): Observable<GenerarHorarioResponse> {
     const sesionesFijas: SesionFijaApiDto[] | undefined = base?.sesiones.map(s => ({
       asignaturaId: s.asignaturaId,
@@ -119,10 +139,23 @@ export class HorarioApiService {
       duracionHoras: s.duracionHoras,
       alternancia:  s.alternancia,
       virtual:      s.virtual,
+      tipoFlujo:    s.tipoFlujo,
+    }));
+
+    const gruposDto: GrupoApiDto[] | undefined = grupos?.map(g => ({
+      id: g.id,
+      nombre: g.nombre,
+      codigo: g.codigo,
+      asignaturaId: g.asignaturaId,
+      facultadId: g.facultadId,
+      estudiantesInscritos: g.estudiantesInscritos,
+      disponibilidad: this.franjasDeGrupo(g.disponibilidadUiJson),
+      disponibilidadUiJson: g.disponibilidadUiJson,
     }));
 
     const body: GenerarHorarioRequest = {
       semestre,
+      grupos: gruposDto?.length ? gruposDto : undefined,
       sesionesFijas: sesionesFijas?.length ? sesionesFijas : undefined,
       configuracion: config ? {
         tamañoPoblacion:      config.pobSize,
@@ -138,14 +171,16 @@ export class HorarioApiService {
         id: a.id,
         nombre: a.nombre,
         docenteId: a.docenteId,
-        creditos: (a.sesionesPorSemana || 0) * (a.horasPorSesion || 0),
-        horasSemanales: (a.horasPorSesion || 0) * (a.sesionesPorSemana || 0),
-        horasPorSesion: a.horasPorSesion,
-        sesionesPorSemana: a.sesionesPorSemana,
+        sesionesTeoriaPresencialSemana: a.sesionesTeoriaPresencialSemana,
+        horasTeoriaPresencial: a.horasTeoriaPresencial,
+        sesionesTeoriaVirtualSemana: a.sesionesTeoriaVirtualSemana,
+        horasTeoriaVirtual: a.horasTeoriaVirtual,
+        sesionesLaboratorioSemana: a.sesionesLaboratorioSemana,
+        horasLaboratorio: a.horasLaboratorio,
         programaId: a.programaId,
         alternancia: a.alternancia,
-        esVirtual: false,
-        espacioFijoId: a.espacioFijoId
+        espacioFijoId: a.espacioFijoId,
+        categoria: a.categoria
       })),
       docentes: docentes.map(d => ({
         id: d.id,
@@ -170,10 +205,43 @@ export class HorarioApiService {
   mapearSesiones(sesiones: GenerarHorarioResponse['sesiones']): Sesion[] {
     return sesiones.map(s => ({
       ...s,
+      docenteId: s.docenteId || undefined,
       duracionHoras: s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin),
       alternancia: (s.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia',
       semana: (s.semana === 'A' || s.semana === 'B') ? s.semana : undefined,
     }));
+  }
+
+  /**
+   * Reduce la disponibilidad por día del grupo (JSON de la UI) a las franjas que entiende
+   * HC-G01 en el backend: "Matutino" (06–13) y/o "Vespertino" (13–20).
+   * Une las franjas de todos los días configurados. Si cubre ambas → devuelve [] (sin
+   * restricción, evita un filtro inútil). Sin JSON → [] (grupo sin restricción de franja).
+   */
+  private franjasDeGrupo(json?: string): string[] {
+    if (!json) return [];
+    let disp: Record<string, any>;
+    try { disp = JSON.parse(json); } catch { return []; }
+
+    const set = new Set<string>();
+    for (const dia of Object.keys(disp)) {
+      const d = disp[dia];
+      if (!d || d.noDisponible) continue;
+      const tipo   = String(d.tipo ?? '').toLowerCase();
+      const franja = String(d.franjaGeneral ?? '').toLowerCase();
+      const tiene  = (s: string) => tipo.includes(s) || franja.includes(s);
+
+      if (tiene('todo')) { set.add('Matutino'); set.add('Vespertino'); }
+      else if (tiene('matutino')) set.add('Matutino');
+      else if (tiene('vespertino') || tiene('nocturno')) set.add('Vespertino');
+      else if (tiene('especific')) {
+        const desde = d.desde ?? '06:00';
+        const hasta = d.hasta ?? '22:00';
+        if (desde < '13:00') set.add('Matutino');
+        if (hasta > '13:00') set.add('Vespertino');
+      } else { set.add('Matutino'); set.add('Vespertino'); }
+    }
+    return set.size >= 2 ? [] : [...set];
   }
 
   private diffHoras(horaInicio: string, horaFin: string): number {

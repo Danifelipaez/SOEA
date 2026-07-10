@@ -4,13 +4,14 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { CatalogoService } from '../../core/catalogo.service';
 import { EspaciosTabComponent } from './espacios-tab/espacios-tab.component';
-import { DocentesTabComponent } from './docentes-tab/docentes-tab.component';
+import { GrupoTabComponent } from './grupo-tab/grupo-tab.component';
 import { AsignaturasTabComponent } from './asignaturas-tab/asignaturas-tab.component';
+import { DocentesTabComponent } from './docentes-tab/docentes-tab.component';
 
 @Component({
   selector: 'app-ingesta',
   standalone: true,
-  imports: [CommonModule, MatTabsModule, EspaciosTabComponent, DocentesTabComponent, AsignaturasTabComponent],
+  imports: [CommonModule, MatTabsModule, EspaciosTabComponent, GrupoTabComponent, AsignaturasTabComponent, DocentesTabComponent],
   template: `
     <div class="ingesta-container">
       <h1 class="page-title text-primary">Ingesta de Datos</h1>
@@ -20,6 +21,9 @@ import { AsignaturasTabComponent } from './asignaturas-tab/asignaturas-tab.compo
         </mat-tab>
         <mat-tab label="Docentes">
           <app-docentes-tab></app-docentes-tab>
+        </mat-tab>
+        <mat-tab label="Grupo">
+          <app-grupo-tab></app-grupo-tab>
         </mat-tab>
         <mat-tab label="Asignaturas">
           <app-asignaturas-tab></app-asignaturas-tab>

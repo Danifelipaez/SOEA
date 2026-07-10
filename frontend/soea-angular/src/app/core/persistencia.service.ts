@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { Asignatura, Docente, Espacio, Facultad, Programa, Sesion, TipoAlternanciaConfig } from './models';
+import { Asignatura, Docente, Espacio, Facultad, Grupo, Programa, Sesion, TipoAlternanciaConfig } from './models';
 import { environment } from '../../environments/environment';
 
 export interface ImportMapping {
@@ -110,6 +110,34 @@ export class PersistenciaService {
     return this.http.delete<void>(`${this.base}/espacios/${id}`);
   }
 
+  // ── Grupos ────────────────────────────────────────────────────────────────────
+
+  cargarGrupos(): Observable<Grupo[]> {
+    return this.http.get<Grupo[]>(`${this.base}/grupos`);
+  }
+
+  guardarGrupo(g: Grupo): Observable<Grupo> {
+    return this.http.post<Grupo>(`${this.base}/grupos`, {
+      id: g.id, asignaturaId: g.asignaturaId, nombre: g.nombre,
+      estudiantesInscritos: g.estudiantesInscritos, semestre: g.semestre,
+      programaId: g.programaId, facultadId: g.facultadId ?? null,
+      codigo: g.codigo ?? null, disponibilidadUiJson: g.disponibilidadUiJson ?? null
+    });
+  }
+
+  actualizarGrupo(g: Grupo): Observable<Grupo> {
+    return this.http.put<Grupo>(`${this.base}/grupos/${g.id}`, {
+      id: g.id, asignaturaId: g.asignaturaId, nombre: g.nombre,
+      estudiantesInscritos: g.estudiantesInscritos, semestre: g.semestre,
+      programaId: g.programaId, facultadId: g.facultadId ?? null,
+      codigo: g.codigo ?? null, disponibilidadUiJson: g.disponibilidadUiJson ?? null
+    });
+  }
+
+  eliminarGrupoBD(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/grupos/${id}`);
+  }
+
   // ── Asignaturas (usa el AsignaturasController existente) ──────────────────────
 
   cargarAsignaturas(): Observable<any[]> {
@@ -120,13 +148,16 @@ export class PersistenciaService {
     const body = {
       nombre: a.nombre,
       codigo: a.codigo,
-      horasPorSesion: a.horasPorSesion,
-      sesionesPorSemana: a.sesionesPorSemana,
+      sesionesTeoriaPresencialSemana: a.sesionesTeoriaPresencialSemana,
+      horasTeoriaPresencial: a.horasTeoriaPresencial,
+      sesionesTeoriaVirtualSemana: a.sesionesTeoriaVirtualSemana,
+      horasTeoriaVirtual: a.horasTeoriaVirtual,
+      sesionesLaboratorioSemana: a.sesionesLaboratorioSemana,
+      horasLaboratorio: a.horasLaboratorio,
       sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
       programaId: a.programaId,
-      // Se envía la alternancia visible en la UI como override explícito para
-      // que el backend no la re-infiera por umbral y pise un tipo ya establecido.
       alternancia: a.alternancia,
+      categoria: a.categoria ?? null,
       docenteId: a.docenteId ?? null,
       espacioFijoId: a.espacioFijoId ?? null
     };
@@ -141,7 +172,15 @@ export class PersistenciaService {
     return this.http.delete<void>(`${this.base}/asignaturas/${id}`);
   }
 
-  // ── Horario: creación manual de sesión ────────────────────────────────────────
+  // ── Horario: sesiones ─────────────────────────────────────────────────────────
+
+  /** Asigna (o desasigna con null) el docente a una sesión ya generada (HU-04, Etapa 4). */
+  asignarDocente(sesionId: string, docenteId: string | null): Observable<{ sesionId: string; docenteId: string | null; advertencias: string[] }> {
+    return this.http.patch<{ sesionId: string; docenteId: string | null; advertencias: string[] }>(
+      `${this.base}/sesiones/${sesionId}/docente`,
+      { docenteId }
+    );
+  }
 
   crearSesionManual(payload: {
     asignaturaId: string;
@@ -151,6 +190,8 @@ export class PersistenciaService {
     horaInicio: string;
     duracionHoras: number;
     alternancia: string;
+    tipoFlujo: 'Laboratorio' | 'AulaVirtual';
+    esVirtual: boolean;
   }): Observable<Sesion[]> {
     return this.http.post<Sesion[]>(`${this.base}/horario/sesion-manual`, payload);
   }
@@ -172,6 +213,7 @@ export interface ImportExcelStatsDto {
   docentesCreados: number;
   docentesActualizados: number;
   espaciosCreados: number;
+  espaciosActualizados: number;
   asignaturasCreadas: number;
   asignaturasActualizadas: number;
   gruposCreados: number;

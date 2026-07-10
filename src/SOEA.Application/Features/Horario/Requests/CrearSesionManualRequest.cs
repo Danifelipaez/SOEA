@@ -15,7 +15,11 @@ namespace SOEA.Application.Features.Horario.Requests
         /// <summary>Hora de inicio en formato "HH:mm".</summary>
         public string  HoraInicio    { get; set; } = string.Empty;
         public decimal DuracionHoras { get; set; }
-        /// <summary>TipoA | TipoB | SinAlternancia</summary>
+        /// <summary>TipoA | TipoB | SinAlternancia. Solo aplica si TipoFlujo=Laboratorio (único track que alterna).</summary>
         public string  Alternancia   { get; set; } = "SinAlternancia";
+        /// <summary>Laboratorio | AulaVirtual. Determina TipoFlujo (HC-S03).</summary>
+        public string  TipoFlujo     { get; set; } = "AulaVirtual";
+        /// <summary>Solo aplica si TipoFlujo=AulaVirtual: true=teoría virtual fija, false=teoría presencial. Ignorado si Laboratorio.</summary>
+        public bool    EsVirtual     { get; set; }
     }
 }

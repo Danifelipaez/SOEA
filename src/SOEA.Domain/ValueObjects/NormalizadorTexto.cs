@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace SOEA.Domain.ValueObjects
 {
@@ -18,10 +19,9 @@ namespace SOEA.Domain.ValueObjects
             if (string.IsNullOrWhiteSpace(texto)) return string.Empty;
 
             var s = texto.Trim().ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
-            s = new string(s.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark).ToArray());
+            s = string.Concat(s.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark));
 
-            // Colapsar espacios múltiples
-            while (s.Contains("  ")) s = s.Replace("  ", " ");
+            s = Regex.Replace(s, @" {2,}", " ");
 
             return s;
         }

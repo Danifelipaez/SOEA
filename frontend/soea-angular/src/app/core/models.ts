@@ -26,6 +26,19 @@ export interface Docente {
   disponibilidad: any; // { lunes: { noDisponible, tipo, franjaGeneral, desde, hasta }, ... }
 }
 
+export interface Grupo {
+  id: string;
+  /** Asignatura a la que pertenece el grupo. Requerido en creación — invariante de dominio. */
+  asignaturaId: string;
+  nombre: string;
+  estudiantesInscritos: number;
+  semestre: number;
+  programaId: string;
+  facultadId?: string;
+  codigo?: string;
+  disponibilidadUiJson?: string; // JSON crudo por día que envía/recibe la API
+}
+
 /**
  * Asignatura académica de la malla curricular.
  * Una misma asignatura (mismo código) puede aparecer en distintos programas/facultades,
@@ -37,10 +50,20 @@ export interface Asignatura {
   nombre: string;
   /** TipoA = presencial en semanas A (pares), virtual en B; TipoB = presencial en B (impares), virtual en A; SinAlternancia */
   alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia';
+  /** Prioridad de presencialidad: Obligatoria > Optativa > Electiva (CR-05) */
+  categoria?: 'Obligatoria' | 'Optativa' | 'Electiva';
   /** Número de grupo dentro de la asignatura (1..N). Opcional; usado en importaciones para diferenciar repeticiones */
   grupoNumero?: number;
-  horasPorSesion: number;    // 2 o 3 horas
-  sesionesPorSemana: number;
+  /** Sesiones de teoría presencial por semana. */
+  sesionesTeoriaPresencialSemana: number;
+  horasTeoriaPresencial: number;
+  /** Sesiones de teoría virtual por semana. Modo fijo, independiente de alternancia (sin pareja presencial). */
+  sesionesTeoriaVirtualSemana: number;
+  horasTeoriaVirtual: number;
+  /** Sesiones de laboratorio por semana. Único track sujeto a alternancia (TipoA/TipoB). */
+  sesionesLaboratorioSemana: number;
+  horasLaboratorio: number;
+  /** Total semestral de sesiones de laboratorio — distinto del conteo semanal; solo alimenta la inferencia de alternancia. */
   sesionesLaboratorioSemestre: number;
   programaId: string;
   docenteId?: string;        // Docente asignado (puede quedar vacío para que el algoritmo decida)
@@ -90,7 +113,7 @@ export interface HorarioBase {
 export interface Sesion {
   id: string;
   asignaturaId: string;
-  docenteId: string;
+  docenteId?: string;
   dia: string;           // 'lunes' | 'martes' | ...
   horaInicio: string;    // "07:00"
   horaFin: string;       // "09:00"
@@ -103,7 +126,26 @@ export interface Sesion {
   virtual: boolean;
   alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia';
   /** Semana del ciclo de alternancia. Presente desde el modelo bi-semanal (Incremento 1).
-   *  'A' = semanas pares (TipoA presencial), 'B' = semanas impares (TipoB presencial).
+   *  'A' = semanas impares (TipoA presencial), 'B' = semanas pares (TipoB presencial)
+   *  (convención del backend: SemanaAcademica.cs).
    *  El horario (día/franja) es idéntico en A y B; solo cambia la modalidad presencial↔virtual. */
   semana?: 'A' | 'B';
+  /** Laboratorio | AulaVirtual. Distingue teoría (presencial o virtual) de laboratorio. */
+  tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
+}
+
+/** Vista de UI de los 3 tipos de sesión combinables por asignatura (desglose por tipo). */
+export type TipoSesionUi = 'TeoriaPresencial' | 'TeoriaVirtual' | 'Laboratorio';
+
+export function tipoSesionUiDesde(tipoFlujo: 'Laboratorio' | 'AulaVirtual' | undefined, virtual: boolean): TipoSesionUi {
+  if (tipoFlujo === 'Laboratorio') return 'Laboratorio';
+  return virtual ? 'TeoriaVirtual' : 'TeoriaPresencial';
+}
+
+export function tipoFlujoDesde(tipo: TipoSesionUi): 'Laboratorio' | 'AulaVirtual' {
+  return tipo === 'Laboratorio' ? 'Laboratorio' : 'AulaVirtual';
+}
+
+export function esVirtualDesde(tipo: TipoSesionUi): boolean {
+  return tipo === 'TeoriaVirtual';
 }

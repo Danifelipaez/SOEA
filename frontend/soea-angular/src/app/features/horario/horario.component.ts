@@ -6,20 +6,17 @@ import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angu
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatIconModule } from '@angular/material/icon';
-import {
-  CdkDragDrop, DragDropModule, CdkDropList
-} from '@angular/cdk/drag-drop';
 import { RouterModule } from '@angular/router';
 import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { PersistenciaService } from '../../core/persistencia.service';
 import { CatalogoService } from '../../core/catalogo.service';
-import { Asignatura, Docente, Espacio, Sesion } from '../../core/models';
+import { Asignatura, Docente, Espacio, Grupo, Sesion, TipoSesionUi, tipoFlujoDesde, esVirtualDesde } from '../../core/models';
 
 /** Representación visual de una sesión atómica multi-slot. */
 interface MergedSesion {
   key: string;
-  sesiones: Sesion[];     // siempre length=1 con el nuevo backend; se conserva la forma para drag-drop
+  sesiones: Sesion[];     // siempre length=1 con el nuevo backend
   dia: string;
   horaInicio: string;
   horaFin: string;
@@ -29,18 +26,19 @@ interface MergedSesion {
   /** Semana del ciclo de alternancia ('A'/'B'). Presente desde el modelo bi-semanal. */
   semana?: 'A' | 'B';
   asignaturaId: string;
-  docenteId: string;
+  docenteId?: string;
   espacioId?: string;
   /** Lab de origen (donde es presencial); usado para ubicar la fila virtual en su lab. */
   espacioIdHogar?: string;
+  tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
 }
 
 @Component({
   selector: 'app-horario',
   standalone: true,
   imports: [
-    CommonModule, DatePipe, TitleCasePipe, MatButtonModule, MatDialogModule, MatSnackBarModule,
-    DragDropModule, RouterModule, MatProgressSpinnerModule, MatIconModule
+    CommonModule, DatePipe, TitleCasePipe, FormsModule, MatButtonModule, MatDialogModule, MatSnackBarModule,
+    RouterModule, MatProgressSpinnerModule, MatIconModule
   ],
   template: `
     <div class="horario-container">
@@ -103,6 +101,27 @@ interface MergedSesion {
             <span class="week-desc">TipoB presencial · TipoA virtual</span>
           }
         </div>
+
+        <!-- Selector de grupo (cohorte) — aplica su disponibilidad (HC-G01) al generar -->
+        @if (state.grupos().length > 0) {
+          <div class="grupo-selector">
+            <span class="grupo-label"><mat-icon class="grupo-ico">groups</mat-icon> Grupo a generar</span>
+            <select class="grupo-select"
+                    [ngModel]="activeGrupo()?.id ?? ''"
+                    (ngModelChange)="selectGrupo($event)">
+              <option value="">Todos — sin restricción de disponibilidad</option>
+              @for (g of state.grupos(); track g.id) {
+                <option [value]="g.id">{{ grupoOptionLabel(g) }}</option>
+              }
+            </select>
+            @if (activeGrupo(); as g) {
+              <span class="grupo-hint">
+                <mat-icon>event_available</mat-icon>
+                {{ g.estudiantesInscritos }} estudiantes · {{ grupoDisponibilidadLabel(g) }}
+              </span>
+            }
+          </div>
+        }
 
         <!-- Horarios base guardados -->
         @if (state.horariosBases().length > 0) {
@@ -169,22 +188,15 @@ interface MergedSesion {
                           [attr.rowspan]="getMergedRowspan(dia, franja)"
                           [class.out-of-hours]="isOutOfHours(dia, franja)">
 
-                        <div class="cell-drop-zone"
-                             cdkDropList
-                             [id]="cellId(dia, franja)"
-                             [cdkDropListData]="{ dia: dia, franja: franja }"
-                             [cdkDropListConnectedTo]="allCellIds()"
-                             [cdkDropListDisabled]="isOutOfHours(dia, franja)"
-                             (cdkDropListDropped)="drop($event)">
+                        <div class="cell-container">
 
                           @for (merged of getMergedCellSesiones(dia, franja); track merged.key) {
                             <div class="session-card"
-                                 cdkDrag
-                                 [cdkDragData]="merged"
-                                 [cdkDragDisabled]="esTipoA(merged)"
+                                 (click)="abrirEditarSesion(merged)"
                                  [class.presencial]="!merged.virtual"
                                  [class.virtual]="merged.virtual"
-                                 [class.tipo-a]="esTipoA(merged)">
+                                 [class.tipo-a]="esTipoA(merged)"
+                                 title="Clic para editar sesión">
 
                               @if (esTipoA(merged)) {
                                 <div class="tipo-a-badge">Tipo A</div>
@@ -194,6 +206,7 @@ interface MergedSesion {
                               <div class="card-sub">{{ getDocenteName(merged) }}</div>
                               <div class="card-duration">{{ merged.horaInicio }} – {{ merged.horaFin }}</div>
                               <div class="card-badges">
+                                <span class="badge-tipo" [class.badge-tipo-lab]="merged.tipoFlujo === 'Laboratorio'">{{ tipoLabel(merged) }}</span>
                                 @if (merged.virtual) {
                                   <span class="badge-virtual">Virtual</span>
                                 }
@@ -207,9 +220,6 @@ interface MergedSesion {
                                   <span class="badge-grupo">{{ g }}</span>
                                 }
                               </div>
-
-                              <!-- Placeholder durante el arrastre -->
-                              <div *cdkDragPlaceholder class="drag-placeholder"></div>
                             </div>
                           }
 
@@ -246,6 +256,13 @@ interface MergedSesion {
     .week-sub { font-size: 9px; color: #9e9e9e; letter-spacing: 0.05em; margin-top: 1px; }
     .pill-button.week-btn.active .week-sub { color: rgba(255,255,255,0.75); }
     .week-desc { font-size: 11px; color: #9e9e9e; align-self: center; margin-left: 4px; font-style: italic; }
+    .grupo-selector { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .grupo-label { display: flex; align-items: center; gap: 4px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #757575; }
+    .grupo-ico { font-size: 16px; width: 16px; height: 16px; color: #1976d2; }
+    .grupo-select { padding: 7px 10px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; background: white; cursor: pointer; outline: none; min-width: 280px; }
+    .grupo-select:focus { border-color: #1976d2; box-shadow: 0 0 0 2px rgba(25,118,210,.2); }
+    .grupo-hint { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #2e7d32; }
+    .grupo-hint mat-icon { font-size: 15px; width: 15px; height: 15px; }
     .bases-panel { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
     .bases-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .bases-icon { font-size: 18px; width: 18px; height: 18px; color: #1976d2; }
@@ -276,25 +293,14 @@ interface MergedSesion {
     .matrix-cell { height: 72px; position: relative; }
     .out-of-hours { background: repeating-linear-gradient(45deg, #f5f5f5, #f5f5f5 8px, #eeeeee 8px, #eeeeee 16px); }
 
-    /* Drop-zone: must fill the cell so the user can drop onto it */
-    .cell-drop-zone { min-height: 64px; height: 100%; display: flex; flex-direction: column; gap: 3px; padding: 2px; }
-
-    /* Highlight when dragging over */
-    .cell-drop-zone.cdk-drop-list-dragging { background: #e3f2fd; border-radius: 4px; }
-    .cell-drop-zone.cdk-drop-list-receiving { background: #f3e5f5; border-radius: 4px; }
+    .cell-container { min-height: 64px; height: 100%; display: flex; flex-direction: column; gap: 3px; padding: 2px; }
 
     .session-card {
       padding: 6px 8px; border-radius: 4px; text-align: left; font-size: 11px;
-      cursor: grab; position: relative; box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-      user-select: none; flex: 1;
+      cursor: pointer; position: relative; box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+      user-select: none; flex: 1; transition: box-shadow 0.15s, transform 0.1s;
     }
-    .session-card.cdk-drag-animating { transition: transform 250ms cubic-bezier(0,0,0.2,1); }
-    .session-card.cdk-drag-disabled { cursor: not-allowed; opacity: .85; }
-    .cdk-drag-preview {
-      box-shadow: 0 6px 20px rgba(0,0,0,0.25); border-radius: 4px;
-      font-size: 11px; padding: 6px 8px; background: white; opacity: .95;
-    }
-    .drag-placeholder { background: rgba(25,118,210,0.12); border: 2px dashed #1976d2; border-radius: 4px; min-height: 36px; }
+    .session-card:hover { box-shadow: 0 3px 8px rgba(0,0,0,0.22); transform: translateY(-1px); }
 
     .presencial { background-color: #e8f5e9; border-left: 4px solid #388e3c; }
     .virtual    { background-color: #fafafa;  border-left: 4px solid #9e9e9e; }
@@ -308,6 +314,8 @@ interface MergedSesion {
     .card-badges   { display: flex; gap: 4px; margin-top: 3px; flex-wrap: wrap; }
     .badge-virtual { padding: 1px 5px; background: #e0e0e0; border-radius: 10px; font-size: 9px; }
     .badge-semana  { padding: 1px 5px; background: #ede7f6; color: #512da8; border-radius: 10px; font-size: 9px; font-weight: 600; }
+    .badge-tipo     { padding: 1px 5px; background: #eceff1; color: #37474f; border-radius: 10px; font-size: 9px; font-weight: 600; }
+    .badge-tipo-lab { background: #e0f2f1; color: #00695c; }
     .badge-alt     { padding: 1px 5px; background: #e3f2fd; color: #1565c0; border-radius: 10px; font-size: 9px; }
     .badge-grupo   { padding: 1px 5px; background: #e8f5e9; color: #2e7d32; border-radius: 10px; font-size: 9px; font-weight: 600; }
     .tipo-a-badge  { position: absolute; top: 2px; right: 2px; font-size: 9px; background: #ff9800; color: white; padding: 1px 4px; border-radius: 2px; }
@@ -333,6 +341,7 @@ export class HorarioComponent implements OnInit {
 
   activeSpace = signal<Espacio | null>(null);
   activeWeek = signal<'A' | 'B'>('A');
+  activeGrupo = signal<Grupo | null>(null);
   loadingBackend = signal(false);
   backendReady = signal(false);
 
@@ -347,6 +356,30 @@ export class HorarioComponent implements OnInit {
 
   selectSpace(esp: Espacio) { this.activeSpace.set(esp); }
   selectWeek(week: 'A' | 'B') { this.activeWeek.set(week); }
+
+  selectGrupo(id: string) {
+    this.activeGrupo.set(this.state.grupos().find(g => g.id === id) ?? null);
+  }
+
+  grupoAsignaturaNombre(g: Grupo): string {
+    return this.state.asignaturaById().get(g.asignaturaId)?.nombre ?? 'sin asignatura';
+  }
+
+  /** Etiqueta del dropdown: distingue grupos homónimos por programa + semestre (+ código). */
+  grupoOptionLabel(g: Grupo): string {
+    const prog = this.state.programaById().get(g.programaId)?.nombre ?? '—';
+    const cod  = g.codigo ? ` [${g.codigo}]` : '';
+    return `${g.nombre}${cod} · ${prog} · S${g.semestre} · ${this.grupoAsignaturaNombre(g)}`;
+  }
+
+  /** Resume la disponibilidad por día del grupo en una etiqueta legible. */
+  grupoDisponibilidadLabel(g: Grupo): string {
+    if (!g.disponibilidadUiJson) return 'disponibilidad sin configurar';
+    let disp: Record<string, any>;
+    try { disp = JSON.parse(g.disponibilidadUiJson); } catch { return 'disponibilidad sin configurar'; }
+    const libres = Object.entries(disp).filter(([, d]: [string, any]) => d && !d.noDisponible).length;
+    return libres > 0 ? `${libres} día(s) disponibles` : 'sin días disponibles';
+  }
 
   syncFromBackend() {
     this.loadingBackend.set(true);
@@ -407,6 +440,7 @@ export class HorarioComponent implements OnInit {
         docenteId:     s.docenteId,
         espacioId:     s.espacioId,
         espacioIdHogar: s.espacioIdHogar,
+        tipoFlujo:     s.tipoFlujo,
       };
       const cid = this.cellId(s.dia, s.horaInicio);
       if (!map.has(cid)) map.set(cid, []);
@@ -442,19 +476,6 @@ export class HorarioComponent implements OnInit {
     // Fallback para datos previos al modelo bi-semanal.
     if (s.alternancia === 'SinAlternancia') return true;
     return this.activeWeek() === 'A' ? s.alternancia === 'TipoA' : s.alternancia === 'TipoB';
-  }
-
-  /**
-   * Devuelve true si la sesión `s` ocupa la franja dada, es decir,
-   * si franja ∈ [s.horaInicio, s.horaInicio + duracionHoras).
-   * Usar en conflictos de drag & drop en lugar de `s.horaInicio === franja`.
-   */
-  private sesionOcupaFranja(s: Sesion, franja: string): boolean {
-    const startIdx  = this.franjas.indexOf(s.horaInicio);
-    if (startIdx < 0) return false;
-    const dur       = Math.max(1, Math.round(s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin)));
-    const franjaIdx = this.franjas.indexOf(franja);
-    return franjaIdx >= startIdx && franjaIdx < startIdx + dur;
   }
 
   mergedByCell = computed(() =>
@@ -513,19 +534,12 @@ export class HorarioComponent implements OnInit {
     return this.outOfHoursCells().has(this.cellId(dia, franja));
   }
 
-  /** Lista de IDs válidos para cdkDropListConnectedTo — computado y cacheado. */
-  allCellIds = computed(() => {
-    const ids: string[] = [];
-    for (const dia of this.dias) {
-      for (const franja of this.franjas) {
-        if (!this.isOutOfHours(dia, franja)) ids.push(this.cellId(dia, franja));
-      }
-    }
-    return ids;
-  });
-
   esTipoA(merged: MergedSesion): boolean {
     return merged.alternancia === 'TipoA';
+  }
+
+  tipoLabel(merged: MergedSesion): string {
+    return merged.tipoFlujo === 'Laboratorio' ? 'Lab' : 'Teoría';
   }
 
   getAsignaturaName(merged: MergedSesion): string {
@@ -533,6 +547,7 @@ export class HorarioComponent implements OnInit {
   }
 
   getDocenteName(merged: MergedSesion): string {
+    if (!merged.docenteId) return '— Sin docente —';
     return this.state.docenteById().get(merged.docenteId)?.nombre ?? '';
   }
 
@@ -550,111 +565,36 @@ export class HorarioComponent implements OnInit {
     return asig?.grupoNumero ? `G${asig.grupoNumero}` : null;
   }
 
-  // ── Drag & Drop ──────────────────────────────────────────────────────────────
+  // ── Editar sesión (clic en card) ─────────────────────────────────────────────
 
-  drop(event: CdkDragDrop<{ dia: string; franja: string }>) {
-    const merged: MergedSesion = event.item.data;
+  abrirEditarSesion(merged: MergedSesion) {
+    const ref = this.dialog.open(EditarSesionDialogComponent, {
+      width: '580px',
+      maxHeight: '90vh',
+      data: {
+        merged,
+        sesion:       merged.sesiones[0],
+        asignaturas:  this.state.asignaturas(),
+        docentes:     this.state.docentes(),
+        espacios:     this.state.espacios(),
+        sesiones:     this.state.sesiones(),
+        programaById: this.state.programaById(),
+        facultadById: this.state.facultadById(),
+      } satisfies EditarSesionDialogData
+    });
 
-    if (event.previousContainer === event.container) return;
-    if (this.esTipoA(merged)) return;
-
-    const targetDia    = event.container.data.dia;
-    const targetFranja = event.container.data.franja;
-
-    // Validate docente availability — verificar que TODA la duración cabe en la ventana
-    const docente = this.state.docentes().find(d => d.id === merged.docenteId);
-    if (docente && docente.disponibilidad) {
-      const diaDisp = docente.disponibilidad[targetDia];
-      if (diaDisp?.noDisponible) {
+    ref.afterClosed().subscribe((result: EditarSesionResult | undefined) => {
+      if (!result) return;
+      this.state.updateSesion(result.sesion);
+      if (result.advertencias?.length) {
         this.snackBar.open(
-          `El docente no tiene disponibilidad el ${targetDia}.`,
-          'Cerrar', { duration: 4000, panelClass: ['snack-error'] }
+          `Sesión actualizada con avisos: ${result.advertencias.join(' · ')}`,
+          'Cerrar', { duration: 8000 }
         );
-        return;
+      } else {
+        this.snackBar.open('Sesión actualizada.', '', { duration: 2500 });
       }
-      if (diaDisp?.tipo === 'Franja específica') {
-        const toMin  = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-        const startMin = toMin(targetFranja);
-        const endMin   = startMin + merged.duracionSlots * 60;
-        const desdeMin = toMin(diaDisp.desde ?? '00:00');
-        const hastaMin = toMin(diaDisp.hasta ?? '23:59');
-        if (startMin < desdeMin || endMin > hastaMin) {
-          this.snackBar.open(
-            `El docente solo está disponible de ${diaDisp.desde} a ${diaDisp.hasta} el ${targetDia} y la sesión (${merged.duracionSlots}h) no cabe en esa ventana.`,
-            'Cerrar', { duration: 4000, panelClass: ['snack-error'] }
-          );
-          return;
-        }
-      }
-    }
-
-    // Validate that all slots the merged block would occupy are free and in-bounds.
-    // sesionOcupaFranja() verifica el span completo [horaInicio, horaInicio+dur),
-    // no solo el inicio — así detectamos colisiones con sesiones de 2-3 h que cubren la franja.
-    const spaceId = this.activeSpace()?.id;
-    const targetStartIdx = this.franjas.indexOf(targetFranja);
-    for (let k = 0; k < merged.duracionSlots; k++) {
-      const checkFranja = this.franjas[targetStartIdx + k];
-      if (!checkFranja) {
-        this.snackBar.open('La sesión no cabe en ese horario (se saldría del límite).', 'Cerrar', { duration: 4000, panelClass: ['snack-error'] });
-        return;
-      }
-      const currentWeek = this.activeWeek();
-
-      // HC-S01: conflicto de espacio — solo presencial, mismo lab, misma semana del ciclo.
-      const conflict = this.state.sesiones().find(s =>
-        s.id !== merged.key &&
-        s.espacioId === spaceId &&
-        s.dia === targetDia &&
-        this.sesionOcupaFranja(s, checkFranja) &&
-        !s.virtual &&
-        (s.semana
-          ? s.semana === currentWeek
-          : (s.alternancia === merged.alternancia || s.alternancia === 'SinAlternancia' || merged.alternancia === 'SinAlternancia'))
-      );
-      if (conflict) {
-        this.snackBar.open(
-          'Conflicto: el espacio ya está ocupado en esa franja para el mismo tipo de alternancia.',
-          'Cerrar', { duration: 4000, panelClass: ['snack-error'] }
-        );
-        return;
-      }
-
-      // HC-I01: conflicto de docente — su tiempo se consume en AMBAS semanas (presencial y
-      // virtual son sincrónicas y comparten franja), así que el solape es independiente de la
-      // semana y de la modalidad. Basta que otra sesión del mismo docente ocupe la franja el
-      // mismo día. Se excluyen las filas de la propia sesión (comparten `id`).
-      const docenteConflict = this.state.sesiones().find(s =>
-        s.id !== merged.key &&
-        s.docenteId === merged.docenteId &&
-        s.dia === targetDia &&
-        this.sesionOcupaFranja(s, checkFranja)
-      );
-      if (docenteConflict) {
-        this.snackBar.open(
-          'Conflicto: el docente ya tiene otra sesión en esa franja (presencial o virtual sincrónica).',
-          'Cerrar', { duration: 4000, panelClass: ['snack-error'] }
-        );
-        return;
-      }
-    }
-
-    // Mover el inicio y recalcular el fin desde la duración. Se mueven TODAS las filas de la
-    // sesión (semanas A y B comparten id y horario) preservando la modalidad/semana/espacio de
-    // cada una — no se colapsan en un solo objeto.
-    const newStart = this.franjas[targetStartIdx];
-    const endIdx   = targetStartIdx + merged.duracionSlots;
-    const newEnd   = endIdx < this.franjas.length
-      ? this.franjas[endIdx]
-      : this.addHours(newStart, merged.duracionSlots);
-    this.state.moverSesion(merged.key, targetDia, newStart, newEnd);
-
-    this.snackBar.open('Sesión movida correctamente.', '', { duration: 2000 });
-  }
-
-  private addHours(franja: string, horas: number): string {
-    const [h, m] = franja.split(':').map(Number);
-    return `${String(h + horas).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    });
   }
 
   // ── Exportar / Importar horario JSON ─────────────────────────────────────────
@@ -728,16 +668,31 @@ export class HorarioComponent implements OnInit {
       return;
     }
 
+    // Cohorte = programa: al elegir un grupo, el run agenda SOLO las asignaturas de su programa
+    // (evita serializar todo el catálogo como una cohorte infactible). "Todos" = sin restricción.
+    const grupo = this.activeGrupo();
+    const asignaturas = (grupo && grupo.programaId)
+      ? (this.state.asignaturasByPrograma().get(grupo.programaId) ?? [])
+      : this.state.asignaturas();
+
+    if (grupo && asignaturas.length === 0) {
+      this.snackBar.open(
+        `El programa del grupo "${grupo.nombre}" no tiene asignaturas cargadas.`,
+        'Cerrar', { duration: 5000 });
+      return;
+    }
+
     const dialogRef = this.dialog.open(ProgressDialogComponent, { disableClose: true, width: '500px' });
 
     this.horarioApi
       .generarHorario(
-        this.state.asignaturas(),
+        asignaturas,
         this.state.docentes(),
         this.state.espacios(),
         this.state.configuracionAlgoritmo(),
         '2026-1',
-        this.state.baseSeleccionada() ?? undefined
+        this.state.baseSeleccionada() ?? undefined,
+        grupo ? [grupo] : undefined
       )
       .subscribe({
         next: (respuesta) => {
@@ -757,11 +712,12 @@ export class HorarioComponent implements OnInit {
           if (err.logs && Array.isArray(err.logs)) {
              this.state.setExecutionLogs(err.logs);
           }
-          this.snackBar.open(
-            `❌ ${mensaje}`,
-            'Cerrar',
-            { duration: 8000, panelClass: ['snack-error'] }
-          );
+          const texto = /factible|infeasible/i.test(mensaje)
+            ? `❌ No se encontró un horario factible para ${asignaturas.length} asignatura(s) en ` +
+              `${this.state.espacios().length} espacio(s). Acota eligiendo un grupo (se agenda solo ` +
+              `su programa) o revisa la cantidad/capacidad de laboratorios.`
+            : `❌ ${mensaje}`;
+          this.snackBar.open(texto, 'Cerrar', { duration: 9000, panelClass: ['snack-error'] });
         }
       });
   }
@@ -791,6 +747,437 @@ export class HorarioComponent implements OnInit {
     });
   }
 
+}
+
+// ─── Interfaces compartidas ───────────────────────────────────────────────────
+
+interface Check { ok: boolean; texto: string; }
+
+// ─── Diálogo: Editar sesión (click en card) ───────────────────────────────────
+
+interface EditarSesionDialogData {
+  merged:       MergedSesion;
+  sesion:       Sesion;
+  asignaturas:  Asignatura[];
+  docentes:     Docente[];
+  espacios:     Espacio[];
+  sesiones:     Sesion[];
+  programaById: Map<string, { id: string; nombre: string; facultadId: string }>;
+  facultadById: Map<string, { id: string; nombre: string }>;
+}
+
+interface EditarSesionResult {
+  sesion:       Sesion;
+  advertencias: string[];
+}
+
+@Component({
+  selector: 'app-editar-sesion-dialog',
+  standalone: true,
+  imports: [CommonModule, FormsModule, MatDialogModule, MatButtonModule,
+            MatProgressSpinnerModule, MatIconModule],
+  template: `
+<h2 mat-dialog-title class="dlg-title">
+  <mat-icon>edit_calendar</mat-icon>
+  <span>Editar sesión</span>
+  <span class="dlg-asig-name">{{ asignatura()?.nombre ?? 'Sesión' }}</span>
+</h2>
+
+<mat-dialog-content class="dlg-content">
+
+  <!-- ── Bloque de información ── -->
+  <div class="info-strip">
+    <div class="info-item">
+      <mat-icon class="info-icon">schedule</mat-icon>
+      <span>{{ data.sesion.duracionHoras }}h por sesión <em>(fijo por plan)</em></span>
+    </div>
+    <div class="info-item">
+      <mat-icon class="info-icon">{{ data.sesion.virtual ? 'videocam' : 'science' }}</mat-icon>
+      <span>{{ data.sesion.virtual ? 'Virtual (sincrónica)' : 'Presencial' }}</span>
+    </div>
+    <div class="info-item">
+      <mat-icon class="info-icon">{{ data.sesion.tipoFlujo === 'Laboratorio' ? 'biotech' : 'menu_book' }}</mat-icon>
+      <span>{{ data.sesion.tipoFlujo === 'Laboratorio' ? 'Laboratorio' : 'Teoría' }}</span>
+    </div>
+    @if (contexto()) {
+      <div class="info-item">
+        <mat-icon class="info-icon">account_tree</mat-icon>
+        <span>{{ contexto() }}</span>
+      </div>
+    }
+  </div>
+
+  <!-- ── Sección 1: Docente ── -->
+  <section class="form-section">
+    <div class="section-label"><span class="step-num">1</span> Docente</div>
+    <div class="field-group">
+      <label class="field-label">Asignar docente</label>
+      <select class="field-select" [ngModel]="docenteId()" (ngModelChange)="docenteId.set($event)">
+        <option value="">— Sin asignar —</option>
+        @for (d of data.docentes; track d.id) {
+          <option [value]="d.id">{{ d.nombre }}</option>
+        }
+      </select>
+      @if (hayCambioDocente()) {
+        <div class="change-hint"><mat-icon class="hint-icon">sync</mat-icon> Se guardará en el servidor (HC-I01 duro; disponibilidad como aviso).</div>
+      }
+    </div>
+  </section>
+
+  <!-- ── Sección 2: Cuándo y dónde ── -->
+  <section class="form-section">
+    <div class="section-label"><span class="step-num">2</span> Cuándo y dónde</div>
+
+    <div class="day-picker">
+      <span class="field-label">Día</span>
+      <div class="day-pills">
+        @for (d of diasOpciones; track d.valor) {
+          <button type="button" class="day-pill" [class.active]="dia() === d.valor"
+                  (click)="dia.set(d.valor)">{{ d.etiqueta }}</button>
+        }
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Hora de inicio</label>
+        <select class="field-select" [ngModel]="horaInicio()" (ngModelChange)="horaInicio.set($event)">
+          @for (h of horasDisponibles; track h) {
+            <option [value]="h">{{ h }}</option>
+          }
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Espacio</label>
+        <select class="field-select" [ngModel]="espacioId()" (ngModelChange)="espacioId.set($event)">
+          <option value="">— Sin espacio (virtual) —</option>
+          @for (e of data.espacios; track e.id) {
+            <option [value]="e.id">{{ e.nombre }}</option>
+          }
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Sección 3: Alternancia y semana ── -->
+  <!-- Solo el track de Laboratorio alterna (decisión de diseño); teoría queda fija en
+       Sin alternancia — ver ModalidadSemanal.Derivar en el backend. -->
+  @if (esLaboratorio()) {
+    <section class="form-section">
+      <div class="section-label"><span class="step-num">3</span> Alternancia</div>
+      <div class="alt-pills">
+        <button type="button" class="alt-pill" [class.active]="alternancia() === 'TipoA'"
+                (click)="alternancia.set('TipoA')">
+          <strong>Tipo A</strong><br><small>Presencial S.A · Virtual S.B</small>
+        </button>
+        <button type="button" class="alt-pill" [class.active]="alternancia() === 'TipoB'"
+                (click)="alternancia.set('TipoB')">
+          <strong>Tipo B</strong><br><small>Virtual S.A · Presencial S.B</small>
+        </button>
+        <button type="button" class="alt-pill" [class.active]="alternancia() === 'SinAlternancia'"
+                (click)="alternancia.set('SinAlternancia')">
+          <strong>Sin alternancia</strong><br><small>Presencial siempre</small>
+        </button>
+      </div>
+
+      @if (alternancia() !== 'SinAlternancia') {
+        <div class="field-group" style="margin-top:10px">
+          <span class="field-label">Semana del ciclo</span>
+          <div class="day-pills">
+            <button type="button" class="day-pill" [class.active]="semana() === 'A'" (click)="semana.set('A')">A (pares)</button>
+            <button type="button" class="day-pill" [class.active]="semana() === 'B'" (click)="semana.set('B')">B (impares)</button>
+            <button type="button" class="day-pill" [class.active]="semana() === undefined" (click)="semana.set(undefined)">Ambas</button>
+          </div>
+        </div>
+      }
+    </section>
+  }
+
+  <!-- ── Panel de validación ── -->
+  @if (validaciones().length > 0) {
+    <section class="checks-panel">
+      <div class="checks-title">Validación</div>
+      @for (c of validaciones(); track c.texto) {
+        <div class="check-row" [class.ok]="c.ok" [class.fail]="!c.ok">
+          <mat-icon>{{ c.ok ? 'check_circle' : 'cancel' }}</mat-icon>
+          <span>{{ c.texto }}</span>
+        </div>
+      }
+    </section>
+  }
+
+  <!-- ── Advertencias del servidor (blandas) ── -->
+  @if (advertencias().length > 0) {
+    <div class="warn-panel">
+      @for (w of advertencias(); track w) {
+        <div class="warn-row"><mat-icon>warning</mat-icon><span>{{ w }}</span></div>
+      }
+    </div>
+  }
+
+  <!-- ── Error duro del servidor ── -->
+  @if (errorServidor()) {
+    <div class="server-error">{{ errorServidor() }}</div>
+  }
+
+  @if (guardando()) {
+    <div class="saving-row"><mat-spinner diameter="20"></mat-spinner><span>Guardando…</span></div>
+  }
+
+</mat-dialog-content>
+
+<mat-dialog-actions align="end" class="dlg-actions">
+  <button mat-stroked-button (click)="cancelar()" [disabled]="guardando()">Cancelar</button>
+  <button mat-flat-button color="primary"
+          [disabled]="!puedeGuardar() || guardando()"
+          (click)="guardar()">
+    <mat-icon>save</mat-icon>
+    {{ guardando() ? 'Guardando…' : 'Guardar cambios' }}
+  </button>
+</mat-dialog-actions>
+  `,
+  styles: [`
+    .dlg-title { display: flex; align-items: center; gap: 8px; font-size: 18px; flex-wrap: wrap; }
+    .dlg-asig-name { font-size: 14px; color: #1976d2; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dlg-content { display: flex; flex-direction: column; gap: 16px; padding: 12px 0; min-width: 0; }
+    .dlg-content > * { flex-shrink: 0; }
+    .dlg-actions { padding: 12px 0 0; gap: 10px; }
+
+    .info-strip { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 14px; background: #f5f5f5; border-radius: 8px; }
+    .info-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #616161; }
+    .info-icon { font-size: 15px; width: 15px; height: 15px; color: #9e9e9e; }
+    em { color: #bdbdbd; }
+
+    .form-section { background: #fafafa; border: 1px solid #f0f0f0; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+    .section-label { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 12px; color: #424242; text-transform: uppercase; letter-spacing: 0.05em; }
+    .step-num { width: 20px; height: 20px; background: #1976d2; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+
+    .field-group { display: flex; flex-direction: column; gap: 4px; }
+    .field-label { font-size: 12px; color: #757575; font-weight: 500; }
+    .field-select { padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; background: white; width: 100%; cursor: pointer; outline: none; }
+    .field-select:focus { border-color: #1976d2; box-shadow: 0 0 0 2px rgba(25,118,210,.2); }
+
+    .change-hint { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #1565c0; background: #e3f2fd; padding: 5px 8px; border-radius: 4px; }
+    .hint-icon { font-size: 13px; width: 13px; height: 13px; }
+
+    .day-picker { display: flex; flex-direction: column; gap: 6px; }
+    .day-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+    .day-pill { padding: 6px 12px; border: 1px solid #e0e0e0; border-radius: 20px; background: white; cursor: pointer; font-size: 12px; font-weight: 500; transition: 0.15s; }
+    .day-pill:hover { background: #e3f2fd; border-color: #90caf9; }
+    .day-pill.active { background: #1976d2; color: white; border-color: #1976d2; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .alt-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+    .alt-pill { flex: 1; min-width: 120px; padding: 9px 10px; border: 1px solid #e0e0e0; border-radius: 8px; background: white; cursor: pointer; text-align: center; line-height: 1.4; font-size: 12px; transition: 0.15s; }
+    .alt-pill:hover { background: #f5f5f5; }
+    .alt-pill.active { background: #e3f2fd; border-color: #1976d2; color: #1565c0; }
+
+    .checks-panel { border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
+    .checks-title { padding: 8px 12px; background: #f5f5f5; font-size: 11px; font-weight: 600; color: #616161; text-transform: uppercase; letter-spacing: 0.05em; }
+    .check-row { display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 12px; border-top: 1px solid #f5f5f5; }
+    .check-row.ok mat-icon  { color: #2e7d32; }
+    .check-row.fail mat-icon { color: #c62828; }
+    .check-row.fail { background: #fff8f8; }
+
+    .warn-panel { border: 1px solid #ffe0b2; border-radius: 8px; background: #fff8e1; }
+    .warn-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; font-size: 12px; color: #e65100; }
+    .warn-row mat-icon { font-size: 16px; width: 16px; height: 16px; margin-top: 1px; color: #f57c00; flex-shrink: 0; }
+
+    .server-error { background: #ffebee; color: #c62828; padding: 10px 14px; border-radius: 6px; font-size: 12px; }
+    .saving-row { display: flex; align-items: center; gap: 10px; color: #1565c0; font-size: 13px; }
+  `]
+})
+export class EditarSesionDialogComponent {
+  private dialogRef = inject(MatDialogRef<EditarSesionDialogComponent>);
+  readonly data: EditarSesionDialogData = inject(MAT_DIALOG_DATA);
+  private persistencia = inject(PersistenciaService);
+
+  private readonly orig = this.data.merged;
+
+  // ── Estado editable (signals) ─────────────────────────────────────────────
+  docenteId   = signal(this.orig.docenteId ?? '');
+  dia         = signal(this.orig.dia);
+  horaInicio  = signal(this.orig.horaInicio);
+  espacioId   = signal(this.orig.espacioId ?? '');
+  alternancia = signal<'TipoA' | 'TipoB' | 'SinAlternancia'>(
+    this.orig.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia'
+  );
+  semana      = signal<'A' | 'B' | undefined>(this.orig.semana);
+
+  guardando     = signal(false);
+  advertencias  = signal<string[]>([]);
+  errorServidor = signal('');
+
+  // ── Computed (read-only) ──────────────────────────────────────────────────
+  asignatura = computed(() =>
+    this.data.asignaturas.find(a => a.id === this.orig.asignaturaId)
+  );
+
+  contexto = computed(() => {
+    const a = this.asignatura();
+    if (!a) return '';
+    const prog = this.data.programaById.get(a.programaId);
+    if (!prog) return '';
+    const fac = this.data.facultadById.get(prog.facultadId);
+    return fac ? `${fac.nombre} · ${prog.nombre}` : prog.nombre;
+  });
+
+  /** Solo el track de laboratorio alterna — teoría (presencial o virtual) queda fija. */
+  esLaboratorio = computed(() => this.data.sesion.tipoFlujo === 'Laboratorio');
+
+  hayCambioDocente = computed(() => this.docenteId() !== (this.orig.docenteId ?? ''));
+
+  hayCambios = computed(() =>
+    this.hayCambioDocente() ||
+    this.dia()         !== this.orig.dia ||
+    this.horaInicio()  !== this.orig.horaInicio ||
+    this.espacioId()   !== (this.orig.espacioId ?? '') ||
+    this.alternancia() !== (this.orig.alternancia as string) ||
+    this.semana()      !== this.orig.semana
+  );
+
+  // ── Validación en tiempo real ─────────────────────────────────────────────
+  readonly horasDisponibles = [
+    '06:00','07:00','08:00','09:00','10:00','11:00','12:00',
+    '13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'
+  ];
+
+  readonly diasOpciones = [
+    { valor: 'lunes',     etiqueta: 'Lun' },
+    { valor: 'martes',    etiqueta: 'Mar' },
+    { valor: 'miercoles', etiqueta: 'Mié' },
+    { valor: 'jueves',    etiqueta: 'Jue' },
+    { valor: 'viernes',   etiqueta: 'Vie' },
+    { valor: 'sabado',    etiqueta: 'Sáb' },
+  ];
+
+  validaciones = computed<Check[]>(() => {
+    const dia        = this.dia();
+    const inicio     = this.horaInicio();
+    const espacioId  = this.espacioId();
+    const docenteId  = this.docenteId();
+    const sesionId   = this.data.sesion.id;
+    const dur        = this.data.sesion.duracionHoras ?? 2;
+    const chks: Check[] = [];
+
+    if (!dia || !inicio) return chks;
+
+    const startIdx = this.horasDisponibles.indexOf(inicio);
+    const endIdx   = startIdx + Math.round(dur);
+
+    // HC-S01: conflicto de espacio (presencial)
+    if (espacioId && !this.data.sesion.virtual) {
+      const conflicto = this.data.sesiones.find(s =>
+        s.id !== sesionId &&
+        s.espacioId === espacioId &&
+        s.dia === dia &&
+        !s.virtual &&
+        this.overlaps(s, startIdx, endIdx)
+      );
+      const nombre = this.data.espacios.find(e => e.id === espacioId)?.nombre ?? espacioId;
+      chks.push({
+        ok: !conflicto,
+        texto: conflicto
+          ? `${nombre} ya está ocupado en esa franja`
+          : `${nombre} está libre`
+      });
+    }
+
+    // HC-I01 (en memoria, sin API): conflicto del docente seleccionado
+    if (docenteId) {
+      const conflicto = this.data.sesiones.find(s =>
+        s.id !== sesionId &&
+        s.docenteId === docenteId &&
+        s.dia === dia &&
+        this.overlaps(s, startIdx, endIdx)
+      );
+      const nombre = this.data.docentes.find(d => d.id === docenteId)?.nombre ?? 'El docente';
+      chks.push({
+        ok: !conflicto,
+        texto: conflicto
+          ? `${nombre} ya tiene otra sesión en esa franja`
+          : `${nombre} está libre en esa franja`
+      });
+    }
+
+    return chks;
+  });
+
+  conflictosDuros = computed(() => this.validaciones().some(c => !c.ok));
+
+  puedeGuardar = computed(() =>
+    this.hayCambios() && !this.conflictosDuros() && !this.guardando()
+  );
+
+  // ── Acciones ──────────────────────────────────────────────────────────────
+  guardar() {
+    if (!this.puedeGuardar()) return;
+    this.guardando.set(true);
+    this.errorServidor.set('');
+    this.advertencias.set([]);
+
+    if (this.hayCambioDocente()) {
+      const docenteIdValue = this.docenteId() || null;
+      this.persistencia.asignarDocente(this.data.sesion.id, docenteIdValue).subscribe({
+        next: (resp) => {
+          this.advertencias.set(resp.advertencias ?? []);
+          this.commitLocal();
+        },
+        error: (err: any) => {
+          this.guardando.set(false);
+          const msg = err?.error?.error ?? err?.message ?? 'Error al asignar el docente.';
+          this.errorServidor.set(err?.status === 409 ? `Solape (HC-I01): ${msg}` : msg);
+        }
+      });
+    } else {
+      this.commitLocal();
+    }
+  }
+
+  private commitLocal() {
+    const dur      = Math.round(this.data.sesion.duracionHoras ?? 2);
+    const startIdx = this.horasDisponibles.indexOf(this.horaInicio());
+    const endIdx   = startIdx + dur;
+    const horaFin  = endIdx < this.horasDisponibles.length
+      ? this.horasDisponibles[endIdx]
+      : this.addH(this.horaInicio(), dur);
+
+    const updated: Sesion = {
+      ...this.data.sesion,
+      docenteId:   this.docenteId() || undefined,
+      dia:         this.dia(),
+      horaInicio:  this.horaInicio(),
+      horaFin,
+      espacioId:   this.espacioId() || undefined,
+      alternancia: this.alternancia(),
+      semana:      this.semana(),
+    };
+
+    this.guardando.set(false);
+    this.dialogRef.close({ sesion: updated, advertencias: this.advertencias() } satisfies EditarSesionResult);
+  }
+
+  cancelar() { this.dialogRef.close(); }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  private overlaps(s: Sesion, newStart: number, newEnd: number): boolean {
+    const sStart = this.horasDisponibles.indexOf(s.horaInicio);
+    if (sStart < 0) return false;
+    const sDur = Math.max(1, Math.round(s.duracionHoras ?? this.diffH(s.horaInicio, s.horaFin)));
+    return newStart < sStart + sDur && sStart < newEnd;
+  }
+
+  private addH(hora: string, h: number): string {
+    const [hh, mm] = hora.split(':').map(Number);
+    return `${String(hh + h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  }
+
+  private diffH(i: string, f: string): number {
+    const [hi, mi] = i.split(':').map(Number);
+    const [hf, mf] = f.split(':').map(Number);
+    return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60);
+  }
 }
 
 // ─── Diálogo: Crear sesión manual ────────────────────────────────────────────
@@ -838,12 +1225,22 @@ interface Check { ok: boolean; texto: string; }
       </select>
 
       @if (asignaturaSeleccionada()) {
+        <div class="field-group" style="margin-top:8px">
+          <label class="field-label">Tipo de sesión <span class="req">*</span></label>
+          <div class="alt-pills">
+            @for (t of tiposDisponibles(); track t.tipo) {
+              <button type="button" class="alt-pill" [class.active]="tipoSesion() === t.tipo"
+                      (click)="setTipoSesion(t.tipo)">{{ t.label }}</button>
+            }
+          </div>
+        </div>
+
         <div class="asig-hint">
           <mat-icon class="hint-icon">person</mat-icon>
           <span>{{ nombreDocente(asignaturaSeleccionada()?.docenteId) }}</span>
           <span class="sep">·</span>
           <mat-icon class="hint-icon">timer</mat-icon>
-          <span>{{ asignaturaSeleccionada()?.horasPorSesion }}h por sesión
+          <span>{{ duracionSeleccionada() }}h por sesión
             <em>(fijo por plan de estudios, no editable)</em>
           </span>
         </div>
@@ -881,50 +1278,61 @@ interface Check { ok: boolean; texto: string; }
         </select>
       </div>
       <div class="field-group">
-        <label class="field-label">Laboratorio / Espacio <span class="req">*</span></label>
-        <select class="field-select" [(ngModel)]="espacioId" (ngModelChange)="recheck()"
-                [disabled]="espacioFijoBloqueado()">
-          <option value="">— Seleccione —</option>
-          @for (e of espaciosDisponibles(); track e.id) {
-            <option [value]="e.id">{{ e.nombre }}</option>
-          }
-        </select>
-        @if (espacioFijoBloqueado()) {
+        <label class="field-label">Espacio {{ tipoSesion() === 'TeoriaVirtual' ? '' : '(requerido)' }}</label>
+        @if (tipoSesion() === 'TeoriaVirtual') {
           <div class="lock-hint">
-            <mat-icon class="hint-icon lock">lock</mat-icon>
-            Fijo por currículum — no se puede cambiar
+            <mat-icon class="hint-icon lock">videocam</mat-icon>
+            Sincrónica online — sin espacio físico
           </div>
+        } @else {
+          <select class="field-select" [(ngModel)]="espacioId" (ngModelChange)="recheck()"
+                  [disabled]="espacioFijoBloqueado()">
+            <option value="">— Seleccione —</option>
+            @for (e of espaciosDisponibles(); track e.id) {
+              <option [value]="e.id">{{ e.nombre }}</option>
+            }
+          </select>
+          @if (espacioFijoBloqueado()) {
+            <div class="lock-hint">
+              <mat-icon class="hint-icon lock">lock</mat-icon>
+              Fijo por currículum — no se puede cambiar
+            </div>
+          }
         }
       </div>
     </div>
   </section>
 
   <!-- ── Paso 3: Alternancia ── -->
-  <section class="form-section">
-    <div class="section-label">
-      <span class="step-num">3</span> ¿Cómo alterna?
-    </div>
-    <div class="alt-pills">
-      <button type="button" class="alt-pill" [class.active]="alternancia === 'TipoA'"
-              (click)="alternancia = 'TipoA'; recheck()">
-        <strong>Tipo A</strong><br>
-        <small>Presencial S.A · Virtual S.B</small>
-      </button>
-      <button type="button" class="alt-pill" [class.active]="alternancia === 'TipoB'"
-              (click)="alternancia = 'TipoB'; recheck()">
-        <strong>Tipo B</strong><br>
-        <small>Virtual S.A · Presencial S.B</small>
-      </button>
-      <button type="button" class="alt-pill" [class.active]="alternancia === 'SinAlternancia'"
-              (click)="alternancia = 'SinAlternancia'; recheck()">
-        <strong>Sin alternancia</strong><br>
-        <small>Presencial todas las semanas</small>
-      </button>
-    </div>
-  </section>
+  <!-- Solo el track de Laboratorio alterna (decisión de diseño); teoría queda fija en
+       Sin alternancia — ver ModalidadSemanal.Derivar en el backend. -->
+  @if (tipoSesion() === 'Laboratorio') {
+    <section class="form-section">
+      <div class="section-label">
+        <span class="step-num">3</span> ¿Cómo alterna?
+      </div>
+      <div class="alt-pills">
+        <button type="button" class="alt-pill" [class.active]="alternancia === 'TipoA'"
+                (click)="alternancia = 'TipoA'; recheck()">
+          <strong>Tipo A</strong><br>
+          <small>Presencial S.A · Virtual S.B</small>
+        </button>
+        <button type="button" class="alt-pill" [class.active]="alternancia === 'TipoB'"
+                (click)="alternancia = 'TipoB'; recheck()">
+          <strong>Tipo B</strong><br>
+          <small>Virtual S.A · Presencial S.B</small>
+        </button>
+        <button type="button" class="alt-pill" [class.active]="alternancia === 'SinAlternancia'"
+                (click)="alternancia = 'SinAlternancia'; recheck()">
+          <strong>Sin alternancia</strong><br>
+          <small>Presencial todas las semanas</small>
+        </button>
+      </div>
+    </section>
+  }
 
   <!-- ── Panel de verificación ── -->
-  @if (asignaturaId && dia && horaInicio && espacioId) {
+  @if (asignaturaId && dia && horaInicio && (espacioId || tipoSesion() === 'TeoriaVirtual')) {
     <section class="checks-panel">
       <div class="checks-title">Verificación de restricciones</div>
       @for (c of checks(); track c.texto) {
@@ -1037,6 +1445,8 @@ export class CrearSesionDialogComponent {
 
   // ── Computed helpers ──────────────────────────────────────────────────────
   asignaturaSeleccionada = signal<Asignatura | undefined>(undefined);
+  /** Cuál de los 3 tracks combinables representa esta sesión manual. */
+  tipoSesion              = signal<TipoSesionUi>('Laboratorio');
   espacioFijoBloqueado   = signal(false);
   checks                 = signal<Check[]>([]);
   checksOk               = signal(false);
@@ -1044,14 +1454,42 @@ export class CrearSesionDialogComponent {
   // Grupos de asignaturas por programa para el <optgroup>
   readonly gruposAsignatura = this.buildGrupos();
 
-  // Solo espacios laboratorio (filtra por tipo si la asignatura lo requiere)
+  /** Solo los tracks que la asignatura realmente tiene configurados (conteo > 0) — evitar
+   *  ofrecer un tipo con 0 sesiones/0 horas, que no corresponde a nada real. */
+  tiposDisponibles = computed<{ tipo: TipoSesionUi; label: string }[]>(() => {
+    const a = this.asignaturaSeleccionada();
+    if (!a) return [];
+    const list: { tipo: TipoSesionUi; label: string }[] = [];
+    if (a.sesionesTeoriaPresencialSemana > 0) list.push({ tipo: 'TeoriaPresencial', label: 'Teoría presencial' });
+    if (a.sesionesTeoriaVirtualSemana > 0) list.push({ tipo: 'TeoriaVirtual', label: 'Teoría virtual' });
+    if (a.sesionesLaboratorioSemana > 0) list.push({ tipo: 'Laboratorio', label: 'Laboratorio' });
+    return list;
+  });
+
+  /** Duración fija del track seleccionado (CLAUDE.md regla 6: input fijo, no editable). */
+  duracionSeleccionada = computed(() => {
+    const a = this.asignaturaSeleccionada();
+    if (!a) return 2;
+    switch (this.tipoSesion()) {
+      case 'TeoriaVirtual': return a.horasTeoriaVirtual;
+      case 'Laboratorio':   return a.horasLaboratorio;
+      default:              return a.horasTeoriaPresencial;
+    }
+  });
+
+  // Teoría virtual no usa espacio (regla 9); Laboratorio exige tipo Laboratorio;
+  // teoría presencial exige un espacio no-laboratorio (salvo espacio fijo del currículum).
   espaciosDisponibles = computed(() => {
     const a = this.asignaturaSeleccionada();
+    const tipo = this.tipoSesion();
+    if (tipo === 'TeoriaVirtual') return [];
     if (!a) return this.data.espacios;
     if (a.espacioFijoId) {
       return this.data.espacios.filter(e => e.id === a.espacioFijoId);
     }
-    return this.data.espacios.filter(e => e.tipo === 'Laboratorio');
+    return tipo === 'Laboratorio'
+      ? this.data.espacios.filter(e => e.tipo === 'Laboratorio')
+      : this.data.espacios.filter(e => e.tipo !== 'Laboratorio');
   });
 
   resumen = signal('');
@@ -1060,7 +1498,7 @@ export class CrearSesionDialogComponent {
     !!this.asignaturaId &&
     !!this.dia &&
     !!this.horaInicio &&
-    !!this.espacioId &&
+    (!!this.espacioId || this.tipoSesion() === 'TeoriaVirtual') &&
     this.checksOk() &&
     !this.guardando()
   );
@@ -1070,29 +1508,53 @@ export class CrearSesionDialogComponent {
     const a = this.data.asignaturas.find(x => x.id === id);
     this.asignaturaSeleccionada.set(a);
 
-    if (a?.alternancia && a.alternancia !== 'SinAlternancia') {
+    this.tipoSesion.set(
+      a && a.sesionesTeoriaPresencialSemana > 0 ? 'TeoriaPresencial' :
+      a && a.sesionesLaboratorioSemana > 0      ? 'Laboratorio' :
+      a && a.sesionesTeoriaVirtualSemana > 0    ? 'TeoriaVirtual' :
+      'TeoriaPresencial'
+    );
+    this.aplicarReglasTipo();
+    this.recheck();
+  }
+
+  setTipoSesion(tipo: TipoSesionUi) {
+    this.tipoSesion.set(tipo);
+    this.aplicarReglasTipo();
+    this.recheck();
+  }
+
+  /** Decisión de diseño: solo Laboratorio alterna; teoría (presencial o virtual) nunca tiene espacio propio si es virtual. */
+  private aplicarReglasTipo() {
+    const a = this.asignaturaSeleccionada();
+    const tipo = this.tipoSesion();
+
+    if (tipo === 'Laboratorio' && a?.alternancia && a.alternancia !== 'SinAlternancia') {
       this.alternancia = a.alternancia as 'TipoA' | 'TipoB';
     } else {
       this.alternancia = 'SinAlternancia';
     }
 
-    if (a?.espacioFijoId) {
+    if (tipo === 'TeoriaVirtual') {
+      this.espacioId = '';
+      this.espacioFijoBloqueado.set(false);
+    } else if (a?.espacioFijoId) {
       this.espacioId = a.espacioFijoId;
       this.espacioFijoBloqueado.set(true);
     } else {
       this.espacioFijoBloqueado.set(false);
       this.espacioId = '';
     }
-    this.recheck();
   }
 
   recheck() {
     const a   = this.asignaturaSeleccionada();
-    const dur = a?.horasPorSesion ?? 2;
+    const dur = this.duracionSeleccionada();
+    const esVirtual = this.tipoSesion() === 'TeoriaVirtual';
     const chks: Check[] = [];
     let ok = true;
 
-    if (!a || !this.dia || !this.horaInicio || !this.espacioId) {
+    if (!a || !this.dia || !this.horaInicio || (!this.espacioId && !esVirtual)) {
       this.checks.set([]);
       this.checksOk.set(false);
       this.resumen.set('');
@@ -1142,37 +1604,38 @@ export class CrearSesionDialogComponent {
         : 'El docente está libre en esa franja horaria'
     });
 
-    // ── HC-S01: espacio libre ──────────────────────────────────────────────
-    const presencialSemana = (s: Sesion): boolean => {
-      if (s.virtual) return false;
-      if (!s.semana) return s.alternancia === 'SinAlternancia';
-      // Para la semana presencial de la nueva sesión
-      const semPres = this.alternancia === 'TipoA' ? 'A'
-                    : this.alternancia === 'TipoB' ? 'B'
-                    : null; // SinAlternancia: ambas
-      return semPres === null || s.semana === semPres;
-    };
+    // ── HC-S01 + HC-S05: espacio (solo aplica a sesiones presenciales) ─────
+    if (!esVirtual) {
+      const presencialSemana = (s: Sesion): boolean => {
+        if (s.virtual) return false;
+        if (!s.semana) return s.alternancia === 'SinAlternancia';
+        // Para la semana presencial de la nueva sesión
+        const semPres = this.alternancia === 'TipoA' ? 'A'
+                      : this.alternancia === 'TipoB' ? 'B'
+                      : null; // SinAlternancia: ambas
+        return semPres === null || s.semana === semPres;
+      };
 
-    const conflictoEspacio = this.data.sesiones.find(s =>
-      s.espacioId === this.espacioId &&
-      s.dia === this.dia &&
-      presencialSemana(s) &&
-      this.overlaps(s, startIdx, endIdx)
-    );
-    if (conflictoEspacio) ok = false;
-    const espNombre = this.data.espacios.find(e => e.id === this.espacioId)?.nombre ?? this.espacioId;
-    chks.push({
-      ok: !conflictoEspacio,
-      texto: conflictoEspacio
-        ? `${espNombre} ya está ocupado por ${this.nomAsig(conflictoEspacio.asignaturaId)} (${conflictoEspacio.horaInicio}–${conflictoEspacio.horaFin})`
-        : `${espNombre} está libre en esa franja`
-    });
+      const conflictoEspacio = this.data.sesiones.find(s =>
+        s.espacioId === this.espacioId &&
+        s.dia === this.dia &&
+        presencialSemana(s) &&
+        this.overlaps(s, startIdx, endIdx)
+      );
+      if (conflictoEspacio) ok = false;
+      const espNombre = this.data.espacios.find(e => e.id === this.espacioId)?.nombre ?? this.espacioId;
+      chks.push({
+        ok: !conflictoEspacio,
+        texto: conflictoEspacio
+          ? `${espNombre} ya está ocupado por ${this.nomAsig(conflictoEspacio.asignaturaId)} (${conflictoEspacio.horaInicio}–${conflictoEspacio.horaFin})`
+          : `${espNombre} está libre en esa franja`
+      });
 
-    // ── HC-S05: espacio fijo ───────────────────────────────────────────────
-    if (a.espacioFijoId && this.espacioId && this.espacioId !== a.espacioFijoId) {
-      ok = false;
-      const nomFijo = this.data.espacios.find(e => e.id === a.espacioFijoId)?.nombre ?? 'lab asignado';
-      chks.push({ ok: false, texto: `Esta asignatura tiene laboratorio fijo: ${nomFijo}` });
+      if (a.espacioFijoId && this.espacioId && this.espacioId !== a.espacioFijoId) {
+        ok = false;
+        const nomFijo = this.data.espacios.find(e => e.id === a.espacioFijoId)?.nombre ?? 'lab asignado';
+        chks.push({ ok: false, texto: `Esta asignatura tiene laboratorio fijo: ${nomFijo}` });
+      }
     }
 
     this.checks.set(chks);
@@ -1196,14 +1659,17 @@ export class CrearSesionDialogComponent {
     this.errorServidor.set('');
 
     const a = this.asignaturaSeleccionada()!;
+    const tipo = this.tipoSesion();
     const payload = {
       asignaturaId:  a.id,
       docenteId:     a.docenteId ?? '',
-      espacioId:     this.espacioId || null,
+      espacioId:     tipo === 'TeoriaVirtual' ? null : (this.espacioId || null),
       dia:           this.dia,
       horaInicio:    this.horaInicio,
-      duracionHoras: a.horasPorSesion,
-      alternancia:   this.alternancia
+      duracionHoras: this.duracionSeleccionada(),
+      alternancia:   this.alternancia,
+      tipoFlujo:     tipoFlujoDesde(tipo),
+      esVirtual:     esVirtualDesde(tipo)
     };
 
     this.persistencia.crearSesionManual(payload).subscribe({

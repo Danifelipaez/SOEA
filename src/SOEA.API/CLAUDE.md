@@ -54,8 +54,8 @@ SOEA.ConsoleRunner       — Standalone CLI entry point
 `POST /api/horario/generar` drives a 3-phase pipeline:
 
 1. **Phase 1 – Graph Coloring** (`AgendadorColoracionGrafo`): Uses the Welsh-Powell heuristic to pre-assign time blocks to sessions, minimizing conflicts by ordering sessions by conflict-graph degree.
-2. **Phase 2 – Constraint Programming** (`MotorConstraintProgramming`): Google OR-Tools CP-SAT enforces hard constraints (HC-I01 no teacher overlap, HC-I02 teacher availability, HC-S01 no room overlap, HC-S03 lab rooms for lab sessions). Phase 1 results are used as warm-start hints. Timeout is 120 s.
-3. **Phase 3 – Genetic Algorithm** (`MotorGenetico`): Starting from the Phase 2 feasible solution, optimizes soft constraints via selection, crossover, and mutation over up to 200 generations (population 50, convergence threshold 30 stale generations). Fitness is minimized (lower = better).
+2. **Phase 2 – Constraint Programming** (`MotorConstraintProgramming`): Google OR-Tools CP-SAT enforces hard constraints (HC-G01 group-availability franja, HC-C01 no group overlap, HC-S01 no room overlap, HC-S03 lab rooms for lab sessions). Teacher availability is NOT a pipeline constraint — teachers are assigned after generation. Phase 1 results are used as warm-start hints. Timeout is 120 s.
+3. **Phase 3 – Genetic Algorithm** (`MotorGenetico`): Starting from the Phase 2 feasible solution, optimizes soft constraints centered on the student cohort (idle gaps SC-01, > 6-hour stretches SC-09, day-balance SC-06, week-balance SC-BAL) via selection, crossover, and mutation over up to 200 generations (population 50, convergence threshold 30 stale generations). Fitness is minimized (lower = better). HC-G01 is preserved by restricting start domains to the group's available time blocks.
 
 The final `Horario` entity is persisted to PostgreSQL and the response contains all assigned `SesionGeneradaDto` objects ready for the frontend grid.
 

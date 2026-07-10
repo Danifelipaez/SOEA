@@ -14,6 +14,12 @@ namespace SOEA.Application.Features.Horario.Requests
         public List<AsignaturaDto> Asignaturas { get; set; } = new();
         public List<DocenteDto>    Docentes    { get; set; } = new();
         public List<EspacioDto>    Espacios    { get; set; } = new();
+        /// <summary>
+        /// Grupos de estudiantes con su disponibilidad horaria.
+        /// HC-G01: si un grupo declara disponibilidad, CP-SAT rechaza slots fuera de esa franja.
+        /// Lista vacía = sin restricción de disponibilidad de grupo.
+        /// </summary>
+        public List<GrupoDto>      Grupos      { get; set; } = new();
 
         /// <summary>
         /// Parámetros del algoritmo genético y pesos de soft constraints.
@@ -40,6 +46,8 @@ namespace SOEA.Application.Features.Horario.Requests
         public decimal DuracionHoras { get; set; } = 2m;
         public string? Alternancia  { get; set; }
         public bool    Virtual      { get; set; }
+        /// <summary>Laboratorio | AulaVirtual. Null/no reconocido → Laboratorio (default histórico).</summary>
+        public string? TipoFlujo    { get; set; }
     }
 
     public class ConfiguracionAlgoritmoDto
@@ -59,21 +67,43 @@ namespace SOEA.Application.Features.Horario.Requests
         public string Id           { get; set; } = string.Empty;
         public string Nombre       { get; set; } = string.Empty;
         public string? DocenteId   { get; set; }
-        public int?    Creditos     { get; set; }
-        /// <summary>Horas semanales totales a asignar.</summary>
-        public decimal? HorasSemanales { get; set; }
-        /// <summary>Duración de cada sesión en horas (2 o 3). Null = no enviado (usar fallback).</summary>
-        public int? HorasPorSesion  { get; set; }
-        /// <summary>Número de sesiones por semana. Null = no enviado (derivar de HorasSemanales).</summary>
-        public int? SesionesPorSemana { get; set; }
+        /// <summary>Sesiones de teoría presencial por semana.</summary>
+        public int SesionesTeoriaPresencialSemana { get; set; }
+        /// <summary>Duración en horas de cada sesión de teoría presencial.</summary>
+        public int HorasTeoriaPresencial { get; set; }
+        /// <summary>
+        /// Sesiones de teoría virtual por semana. Modo fijo e independiente de Alternancia:
+        /// siempre se generan en modalidad virtual, sin toggle semanal.
+        /// </summary>
+        public int SesionesTeoriaVirtualSemana { get; set; }
+        /// <summary>Duración en horas de cada sesión de teoría virtual.</summary>
+        public int HorasTeoriaVirtual { get; set; }
+        /// <summary>Sesiones de laboratorio por semana. Único track sujeto a Alternancia (TipoA/TipoB).</summary>
+        public int SesionesLaboratorioSemana { get; set; }
+        /// <summary>Duración en horas de cada sesión de laboratorio.</summary>
+        public int HorasLaboratorio { get; set; }
         public string? ProgramaId  { get; set; }
+        /// <summary>TipoA | TipoB | SinAlternancia — solo aplica al track de laboratorio.</summary>
         public string? Alternancia    { get; set; }
-        public bool   EsVirtual      { get; set; }
         /// <summary>
         /// Espacio físico fijo para esta asignatura (HC-S05).
         /// Cuando está presente, CP-SAT solo asigna sesiones presenciales a este espacio.
         /// </summary>
         public string? EspacioFijoId  { get; set; }
+        /// <summary>
+        /// Categoría de la asignatura para priorizar la asignación presencial (SC-PRES).
+        /// Obligatoria tiene máxima prioridad; Electiva se puede virtualizar primero cuando
+        /// la capacidad de espacios está saturada.
+        /// Null o valor no reconocido → Obligatoria (conservador).
+        /// </summary>
+        public string? Categoria { get; set; }
+        /// <summary>
+        /// Ventana horaria de la asignatura (hard constraint HC-VH, la fija Secretaría Académica).
+        /// Formato "HH:mm". Ninguna sesión de la asignatura puede asignarse fuera de [Min, Max].
+        /// Null = sin restricción de ventana.
+        /// </summary>
+        public string? HoraInicioMin { get; set; }
+        public string? HoraFinMax    { get; set; }
     }
 
     public class DocenteDto
@@ -104,5 +134,21 @@ namespace SOEA.Application.Features.Horario.Requests
         public string Nombre     { get; set; } = string.Empty;
         public int    Capacidad  { get; set; }
         public string? Tipo      { get; set; }
+    }
+
+    public class GrupoDto
+    {
+        public string  Id                  { get; set; } = string.Empty;
+        public string  Nombre              { get; set; } = string.Empty;
+        public string? Codigo              { get; set; }
+        public string? AsignaturaId        { get; set; }
+        public string? FacultadId          { get; set; }
+        public int     EstudiantesInscritos { get; set; } = 1;
+        /// <summary>
+        /// Disponibilidad horaria del grupo. Valores válidos: "Matutino", "Vespertino".
+        /// Lista vacía = sin restricción de franja (el grupo puede tener clase a cualquier hora).
+        /// </summary>
+        public List<string> Disponibilidad { get; set; } = new();
+        public string? DisponibilidadUiJson { get; set; }
     }
 }

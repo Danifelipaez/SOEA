@@ -54,7 +54,7 @@ namespace SOEA.Engine.Genetic
                 {
                     int start = startPorSesion[i];
                     int dur   = duracionPorSesion[i];
-                    bool requiereLab = RequiereLaboratorio(sesiones[i], espacios);
+                    bool requiereLab = RequiereLaboratorio(sesiones[i]);
 
                     int asignado = -1;
                     for (int e = 0; e < espacios.Count; e++)
@@ -78,16 +78,7 @@ namespace SOEA.Engine.Genetic
             return resultado;
         }
 
-        /// <summary>
-        /// HC-S03 (mismo criterio que CP-SAT, hoy no-op en el pipeline): una sesión requiere
-        /// laboratorio solo si trae un EspacioId previo que apunta a un laboratorio. Hook listo
-        /// para cuando exista la marca explícita por asignatura (depende de datos de la coordinación).
-        /// </summary>
-        private static bool RequiereLaboratorio(Sesion sesion, IReadOnlyList<Espacio> espacios)
-        {
-            if (!sesion.EspacioId.HasValue) return false;
-            var original = espacios.FirstOrDefault(e => e.Id == sesion.EspacioId.Value);
-            return original is not null && original.Tipo == TipoEspacio.Laboratorio;
-        }
+        /// <summary>HC-S03 (mismo criterio que CP-SAT): la sesión requiere laboratorio si y solo si su TipoFlujo lo es.</summary>
+        private static bool RequiereLaboratorio(Sesion sesion) => sesion.TipoFlujo == TipoFlujo.Laboratorio;
     }
 }

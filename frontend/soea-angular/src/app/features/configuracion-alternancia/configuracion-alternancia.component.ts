@@ -81,7 +81,7 @@ interface AsignaturaFila {
                 {{ nombreDocente(fila.asignatura.docenteId) }}
               </td>
               <td class="col-sesiones">
-                {{ fila.asignatura.sesionesPorSemana }}×{{ fila.asignatura.horasPorSesion }}h
+                {{ fila.asignatura.sesionesLaboratorioSemana }}×{{ fila.asignatura.horasLaboratorio }}h
               </td>
               <td class="col-tipo">
                 <select

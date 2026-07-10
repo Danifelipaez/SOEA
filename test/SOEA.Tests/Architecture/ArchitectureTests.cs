@@ -27,7 +27,7 @@ public class ArchitectureTests
     [Fact]
     public void Application_NoDebeReferenciarInfraestructura()
     {
-        var result = Types.InAssembly(typeof(SOEA.Application.BaseAplicacion).Assembly)
+        var result = Types.InAssembly(typeof(SOEA.Application.Features.Horario.GenerarHorarioService).Assembly)
             .ShouldNot()
             .HaveDependencyOnAny(InfraDataNs, InfraExcelNs)
             .GetResult();
@@ -40,7 +40,7 @@ public class ArchitectureTests
     [Fact]
     public void Infraestructura_NoDebeReferenciarAPI()
     {
-        var result = Types.InAssembly(typeof(SOEA.Infrastructure.Data.BaseInfraestructuraDatos).Assembly)
+        var result = Types.InAssembly(typeof(SOEA.Infrastructure.Data.UnitOfWork).Assembly)
             .ShouldNot()
             .HaveDependencyOnAny(ApiNs)
             .GetResult();
@@ -53,7 +53,7 @@ public class ArchitectureTests
     [Fact]
     public void Repositorios_DebenImplementarInterfacesDeDomain()
     {
-        var result = Types.InAssembly(typeof(SOEA.Infrastructure.Data.BaseInfraestructuraDatos).Assembly)
+        var result = Types.InAssembly(typeof(SOEA.Infrastructure.Data.UnitOfWork).Assembly)
             .That()
             .HaveNameEndingWith("Repository")
             .Should()
@@ -70,7 +70,7 @@ public class ArchitectureTests
     {
         // Verifica que las clases que terminan con "Entity" existan en Domain
         // No pueden existir en Application
-        var result = Types.InAssembly(typeof(SOEA.Application.BaseAplicacion).Assembly)
+        var result = Types.InAssembly(typeof(SOEA.Application.Features.Horario.GenerarHorarioService).Assembly)
             .Should()
             .NotHaveNameEndingWith("Entity")
             .GetResult();

@@ -11,18 +11,18 @@ using SOEA.Domain.Services;
 namespace SOEA.Engine.Genetic
 {
     /// <summary>
-    /// Motor de Algoritmo Genético (Fase 3) del modelo bi-semanal (Incremento 2).
-    /// Optimiza objetivos blandos del docente (huecos, &gt; 6 horas seguidas, balance entre días
-    /// disponibles, balance entre semanas SC-BAL) moviendo el inicio de cada sesión por semana:
+    /// Motor de Algoritmo Genético (Fase 3) del modelo bi-semanal presencial-first.
+    /// Optimiza objetivos blandos de la cohorte (huecos, &gt; 6 horas seguidas, balance entre días,
+    /// balance entre semanas SC-BAL) moviendo el inicio de cada sesión por semana:
     /// <c>Start</c> (Semana A) y <c>StartB</c> (Semana B). Para TipoA/TipoB ambos coinciden
     /// siempre (regla 9 / ALT-05); para SinAlternancia pueden diferir (ALT-06).
     /// Las restricciones duras se preservan así:
-    ///   - HC-I02 (disponibilidad): los operadores solo eligen inicios válidos, en ambas semanas.
-    ///   - HC-I01 (solape de docente): reparación + verificación final, por semana.
+    ///   - HC-G01 (disponibilidad de grupo): los operadores solo eligen inicios en la franja
+    ///     declarada por el grupo (Matutino / Vespertino). El docente NO restringe el dominio.
     ///   - HC-S01/S03 (aulas): pase determinista posterior con los inicios ya fijados, por semana.
-    ///   - HC-I03 (horas semanales): invariante (el GA no cambia duraciones ni asignación docente).
-    /// Si el mejor cromosoma no es factible (solape residual o aulas no asignables), hace FALLBACK
-    /// a las asignaciones de Fase 2 — nunca devuelve un horario peor o inválido.
+    ///   - HC-I03 (horas semanales): invariante (el GA no cambia duraciones; docente se asigna post-gen).
+    /// Si el mejor cromosoma no es factible (aulas no asignables), hace FALLBACK a las asignaciones
+    /// de Fase 2 — nunca devuelve un horario peor o inválido.
     /// </summary>
     public class MotorGenetico : IMotorGenetico
     {
@@ -37,7 +37,9 @@ namespace SOEA.Engine.Genetic
             IEnumerable<BloqueTiempo>      bloques,
             IEnumerable<Espacio>           espacios,
             IEnumerable<Docente>           docentes,
+            IEnumerable<Grupo>?            grupos = null,
             ConfiguracionOptimizacion?     config = null,
+            IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,
             CancellationToken              ct = default)
         {
             var s  = sesiones.ToList();
@@ -45,8 +47,10 @@ namespace SOEA.Engine.Genetic
             var b  = bloques.ToList();
             var e  = espacios.ToList();
             var d  = docentes.ToList();
+            var g  = grupos?.ToList();
             var c  = config ?? new ConfiguracionOptimizacion();
-            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, c, ct), ct);
+            var ia = infoAsignatura ?? new Dictionary<Guid, (int, CategoriaAsignatura)>();
+            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, g, c, ia, ct), ct);
         }
 
         private ResultadoOptimizacion OptimizarSincrono(
@@ -55,7 +59,9 @@ namespace SOEA.Engine.Genetic
             List<BloqueTiempo>      bloques,
             List<Espacio>           espacios,
             List<Docente>           docentes,
+            List<Grupo>?            grupos,
             ConfiguracionOptimizacion config,
+            IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)> infoAsignatura,
             CancellationToken ct)
         {
             if (sesiones.Count == 0 || bloques.Count == 0)
@@ -73,8 +79,7 @@ namespace SOEA.Engine.Genetic
             // RNG inyectable: semilla fija = reproducible (tests); null = aleatorio (producción).
             var rng = config.Semilla.HasValue ? new Random(config.Semilla.Value) : new Random();
 
-            var bloqueIndex = new Dictionary<Guid, int>(bloques.Count);
-            for (int i = 0; i < bloques.Count; i++) bloqueIndex[bloques[i].Id] = i;
+            var bloqueIndex = Enumerable.Range(0, bloques.Count).ToDictionary(i => bloques[i].Id, i => i);
 
             var diaPorIdx  = BloquesPlanner.DiaPorBloqueIdx(bloques);
             var duraciones = sesiones.Select(s => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras))).ToArray();
@@ -86,8 +91,8 @@ namespace SOEA.Engine.Genetic
             var sesionIds = sesiones.Select(s => s.Id).ToArray();
             var semilla = new CromosomaHorario(sesionIds, startSemilla, startBSemilla);
 
-            var operadores = new OperadoresGeneticos(sesiones, bloques, docentes, rng);
-            var evaluador  = new EvaluadorFitness(sesiones, bloques, docentes, espacios, config);
+            var operadores = new OperadoresGeneticos(sesiones, bloques, docentes, rng, grupos);
+            var evaluador  = new EvaluadorFitness(sesiones, bloques, docentes, espacios, config, infoAsignatura);
 
             _logger.LogInformation("Fase 3 (Genético): {S} sesiones, población={P}, maxGen={G}.",
                 sesiones.Count, tamañoPoblacion, maxGeneraciones);
@@ -118,15 +123,12 @@ namespace SOEA.Engine.Genetic
                 operadores.Reparar(hijo);
                 var fitnessHijo = evaluador.Evaluar(hijo);
 
-                int peorIdx = 0;
-                for (int i = 1; i < poblacion.Count; i++)
-                    if (poblacion[i].fitness > poblacion[peorIdx].fitness) peorIdx = i;
+                int peorIdx = Enumerable.Range(0, poblacion.Count).MaxBy(i => poblacion[i].fitness);
 
                 if (fitnessHijo < poblacion[peorIdx].fitness)
                     poblacion[peorIdx] = (hijo, fitnessHijo);
 
-                var mejorActual = poblacion.Min(p => p.fitness);
-                if (mejorActual < mejorFitness) { mejorFitness = mejorActual; sinMejora = 0; }
+                if (fitnessHijo < mejorFitness) { mejorFitness = fitnessHijo; sinMejora = 0; }
                 else sinMejora++;
 
                 generacionFinal = gen;
@@ -139,10 +141,10 @@ namespace SOEA.Engine.Genetic
 
             var mejor = poblacion.MinBy(p => p.fitness).cromosoma;
 
-            // ── Verificación HC-I01 + asignación de aulas; si falla → fallback a Fase 2 ───
-            if (TieneSolapeDocente(mejor, sesiones, duraciones, diaPorIdx))
+            // ── Verificación HC-C01 + asignación de aulas; si falla → fallback a Fase 2 ───
+            if (TieneSolapeGrupo(mejor, sesiones, duraciones, diaPorIdx))
             {
-                _logger.LogWarning("Fase 3: el mejor cromosoma tiene solape residual de docente; fallback a Fase 2.");
+                _logger.LogWarning("Fase 3: el mejor cromosoma tiene solape residual de cohorte; fallback a Fase 2.");
                 return new ResultadoOptimizacion(asignacionesFase2, mejorFitness, generacionFinal, UsoFallback: true);
             }
 
@@ -241,23 +243,24 @@ namespace SOEA.Engine.Genetic
             return asignaciones;
         }
 
-        private static bool TieneSolapeDocente(
+        private static bool TieneSolapeGrupo(
             CromosomaHorario c, List<Sesion> sesiones, int[] duraciones, DiaDeSemana[] diaPorIdx)
         {
-            return TieneSolapeDocenteSemana(c.Start, sesiones, duraciones, diaPorIdx)
-                || TieneSolapeDocenteSemana(c.StartB, sesiones, duraciones, diaPorIdx);
+            return TieneSolapeGrupoSemana(c.Start, sesiones, duraciones, diaPorIdx)
+                || TieneSolapeGrupoSemana(c.StartB, sesiones, duraciones, diaPorIdx);
         }
 
-        private static bool TieneSolapeDocenteSemana(
+        // CR-08: solape por cohorte (GrupoId) — el grupo no puede estar en dos sesiones a la vez.
+        private static bool TieneSolapeGrupoSemana(
             int[] starts, List<Sesion> sesiones, int[] duraciones, DiaDeSemana[] diaPorIdx)
         {
-            var porDocente = new Dictionary<Guid, List<(int start, int dur)>>();
+            var porGrupo = new Dictionary<Guid, List<(int start, int dur)>>();
             for (int i = 0; i < starts.Length; i++)
             {
-                var doc = sesiones[i].DocenteId;
-                if (doc == Guid.Empty) continue;
+                if (!sesiones[i].GrupoId.HasValue) continue;
+                var grupo = sesiones[i].GrupoId.Value;
                 int start = starts[i], dur = duraciones[i];
-                if (!porDocente.TryGetValue(doc, out var lista)) { lista = new(); porDocente[doc] = lista; }
+                if (!porGrupo.TryGetValue(grupo, out var lista)) { lista = new(); porGrupo[grupo] = lista; }
                 if (lista.Any(o => BloquesPlanner.Solapan(o.start, o.dur, start, dur, diaPorIdx)))
                     return true;
                 lista.Add((start, dur));
