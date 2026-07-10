@@ -43,5 +43,7 @@ namespace SOEA.Application.Features.Horario.Responses
         public bool    Virtual      { get; set; }
         /// <summary>Semana del ciclo de alternancia: "A" (impares) o "B" (pares).</summary>
         public string  Semana       { get; set; } = string.Empty;
+        /// <summary>Laboratorio | AulaVirtual. Distingue teoría (presencial o virtual) de laboratorio.</summary>
+        public string  TipoFlujo    { get; set; } = "Laboratorio";
     }
 }

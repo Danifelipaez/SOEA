@@ -18,10 +18,14 @@ public class AsignaturaService
             Guid.NewGuid(),
             request.Nombre,
             request.Codigo,
-            request.HorasPorSesion,
-            request.SesionesPorSemana,
-            request.SesionesLaboratorioSemestre,
-            request.ProgramaId);
+            sesionesTeoriaPresencialSemana: request.SesionesTeoriaPresencialSemana,
+            horasTeoriaPresencial: request.HorasTeoriaPresencial,
+            sesionesTeoriaVirtualSemana: request.SesionesTeoriaVirtualSemana,
+            horasTeoriaVirtual: request.HorasTeoriaVirtual,
+            sesionesLaboratorioSemana: request.SesionesLaboratorioSemana,
+            horasLaboratorio: request.HorasLaboratorio,
+            sesionesLaboratorioSemestre: request.SesionesLaboratorioSemestre,
+            programaId: request.ProgramaId);
 
         await _repository.AddAsync(asignatura);
         return AsignaturaResponse.FromEntity(asignatura);
@@ -48,11 +52,15 @@ public class AsignaturaService
         asignatura.ActualizarDatos(
             request.Nombre,
             request.Codigo,
-            request.HorasPorSesion,
-            request.SesionesPorSemana,
-            request.SesionesLaboratorioSemestre,
-            request.ProgramaId,
-            request.Alternancia,
+            sesionesTeoriaPresencialSemana: request.SesionesTeoriaPresencialSemana,
+            horasTeoriaPresencial: request.HorasTeoriaPresencial,
+            sesionesTeoriaVirtualSemana: request.SesionesTeoriaVirtualSemana,
+            horasTeoriaVirtual: request.HorasTeoriaVirtual,
+            sesionesLaboratorioSemana: request.SesionesLaboratorioSemana,
+            horasLaboratorio: request.HorasLaboratorio,
+            sesionesLaboratorioSemestre: request.SesionesLaboratorioSemestre,
+            programaId: request.ProgramaId,
+            alternanciaExplicita: request.Alternancia,
             categoria: request.Categoria);
         asignatura.AsignarDocente(request.DocenteId);
         asignatura.AsignarEspacioFijo(request.EspacioFijoId);
