@@ -393,7 +393,7 @@ export class GrupoDialogComponent {
     this.dias.forEach(dia => {
       const d = dispExistente[dia] ?? {};
       this.disp[dia] = {
-        noDisponible: d.noDisponible ?? false,
+        noDisponible: d.noDisponible ?? true,
         tipo: d.tipo ?? 'todo',
         desde: d.desde ?? '06:00',
         hasta: d.hasta ?? '22:00'

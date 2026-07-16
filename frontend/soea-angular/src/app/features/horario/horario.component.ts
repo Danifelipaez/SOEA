@@ -6,12 +6,13 @@ import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angu
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatIconModule } from '@angular/material/icon';
+import { MatMenuModule } from '@angular/material/menu';
 import { RouterModule } from '@angular/router';
 import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { PersistenciaService } from '../../core/persistencia.service';
 import { CatalogoService } from '../../core/catalogo.service';
-import { Asignatura, Docente, Espacio, Grupo, Sesion, TipoSesionUi, tipoFlujoDesde, esVirtualDesde } from '../../core/models';
+import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Sesion, TipoSesionUi, tipoFlujoDesde, esVirtualDesde } from '../../core/models';
 
 /** Representación visual de una sesión atómica multi-slot. */
 interface MergedSesion {
@@ -38,7 +39,7 @@ interface MergedSesion {
   standalone: true,
   imports: [
     CommonModule, DatePipe, TitleCasePipe, FormsModule, MatButtonModule, MatDialogModule, MatSnackBarModule,
-    RouterModule, MatProgressSpinnerModule, MatIconModule
+    RouterModule, MatProgressSpinnerModule, MatIconModule, MatMenuModule
   ],
   template: `
     <div class="horario-container">
@@ -46,9 +47,6 @@ interface MergedSesion {
         <h1 class="page-title text-primary">Horario</h1>
         <div class="header-buttons">
           @if (state.sesiones().length > 0) {
-            <button mat-stroked-button (click)="exportarHorario()" title="Descargar horario como JSON">
-              <mat-icon>upload</mat-icon> Exportar
-            </button>
             <button mat-stroked-button (click)="guardarComoBase()" title="Guardar este horario como base para la próxima generación">
               <mat-icon>bookmark_add</mat-icon> Guardar base
             </button>
@@ -56,9 +54,18 @@ interface MergedSesion {
               <mat-icon>add_circle_outline</mat-icon> Crear sesión
             </button>
           }
-          <button mat-stroked-button (click)="importarInput.click()" title="Cargar horario desde JSON">
-            <mat-icon>download</mat-icon> Importar
+          <!-- Exportar/Importar: opción avanzada oculta en menú, no en la barra principal (decisión de diseño) -->
+          <button mat-icon-button [matMenuTriggerFor]="avanzadoMenu" title="Más opciones">
+            <mat-icon>more_vert</mat-icon>
           </button>
+          <mat-menu #avanzadoMenu="matMenu">
+            <button mat-menu-item (click)="exportarHorario()" [disabled]="state.sesiones().length === 0">
+              <mat-icon>upload</mat-icon> Exportar como JSON
+            </button>
+            <button mat-menu-item (click)="importarInput.click()">
+              <mat-icon>download</mat-icon> Importar desde JSON
+            </button>
+          </mat-menu>
           <input #importarInput type="file" accept=".json" style="display:none"
                  (change)="importarHorario($event)">
           <button mat-flat-button color="primary" class="primary-button" (click)="generarHorario()" [disabled]="loadingBackend()">
@@ -66,6 +73,43 @@ interface MergedSesion {
           </button>
         </div>
       </div>
+
+      <!-- Parámetros avanzados de generación (colapsable) — fusiona lo que antes era Dashboard Developer -->
+      <div class="advanced-panel">
+        <button class="advanced-toggle" (click)="avanzadoAbierto.set(!avanzadoAbierto())">
+          <mat-icon>{{ avanzadoAbierto() ? 'expand_less' : 'expand_more' }}</mat-icon>
+          Parámetros avanzados <span class="advanced-hint">(opcional — todo tiene default)</span>
+        </button>
+        @if (avanzadoAbierto()) {
+          <div class="advanced-fields">
+            <label class="adv-field">
+              <span>Tamaño población</span>
+              <input type="number" [ngModel]="gaConfig().pobSize" (ngModelChange)="patchGaConfig({ pobSize: $event })">
+            </label>
+            <label class="adv-field">
+              <span>Máx. generaciones</span>
+              <input type="number" [ngModel]="gaConfig().maxGen" (ngModelChange)="patchGaConfig({ maxGen: $event })">
+            </label>
+            <label class="adv-field">
+              <span>Mutación (0–1)</span>
+              <input type="number" step="0.01" min="0" max="1" [ngModel]="gaConfig().mutRate" (ngModelChange)="patchGaConfig({ mutRate: $event })">
+            </label>
+            <label class="adv-field">
+              <span>Cruce (0–1)</span>
+              <input type="number" step="0.01" min="0" max="1" [ngModel]="gaConfig().crossRate" (ngModelChange)="patchGaConfig({ crossRate: $event })">
+            </label>
+          </div>
+        }
+      </div>
+
+      <!-- Sin solución factible: logs de ejecución, solo aquí (no panel permanente) — extraído del diseño -->
+      @if (state.sesiones().length === 0 && state.executionLogs().length > 0) {
+        <div class="fail-panel">
+          <div class="fail-msg"><mat-icon>error_outline</mat-icon> No se encontró un horario factible con el catálogo actual.</div>
+          <div class="fail-hint">Logs de ejecución:</div>
+          <pre class="fail-logs">{{ state.executionLogs().join('\n') }}</pre>
+        </div>
+      }
 
       @if (state.espacios().length > 0) {
         <!-- Selector de espacio -->
@@ -101,27 +145,6 @@ interface MergedSesion {
             <span class="week-desc">TipoB presencial · TipoA virtual</span>
           }
         </div>
-
-        <!-- Selector de grupo (cohorte) — aplica su disponibilidad (HC-G01) al generar -->
-        @if (state.grupos().length > 0) {
-          <div class="grupo-selector">
-            <span class="grupo-label"><mat-icon class="grupo-ico">groups</mat-icon> Grupo a generar</span>
-            <select class="grupo-select"
-                    [ngModel]="activeGrupo()?.id ?? ''"
-                    (ngModelChange)="selectGrupo($event)">
-              <option value="">Todos — sin restricción de disponibilidad</option>
-              @for (g of state.grupos(); track g.id) {
-                <option [value]="g.id">{{ grupoOptionLabel(g) }}</option>
-              }
-            </select>
-            @if (activeGrupo(); as g) {
-              <span class="grupo-hint">
-                <mat-icon>event_available</mat-icon>
-                {{ g.estudiantesInscritos }} estudiantes · {{ grupoDisponibilidadLabel(g) }}
-              </span>
-            }
-          </div>
-        }
 
         <!-- Horarios base guardados -->
         @if (state.horariosBases().length > 0) {
@@ -235,8 +258,8 @@ interface MergedSesion {
       } @else {
         <div class="empty-state">
           <mat-icon>event_busy</mat-icon>
-          <p>No hay datos cargados. Ve a <strong>Ingesta de Datos</strong> para comenzar.</p>
-          <button mat-stroked-button routerLink="/ingesta">Ir a Ingesta</button>
+          <p>No hay datos cargados. Ve a <strong>Catálogo</strong> para comenzar.</p>
+          <button mat-stroked-button routerLink="/catalogo">Ir a Catálogo</button>
         </div>
       }
     </div>
@@ -246,6 +269,18 @@ interface MergedSesion {
     .header-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
     .header-buttons { display: flex; gap: 10px; align-items: center; }
     .page-title { margin: 0; font-weight: 500; font-size: 24px; }
+    .advanced-panel { border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
+    .advanced-toggle { display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 12px; background: #fafafa;
+      border: none; cursor: pointer; font-size: 13px; font-weight: 500; color: #424242; text-align: left; }
+    .advanced-hint { font-weight: 400; color: #9e9e9e; font-size: 11.5px; }
+    .advanced-fields { display: flex; gap: 16px; flex-wrap: wrap; padding: 12px; }
+    .adv-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #757575; width: 140px; }
+    .adv-field input { padding: 6px 8px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 13px; }
+    .fail-panel { border: 1px solid #ffcdd2; background: #fff5f5; border-radius: 6px; padding: 12px 14px; margin-bottom: 16px; }
+    .fail-msg { display: flex; align-items: center; gap: 8px; color: #c62828; font-weight: 500; font-size: 13.5px; margin-bottom: 10px; }
+    .fail-hint { font-size: 11.5px; color: #757575; margin-bottom: 4px; }
+    .fail-logs { background: #1e1e1e; color: #c9c9c9; font: 11px/1.6 ui-monospace, Menlo, monospace;
+      padding: 10px 12px; border-radius: 4px; max-height: 200px; overflow: auto; margin: 0; white-space: pre-wrap; }
     .space-selector { display: flex; gap: 8px; margin-bottom: 24px; overflow-x: auto; padding-bottom: 8px; flex-wrap: wrap; }
     .pill-button { padding: 8px 16px; border-radius: 20px; border: 1px solid #e0e0e0; background: white; cursor: pointer; transition: 0.2s; white-space: nowrap; }
     .pill-button.active { background: #1976d2; color: white; border-color: #1976d2; }
@@ -256,13 +291,6 @@ interface MergedSesion {
     .week-sub { font-size: 9px; color: #9e9e9e; letter-spacing: 0.05em; margin-top: 1px; }
     .pill-button.week-btn.active .week-sub { color: rgba(255,255,255,0.75); }
     .week-desc { font-size: 11px; color: #9e9e9e; align-self: center; margin-left: 4px; font-style: italic; }
-    .grupo-selector { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
-    .grupo-label { display: flex; align-items: center; gap: 4px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #757575; }
-    .grupo-ico { font-size: 16px; width: 16px; height: 16px; color: #1976d2; }
-    .grupo-select { padding: 7px 10px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; background: white; cursor: pointer; outline: none; min-width: 280px; }
-    .grupo-select:focus { border-color: #1976d2; box-shadow: 0 0 0 2px rgba(25,118,210,.2); }
-    .grupo-hint { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #2e7d32; }
-    .grupo-hint mat-icon { font-size: 15px; width: 15px; height: 15px; }
     .bases-panel { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
     .bases-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .bases-icon { font-size: 18px; width: 18px; height: 18px; color: #1976d2; }
@@ -341,9 +369,14 @@ export class HorarioComponent implements OnInit {
 
   activeSpace = signal<Espacio | null>(null);
   activeWeek = signal<'A' | 'B'>('A');
-  activeGrupo = signal<Grupo | null>(null);
   loadingBackend = signal(false);
   backendReady = signal(false);
+  avanzadoAbierto = signal(false);
+
+  gaConfig = this.state.configuracionAlgoritmo;
+  patchGaConfig(patch: Partial<ConfiguracionAlgoritmo>) {
+    this.state.setConfiguracionAlgoritmo({ ...this.gaConfig(), ...patch });
+  }
 
   ngOnInit() {
     this.syncFromBackend();
@@ -356,30 +389,6 @@ export class HorarioComponent implements OnInit {
 
   selectSpace(esp: Espacio) { this.activeSpace.set(esp); }
   selectWeek(week: 'A' | 'B') { this.activeWeek.set(week); }
-
-  selectGrupo(id: string) {
-    this.activeGrupo.set(this.state.grupos().find(g => g.id === id) ?? null);
-  }
-
-  grupoAsignaturaNombre(g: Grupo): string {
-    return this.state.asignaturaById().get(g.asignaturaId)?.nombre ?? 'sin asignatura';
-  }
-
-  /** Etiqueta del dropdown: distingue grupos homónimos por programa + semestre (+ código). */
-  grupoOptionLabel(g: Grupo): string {
-    const prog = this.state.programaById().get(g.programaId)?.nombre ?? '—';
-    const cod  = g.codigo ? ` [${g.codigo}]` : '';
-    return `${g.nombre}${cod} · ${prog} · S${g.semestre} · ${this.grupoAsignaturaNombre(g)}`;
-  }
-
-  /** Resume la disponibilidad por día del grupo en una etiqueta legible. */
-  grupoDisponibilidadLabel(g: Grupo): string {
-    if (!g.disponibilidadUiJson) return 'disponibilidad sin configurar';
-    let disp: Record<string, any>;
-    try { disp = JSON.parse(g.disponibilidadUiJson); } catch { return 'disponibilidad sin configurar'; }
-    const libres = Object.entries(disp).filter(([, d]: [string, any]) => d && !d.noDisponible).length;
-    return libres > 0 ? `${libres} día(s) disponibles` : 'sin días disponibles';
-  }
 
   syncFromBackend() {
     this.loadingBackend.set(true);
@@ -668,19 +677,7 @@ export class HorarioComponent implements OnInit {
       return;
     }
 
-    // Cohorte = programa: al elegir un grupo, el run agenda SOLO las asignaturas de su programa
-    // (evita serializar todo el catálogo como una cohorte infactible). "Todos" = sin restricción.
-    const grupo = this.activeGrupo();
-    const asignaturas = (grupo && grupo.programaId)
-      ? (this.state.asignaturasByPrograma().get(grupo.programaId) ?? [])
-      : this.state.asignaturas();
-
-    if (grupo && asignaturas.length === 0) {
-      this.snackBar.open(
-        `El programa del grupo "${grupo.nombre}" no tiene asignaturas cargadas.`,
-        'Cerrar', { duration: 5000 });
-      return;
-    }
+    const asignaturas = this.state.asignaturas();
 
     const dialogRef = this.dialog.open(ProgressDialogComponent, { disableClose: true, width: '500px' });
 
@@ -691,8 +688,7 @@ export class HorarioComponent implements OnInit {
         this.state.espacios(),
         this.state.configuracionAlgoritmo(),
         '2026-1',
-        this.state.baseSeleccionada() ?? undefined,
-        grupo ? [grupo] : undefined
+        this.state.baseSeleccionada() ?? undefined
       )
       .subscribe({
         next: (respuesta) => {
@@ -714,8 +710,7 @@ export class HorarioComponent implements OnInit {
           }
           const texto = /factible|infeasible/i.test(mensaje)
             ? `❌ No se encontró un horario factible para ${asignaturas.length} asignatura(s) en ` +
-              `${this.state.espacios().length} espacio(s). Acota eligiendo un grupo (se agenda solo ` +
-              `su programa) o revisa la cantidad/capacidad de laboratorios.`
+              `${this.state.espacios().length} espacio(s). Revisa la cantidad/capacidad de laboratorios.`
             : `❌ ${mensaje}`;
           this.snackBar.open(texto, 'Cerrar', { duration: 9000, panelClass: ['snack-error'] });
         }

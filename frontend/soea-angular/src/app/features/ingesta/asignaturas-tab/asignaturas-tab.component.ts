@@ -20,6 +20,7 @@ import { CatalogoService } from '../../../core/catalogo.service';
 import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { GuardadoResultadoDialogComponent } from '../../../shared/guardado-resultado-dialog/guardado-resultado-dialog.component';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
+import { ImportResultadoDialogComponent } from '../../../shared/import-resultado-dialog/import-resultado-dialog.component';
 import { Asignatura, Facultad, Programa } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { ImportExcelStatsDto } from '../../../core/persistencia.service';
@@ -241,19 +242,7 @@ export class AsignaturasTabComponent {
       next: (stats: ImportExcelStatsDto) => {
         this.uploading.set(false);
         this.cargarDesdeBD();
-        const resumen = [
-          `${stats.asignaturasCreadas} asig. nuevas`,
-          stats.asignaturasActualizadas > 0 ? `${stats.asignaturasActualizadas} actualizadas` : '',
-          `${stats.sesionesPersistidas} sesiones`,
-          stats.asignaturasSinDocente > 0 ? `⚠ ${stats.asignaturasSinDocente} sin docente` : '',
-          stats.advertencias?.length > 0 ? `${stats.advertencias.length} advertencias` : ''
-        ].filter(Boolean).join(' · ');
-        this.snackBar.open(resumen || 'Importación completa', 'Cerrar', { duration: 8000 });
-        if (stats.advertencias?.length > 0) {
-          console.group('Import Excel — advertencias');
-          stats.advertencias.forEach(w => console.warn(w));
-          console.groupEnd();
-        }
+        this.dialog.open(ImportResultadoDialogComponent, { width: '420px', data: stats });
       },
       error: (err) => {
         this.uploading.set(false);

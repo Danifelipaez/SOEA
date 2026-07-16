@@ -14,7 +14,8 @@ import { Espacio } from '../../core/models';
   imports: [CommonModule, BaseChartDirective, MatTableModule, RouterModule],
   template: `
     <div class="dashboard-container">
-      <h1 class="page-title text-primary">Dashboard Admin</h1>
+      <h1 class="page-title text-primary">Revisar</h1>
+      <p class="page-subtitle">Paso 4 · solo lectura, sobre el horario generado.</p>
 
       <!-- Métricas del horario -->
       <div class="cards-row">
@@ -110,7 +111,7 @@ import { Espacio } from '../../core/models';
         <div class="card-box flex-1">
           <h2 class="section-title">Mapa de franjas ociosas</h2>
           @if (state.espacios().length === 0) {
-            <p class="no-data-hint">Sin espacios cargados. Ve a <a routerLink="/ingesta">Ingesta</a> para cargar datos.</p>
+            <p class="no-data-hint">Sin espacios cargados. Ve a <a routerLink="/catalogo">Catálogo</a> para cargar datos.</p>
           } @else {
             <div class="space-selector mb-16">
               @for (esp of state.espacios(); track esp.id) {
@@ -148,6 +149,7 @@ import { Espacio } from '../../core/models';
   styles: [`
     .dashboard-container { padding: 16px; display: flex; flex-direction: column; gap: 24px; }
     .page-title { margin: 0; font-weight: 500; font-size: 24px; }
+    .page-subtitle { margin: -12px 0 0; color: #757575; font-size: 13px; }
     .cards-row { display: flex; gap: 24px; }
     .metric-card { flex: 1; background: white; padding: 24px; border-radius: 8px; border: 1px solid #e0e0e0; display: flex; flex-direction: column; gap: 8px; }
     .metric-title { color: #616161; font-size: 14px; font-weight: 500; }
