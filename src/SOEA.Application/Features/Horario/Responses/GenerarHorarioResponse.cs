@@ -11,6 +11,10 @@ namespace SOEA.Application.Features.Horario.Responses
         public bool   EsFactible     { get; set; }
         public decimal PuntajeFitness { get; set; }
         public int    Generaciones   { get; set; }
+        /// <summary>SC-PRES informativo: cuánto pesa que sesiones de alta prioridad hayan cedido presencialidad. No forma parte de PuntajeFitness (ver EvaluadorFitness).</summary>
+        public decimal PenalizacionPresencial { get; set; }
+        /// <summary>Sesiones fijas del horario base cuyo día/hora no coincidió con la grilla y se omitieron. Ver Logs para el detalle.</summary>
+        public int    SesionesFijasOmitidas { get; set; }
         public string? MensajeError  { get; set; }
         public List<string> Logs     { get; set; } = new();
         public List<SesionGeneradaDto> Sesiones { get; set; } = new();

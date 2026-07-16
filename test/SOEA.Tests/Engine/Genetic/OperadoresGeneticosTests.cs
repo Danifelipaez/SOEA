@@ -218,5 +218,61 @@ namespace SOEA.Tests.Engine.Genetic
             Assert.True(divergioAlgunaVez,
                 "StartB nunca difirió de Start para una sesión SinAlternancia tras 200 mutaciones.");
         }
+
+        // HC-VH: el dominio de los operadores incluye la ventana horaria de la asignatura
+        // (misma fuente que CP-SAT: CalculadorDominioSesion). Ninguna mutación puede sacar
+        // la sesión de su ventana — el vacío que permitía publicar violaciones de HC-VH.
+        [Fact]
+        public void Mutar_ConVentanaHoraria_NuncaSaleDeLaVentana()
+        {
+            var sesion   = CrearSesion(Guid.NewGuid(), 2m);
+            var sesiones = new List<Sesion> { sesion };
+            var bloques  = CrearGrilla(5); // 07:00..12:00 en Lunes y Martes
+            var ventanas = new Dictionary<Guid, (TimeOnly? min, TimeOnly? max)>
+            {
+                [sesion.AsignaturaId] = (new TimeOnly(8, 0), new TimeOnly(11, 0))
+            };
+
+            var c  = new CromosomaHorario(new[] { sesion.Id }, new[] { 1 }); // 08:00, válido
+            var op = new OperadoresGeneticos(sesiones, bloques, new List<Docente>(), new Random(42),
+                ventanaPorAsignatura: ventanas);
+
+            for (int i = 0; i < 500; i++)
+            {
+                op.Mutar(c, 1.0);
+                var inicio = bloques[c.Start[0]].HoraInicio;
+                Assert.True(inicio >= new TimeOnly(8, 0) && inicio.AddHours(2) <= new TimeOnly(11, 0),
+                    $"Mutación produjo inicio {inicio} fuera de la ventana [08:00–11:00] (duración 2h).");
+            }
+        }
+
+        // Si la intersección (día ∩ franja ∩ ventana) queda vacía, el gen se CONGELA en su valor
+        // actual (la semilla de Fase 2): antes existía un fallback que abría el dominio completo
+        // y podía violar HC-G01/HC-VH.
+        [Fact]
+        public void DominioVacio_GenSeCongelaEnLaSemilla()
+        {
+            var sesion   = CrearSesion(Guid.NewGuid(), 2m);
+            var sesiones = new List<Sesion> { sesion };
+            var bloques  = CrearGrilla(5);
+            // Ventana de 1h para una sesión de 2h → dominio vacío.
+            var ventanas = new Dictionary<Guid, (TimeOnly? min, TimeOnly? max)>
+            {
+                [sesion.AsignaturaId] = (new TimeOnly(8, 0), new TimeOnly(9, 0))
+            };
+
+            var op = new OperadoresGeneticos(sesiones, bloques, new List<Docente>(), new Random(42),
+                ventanaPorAsignatura: ventanas);
+
+            Assert.Empty(op.StartsValidosDe(0));
+
+            var c = new CromosomaHorario(new[] { sesion.Id }, new[] { 3 }); // semilla de Fase 2
+            for (int i = 0; i < 100; i++)
+            {
+                op.Mutar(c, 1.0);
+                op.Reparar(c);
+                Assert.Equal(3, c.Start[0]); // el gen nunca se mueve
+            }
+        }
     }
 }

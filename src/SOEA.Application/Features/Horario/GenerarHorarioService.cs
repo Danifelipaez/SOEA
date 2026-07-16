@@ -3,6 +3,7 @@ using SOEA.Application.Features.Horario.Responses;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.Services;
 
 namespace SOEA.Application.Features.Horario
 {
@@ -80,12 +81,16 @@ namespace SOEA.Application.Features.Horario
 
             // ── 1b. Sesiones fijas (horario base) — se añaden con bloque pre-asignado ──
             var sesionesFijasIds = new HashSet<Guid>();
+            int sesionesFijasOmitidas = 0;
             if (request.SesionesFijas is { Count: > 0 })
             {
-                var fijas = MapearSesionesFijas(request.SesionesFijas, bloques, cohorteId);
+                var (fijas, omitidas) = MapearSesionesFijas(request.SesionesFijas, bloques, cohorteId);
                 sesionesFijasIds = fijas.Select(s => s.Id).ToHashSet();
+                sesionesFijasOmitidas = omitidas.Count;
                 sesiones.AddRange(fijas);
                 logs.Add($"[INFO] {fijas.Count} sesión(es) fijas del horario base añadidas.");
+                foreach (var motivo in omitidas)
+                    logs.Add($"[WARN] Sesión fija omitida: {motivo}");
             }
 
             // ── 1c. SC-PRES: presencial-first — virtualizar por prioridad si hay saturación ──
@@ -100,9 +105,13 @@ namespace SOEA.Application.Features.Horario
                          "presencial 1 semana) antes de virtualizar por completo.");
 
             // ── 2. Fase 1 — Coloración de Grafo (pre-asignación de bloques) ────
+            // HC-G01/HC-VH: se pasan grupos y ventanas para que el warm-start caiga siempre dentro
+            // del dominio que CP-SAT va a exigir (misma fuente: CalculadorDominioSesion).
             logs.Add("[INFO] Fase 1: Pre-procesamiento (Coloración de grafos) iniciada.");
+            var grupos = MapearGrupos(request.Grupos);
             var swFase1 = System.Diagnostics.Stopwatch.StartNew();
-            var sesionesColoreadas = (await _fase1.AsignarBloquesDeTiempoAsync(sesiones, bloques, ct)).ToList();
+            var sesionesColoreadas = (await _fase1.AsignarBloquesDeTiempoAsync(
+                sesiones, bloques, grupos, ventanaPorAsig, ct)).ToList();
             swFase1.Stop();
             logs.Add($"[INFO] Fase 1 completada en {swFase1.ElapsedMilliseconds}ms.");
 
@@ -114,7 +123,7 @@ namespace SOEA.Application.Features.Horario
             var swFase2 = System.Diagnostics.Stopwatch.StartNew();
             var resultadoFactibilidad = await _fase2.ResolverFactibilidadAsync(
                 sesionesColoreadas, bloques, espacios, docentes,
-                grupos: MapearGrupos(request.Grupos),
+                grupos: grupos,
                 sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null,
                 ventanaPorAsignatura: ventanaPorAsig,
                 ct);
@@ -153,9 +162,11 @@ namespace SOEA.Application.Features.Horario
             var swFase3 = System.Diagnostics.Stopwatch.StartNew();
             var resultadoGA = await _fase3.OptimizarAsync(
                 sesionesColoreadas, resultadoFactibilidad.Asignaciones, bloques, espacios, docentes,
-                grupos: MapearGrupos(request.Grupos),
+                grupos: grupos,
                 config: MapearConfiguracion(request.Configuracion),
                 infoAsignatura: infoAsignatura,
+                ventanaPorAsignatura: ventanaPorAsig,   // HC-VH: el GA no puede sacar sesiones de su ventana
+                sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null, // regla 8: el GA no mueve el horario base
                 ct: ct);
             swFase3.Stop();
             logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness={resultadoGA.PuntajeFitness}, " +
@@ -165,19 +176,30 @@ namespace SOEA.Application.Features.Horario
             var puntajeFitness = resultadoGA.PuntajeFitness;
 
             // ── 4b. Post-chequeo de restricciones duras (P0.3 + P1.8 auditoría) ─────────
-            // Verificamos las asignaciones FINALES: HC-I01/HC-S01 (solapes, consciente de duración
-            // y semana) y HC-I03 (horas semanales por docente). Si el GA introdujo cualquier
-            // violación, hacemos fallback a las asignaciones factibles de la Fase 2.
+            // Verificamos las asignaciones FINALES contra las MISMAS 7 reglas que CP-SAT impuso
+            // en Fase 2: HC-C01/HC-S01 (solapes) + HC-VH/HC-G01/HC-CAP/HC-S03/HC-S05 (contexto).
+            // Si el GA introdujo cualquier violación, fallback a las asignaciones de Fase 2.
             var sesionPorIdValidacion = sesionesColoreadas.ToDictionary(s => s.Id);
             var bloqueIndex = Enumerable.Range(0, bloques.Count).ToDictionary(i => bloques[i].Id, i => i);
+            var contextoValidacion = new ContextoValidacion(
+                Bloques: bloques,
+                VentanaPorAsignatura: ventanaPorAsig,   // los nombres de tupla no afectan la conversión
+                FranjasPorGrupo: grupos
+                    .GroupBy(g => g.Id)
+                    .ToDictionary(g => g.Key, g => (IReadOnlyList<FranjaHoraria>)g.First().Disponibilidad.ToList()),
+                EstudiantesPorGrupo: grupos
+                    .GroupBy(g => g.Id)
+                    .ToDictionary(g => g.Key, g => g.First().EstudiantesInscritos),
+                EspacioPorId: espacios.ToDictionary(e => e.Id),
+                SesionesFijas: sesionesFijasIds);
 
-            var conflictos = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex);
+            var conflictos = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, contextoValidacion);
             if (conflictos.Count > 0)
             {
                 logs.Add($"[WARN] Post-chequeo detectó {conflictos.Count} violación(es) en la salida del GA; usando la solución de Fase 2.");
                 asignaciones   = resultadoFactibilidad.Asignaciones;
                 puntajeFitness = 0m;
-                conflictos     = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex);
+                conflictos     = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, contextoValidacion);
             }
 
             if (conflictos.Count > 0)
@@ -249,22 +271,26 @@ namespace SOEA.Application.Features.Horario
                 EsFactible     = true,
                 PuntajeFitness = puntajeFitness,
                 Generaciones   = resultadoGA.Generaciones,
+                PenalizacionPresencial = resultadoGA.PenalizacionPresencial,
+                SesionesFijasOmitidas = sesionesFijasOmitidas,
                 Logs           = logs,
                 Sesiones       = sesionesDto
             };
         }
 
         /// <summary>
-        /// Post-chequeo de restricciones duras sobre las asignaciones finales:
-        /// HC-C01 (solapes de cohorte) + HC-S01 (solapes de espacio). El docente está fuera del
-        /// pipeline (CR-08), así que ya no se valida carga semanal de docente (HC-I03).
+        /// Post-chequeo de restricciones duras sobre las asignaciones finales: las mismas 7 reglas
+        /// que CP-SAT impone en Fase 2 — HC-C01, HC-S01 y (vía contexto) HC-VH, HC-G01, HC-CAP,
+        /// HC-S03, HC-S05. El docente está fuera del pipeline (CR-08), así que no se valida carga
+        /// semanal de docente (HC-I03).
         /// </summary>
         private static IReadOnlyList<string> Validar(
             IReadOnlyList<AsignacionSemanal> asignaciones,
             IReadOnlyDictionary<Guid, Sesion> sesionPorId,
-            IReadOnlyDictionary<Guid, int> bloqueIndex)
+            IReadOnlyDictionary<Guid, int> bloqueIndex,
+            ContextoValidacion contexto)
         {
-            return ValidadorRestriccionesDuras.Validar(asignaciones, sesionPorId, bloqueIndex);
+            return ValidadorRestriccionesDuras.Validar(asignaciones, sesionPorId, bloqueIndex, contexto);
         }
 
         // ── Helpers de mapeo ─────────────────────────────────────────────────────
@@ -272,9 +298,10 @@ namespace SOEA.Application.Features.Horario
         /// <summary>
         /// Mapea las sesiones del horario base a entidades de dominio con el BloqueTiempo ya
         /// pre-asignado (buscando el bloque por día+horaInicio en la grilla canónica).
-        /// Si no se encuentra un bloque coincidente, la sesión se omite silenciosamente.
+        /// Si no se encuentra un bloque coincidente, la sesión se omite y el motivo se reporta
+        /// en <c>omitidas</c> (antes se descartaba en silencio).
         /// </summary>
-        private static List<Sesion> MapearSesionesFijas(
+        private static (List<Sesion> fijas, List<string> omitidas) MapearSesionesFijas(
             List<SesionFijaDto> dtos,
             List<BloqueTiempo> bloques,
             Guid cohorteId)
@@ -284,10 +311,14 @@ namespace SOEA.Application.Features.Horario
                 b => (DiaToString(b.Dia), b.HoraInicio.ToString("HH:mm")));
 
             var resultado = new List<Sesion>();
+            var omitidas  = new List<string>();
             foreach (var dto in dtos)
             {
                 if (!bloqueDict.TryGetValue((dto.Dia.ToLowerInvariant(), dto.HoraInicio), out var bloque))
+                {
+                    omitidas.Add($"asignatura {dto.AsignaturaId}, {dto.Dia} {dto.HoraInicio} no coincide con ningún bloque de la grilla canónica.");
                     continue;
+                }
 
                 var asigId  = Guid.TryParse(dto.AsignaturaId, out var aid) ? aid : Guid.NewGuid();
                 Guid? espId = Guid.TryParse(dto.EspacioId, out var eid) ? eid : null;
@@ -322,7 +353,7 @@ namespace SOEA.Application.Features.Horario
 
                 resultado.Add(sesion);
             }
-            return resultado;
+            return (resultado, omitidas);
         }
 
         private static List<Espacio> MapearEspacios(List<EspacioDto> dtos) =>
@@ -507,34 +538,9 @@ namespace SOEA.Application.Features.Horario
 
         /// <summary>
         /// Genera la grilla canónica de bloques de tiempo institucional.
-        /// Lunes–Viernes 06:00–22:00 en bloques de 1 hora; Sábado 06:00–13:00.
+        /// C1 auditoría: la fuente única del rango horario es <see cref="GrillaInstitucional"/>.
         /// </summary>
-        private static List<BloqueTiempo> GenerarBloquesTiempo()
-        {
-            var bloques = new List<BloqueTiempo>();
-            var dias    = new[] { DiaDeSemana.Lunes, DiaDeSemana.Martes, DiaDeSemana.Miercoles,
-                                  DiaDeSemana.Jueves, DiaDeSemana.Viernes };
-
-            foreach (var dia in dias)
-            {
-                for (int h = 6; h < 22; h++)
-                {
-                    bloques.Add(new BloqueTiempo(
-                        Guid.NewGuid(), dia,
-                        new TimeOnly(h, 0), new TimeOnly(h + 1, 0)));
-                }
-            }
-
-            // Sábado: 06:00–13:00
-            for (int h = 6; h < 13; h++)
-            {
-                bloques.Add(new BloqueTiempo(
-                    Guid.NewGuid(), DiaDeSemana.Sábado,
-                    new TimeOnly(h, 0), new TimeOnly(h + 1, 0)));
-            }
-
-            return bloques;
-        }
+        private static List<BloqueTiempo> GenerarBloquesTiempo() => GrillaInstitucional.GenerarBloques();
 
         private static SesionGeneradaDto MapearSesionDto(
             AsignacionSemanal a, Sesion s, IReadOnlyDictionary<Guid, BloqueTiempo> bloquePorId, string? espacioIdHogar)
@@ -571,7 +577,8 @@ namespace SOEA.Application.Features.Horario
             };
         }
 
-        private static ConfiguracionOptimizacion MapearConfiguracion(ConfiguracionAlgoritmoDto? dto) =>
+        // internal (no private) para verificación directa del mapeo en SOEA.Tests (B4 auditoría).
+        internal static ConfiguracionOptimizacion MapearConfiguracion(ConfiguracionAlgoritmoDto? dto) =>
             dto is null
                 ? new ConfiguracionOptimizacion()
                 : new ConfiguracionOptimizacion(
@@ -582,7 +589,10 @@ namespace SOEA.Application.Features.Horario
                     UmbralConvergencia:   dto.UmbralConvergencia,
                     PesoErgo:             dto.PesoErgo,
                     PesoTiempos:          dto.PesoTiempos,
-                    PesoAlmuerzo:         dto.PesoAlmuerzo);
+                    PesoMaxHorasSeguidas: dto.PesoMaxHorasSeguidas,
+                    PesoBalanceSemanas:   dto.PesoBalanceSemanas,
+                    PesoPresencialFirst:  dto.PesoPresencialFirst,
+                    Semilla:              dto.Semilla);
 
         /// <summary>
         /// Convierte los GrupoDtos del request a entidades de dominio Grupo con su disponibilidad.

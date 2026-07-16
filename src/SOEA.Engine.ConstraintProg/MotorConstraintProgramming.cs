@@ -136,21 +136,14 @@ namespace SOEA.Engine.ConstraintProg
             // HC-G01: índice de disponibilidad por GrupoId.
             // Si el grupo declara Disponibilidad (Matutino/Vespertino), los starts de sus sesiones
             // quedan confinados a los bloques que caen dentro de esa franja (hard constraint).
-            // Matutino = HoraInicio < 12:00 | Vespertino = HoraInicio >= 12:00.
+            // Criterio de franja centralizado en CalculadorDominioSesion (misma fuente que el GA
+            // y el validador post-generación).
             var bloquesPermitidosPorGrupo = new Dictionary<Guid, HashSet<int>>();
             foreach (var grupo in grupos)
             {
-                if (grupo.Id == Guid.Empty || grupo.Disponibilidad.Count == 0) continue;
-                var permiteMatutino   = grupo.Disponibilidad.Contains(FranjaHoraria.Matutino);
-                var permiteVespertino = grupo.Disponibilidad.Contains(FranjaHoraria.Vespertino);
-                var permitidos = new HashSet<int>();
-                for (int i = 0; i < bloques.Count; i++)
-                {
-                    var hora = bloques[i].HoraInicio;
-                    if (permiteMatutino   && hora.Hour < 12) permitidos.Add(i);
-                    if (permiteVespertino && hora.Hour >= 12) permitidos.Add(i);
-                }
-                if (permitidos.Count > 0)
+                if (grupo.Id == Guid.Empty) continue;
+                var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.Disponibilidad);
+                if (permitidos is not null)
                     bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
             }
 
@@ -244,15 +237,11 @@ namespace SOEA.Engine.ConstraintProg
                     bloquesPermitidosPorGrupo.TryGetValue(sesion.GrupoId.Value, out var perm))
                     permitidosPorGrupo = perm;
 
-                var todosStarts = BloquesPlanner
-                    .StartsValidos(dur, bloques.Count, rangosPorDia, diaPorIdx, bloquesDisponibles: null);
+                // Dominio base (fuente única CalculadorDominioSesion): cabe-en-día ∩ HC-G01.
+                var startsGrupo = CalculadorDominioSesion.StartsPermitidos(
+                    dur, bloques, rangosPorDia, diaPorIdx, permitidosPorGrupo);
 
-                // Aplicar filtro HC-G01 si el grupo tiene disponibilidad declarada
-                var startsValidos = (permitidosPorGrupo is not null)
-                    ? todosStarts.Where(s => permitidosPorGrupo.Contains(s)).Select(v => (long)v).ToArray()
-                    : todosStarts.Select(v => (long)v).ToArray();
-
-                if (startsValidos.Length == 0)
+                if (startsGrupo.Length == 0)
                 {
                     var msg = permitidosPorGrupo is not null
                         ? $"HC-G01: no hay bloques válidos para la sesión de {dur}h dentro de la disponibilidad declarada del grupo (GrupoId={sesion.GrupoId})."
@@ -262,21 +251,17 @@ namespace SOEA.Engine.ConstraintProg
                 }
 
                 // HC-VH: ventana horaria de la asignatura (hard). El intervalo completo
-                // [inicio, inicio+dur] debe caer dentro de [min, max]. Como StartsValidos ya
+                // [inicio, inicio+dur] debe caer dentro de [min, max]. dur ya viene con ceil:
+                // redondeo conservador (sobre-reserva, nunca sub-reserva). Como el dominio base
                 // garantiza que la sesión no cruza día, inicio+dur nunca se desborda al día siguiente.
+                var startsFiltrados = startsGrupo;
                 if (ventanaPorAsignatura.TryGetValue(sesion.AsignaturaId, out var ventana) &&
                     (ventana.min.HasValue || ventana.max.HasValue))
                 {
-                    startsValidos = startsValidos.Where(s =>
-                    {
-                        var inicio = bloques[(int)s].HoraInicio;
-                        var fin    = inicio.AddHours(dur);
-                        if (ventana.min.HasValue && inicio < ventana.min.Value) return false;
-                        if (ventana.max.HasValue && fin    > ventana.max.Value) return false;
-                        return true;
-                    }).ToArray();
+                    startsFiltrados = startsGrupo.Where(s => CalculadorDominioSesion.CumpleVentana(
+                        bloques[s].HoraInicio, dur, ventana.min, ventana.max)).ToArray();
 
-                    if (startsValidos.Length == 0)
+                    if (startsFiltrados.Length == 0)
                     {
                         var msg = $"HC-VH infactible: la sesión de {dur}h de la asignatura {sesion.AsignaturaId} no " +
                                   $"cabe dentro de su ventana horaria [{ventana.min:HH\\:mm}–{ventana.max:HH\\:mm}] " +
@@ -286,7 +271,7 @@ namespace SOEA.Engine.ConstraintProg
                     }
                 }
 
-                var dominio = CpDomain.FromValues(startsValidos);
+                var dominio = CpDomain.FromValues(startsFiltrados.Select(v => (long)v).ToArray());
                 foreach (var semana in Semanas)
                     model.AddLinearExpressionInDomain(startVars[(sesion.Id, semana)], dominio);
             }

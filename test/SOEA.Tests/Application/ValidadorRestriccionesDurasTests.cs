@@ -115,5 +115,174 @@ namespace SOEA.Tests.Application
 
             Assert.Empty(conflictos);
         }
+
+        // ── Reglas con ContextoValidacion (asimetría GA↔CP-SAT cerrada) ─────────────
+
+        private static Sesion CrearSesionCompleta(
+            Guid asignaturaId, Guid grupoId, decimal duracion,
+            TipoFlujo tipoFlujo = TipoFlujo.AulaVirtual, Guid? espacioFijo = null) =>
+            new(Guid.NewGuid(), asignaturaId, null, Guid.NewGuid(), espacioFijo, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, duracion, false, false,
+                tipoFlujo: tipoFlujo);
+
+        private static ContextoValidacion Contexto(
+            List<BloqueTiempo> bloques,
+            Dictionary<Guid, (TimeOnly?, TimeOnly?)>? ventanas = null,
+            Dictionary<Guid, IReadOnlyList<FranjaHoraria>>? franjas = null,
+            Dictionary<Guid, int>? estudiantes = null,
+            IEnumerable<Espacio>? espacios = null,
+            HashSet<Guid>? fijas = null) =>
+            new(bloques,
+                ventanas ?? new Dictionary<Guid, (TimeOnly?, TimeOnly?)>(),
+                franjas ?? new Dictionary<Guid, IReadOnlyList<FranjaHoraria>>(),
+                estudiantes ?? new Dictionary<Guid, int>(),
+                (espacios ?? Enumerable.Empty<Espacio>()).ToDictionary(e => e.Id),
+                fijas);
+
+        [Fact]
+        public void HCVH_SesionFueraDeVentana_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(5); // bloques desde 07:00
+            var asigId = Guid.NewGuid();
+            var s = CrearSesionCompleta(asigId, Guid.NewGuid(), 1m);
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual)
+            };
+            var ctx = Contexto(bloques, ventanas: new()
+            {
+                [asigId] = (new TimeOnly(8, 0), new TimeOnly(10, 0)) // 07:00 queda fuera
+            });
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-VH"));
+        }
+
+        [Fact]
+        public void HCVH_SesionFija_EstaExenta()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var asigId = Guid.NewGuid();
+            var s = CrearSesionCompleta(asigId, Guid.NewGuid(), 1m);
+            s.AsignarBloqueTiempo(bloques[0].Id); // como hace MapearSesionesFijas para el horario base
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual)
+            };
+            var ctx = Contexto(bloques,
+                ventanas: new() { [asigId] = (new TimeOnly(8, 0), new TimeOnly(10, 0)) },
+                fijas: new HashSet<Guid> { s.Id }); // horario base: CP-SAT tampoco le aplica dominio
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Empty(conflictos);
+        }
+
+        [Fact]
+        public void HCG01_InicioFueraDeFranja_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(5); // 07:00–12:00 → todo Matutino
+            var grupoId = Guid.NewGuid();
+            var s = CrearSesionCompleta(Guid.NewGuid(), grupoId, 1m);
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual)
+            };
+            var ctx = Contexto(bloques, franjas: new()
+            {
+                [grupoId] = new List<FranjaHoraria> { FranjaHoraria.Vespertino } // grupo solo tarde
+            });
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-G01"));
+        }
+
+        [Fact]
+        public void HCCAP_AforoInsuficiente_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var grupoId = Guid.NewGuid();
+            var espacio = new Espacio(Guid.NewGuid(), "Salón chico", TipoEspacio.Salon, 10);
+            var s = CrearSesionCompleta(Guid.NewGuid(), grupoId, 1m);
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, espacio.Id, Modalidad.Presencial)
+            };
+            var ctx = Contexto(bloques,
+                estudiantes: new() { [grupoId] = 30 },
+                espacios: new[] { espacio });
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-CAP"));
+        }
+
+        [Fact]
+        public void HCS03_LaboratorioEnSalon_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var salon = new Espacio(Guid.NewGuid(), "Salón", TipoEspacio.Salon, 30);
+            var s = CrearSesionCompleta(Guid.NewGuid(), Guid.NewGuid(), 1m, tipoFlujo: TipoFlujo.Laboratorio);
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, salon.Id, Modalidad.Presencial)
+            };
+            var ctx = Contexto(bloques, espacios: new[] { salon });
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-S03"));
+        }
+
+        [Fact]
+        public void HCS05_EspacioDistintoAlFijo_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var fijo = new Espacio(Guid.NewGuid(), "Fijo", TipoEspacio.Salon, 30);
+            var otro = new Espacio(Guid.NewGuid(), "Otro", TipoEspacio.Salon, 30);
+            var s = CrearSesionCompleta(Guid.NewGuid(), Guid.NewGuid(), 1m, espacioFijo: fijo.Id);
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, otro.Id, Modalidad.Presencial)
+            };
+            var ctx = Contexto(bloques, espacios: new[] { fijo, otro });
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-S05"));
+        }
+
+        [Fact]
+        public void ContextoCompleto_AsignacionValida_SinConflictos()
+        {
+            var (bloques, indice) = CrearGrilla(5); // 07:00..12:00
+            var asigId  = Guid.NewGuid();
+            var grupoId = Guid.NewGuid();
+            var lab = new Espacio(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 30);
+            var s = CrearSesionCompleta(asigId, grupoId, 1m, tipoFlujo: TipoFlujo.Laboratorio, espacioFijo: lab.Id);
+            var asignaciones = new[]
+            {
+                // 08:00 (bloque 1): dentro de ventana, franja Matutino, lab correcto, aforo OK.
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[1].Id, lab.Id, Modalidad.Presencial)
+            };
+            var ctx = Contexto(bloques,
+                ventanas: new() { [asigId] = (new TimeOnly(8, 0), new TimeOnly(10, 0)) },
+                franjas: new() { [grupoId] = new List<FranjaHoraria> { FranjaHoraria.Matutino } },
+                estudiantes: new() { [grupoId] = 20 },
+                espacios: new[] { lab });
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Empty(conflictos);
+        }
     }
 }
