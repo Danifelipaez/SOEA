@@ -1,10 +1,11 @@
 import { Component } from '@angular/core';
-import { RouterOutlet, RouterModule } from '@angular/router';
+import { RouterOutlet } from '@angular/router';
+import { JourneyBarComponent } from './shared/journey-bar/journey-bar.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, RouterModule],
+  imports: [RouterOutlet, JourneyBarComponent],
   templateUrl: './app.html',
   styleUrls: ['./app.css']
 })
