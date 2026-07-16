@@ -123,7 +123,10 @@ Backend de referencia: 8 controllers en `src/SOEA.API/Controllers`. Todos los en
 - UmbralConvergencia (número, default 30)
 - PesoErgo (número, default 3)
 - PesoTiempos (número, default 2)
-- PesoAlmuerzo (número, default 1)
+- PesoMaxHorasSeguidas (número, default 3; antes "PesoAlmuerzo" — pondera SC-09, rachas de >6h seguidas, no almuerzo)
+- PesoBalanceSemanas (número, default 2)
+- PesoPresencialFirst (número, default 4; informativo desde B2 — ya no afecta el ranking del GA)
+- Semilla (número entero opcional; null = producción no reproducible, fija = determinista)
 
 **Popup "Agregar sesión fija (horario base)"** — antes de generar, para fijar restricciones de igualdad que CP-SAT no mueve:
 - AsignaturaId* (select)

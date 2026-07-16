@@ -5,7 +5,7 @@
 | Entidad | Campos críticos | Notas |
 |---|---|---|
 | `Asignatura` | `Id`, `Nombre`, `Codigo`, `HorasPorSesion`, `SesionesPorSemana`, `TipoAlternancia`, `TipoEspacio`, `DocenteId?`, `Categoria`, `HoraInicioMin?`, `HoraFinMax?` | Duración fija en creación; Alternancia derivada de `sesionesLaboratorioSemestre` vs. umbral (`DeterminarAlternancia`, default 8 → TipoA; &gt;8 → TipoB; &lt;8 → SinAlternancia) o fijada manualmente vía `EstablecerAlternancia` (override de Rosa). **Andamiaje presencial-first (Etapa 1):** `Categoria` (CategoriaAsignatura, default `Obligatoria`) rige la prioridad de presencialidad; `HoraInicioMin/HoraFinMax` (nullable) son la ventana horaria por Secretaría Académica (CR-07). La lógica que los consume (SC-PRES, HC-VH) es de etapas posteriores. |
-| `BloqueTiempo` | `DiaDeSemana`, `HoraInicio`, `HoraFin`, `EsSabado` | Generado en memoria por request; Lun–Vie 07:00–20:00, Sáb 07:00–14:00 |
+| `BloqueTiempo` | `DiaDeSemana`, `HoraInicio`, `HoraFin`, `EsSabado` | Generado en memoria por request (`GrillaInstitucional`, C1 auditoría); Lun–Vie 06:00–22:00, Sáb 06:00–13:00. **Dato bloqueante (CLAUDE.md §4):** el rango real no está confirmado por Rosa — esta doc, `hard-constraints.md` (archivado) y el código traían 3 valores distintos; el valor de arriba es el que corre en producción hoy, no una confirmación. |
 | `Docente` | `Id`, `Nombre`, `Apellido`, `Correo`, `MaximoHorasSemanales`, `Disponibilidad[]` | M:N con FranjasHorarias |
 | `Espacio` | `Id`, `Nombre`, `TipoEspacio`, `Capacidad`, `Ubicacion`, `Piso` | `TipoEspacio`: Salon / Laboratorio / Auditorio |
 | `Grupo` | `Id`, `Codigo`, `NumeroEstudiantes`, `TipoAlternancia`, `ProgramaId` | Cohorte académica; determina semanas presenciales/virtuales |
@@ -57,10 +57,11 @@ El motor CP-SAT (Fase 2) las aplica todas **por semana** (A y B por separado). U
 ### Espacio
 | ID | Regla | Evaluación |
 |---|---|---|
-| HC-S01 | Un espacio no puede alojar dos sesiones presenciales simultáneas en la misma semana | por `(espacio, Semana)` |
-| HC-S02 | El total de estudiantes físicamente presentes no puede exceder la capacidad del espacio | por `(espacio, Semana)` |
-| HC-S03 | Sesión que requiere laboratorio → debe asignarse a espacio tipo Laboratorio | por sesión |
+| HC-S01 | Un espacio no puede alojar dos sesiones presenciales simultáneas en la misma semana | por `(espacio, Semana)`; re-verificada en el validador post-gen (auditoría A1) |
+| HC-CAP (ex HC-S02) | El total de estudiantes físicamente presentes no puede exceder la capacidad del espacio | candidatos filtrados en CP-SAT y en `AsignadorEspacios` (Fase 3); re-verificada en el validador post-gen (auditoría A1) — código usa el nombre `HC-CAP` |
+| HC-S03 | Sesión que requiere laboratorio → debe asignarse a espacio tipo Laboratorio | por sesión; re-verificada en el validador post-gen (auditoría A1) |
 | HC-S04 | Asignaciones virtuales no tienen espacio físico (`EspacioId = null`) | invariante de entidad |
+| HC-S05 | Si la asignatura tiene espacio fijo (`EspacioFijoId`), toda sesión presencial usa ese espacio | único candidato en CP-SAT y en `AsignadorEspacios` (auditoría A1); re-verificada en el validador post-gen |
 
 ### Docente
 > **CR-08 (Etapa 3): el docente está fuera del pipeline de generación** — se asigna *después* de generar el horario via `PATCH /api/sesiones/{id}/docente` (Etapa 4). Las hard constraints de docente (HC-I01, HC-I03) salieron de la generación; HC-C01 (cohorte) asume el rol de serialización. HC-I02 quedó degradada (Etapa 2). **En edición (Etapa 4):** solape de franja es hard (409); disponibilidad y carga son blandas (advertencias).
@@ -72,27 +73,29 @@ El motor CP-SAT (Fase 2) las aplica todas **por semana** (A y B por separado). U
 | HC-I03 | Docente no excede su máximo de horas semanales. **Fuera de generación (CR-08). En edición (Etapa 4):** carga > `MaximoHorasSemanales` → advertencia (no rechazo). | advertencia |
 
 ### Tiempo
-| ID | Regla |
-|---|---|
-| HC-T01 | Sesiones dentro del horario institucional (07:00–20:00; sábado hasta 14:00) |
-| HC-T02 | Sesiones de laboratorio no empiezan después de las 19:30 |
-| HC-T03 | Bloques de 3 h deben ser horas consecutivas en el mismo día |
-| HC-T04 | Sin sesiones en receso del mediodía (12:00–13:00) salvo permiso explícito |
-| HC-T05 | Bloques divididos no se programan en días consecutivos |
+| ID | Regla | Estado |
+|---|---|---|
+| HC-T01 | Sesiones dentro del horario institucional (06:00–22:00 L-V; sábado 06:00–13:00 — ver dato bloqueante arriba) | implícito: la grilla canónica (`GrillaInstitucional`) no genera bloques fuera de ese rango |
+| HC-T02 | Sesiones de laboratorio no empiezan después de las 19:30 | **no implementada** — sin confirmación de Rosa, de-scope explícito (C1 auditoría) |
+| HC-T03 | Bloques de 3 h deben ser horas consecutivas en el mismo día | implícito: `BloquesPlanner.CabeEnDia` no permite spans que crucen día |
+| HC-T04 | Sin sesiones en receso del mediodía (12:00–13:00) salvo permiso explícito | **no implementada** — la grilla no modela receso; de-scope explícito (C1 auditoría) |
+| HC-T05 | Bloques divididos no se programan en días consecutivos | **no implementada** (`Sesion.EsBloque`/`EstaDividida` son andamiaje sin uso) |
 
 ### Cohorte / Grupo
 > **CR-08 (Etapa 3): el grupo es el eje de no-solapamiento.** Un run de generación es una sola cohorte implícita (todas las sesiones comparten `GrupoId`), así que HC-C01 las serializa: el grupo no puede estar en dos sesiones a la vez. Se aplica en Fase 1 (arista del grafo por `GrupoId`), Fase 2 (NoOverlap por `(grupo, Semana)` — presenciales + virtuales) y el validador post-generación.
 
 | ID | Regla | Evaluación |
 |---|---|---|
-| HC-C01 | Una cohorte/grupo no puede tener dos sesiones en la misma franja (presencial o virtual) | por `(grupo, Semana)` |
-| HC-C02 | Horas totales programadas deben coincidir con la malla curricular | por cohorte |
+| HC-C01 | Una cohorte/grupo no puede tener dos sesiones en la misma franja (presencial o virtual) | por `(grupo, Semana)`; re-verificada en el validador post-gen |
+| HC-G01 | Si el grupo declara disponibilidad (Matutino/Vespertino), toda sesión inicia dentro de esa franja | dominio de inicios en las 3 fases (`CalculadorDominioSesion`, auditoría A1); re-verificada en el validador post-gen |
+| HC-C02 | Horas totales programadas deben coincidir con la malla curricular | **no implementada** (C3 auditoría) |
 
 ### Asignatura
 | ID | Regla |
 |---|---|
-| HC-SU01 | Asignaturas "siempre 8+8" → dos sesiones consecutivas de 8 h (hard constraint) |
+| ~~HC-SU01~~ | **Obsoleta (C3 auditoría, confirmado por el equipo).** El diseño cambió: TipoA/TipoB dejaron de significar "8+8 inmodificable" y pasaron a ser únicamente **tipos de alternancia semanal** (presencial una semana, virtual la otra — ver §Modelo de alternancia arriba). No hay restricción de bloques de 8h consecutivas; `Sesion.EsBloque`/`EstaDividida` son andamiaje sin uso. |
 | HC-SU02 | Asignaturas `SinAlternancia` → sesiones en todas las semanas, no solo alternas |
+| HC-VH | Si la asignatura declara `HoraInicioMin`/`HoraFinMax`, toda sesión cae dentro de esa ventana | dominio de inicios en las 3 fases (`CalculadorDominioSesion`, auditoría A1/B3); re-verificada en el validador post-gen |
 
 ---
 
@@ -100,20 +103,23 @@ El motor CP-SAT (Fase 2) las aplica todas **por semana** (A y B por separado). U
 
 Usadas en la función de fitness del algoritmo genético (Fase 3). `fitness = Σ(peso_i × violaciones_i)` — **menor es mejor**.
 
-> **CR-08 (Etapa 3): la ergonomía se mide por cohorte (grupo), no por docente** (el docente está fuera del pipeline). Los objetivos implementados en `EvaluadorFitness` — huecos (SC-01), >6h seguidas (SC-09), balance entre días de la grilla (SC-06) y balance A/B (SC-BAL) — se evalúan sobre las sesiones del **grupo**. SC-06 reparte la carga del grupo entre los días operativos de la grilla (el grupo no declara disponibilidad).
+> **CR-08 (Etapa 3): la ergonomía se mide por cohorte (grupo), no por docente** (el docente está fuera del pipeline). Los objetivos implementados en `EvaluadorFitness` — huecos (SC-01), >N horas seguidas (SC-09), balance entre días de la grilla (SC-06) y balance A/B (SC-BAL) — se evalúan sobre las sesiones del **grupo**. SC-06 reparte la carga del grupo entre los días operativos de la grilla (el grupo no declara disponibilidad).
 
-| ID | Regla | Peso |
-|---|---|---|
-| SC-01 | Horarios de la cohorte compactos (minimizar huecos inactivos) | 3 |
-| SC-02 | Horarios de cohorte compactos (minimizar huecos para estudiantes) | 3 |
-| SC-03 | Sesiones de la misma cohorte en un día sin más de 1 h de hueco | 2 |
-| SC-04 | Evitar primera sesión antes de 07:00 o última después de 19:00 | 2 |
-| SC-05 | Misma aula para misma asignatura/cohorte entre semanas (estabilidad) | 2 |
-| SC-06 | Distribuir la carga de la cohorte uniformemente entre los días de la grilla | 2 |
-| SC-07 | Minimizar número de espacios distintos que usa una cohorte en un día | 1 |
-| SC-08 | Asignaturas relacionadas (mismo programa/cohorte) en franjas adyacentes | 1 |
-| SC-09 | Evitar rachas de la cohorte de más de 6 horas seguidas | 1 |
-| SC-BAL | Balancear la carga horaria de la cohorte entre Semana A y Semana B (Incremento 2; solo aplica a `SinAlternancia`, vía `StartB`) | 2 |
+| ID | Regla | Peso | Estado |
+|---|---|---|---|
+| SC-01 | Horarios de la cohorte compactos (minimizar huecos inactivos) | 3 | implementada (`EvaluadorFitness.SC01_HuecosOciosos`) |
+| SC-02 | Horarios de cohorte compactos (minimizar huecos para estudiantes) | — | **no implementada** — duplica el objetivo de SC-01 |
+| SC-03 | Sesiones de la misma cohorte en un día sin más de 1 h de hueco | — | **no implementada** |
+| SC-04 | Evitar primera sesión antes de 07:00 o última después de 19:00 | — | **no implementada** |
+| SC-05 | Misma aula para misma asignatura/cohorte entre semanas (estabilidad) | — | **no implementada** — el aula no está en el cromosoma, se decide en un pase posterior (`AsignadorEspacios`) sin este objetivo |
+| SC-06 | Distribuir la carga de la cohorte uniformemente entre los días de la grilla | 2 | implementada (`EvaluadorFitness.SC06_BalanceEntreDias`) |
+| SC-07 | Minimizar número de espacios distintos que usa una cohorte en un día | — | **no implementada** |
+| SC-08 | Asignaturas relacionadas (mismo programa/cohorte) en franjas adyacentes | — | **no implementada** |
+| SC-09 | Evitar rachas de la cohorte de más de `UmbralHorasSeguidas` (default 6) horas seguidas | 3 (antes documentado 1 — C2 auditoría corrige el default real del motor) | implementada (`EvaluadorFitness.SC09_HorasSeguidas`) |
+| SC-BAL | Balancear la carga horaria de la cohorte entre Semana A y Semana B (solo aplica a `SinAlternancia`, vía `StartB`) | 2 | implementada (`EvaluadorFitness.SCBAL_DesbalanceEntreSemanas`) |
+| SC-PRES | Penaliza ceder presencialidad de sesiones de alta prioridad, proporcional a categoría/estructura | 4 | implementada pero **informativa desde B2 auditoría**: es constante para el conjunto de sesiones del run (el GA nunca mueve la alternancia) — se reporta aparte (`PenalizacionPresencial`), no suma al fitness |
+
+Las filas "no implementada" quedaron documentadas en incrementos anteriores como plan, nunca se codificaron en `EvaluadorFitness`; de-scope explícito, no un bug (C3 auditoría).
 
 ---
 
