@@ -4,7 +4,7 @@
 
 SOEA resuelve una variante bi-semanal del University Course Timetabling Problem (UCTP): asignar a cada sesión lógica `s` **dos asignaciones** `(t(s,A), r(s,A))` y `(t(s,B), r(s,B))` — una por semana del ciclo de alternancia — de forma que se satisfagan todas las restricciones duras en ambas semanas y se minimice la suma ponderada de violaciones de restricciones blandas. La modalidad por semana (presencial/virtual) es un dato derivado fijo de `TipoAlternancia`, no una variable de decisión. El espacio de búsqueda es combinatorio y NP-completo; se usa un pipeline de 3 fases para hacerlo tratable en la práctica (≤ 200 cohortes).
 
-> **Migración a Presencial-First (en curso).** El modelo está virando hacia un eje **asignatura + grupo + espacio** (ya no disponibilidad docente), con lógica presencial-first. La **Etapa 1** ya añadió el *soporte de datos*: `Sesion.TipoFlujo` (dos flujos schedulables), `Sesion.PatronAlternanciaId?`/`Bloqueada` (alternancia opcional por sesión) y `Asignatura.Categoria`/ventana horaria. La **Etapa 2** sacó al docente del núcleo de generación: `Sesion.DocenteId` es nullable (CR-02) y la disponibilidad docente quedó **degradada** (HC-I02). La **Etapa 3** cerró CR-08: el **grupo/cohorte** es ahora el eje de conflicto (HC-C01: grafo por grupo en Fase 1 + NoOverlap por `(grupo, semana)` en Fase 2) y de optimización (ergonomía por cohorte en Fase 3); el docente quedó **fuera del pipeline** (se asigna después de generar). Un run = una sola cohorte implícita ⇒ todas las sesiones se serializan. La **lógica restante** — HC-CAP (aforo), HC-VH (ventana), SC-PRES (prioridad por categoría), flujos/patrón por sesión, y HU-04 (editar sesión) — es de etapas posteriores. Estado y secuencia en `docs/PLAN_MAESTRO_PresencialFirst.md`.
+> **Presencial-First (implementado).** El eje del modelo es **asignatura + grupo + espacio** (no disponibilidad docente). `Sesion.TipoFlujo` distingue laboratorio de teoría (presencial/virtual, 3 tracks); `Sesion.PatronAlternanciaId?`/`Bloqueada` permiten alternancia opcional por sesión; `Asignatura.Categoria` + `HoraInicioMin/HoraFinMax` alimentan SC-PRES y HC-VH. `Sesion.DocenteId` es nullable (CR-02): el docente sale del núcleo de generación y se asigna *después* vía `PATCH /api/sesiones/{id}/docente`. El **grupo/cohorte** es el eje de conflicto (HC-C01: grafo por grupo en Fase 1 + NoOverlap por `(grupo, semana)` en Fase 2) y de optimización (ergonomía por cohorte en Fase 3). Un run = una sola cohorte implícita ⇒ todas las sesiones se serializan. **Implementado:** HC-CAP (aforo), HC-VH (ventana), HC-G01 (franja del grupo), HC-S05 (espacio fijo) — impuestas en CP-SAT (Fase 2), respetadas por el GA (Fase 3, auditoría A1) y re-verificadas en el validador post-generación junto con HC-C01/HC-S01. **HC-SU01 ("8+8" como hard constraint) es obsoleta**: TipoA/TipoB son únicamente tipos de alternancia semanal (presencial una semana, virtual la otra), no un patrón de bloques de 8h — ver `docs/domain.md`. HU-04 (editar sesión) es la única pieza pendiente de este eje. Histórico de etapas en `docs/PLAN_MAESTRO_PresencialFirst.md`.
 
 ---
 
@@ -37,6 +37,8 @@ función ConstruirGrafoConflictos(sesiones):
 ```
 
 **Hard constraints procesadas en Fase 1:** HC-C01 (cohorte — eje primario, CR-08), ALT-02/03 (alternancia espacial). El docente quedó fuera del pipeline (CR-08).
+
+**Auditoría A1/B3:** el dominio de inicios candidatos (`PrimerBloqueDisponible`) ya no es solo "cabe-en-día": usa `CalculadorDominioSesion` (Domain), la misma fuente que CP-SAT y el GA, así que respeta HC-G01 (franja del grupo) y HC-VH (ventana de la asignatura) — el warm-start nunca cae fuera del dominio que Fase 2 va a exigir. Los candidatos se recorren en orden **round-robin por día** (no ascendente puro) para no amontonar todas las sesiones el lunes por la mañana cuando el grafo es completo (cohorte única).
 
 ---
 
@@ -102,32 +104,37 @@ función ConstraintProgrammingPhase(sesiones, bloques, espacios, docentes):
         retornar InfeasibleResult
 ```
 
-**Hard constraints procesadas en Fase 2:** HC-C01 (cohorte — eje primario, CR-08), HC-S01, HC-S03, HC-S04 — evaluadas por semana. **Docente fuera de generación (CR-08):** HC-I01 (lo subsume HC-C01) y HC-I03 salieron; HC-I02 degradada (Etapa 2). El docente se asigna después de generar el horario.
+**Hard constraints procesadas en Fase 2:** HC-C01 (cohorte — eje primario, CR-08), HC-S01, HC-S03, HC-S04, HC-S05 (espacio fijo), HC-CAP (aforo), HC-G01 (franja del grupo), HC-VH (ventana de la asignatura) — evaluadas por semana. **Docente fuera de generación (CR-08):** HC-I01 (lo subsume HC-C01) y HC-I03 salieron; HC-I02 degradada (Etapa 2). El docente se asigna después de generar el horario.
 
 ---
 
 ## Fase 3 — Algoritmo genético
 
-> **Estado actual (Incremento 2):** la Fase 3 está **activa** en `GenerarHorarioService` y optimiza los objetivos blandos del docente (huecos, &gt; 6 horas seguidas, balance entre días disponibles, balance entre semanas) sobre dos genes de inicio por sesión: `CromosomaHorario.Start` (Semana A) y `StartB` (Semana B). Para TipoA/TipoB, `StartB` se mantiene igual a `Start` por construcción (ALT-05: misma franja en ambas semanas). Para `SinAlternancia`, `StartB` puede diferir de `Start` (ALT-06); la soft constraint SC-BAL penaliza el desbalance de carga horaria entre semanas que esa libertad puede introducir.
+> **Estado actual:** la Fase 3 está **activa** en `GenerarHorarioService` y optimiza los objetivos blandos de la cohorte (huecos, &gt; N horas seguidas, balance entre días, balance entre semanas) sobre dos genes de inicio por sesión: `CromosomaHorario.Start` (Semana A) y `StartB` (Semana B). Para TipoA/TipoB, `StartB` se mantiene igual a `Start` por construcción (ALT-05: misma franja en ambas semanas). Para `SinAlternancia`, `StartB` puede diferir de `Start` (ALT-06); la soft constraint SC-BAL penaliza el desbalance de carga horaria entre semanas que esa libertad puede introducir. **SC-PRES es informativo (auditoría B2):** es constante para el conjunto de sesiones del run (el GA nunca mueve la alternancia), así que se reporta aparte (`PenalizacionPresencial`) y ya no suma al fitness — antes inflaba el número sin cambiar ningún ranking.
 
 **Implementación:** `SOEA.Engine.Genetic` · `MotorGenetico`, `CromosomaHorario`, `EvaluadorFitness`, `OperadoresGeneticos`
-**Hiperparámetros:** población 50 · generaciones máx 200 · convergencia 30 generaciones sin mejora
+**Hiperparámetros:** población 50 · generaciones máx 200 · convergencia 30 generaciones sin mejora · selección por torneo (k=5)
 
 **Input:** lista de `AsignacionSemanal` de Fase 2 (pares A/B por sesión; ambas semanas siembran `Start`/`StartB`)
 **Output:** lista optimizada de `AsignacionSemanal` (fitness minimizado)
+
+**Auditoría B1 — (μ+λ) con elitismo, no steady-state.** El motor original reemplazaba solo un hijo por generación (≤200 evaluaciones útiles); ahora cada generación produce `TamañoPoblación` hijos, se unen a los padres y sobreviven los mejores `TamañoPoblación` — con la config por defecto (50×200) son ~10.000 evaluaciones, y el elitismo garantiza que el mejor fitness es monótono no-creciente generación a generación:
 
 ```pseudocode
 función GeneticAlgorithmPhase(horarioFactible):
     poblacion = InicializarPoblacion(horarioFactible, N=50)
     sinMejora = 0
     para generacion = 1 hasta 200:
-        padre1, padre2 = SeleccionTorneo(poblacion, k=3)
-        hijo = Crossover(padre1, padre2)
-        hijo = Mutar(hijo, tasaMutacion)
-        RepararRestriccionesDuras(hijo)   // codiciosa; mantiene feasibilidad
-        si Fitness(hijo) < Fitness(PeorDe(poblacion)):
-            ReemplazarPeor(poblacion, hijo)
-            sinMejora = 0
+        hijos = []
+        repetir N veces:
+            padre1, padre2 = SeleccionTorneo(poblacion, k=5)
+            hijo = Crossover(padre1, padre2)
+            hijo = Mutar(hijo, tasaMutacion)
+            RepararRestriccionesDuras(hijo)   // codiciosa; mantiene feasibilidad
+            hijos.agregar(hijo)
+        poblacion = MejoresN(poblacion + hijos, N)   // (μ+λ) con elitismo
+        si Fitness(MejorDe(poblacion)) < mejorFitness:
+            mejorFitness = Fitness(MejorDe(poblacion)); sinMejora = 0
         sino:
             sinMejora++
         si sinMejora >= 30:
@@ -136,31 +143,36 @@ función GeneticAlgorithmPhase(horarioFactible):
 
 función Fitness(cromosoma):
     score = 0
-    para cada SC con peso w en [SC-01..SC-09]:
+    para cada SC con peso w en [SC-01, SC-06, SC-09, SC-BAL]:  // SC-PRES es informativo, no suma aquí (B2)
         score += w × ContarViolaciones(cromosoma, SC)
     retornar score   // menor = mejor; 0 = óptimo
 ```
 
-**Soft constraints procesadas en Fase 3:** SC-01 a SC-09 y SC-BAL — Incremento 2 (ver `docs/domain.md` para pesos)
+**Soft constraints procesadas en Fase 3:** SC-01, SC-06, SC-09 y SC-BAL suman al fitness (ver `docs/domain.md` para pesos); SC-PRES se reporta aparte, informativo (B2).
 
 ---
 
 ## Distribución de responsabilidades entre fases
 
-| Restricción | Fase 1 | Fase 2 | Fase 3 (Inc.2) |
-|---|---|---|---|
-| Sin solapamiento de docente (HC-I01) | — | fuera de generación (CR-08): lo subsume HC-C01 | — |
-| Disponibilidad docente (HC-I02) | — | ~~CP-SAT~~ degradada (CR-08): solo blanda vía SC-06 | — |
-| Máx horas docente (HC-I03) | — | fuera de generación (CR-08): docente post-generación | — |
-| Sin solapamiento de espacio (HC-S01) | — | CP-SAT ✓ por `(espacio, semana)` | reparación |
-| Capacidad espacio (HC-S02) | — | CP-SAT ✓ | reparación |
-| Lab → espacio lab (HC-S03) | — | CP-SAT ✓ | reparación |
-| Virtual sin espacio (HC-S04) | — | invariante entidad ✓ | — |
-| Regla 9 — misma franja A/B (ALT-05) | — | CP-SAT ✓ `start[A]==start[B]` | se restaura tras cruce |
-| Sin solapamiento cohorte (HC-C01) | Grafo ✓ | CP-SAT ✓ por semana | reparación |
-| Conflicto alternancia (ALT-02/03) | Grafo ✓ | CP-SAT ✓ por semana | reparación |
-| Compacidad cohorte (SC-01) | — | — | fitness ✓ (por grupo, CR-08) |
-| Compacidad cohorte (SC-02) | — | — | fitness ✓ |
-| Uniformidad carga cohorte (SC-06) | — | — | fitness ✓ (por grupo, CR-08) |
-| Estabilidad aula (SC-05) | — | — | fitness ✓ |
-| Balance carga entre semanas (SC-BAL) | — | — | fitness ✓ (Inc.2) |
+| Restricción | Fase 1 | Fase 2 | Fase 3 | Validador post-gen |
+|---|---|---|---|---|
+| Sin solapamiento de docente (HC-I01) | — | fuera de generación (CR-08): lo subsume HC-C01 | — | — |
+| Disponibilidad docente (HC-I02) | — | ~~CP-SAT~~ degradada (CR-08): solo blanda vía SC-06 | — | — |
+| Máx horas docente (HC-I03) | — | fuera de generación (CR-08): docente post-generación | — | — |
+| Sin solapamiento de espacio (HC-S01) | — | CP-SAT ✓ por `(espacio, semana)` | `AsignadorEspacios` ✓ | ✓ |
+| Capacidad espacio / aforo (HC-CAP, ex HC-S02) | — | CP-SAT ✓ | `AsignadorEspacios` ✓ (auditoría A1) | ✓ (auditoría A1) |
+| Lab → espacio lab (HC-S03) | — | CP-SAT ✓ | `AsignadorEspacios` ✓ | ✓ (auditoría A1) |
+| Virtual sin espacio (HC-S04) | — | invariante entidad ✓ | invariante ✓ | — |
+| Espacio fijo de la asignatura (HC-S05) | — | CP-SAT ✓ | `AsignadorEspacios` ✓ (auditoría A1) | ✓ (auditoría A1) |
+| Franja del grupo (HC-G01) | Dominio ✓ (auditoría A1/B3) | CP-SAT ✓ | dominio de operadores ✓ | ✓ (auditoría A1) |
+| Ventana horaria de asignatura (HC-VH) | Dominio ✓ (auditoría A1/B3) | CP-SAT ✓ | dominio de operadores ✓ (auditoría A1) | ✓ (auditoría A1) |
+| Sesión fija del horario base (regla 8 / HC-BASE) | — | CP-SAT ✓ (igualdad) | gen congelado ✓ (auditoría A1) | ✓ (auditoría A1) |
+| Regla 9 — misma franja A/B (ALT-05) | — | CP-SAT ✓ `start[A]==start[B]` | se restaura tras cruce | — |
+| Sin solapamiento cohorte (HC-C01) | Grafo ✓ | CP-SAT ✓ por semana | reparación | ✓ |
+| Conflicto alternancia (ALT-02/03) | Grafo ✓ | CP-SAT ✓ por semana | reparación | — |
+| Compacidad cohorte (SC-01) | — | — | fitness ✓ (por grupo, CR-08) | — |
+| Uniformidad carga cohorte (SC-06) | — | — | fitness ✓ (por grupo, CR-08) | — |
+| Balance carga entre semanas (SC-BAL) | — | — | fitness ✓ | — |
+| Presencial-first (SC-PRES) | — | — | informativo, no fitness (auditoría B2) | — |
+
+**Auditoría A1:** antes el validador post-generación solo cubría HC-C01/HC-S01, así que si el GA violaba HC-VH/HC-CAP/HC-S03/HC-S05/HC-G01 nada lo detectaba y se podía publicar. Ahora `ValidadorRestriccionesDuras` re-verifica las 7 reglas sobre la salida final (más HC-BASE); si alguna falla, el pipeline hace fallback a la solución de Fase 2 (que sí las cumple todas).

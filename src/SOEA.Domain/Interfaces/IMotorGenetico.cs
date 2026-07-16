@@ -15,11 +15,18 @@ namespace SOEA.Domain.Interfaces
     /// <param name="PuntajeFitness">Fitness del mejor cromosoma (menor = mejor).</param>
     /// <param name="Generaciones">Generaciones ejecutadas.</param>
     /// <param name="UsoFallback">True si el GA devolvió la solución de Fase 2 (no pudo mejorar de forma factible).</param>
+    /// <param name="PenalizacionPresencial">
+    /// SC-PRES informativo: cuánto pesa que sesiones de alta prioridad hayan cedido presencialidad.
+    /// Es CONSTANTE para el conjunto de sesiones del run (el GA no mueve la alternancia, solo el
+    /// inicio) — por eso se reporta aparte en vez de sumarse al fitness, donde no aportaba señal
+    /// de optimización.
+    /// </param>
     public record ResultadoOptimizacion(
         IReadOnlyList<AsignacionSemanal> AsignacionesOptimizadas,
         decimal PuntajeFitness,
         int Generaciones,
-        bool UsoFallback);
+        bool UsoFallback,
+        decimal PenalizacionPresencial = 0m);
 
     /// <summary>
     /// Parámetros de ejecución del algoritmo genético y pesos de restricciones blandas.
@@ -34,7 +41,8 @@ namespace SOEA.Domain.Interfaces
         int    UmbralConvergencia   = 30,
         int    PesoErgo             = 3,   // SC-01: minimizar huecos ociosos entre sesiones
         int    PesoTiempos          = 2,   // SC-06: balancear carga entre días disponibles
-        int    PesoAlmuerzo         = 3,   // SC-09: evitar > 6 horas seguidas (blanda fuerte: domina un hueco)
+        int    PesoMaxHorasSeguidas = 3,   // SC-09: evitar > UmbralHorasSeguidas horas seguidas (blanda fuerte: domina un hueco). Antes "PesoAlmuerzo" (C2 auditoría: no pondera almuerzo, sino rachas).
+        int    UmbralHorasSeguidas  = 6,   // SC-09: máximo de horas seguidas antes de penalizar. Antes hardcodeado en EvaluadorFitness (C2 auditoría).
         int    PesoBalanceSemanas   = 2,   // SC-BAL: desbalance de carga por día entre Semana A y B (Incremento 2)
         int    PesoPresencialFirst  = 4,   // SC-PRES: penaliza ceder presencialidad de sesiones de alta prioridad
         int?   Semilla              = null);
@@ -56,6 +64,14 @@ namespace SOEA.Domain.Interfaces
         /// Por asignatura: (sesiones/semana, categoría). Alimenta SC-PRES — la penalización
         /// proporcional por ceder presencialidad de sesiones de alta prioridad. Null = sin SC-PRES.
         /// </param>
+        /// <param name="ventanaPorAsignatura">
+        /// HC-VH (hard): ventana horaria por asignatura. El GA solo moverá sesiones dentro de
+        /// [min, max] — la misma restricción que CP-SAT ya garantizó en Fase 2. Null = sin ventanas.
+        /// </param>
+        /// <param name="sesionesFijasIds">
+        /// Sesiones del horario base (regla 8): CP-SAT las fija por igualdad y el GA NO puede
+        /// moverlas — sus genes quedan congelados en la franja de Fase 2. Null = sin fijas.
+        /// </param>
         Task<ResultadoOptimizacion> OptimizarAsync(
             IEnumerable<Sesion>             sesiones,
             IEnumerable<AsignacionSemanal>  asignacionesFase2,
@@ -65,6 +81,8 @@ namespace SOEA.Domain.Interfaces
             IEnumerable<Grupo>?             grupos = null,
             ConfiguracionOptimizacion?      config = null,
             IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
+            IReadOnlySet<Guid>?             sesionesFijasIds = null,
             CancellationToken               ct = default);
     }
 }

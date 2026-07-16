@@ -16,8 +16,6 @@ namespace SOEA.Engine.Genetic
     ///   ② SC-09: penalizar rachas de > 6 horas SEGUIDAS de sesiones (restricción BLANDA fuerte).
     ///   ③ SC-06: balancear la carga de la cohorte entre los días operativos de la grilla (desviación
     ///            media absoluta sobre todos los días, contando ceros).
-    ///   ⑤ SC-PRES: penalizar proporcionalmente que sesiones de alta prioridad cedan presencialidad
-    ///            (término constante; ver <see cref="PenalizacionPresencialFirst"/>).
     /// Desde el Incremento 2, cada sesión tiene un inicio por semana (<c>Start</c>/<c>StartB</c>),
     /// así que ①②③ se calculan UNA VEZ POR SEMANA (con el arreglo de inicios correspondiente) y se
     /// suman. Para TipoA/TipoB las dos semanas son idénticas en timing (StartB==Start por
@@ -31,6 +29,12 @@ namespace SOEA.Engine.Genetic
     /// Además, una GUARDA de factibilidad de aulas (no es un objetivo blando): penaliza fuerte si en
     /// alguna (semana, día) hay más sesiones presenciales simultáneas que aulas. Mantiene al GA en la
     /// región donde el pase posterior de asignación de aulas (HC-S01) es factible.
+    ///
+    /// SC-PRES (ceder presencialidad de sesiones de alta prioridad) NO forma parte de <see cref="Evaluar"/>:
+    /// es un término constante para el conjunto de sesiones del run (el GA solo mueve Start/StartB,
+    /// nunca la alternancia — eso lo decide Application antes de generar), así que sumarlo al
+    /// fitness no cambiaba ningún ranking, solo inflaba el número reportado. Se expone aparte en
+    /// <see cref="PenalizacionPresencial"/> como métrica informativa.
     /// </summary>
     public class EvaluadorFitness
     {
@@ -45,7 +49,8 @@ namespace SOEA.Engine.Genetic
 
         private readonly int _pesoSC01;  // huecos
         private readonly int _pesoSC06;  // balance entre días
-        private readonly int _pesoSC09;  // > 6 horas seguidas
+        private readonly int _pesoSC09;  // > _umbralSC09 horas seguidas
+        private readonly int _umbralSC09; // C2 auditoría: antes hardcodeado en 6 dentro de SC09_HorasSeguidas
         private readonly int _pesoSCBAL; // balance entre semanas A/B (Incremento 2)
         private readonly int _pesoSCPRES;     // SC-PRES: ceder presencialidad de sesiones de alta prioridad
         private readonly decimal _penalSCPRES; // término SC-PRES precomputado (ver nota)
@@ -71,23 +76,26 @@ namespace SOEA.Engine.Genetic
             // CR-08: el docente sale del pipeline; el eje de ergonomía es la cohorte (GrupoId).
             // El grupo no declara disponibilidad, así que SC-06 balancea sobre los días con carga.
 
-            _pesoSC01  = config?.PesoErgo           ?? 3;
-            _pesoSC06  = config?.PesoTiempos        ?? 2;
-            _pesoSC09  = config?.PesoAlmuerzo       ?? 3;
-            _pesoSCBAL = config?.PesoBalanceSemanas ?? 2;
+            _pesoSC01  = config?.PesoErgo             ?? 3;
+            _pesoSC06  = config?.PesoTiempos          ?? 2;
+            _pesoSC09  = config?.PesoMaxHorasSeguidas ?? 3;
+            _umbralSC09 = config?.UmbralHorasSeguidas ?? 6;
+            _pesoSCBAL = config?.PesoBalanceSemanas   ?? 2;
             _pesoSCPRES = config?.PesoPresencialFirst ?? 4;
             _penalSCPRES = PenalizacionPresencialFirst(sesiones, infoAsignatura);
         }
 
-        // SC-PRES: penaliza que una sesión "ceda presencialidad" (Alternancia != SinAlternancia)
-        // proporcionalmente a su prioridad: sesión única (1/sem) o Obligatoria pesan más que la
-        // 2ª sesión de una materia con 2/sem o que una Electiva.
-        //
-        // ponytail: este término es CONSTANTE para un conjunto de sesiones dado — el GA solo mueve
-        // Start/StartB, nunca la alternancia (fijada antes en AplicarPrioridadPresencial). Por eso se
-        // precomputa una vez aquí en vez de recalcularse por cromosoma: no dirige la optimización,
-        // hace que el fitness reportado refleje la calidad presencial-first y deja el gancho listo si
-        // la alternancia llegara a ser un gen. La decisión real de quién cede vive en Application.
+        /// <summary>
+        /// SC-PRES informativo (no entra en <see cref="Evaluar"/>, ver comentario de clase):
+        /// cuánto pesa que sesiones de alta prioridad hayan cedido presencialidad, proporcional a
+        /// su prioridad — sesión única (1/sem) u Obligatoria pesan más que la 2ª sesión de una
+        /// materia con 2/sem o una Electiva.
+        /// </summary>
+        public decimal PenalizacionPresencial => _pesoSCPRES * _penalSCPRES;
+
+        // ponytail: constante para un conjunto de sesiones dado — el GA solo mueve Start/StartB,
+        // nunca la alternancia (fijada antes en AplicarPrioridadPresencial). Se precomputa una vez
+        // aquí en vez de recalcularse por cromosoma.
         private static decimal PenalizacionPresencialFirst(
             List<Sesion> sesiones,
             IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? info)
@@ -122,7 +130,6 @@ namespace SOEA.Engine.Genetic
             fitness += _pesoSC06  * (SC06_BalanceEntreDias(c.Start) + SC06_BalanceEntreDias(c.StartB));
             fitness += _pesoSC09  * (SC09_HorasSeguidas(spansA) + SC09_HorasSeguidas(spansB));
             fitness += _pesoSCBAL * SCBAL_DesbalanceEntreSemanas(c);
-            fitness += _pesoSCPRES * _penalSCPRES; // SC-PRES (constante; ver PenalizacionPresencialFirst)
             fitness += PesoFactibilidadSalas * GuardaCapacidadAulas(c);
             return fitness;
         }
@@ -164,7 +171,7 @@ namespace SOEA.Engine.Genetic
             return huecos;
         }
 
-        // ② SC-09: por cada racha contigua de sesiones, penaliza las horas que excedan de 6.
+        // ② SC-09: por cada racha contigua de sesiones, penaliza las horas que excedan _umbralSC09.
         private int SC09_HorasSeguidas(Dictionary<Guid, Dictionary<DiaDeSemana, List<(int start, int dur)>>> spansPorDocenteDia)
         {
             int penalizacion = 0;
@@ -185,12 +192,12 @@ namespace SOEA.Engine.Genetic
                         }
                         else // hay hueco: cierra la racha y abre una nueva
                         {
-                            penalizacion += Math.Max(0, (rachaFin!.Value - rachaInicio.Value) - 6);
+                            penalizacion += Math.Max(0, (rachaFin!.Value - rachaInicio.Value) - _umbralSC09);
                             rachaInicio = start; rachaFin = start + dur;
                         }
                     }
                     if (rachaInicio is not null)
-                        penalizacion += Math.Max(0, (rachaFin!.Value - rachaInicio.Value) - 6);
+                        penalizacion += Math.Max(0, (rachaFin!.Value - rachaInicio.Value) - _umbralSC09);
                 }
             return penalizacion;
         }

@@ -13,7 +13,8 @@ namespace SOEA.Engine.GraphColoring
     /// <summary>
     /// Fase 1 — Welsh-Powell duration-aware.
     /// Asigna a cada sesión un span [startIdx, startIdx+DuracionHoras) que no
-    /// cruza día y no colisiona con los spans de vecinos del grafo de conflictos.
+    /// cruza día, respeta HC-G01/HC-VH (misma fuente que CP-SAT: <see cref="CalculadorDominioSesion"/>)
+    /// y no colisiona con los spans de vecinos del grafo de conflictos.
     /// La salida sirve como warm-start para CP-SAT (no es vinculante).
     /// </summary>
     public class AgendadorColoracionGrafo : IMotorColoracionGrafo
@@ -27,14 +28,24 @@ namespace SOEA.Engine.GraphColoring
             _logger = logger;
         }
 
-        public Task<IEnumerable<Sesion>> AsignarBloquesDeTiempoAsync(IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloquesDisponibles, CancellationToken ct = default)
+        public Task<IEnumerable<Sesion>> AsignarBloquesDeTiempoAsync(
+            IEnumerable<Sesion> sesiones,
+            IEnumerable<BloqueTiempo> bloquesDisponibles,
+            IEnumerable<Grupo>? grupos = null,
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
+            CancellationToken ct = default)
         {
             var s = sesiones.ToList();
             var b = bloquesDisponibles.ToList();
-            return Task.Run<IEnumerable<Sesion>>(() => AsignarBloquesSincrono(s, b), ct);
+            var g = grupos?.ToList();
+            return Task.Run<IEnumerable<Sesion>>(() => AsignarBloquesSincrono(s, b, g, ventanaPorAsignatura), ct);
         }
 
-        private List<Sesion> AsignarBloquesSincrono(List<Sesion> sesiones, List<BloqueTiempo> bloques)
+        private List<Sesion> AsignarBloquesSincrono(
+            List<Sesion> sesiones,
+            List<BloqueTiempo> bloques,
+            List<Grupo>? grupos,
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura)
         {
             if (!sesiones.Any() || !bloques.Any())
             {
@@ -53,16 +64,39 @@ namespace SOEA.Engine.GraphColoring
             var rangosPorDia = BloquesPlanner.RangosPorDia(bloques);
             var diaPorIdx    = BloquesPlanner.DiaPorBloqueIdx(bloques);
 
-            // 3. Pre-calcular duración por sesión y starts candidatos (que caben en algún día)
+            // HC-G01: mismo cálculo de franjas por grupo que CP-SAT/GA (CalculadorDominioSesion).
+            var bloquesPermitidosPorGrupo = new Dictionary<Guid, HashSet<int>>();
+            if (grupos != null)
+            {
+                foreach (var grupo in grupos)
+                {
+                    if (grupo.Id == Guid.Empty) continue;
+                    var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.Disponibilidad);
+                    if (permitidos is not null)
+                        bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
+                }
+            }
+
+            // 3. Pre-calcular duración por sesión y starts candidatos: cabe-en-día ∩ HC-G01 ∩ HC-VH,
+            //    reordenados round-robin por día para no amontonar el warm-start en lunes temprano
+            //    (con cohorte única el grafo es completo, así que el orden de intento importa).
             var duraciones = new Dictionary<Guid, int>();
             var startsValidosPorSesion = new Dictionary<Guid, int[]>();
             foreach (var s in sesiones)
             {
                 int dur = Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
                 duraciones[s.Id] = dur;
-                startsValidosPorSesion[s.Id] = BloquesPlanner
-                    .StartsValidos(dur, bloques.Count, rangosPorDia, diaPorIdx, bloquesDisponibles: null)
-                    .ToArray();
+
+                HashSet<int>? permGrupo = null;
+                if (s.GrupoId.HasValue)
+                    bloquesPermitidosPorGrupo.TryGetValue(s.GrupoId.Value, out permGrupo);
+
+                (TimeOnly? min, TimeOnly? max) ventana = default;
+                ventanaPorAsignatura?.TryGetValue(s.AsignaturaId, out ventana);
+
+                var starts = CalculadorDominioSesion.StartsPermitidos(
+                    dur, bloques, rangosPorDia, diaPorIdx, permGrupo, ventana.min, ventana.max);
+                startsValidosPorSesion[s.Id] = OrdenarRoundRobinPorDia(starts, diaPorIdx);
             }
 
             // 4. Orden Welsh-Powell: grado DESC, romper empates por duración DESC.
@@ -70,8 +104,8 @@ namespace SOEA.Engine.GraphColoring
                 .OrderByDescending(s => grafo[s.Id].Count)
                 .ThenByDescending(s => s.DuracionHoras)
                 .ToList();
-            // 5. Coloreado: para cada sesión, buscar el primer start cuyo span
-            //    no intersecte el span de ningún vecino ya colocado.
+            // 5. Coloreado: para cada sesión, buscar el primer start (en orden round-robin por día)
+            //    cuyo span no intersecte el span de ningún vecino ya colocado.
             var bloquesOcupadosPorSesion = new Dictionary<Guid, HashSet<int>>();
             int asignadas = 0, enConflicto = 0;
             foreach (var sesion in sesionesOrdenadas)
@@ -118,6 +152,39 @@ namespace SOEA.Engine.GraphColoring
                 asignadas, enConflicto);
 
             return sesiones;
+        }
+
+        /// <summary>
+        /// Reordena los starts (ya ascendentes) intercalando por día: primero el 1er candidato de
+        /// cada día, luego el 2º de cada día, etc. Evita que first-fit amontone todas las sesiones
+        /// al inicio de la semana cuando el grafo de conflictos es completo (cohorte única).
+        /// </summary>
+        private static int[] OrdenarRoundRobinPorDia(int[] starts, DiaDeSemana[] diaPorIdx)
+        {
+            if (starts.Length == 0) return starts;
+
+            var porDia = new List<List<int>>();
+            var indicePorDia = new Dictionary<DiaDeSemana, int>();
+            foreach (var start in starts)
+            {
+                var dia = diaPorIdx[start];
+                if (!indicePorDia.TryGetValue(dia, out var idx))
+                {
+                    idx = porDia.Count;
+                    indicePorDia[dia] = idx;
+                    porDia.Add(new List<int>());
+                }
+                porDia[idx].Add(start);
+            }
+
+            var resultado = new int[starts.Length];
+            int pos = 0;
+            for (int col = 0; pos < resultado.Length; col++)
+                foreach (var dia in porDia)
+                    if (col < dia.Count)
+                        resultado[pos++] = dia[col];
+
+            return resultado;
         }
     }
 }

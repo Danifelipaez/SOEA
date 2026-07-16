@@ -216,5 +216,87 @@ namespace SOEA.Tests.Engine.Genetic
             Assert.All(r.AsignacionesOptimizadas.Where(a => a.Modalidad == Modalidad.Presencial),
                 a => Assert.NotNull(a.EspacioId));
         }
+
+        // HC-S05: si la sesión trae espacio fijo, el pase de aulas del GA debe usar ESE espacio,
+        // no el primero libre (mismo criterio que CP-SAT en Fase 2).
+        [Fact]
+        public async Task EspacioFijo_ElPaseDeAulasLoRespeta()
+        {
+            var espacioA = new Espacio(Guid.NewGuid(), "Salón A", TipoEspacio.Salon, 30);
+            var espacioB = new Espacio(Guid.NewGuid(), "Salón B", TipoEspacio.Salon, 30);
+            var espacios = new List<Espacio> { espacioA, espacioB };
+            var bloques  = Grilla(6);
+
+            // Teoría presencial con espacio fijo = B (el greedy sin HC-S05 elegiría A, el primero).
+            var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), espacioB.Id, null,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false,
+                tipoFlujo: TipoFlujo.AulaVirtual);
+            var sesiones = new List<Sesion> { sesion };
+            var fase2 = new List<AsignacionSemanal>
+            {
+                new(Guid.NewGuid(), sesion.Id, SemanaAcademica.A, bloques[0].Id, espacioB.Id, Modalidad.Presencial),
+                new(Guid.NewGuid(), sesion.Id, SemanaAcademica.B, bloques[0].Id, espacioB.Id, Modalidad.Presencial),
+            };
+
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(), config: Cfg());
+
+            Assert.False(r.UsoFallback);
+            Assert.All(r.AsignacionesOptimizadas.Where(a => a.Modalidad == Modalidad.Presencial),
+                a => Assert.Equal(espacioB.Id, a.EspacioId));
+        }
+
+        // HC-CAP: espacio con aforo insuficiente para el grupo no es candidato. Con un único
+        // espacio demasiado chico, el pase de aulas es infactible → fallback a Fase 2.
+        [Fact]
+        public async Task AforoInsuficiente_HaceFallbackAFase2()
+        {
+            var grupoId  = Guid.NewGuid();
+            var espacios = new List<Espacio> { new(Guid.NewGuid(), "Salón chico", TipoEspacio.Salon, 10) };
+            var bloques  = Grilla(6);
+            var grupo = new Grupo(grupoId, "Cohorte", Guid.Empty, 1, estudiantesInscritos: 40,
+                disponibilidad: new List<FranjaHoraria>());
+
+            var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false,
+                tipoFlujo: TipoFlujo.AulaVirtual);
+            var sesiones = new List<Sesion> { sesion };
+            var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
+
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+                grupos: new List<Grupo> { grupo }, config: Cfg());
+
+            Assert.True(r.UsoFallback);
+        }
+
+        // B1: el GA pasó de steady-state (1 hijo/generación) a (μ+λ) con elitismo — cada
+        // generación produce TamañoPoblacion hijos y sobreviven los mejores. El elitismo
+        // garantiza que el mejor fitness es MONÓTONO NO CRECIENTE con más generaciones: correr
+        // más generaciones nunca puede terminar peor que correr menos, con la misma semilla
+        // (misma secuencia de números aleatorios hasta el punto en que divergen).
+        [Fact]
+        public async Task MasGeneraciones_NuncaEmpeoraElFitness_ComparadoConMenos()
+        {
+            var grupoId  = Guid.NewGuid();
+            var bloques  = Grilla(10); // un día, 10 bloques (07:00–17:00)
+            var espacios = new List<Espacio>();
+            // 3 sesiones virtuales de la misma cohorte, sembradas con huecos grandes entre sí
+            // (0, 4, 8): hay margen real de mejora en SC-01 (huecos) para más generaciones.
+            var sesiones = Enumerable.Range(0, 3)
+                .Select(_ => new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
+                    TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false))
+                .ToList();
+            var fase2 = Fase2(sesiones, new[] { 0, 4, 8 }, bloques, espacios);
+
+            ConfiguracionOptimizacion Cfg(int maxGen) => new(
+                TamañoPoblacion: 20, MaxGeneraciones: maxGen, UmbralConvergencia: 1000, Semilla: 42);
+
+            var pocasGen = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+                grupos: null, config: Cfg(1));
+            var masGen = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+                grupos: null, config: Cfg(50));
+
+            Assert.True(masGen.PuntajeFitness <= pocasGen.PuntajeFitness,
+                $"50 generaciones dio fitness {masGen.PuntajeFitness}, peor que 1 generación ({pocasGen.PuntajeFitness}).");
+        }
     }
 }

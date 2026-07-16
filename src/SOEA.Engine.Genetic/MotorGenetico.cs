@@ -40,6 +40,8 @@ namespace SOEA.Engine.Genetic
             IEnumerable<Grupo>?            grupos = null,
             ConfiguracionOptimizacion?     config = null,
             IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
+            IReadOnlySet<Guid>?            sesionesFijasIds = null,
             CancellationToken              ct = default)
         {
             var s  = sesiones.ToList();
@@ -50,7 +52,7 @@ namespace SOEA.Engine.Genetic
             var g  = grupos?.ToList();
             var c  = config ?? new ConfiguracionOptimizacion();
             var ia = infoAsignatura ?? new Dictionary<Guid, (int, CategoriaAsignatura)>();
-            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, g, c, ia, ct), ct);
+            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, g, c, ia, ventanaPorAsignatura, sesionesFijasIds, ct), ct);
         }
 
         private ResultadoOptimizacion OptimizarSincrono(
@@ -62,6 +64,8 @@ namespace SOEA.Engine.Genetic
             List<Grupo>?            grupos,
             ConfiguracionOptimizacion config,
             IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)> infoAsignatura,
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura,
+            IReadOnlySet<Guid>?     sesionesFijasIds,
             CancellationToken ct)
         {
             if (sesiones.Count == 0 || bloques.Count == 0)
@@ -91,7 +95,8 @@ namespace SOEA.Engine.Genetic
             var sesionIds = sesiones.Select(s => s.Id).ToArray();
             var semilla = new CromosomaHorario(sesionIds, startSemilla, startBSemilla);
 
-            var operadores = new OperadoresGeneticos(sesiones, bloques, docentes, rng, grupos);
+            var operadores = new OperadoresGeneticos(sesiones, bloques, docentes, rng, grupos,
+                ventanaPorAsignatura, sesionesFijasIds);
             var evaluador  = new EvaluadorFitness(sesiones, bloques, docentes, espacios, config, infoAsignatura);
 
             _logger.LogInformation("Fase 3 (Genético): {S} sesiones, población={P}, maxGen={G}.",
@@ -112,23 +117,34 @@ namespace SOEA.Engine.Genetic
             decimal mejorFitness = poblacion.Min(p => p.fitness);
             int sinMejora = 0, generacionFinal = 0;
 
-            // ── Ciclo generacional (estado estable: reemplaza al peor) ───────────────────
+            // ── Ciclo generacional (μ+λ) con elitismo ─────────────────────────────────────
+            // Cada generación produce TamañoPoblacion hijos (no uno solo); se unen a los padres
+            // y sobreviven los TamañoPoblacion mejores. El elitismo garantiza que mejorFitness es
+            // monótono no-creciente: nunca se pierde el mejor cromosoma visto. Con la config por
+            // defecto (50 × 200) esto da 10.000 evaluaciones en vez de las ≤200 del steady-state
+            // anterior (1 hijo/generación) — el cuello de botella era presupuesto, no algoritmo.
             for (int gen = 1; gen <= maxGeneraciones; gen++)
             {
                 ct.ThrowIfCancellationRequested();
-                var p1 = operadores.SeleccionTorneo(poblacion, TamañoTorneo);
-                var p2 = operadores.SeleccionTorneo(poblacion, TamañoTorneo);
-                var hijo = operadores.Cruce(p1, p2, probCruce);
-                operadores.Mutar(hijo, probMutacion);
-                operadores.Reparar(hijo);
-                var fitnessHijo = evaluador.Evaluar(hijo);
 
-                int peorIdx = Enumerable.Range(0, poblacion.Count).MaxBy(i => poblacion[i].fitness);
+                var hijos = new List<(CromosomaHorario cromosoma, decimal fitness)>(tamañoPoblacion);
+                for (int i = 0; i < tamañoPoblacion; i++)
+                {
+                    var p1 = operadores.SeleccionTorneo(poblacion, TamañoTorneo);
+                    var p2 = operadores.SeleccionTorneo(poblacion, TamañoTorneo);
+                    var hijo = operadores.Cruce(p1, p2, probCruce);
+                    operadores.Mutar(hijo, probMutacion);
+                    operadores.Reparar(hijo);
+                    hijos.Add((hijo, evaluador.Evaluar(hijo)));
+                }
 
-                if (fitnessHijo < poblacion[peorIdx].fitness)
-                    poblacion[peorIdx] = (hijo, fitnessHijo);
+                poblacion = poblacion.Concat(hijos)
+                    .OrderBy(p => p.fitness)
+                    .Take(tamañoPoblacion)
+                    .ToList();
 
-                if (fitnessHijo < mejorFitness) { mejorFitness = fitnessHijo; sinMejora = 0; }
+                var mejorGen = poblacion[0].fitness; // ya ordenada: el primero es el mínimo
+                if (mejorGen < mejorFitness) { mejorFitness = mejorGen; sinMejora = 0; }
                 else sinMejora++;
 
                 generacionFinal = gen;
@@ -141,23 +157,33 @@ namespace SOEA.Engine.Genetic
 
             var mejor = poblacion.MinBy(p => p.fitness).cromosoma;
 
+            // SC-PRES informativo: constante para el conjunto de sesiones del run (ver EvaluadorFitness).
+            var penalizacionPresencial = evaluador.PenalizacionPresencial;
+
             // ── Verificación HC-C01 + asignación de aulas; si falla → fallback a Fase 2 ───
             if (TieneSolapeGrupo(mejor, sesiones, duraciones, diaPorIdx))
             {
                 _logger.LogWarning("Fase 3: el mejor cromosoma tiene solape residual de cohorte; fallback a Fase 2.");
-                return new ResultadoOptimizacion(asignacionesFase2, mejorFitness, generacionFinal, UsoFallback: true);
+                return new ResultadoOptimizacion(asignacionesFase2, mejorFitness, generacionFinal, UsoFallback: true, penalizacionPresencial);
             }
 
-            var aulas = AsignadorEspacios.Asignar(sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx);
+            // HC-CAP: aforo requerido por sesión = estudiantes inscritos de su grupo.
+            var estudiantesPorGrupo = (grupos ?? new List<Grupo>())
+                .Where(gr => gr.Id != Guid.Empty)
+                .GroupBy(gr => gr.Id)
+                .ToDictionary(gr => gr.Key, gr => gr.First().EstudiantesInscritos);
+
+            var aulas = AsignadorEspacios.Asignar(
+                sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx, estudiantesPorGrupo);
             if (aulas is null)
             {
                 _logger.LogWarning("Fase 3: no hay asignación de aulas factible para el mejor cromosoma; fallback a Fase 2.");
-                return new ResultadoOptimizacion(asignacionesFase2, mejorFitness, generacionFinal, UsoFallback: true);
+                return new ResultadoOptimizacion(asignacionesFase2, mejorFitness, generacionFinal, UsoFallback: true, penalizacionPresencial);
             }
 
             var asignacionesGA = Decodificar(sesiones, mejor, bloques, aulas);
             _logger.LogInformation("Fase 3 completada. Generaciones={G}, Fitness={F}.", generacionFinal, mejorFitness);
-            return new ResultadoOptimizacion(asignacionesGA, mejorFitness, generacionFinal, UsoFallback: false);
+            return new ResultadoOptimizacion(asignacionesGA, mejorFitness, generacionFinal, UsoFallback: false, penalizacionPresencial);
         }
 
         // Inicios semilla desde la Semana A de Fase 2 (Start). Regla 9: A y B comparten franja en

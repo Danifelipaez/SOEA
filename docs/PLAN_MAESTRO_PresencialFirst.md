@@ -2,7 +2,7 @@
 
 > **Fuente única de verdad del progreso** del cambio de rumbo descrito en
 > `docs/CambioDeRumbo_AsignaturaGrupo_PresencialFirst.md`.
-> Cada etapa actualiza este archivo al cerrar. Última actualización: **2026-06-20 (cierre Etapa 4)**.
+> Cada etapa actualiza este archivo al cerrar. Última actualización: **2026-07-11 (cierre Etapa 5 — auditoría matemática A/B/C)**.
 
 El cambio es estructural y grande, así que se ejecuta **segmentado en etapas** para evitar romper el pipeline. Regla de oro: cada etapa debe dejar la solución compilando y con los tests verdes.
 
@@ -17,11 +17,11 @@ El cambio es estructural y grande, así que se ejecuta **segmentado en etapas** 
 |---|---|:--:|:--:|:--:|---|
 | CR-01 | `Grupo` de primera clase (aforo) | ✅ (ya existía) | — | — | 🚫 nº estudiantes (§8) |
 | CR-02 | `Sesion.DocenteId` nullable; docente fuera del pipeline + asignación post-gen | ✅ | ✅ | ✅ E3+E4 | — |
-| CR-03 | Dos flujos (`TipoFlujo`) | ✅ datos | — | ⏳ lógica de programación por flujo | — |
-| CR-04 | Alternancia opcional por sesión (`PatronAlternanciaId`, `Bloqueada`) | ✅ datos | — | ⏳ uso en optimizador | 🚫 matriz de patrones (§8) |
-| CR-05 | Prioridad por `Categoria` | ✅ datos | — | ⏳ SC-PRES en `EvaluadorFitness` | 🟡 clasificación (malla) |
-| CR-06 | Aforo `Espacio.Capacidad >= Grupo.Estudiantes` | — | — | ⏳ HC-CAP en CP-SAT | 🚫 aforos (§8) |
-| CR-07 | Ventana horaria por asignatura | ✅ datos | — | ⏳ HC-VH/SC-VH (decidir hard/soft, §11) | — |
+| CR-03 | Dos flujos (`TipoFlujo`) | ✅ datos | — | ✅ E1 (3 tracks: teoría presencial/virtual + laboratorio, `MapearSesionesIniciales`) | — |
+| CR-04 | Alternancia opcional por sesión (`PatronAlternanciaId`, `Bloqueada`) | ✅ datos | — | ✅ (`AplicarPrioridadPresencial` respeta `Bloqueada`; alternancia solo en el track de laboratorio) | — |
+| CR-05 | Prioridad por `Categoria` | ✅ datos | — | ✅ SC-PRES en `EvaluadorFitness` (**informativa desde auditoría B2** — no afecta el ranking del GA, solo se reporta) | — |
+| CR-06 | Aforo `Espacio.Capacidad >= Grupo.Estudiantes` | — | — | ✅ HC-CAP en CP-SAT + `AsignadorEspacios` + validador post-gen (auditoría A1) | — |
+| CR-07 | Ventana horaria por asignatura | ✅ datos | — | ✅ HC-VH — decidida **hard**, en CP-SAT + dominio del GA + validador post-gen (auditoría A1/B3) | — |
 | CR-08 | Quitar disponibilidad docente del núcleo; grafo por grupo | — | 🔄 HC-I02 degradada | ✅ E3 (eje de grupo, HC-C01) | — |
 
 ---
@@ -99,17 +99,32 @@ HC-I01 (solape físico) → **duro** (409). HC-I02 (disponibilidad) y HC-I03 (ca
 
 ---
 
-## Pendiente (resumen por etapa siguiente)
+## Etapa 5 — Auditoría matemática del pipeline ✅ (cerrada 2026-07-11)
 
-### Etapa 5+ — Lógica de motores (CR-03, CR-04, CR-05, CR-06, CR-07)
-- HC-CAP (aforo) y HC-VH (ventana horaria) en `MotorConstraintProgramming`.
-- SC-PRES (prioridad por categoría) en `EvaluadorFitness`.
-- Programación independiente por `TipoFlujo`; uso de `PatronAlternanciaId`/`Bloqueada` en presencial-first.
-- Ventana horaria en el DTO/API (HU-01), exponer `TipoFlujo`/`PatronAlternanciaId` en respuestas.
+**Objetivo:** cerrar CR-05/CR-06/CR-07 (que este plan traía como "Etapa 5+ pendiente" pero ya estaban implementados sin actualizar aquí) y corregir vacíos de corrección/optimización encontrados en una auditoría end-to-end del pipeline de 3 fases. Fases A (corrección) → B (optimización) → C (deuda), ~255 tests verdes al cierre.
 
-### Decisiones abiertas (§11 del change spec) — NO asumir
+### Fase A — Corrección
+- **A1:** `SOEA.Domain.Services.CalculadorDominioSesion` — fuente única de HC-G01 (franja de grupo) + HC-VH (ventana), consumida por Fase 1, Fase 2 y el GA (antes cada motor la calculaba distinto y el GA/validador ni la conocían). `ValidadorRestriccionesDuras` pasó de validar 2 reglas (HC-C01, HC-S01) a 7 (+ HC-VH, HC-G01, HC-CAP, HC-S03, HC-S05, HC-BASE) sobre la salida final del GA. `AsignadorEspacios` (Fase 3) ahora respeta HC-S05 (espacio fijo) y HC-CAP (aforo), que antes ignoraba.
+- **A2:** `MapearSesionesFijas` ya no descarta en silencio una sesión del horario base cuyo día/hora no calza con la grilla — reporta `[WARN]` en los logs y un conteo en la respuesta.
+- **A3:** HC-SU01 ("8+8" como hard constraint) confirmada **obsoleta** — ver `docs/domain.md`.
+
+### Fase B — Optimización
+- **B1:** el GA pasó de steady-state (1 hijo/generación, ≤200 evaluaciones) a (μ+λ) con elitismo (`TamañoPoblación` hijos/generación, ~10.000 evaluaciones con la config por defecto), con mejor fitness monótono no-creciente garantizado.
+- **B2:** SC-PRES dejó de sumar al fitness (era una constante para el conjunto de sesiones del run — no dirigía ninguna optimización); se reporta aparte como `PenalizacionPresencial`.
+- **B3:** Fase 1 (`AgendadorColoracionGrafo`) usa `CalculadorDominioSesion` (antes ignoraba HC-G01/HC-VH) y recorre candidatos en round-robin por día (antes amontonaba todo el lunes por la mañana, dado que con cohorte única el grafo de conflictos es completo).
+- **B4:** `MapearConfiguracion` ya no descarta `PesoBalanceSemanas`, `PesoPresencialFirst` ni `Semilla` del DTO — la ejecución es reproducible si el frontend fija una semilla.
+
+### Fase C — Deuda
+- **C1:** grilla horaria extraída a `SOEA.Domain.Services.GrillaInstitucional` (fuente única); el rango real (06:00–22:00 L-V / 06:00–13:00 Sáb) sigue siendo un **dato bloqueante sin confirmar por Rosa** — no se inventó un valor nuevo. HC-T02/HC-T04 quedan de-scope explícito hasta esa confirmación.
+- **C2:** `PesoAlmuerzo` → `PesoMaxHorasSeguidas` (no pondera almuerzo, pondera SC-09: rachas de >N horas); el umbral de horas (antes hardcodeado en 6) es ahora `UmbralHorasSeguidas` configurable.
+- **C3:** este archivo, `docs/domain.md` y `docs/algorithms.md` actualizados al estado real.
+
+### Decisiones que quedaron cerradas (antes en §11 del change spec)
+1. Ratificación de la relajación de Tipo A — **resuelto:** TipoA/TipoB son tipos de alternancia semanal, no un patrón de 8+8. HC-SU01 obsoleta.
+2. Ventana horaria (CR-07) — **resuelto: hard** (HC-VH).
+
+### Decisiones que siguen abiertas — NO asumir
 1. Fuente del nº de estudiantes por grupo.
 2. `Categoria` (obligatoria/optativa/electiva) ¿reemplaza o coexiste con niveles 1/2/3 de Rosa?
-3. Ratificación de la relajación de Tipo A (Profe Rafa).
-4. Ventana horaria (CR-07): ¿hard (HC-VH) o soft (SC-VH)?
-5. ~~Alcance del piloto: ¿Química General único o conjunto completo?~~ — **Resuelto:** conjunto completo de programas de la Universidad del Magdalena.
+3. Rango horario institucional real (dato bloqueante, ver C1 arriba).
+4. HC-T02 (labs no después de 19:30) y HC-T04 (receso 12:00–13:00): ¿aplican? Sin confirmación, no implementadas.

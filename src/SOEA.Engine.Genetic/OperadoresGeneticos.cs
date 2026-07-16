@@ -12,8 +12,12 @@ namespace SOEA.Engine.Genetic
     /// inicio: <c>Start</c> (Semana A) y <c>StartB</c> (Semana B). Invariantes preservados por
     /// construcción:
     ///   I1: todo inicio elegido pertenece a <see cref="_startsValidos"/>[i] = cabe-en-día ∩
-    ///       franja disponible del grupo (HC-G01). El docente NO restringe el dominio.
-    ///       Mutación, cruce y perturbación solo eligen de ahí, para AMBOS genes.
+    ///       franja disponible del grupo (HC-G01) ∩ ventana horaria de la asignatura (HC-VH) —
+    ///       calculado por <see cref="CalculadorDominioSesion"/>, la misma fuente que CP-SAT.
+    ///       El docente NO restringe el dominio. Mutación, cruce y perturbación solo eligen de
+    ///       ahí, para AMBOS genes. Si el dominio de una sesión queda vacío, su gen se CONGELA
+    ///       en el valor semilla de Fase 2 (ningún operador lo mueve): nunca se abre el dominio
+    ///       completo, porque eso podría violar HC-G01/HC-VH.
     ///   Regla 9 / ALT-05: para TipoA/TipoB, <c>StartB[i] == Start[i]</c> siempre — los operadores
     ///       solo mueven StartB de forma independiente para SinAlternancia (ALT-06);
     ///       <see cref="Reparar"/> re-sincroniza incondicionalmente el resto en cada llamada.
@@ -33,30 +37,24 @@ namespace SOEA.Engine.Genetic
             List<BloqueTiempo> bloques,
             IReadOnlyList<Docente> docentes,
             Random rng,
-            IReadOnlyList<Grupo>? grupos = null)
+            IReadOnlyList<Grupo>? grupos = null,
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
+            IReadOnlySet<Guid>? sesionesFijasIds = null)
         {
             _sesiones  = sesiones;
             _rng       = rng;
             _diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
             var rangos = BloquesPlanner.RangosPorDia(bloques);
 
-            // HC-G01: índice de disponibilidad por GrupoId (coherencia con CP-SAT Fase 2).
+            // HC-G01: índice de disponibilidad por GrupoId (misma fuente que CP-SAT Fase 2).
             var bloquesPermitidosPorGrupo = new Dictionary<Guid, HashSet<int>>();
             if (grupos != null)
             {
                 foreach (var grupo in grupos)
                 {
-                    if (grupo.Id == Guid.Empty || grupo.Disponibilidad.Count == 0) continue;
-                    var permiteMatutino   = grupo.Disponibilidad.Contains(FranjaHoraria.Matutino);
-                    var permiteVespertino = grupo.Disponibilidad.Contains(FranjaHoraria.Vespertino);
-                    var permitidos = new HashSet<int>();
-                    for (int idx = 0; idx < bloques.Count; idx++)
-                    {
-                        var hora = bloques[idx].HoraInicio;
-                        if (permiteMatutino   && hora.Hour < 12) permitidos.Add(idx);
-                        if (permiteVespertino && hora.Hour >= 12) permitidos.Add(idx);
-                    }
-                    if (permitidos.Count > 0)
+                    if (grupo.Id == Guid.Empty) continue;
+                    var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.Disponibilidad);
+                    if (permitidos is not null)
                         bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
                 }
             }
@@ -69,22 +67,27 @@ namespace SOEA.Engine.Genetic
                 _duraciones[i]      = Math.Max(1, (int)Math.Ceiling(sesiones[i].DuracionHoras));
                 _esIndependiente[i] = sesiones[i].Alternancia == TipoAlternancia.SinAlternancia;
 
-                // Disponibilidad docente ya no confina los inicios (CR-08).
-                // HC-G01: sí confina cuando el grupo declara disponibilidad.
-                var todosStarts = BloquesPlanner
-                    .StartsValidos(_duraciones[i], bloques.Count, rangos, _diaPorIdx, bloquesDisponibles: null);
+                // Regla 8 (horario base): las sesiones fijas NO se mueven — dominio vacío = gen
+                // congelado en la franja que Fase 2 fijó por igualdad.
+                if (sesionesFijasIds?.Contains(sesiones[i].Id) == true)
+                {
+                    _startsValidos[i] = Array.Empty<int>();
+                    continue;
+                }
 
-                if (sesiones[i].GrupoId.HasValue &&
-                    bloquesPermitidosPorGrupo.TryGetValue(sesiones[i].GrupoId.Value, out var perm))
-                {
-                    _startsValidos[i] = todosStarts.Where(s => perm.Contains(s)).ToArray();
-                    if (_startsValidos[i].Length == 0)
-                        _startsValidos[i] = todosStarts.ToArray(); // fallback: no dejar sin opciones
-                }
-                else
-                {
-                    _startsValidos[i] = todosStarts.ToArray();
-                }
+                HashSet<int>? permGrupo = null;
+                if (sesiones[i].GrupoId.HasValue)
+                    bloquesPermitidosPorGrupo.TryGetValue(sesiones[i].GrupoId.Value, out permGrupo);
+
+                (TimeOnly? min, TimeOnly? max) ventana = default;
+                ventanaPorAsignatura?.TryGetValue(sesiones[i].AsignaturaId, out ventana);
+
+                // Dominio = cabe-en-día ∩ HC-G01 ∩ HC-VH. Si queda vacío, el gen se congela en
+                // su valor actual (la semilla de Fase 2, ya factible): ningún operador elige de
+                // un arreglo vacío, así que la sesión simplemente no se mueve.
+                _startsValidos[i] = CalculadorDominioSesion.StartsPermitidos(
+                    _duraciones[i], bloques, rangos, _diaPorIdx,
+                    permGrupo, ventana.min, ventana.max);
             }
         }
 
@@ -180,13 +183,15 @@ namespace SOEA.Engine.Genetic
         // haber chocado ya en A).
         public void Reparar(CromosomaHorario cromosoma)
         {
-            RepararSemana(cromosoma.Start, movible: _ => true);
+            // Un gen con dominio vacío (sesión fija del horario base o dominio infactible) es un
+            // obstáculo: se registra primero y los demás se reparan alrededor de él.
+            RepararSemana(cromosoma.Start, movible: i => _startsValidos[i].Length > 0);
 
             for (int i = 0; i < cromosoma.CantidadGenes; i++)
                 if (!_esIndependiente[i])
                     cromosoma.StartB[i] = cromosoma.Start[i];
 
-            RepararSemana(cromosoma.StartB, movible: i => _esIndependiente[i]);
+            RepararSemana(cromosoma.StartB, movible: i => _esIndependiente[i] && _startsValidos[i].Length > 0);
         }
 
         private void RepararSemana(int[] starts, Func<int, bool> movible)

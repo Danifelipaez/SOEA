@@ -136,7 +136,7 @@ GenerarHorarioService.EjecutarAsync()
                └─► PostgreSQL (tablas Sesiones + Horarios + AsignacionesSemanales)
 ```
 
-`BloqueTiempo` se genera en memoria por request (Lun–Vie 06:00–22:00, Sáb 06:00–13:00) — no tiene tabla propia en BD.
+`BloqueTiempo` se genera en memoria por request vía `SOEA.Domain.Services.GrillaInstitucional` (Lun–Vie 06:00–22:00, Sáb 06:00–13:00 — dato bloqueante sin confirmar por Rosa, ver `docs/domain.md`) — no tiene tabla propia en BD.
 
 La respuesta `SesionGeneradaDto` incluye el campo `Semana` (`"A"` / `"B"`); cada sesión lógica produce **dos entradas** en `GenerarHorarioResponse.Sesiones`.
 

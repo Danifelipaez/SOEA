@@ -59,7 +59,15 @@ namespace SOEA.Application.Features.Horario.Requests
         public int    UmbralConvergencia   { get; set; } = 30;
         public int    PesoErgo             { get; set; } = 3;
         public int    PesoTiempos          { get; set; } = 2;
-        public int    PesoAlmuerzo         { get; set; } = 1;
+        // Antes "PesoAlmuerzo" (C2 auditoría: no pondera almuerzo, sino rachas de >6h — SC-09).
+        // Default antes 1, en desacuerdo con el default real del motor (3) — B4 auditoría.
+        public int    PesoMaxHorasSeguidas { get; set; } = 3;
+        /// <summary>SC-BAL: desbalance de carga por día entre Semana A y B. Antes se descartaba en el mapeo (B4).</summary>
+        public int    PesoBalanceSemanas   { get; set; } = 2;
+        /// <summary>SC-PRES informativo (B2): pondera la métrica reportada, ya no afecta el ranking del GA. Antes se descartaba en el mapeo (B4).</summary>
+        public int    PesoPresencialFirst  { get; set; } = 4;
+        /// <summary>Semilla del RNG. Null = aleatoria (producción); fija = reproducible. Antes se descartaba en el mapeo (B4).</summary>
+        public int?   Semilla              { get; set; }
     }
 
     public class AsignaturaDto
