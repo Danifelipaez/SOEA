@@ -41,9 +41,11 @@ namespace SOEA.Infrastructure.Data.Migrations
 
             // 2b. Toda asignatura con docente que aún no tenga un grupo con ese docente
             //     obtiene uno nuevo (así ningún docente asignado se pierde al borrar la columna).
+            //     "semestre" todavía es NOT NULL en este punto (se elimina en el paso 4) — se le
+            //     pone 1 aquí solo para satisfacer la restricción; la columna desaparece después.
             migrationBuilder.Sql(@"
-                INSERT INTO ""Grupos"" (id, nombre, programa_id, asignatura_id, docente_id, estudiantes_inscritos, alternancia)
-                SELECT gen_random_uuid(), a.nombre || ' - Grupo 1', a.programa_id, a.id, a.docente_id, 30, a.alternancia
+                INSERT INTO ""Grupos"" (id, nombre, programa_id, asignatura_id, docente_id, estudiantes_inscritos, alternancia, semestre)
+                SELECT gen_random_uuid(), a.nombre || ' - Grupo 1', a.programa_id, a.id, a.docente_id, 30, a.alternancia, 1
                 FROM ""Asignaturas"" a
                 WHERE a.docente_id IS NOT NULL
                   AND NOT EXISTS (

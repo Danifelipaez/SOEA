@@ -75,12 +75,12 @@ interface AsignaturaFila {
           <div class="prog-group">
             <div class="prog-head"><span>{{ grupo.programa }}</span><span class="text-muted">{{ grupo.filas.length }} asignatura(s)</span></div>
             <table class="table">
-              <thead><tr><th style="width:42%">Asignatura</th><th>Docente</th><th style="width:210px">Tipo de alternancia</th><th style="width:70px">Estado</th></tr></thead>
+              <thead><tr><th style="width:42%">Asignatura</th><th>Docentes (grupos)</th><th style="width:210px">Tipo de alternancia</th><th style="width:70px">Estado</th></tr></thead>
               <tbody>
                 @for (fila of grupo.filas; track fila.asignatura.id) {
                   <tr [class.guardando]="fila.guardando">
                     <td><b>{{ fila.asignatura.nombre }}</b> @if (fila.asignatura.codigo) { <span class="text-muted" style="font-size:11px">· {{ fila.asignatura.codigo }}</span> }</td>
-                    <td class="text-muted">{{ nombreDocente(fila.asignatura.docenteId) }}</td>
+                    <td class="text-muted">{{ docentesDeAsignatura(fila.asignatura.id) }}</td>
                     <td>
                       <select class="input" style="min-height:30px;padding:4px 8px"
                               [ngModel]="fila.asignatura.alternancia || 'SinAlternancia'"
@@ -151,7 +151,7 @@ export class AlternanciaTabComponent implements OnInit {
     const f = this.filtro().toLowerCase().trim();
     return this.filas()
       .map(fila => ({ ...fila, guardando: this.guardandoSet().has(fila.asignatura.id), error: this.errorMap().get(fila.asignatura.id) ?? null }))
-      .filter(fila => !f || fila.asignatura.nombre.toLowerCase().includes(f) || this.nombreDocente(fila.asignatura.docenteId).toLowerCase().includes(f));
+      .filter(fila => !f || fila.asignatura.nombre.toLowerCase().includes(f) || this.docentesDeAsignatura(fila.asignatura.id).toLowerCase().includes(f));
   });
 
   gruposFiltrados = computed(() => {
@@ -169,9 +169,17 @@ export class AlternanciaTabComponent implements OnInit {
   countTipoB = computed(() => this.state.asignaturas().filter(a => a.alternancia === 'TipoB').length);
   countSinAlt = computed(() => this.state.asignaturas().filter(a => !a.alternancia || a.alternancia === 'SinAlternancia').length);
 
-  nombreDocente(docenteId?: string): string {
-    if (!docenteId) return '—';
-    return this.state.docenteById().get(docenteId)?.nombre ?? '—';
+  /** Docentes de la asignatura, derivados de sus grupos (Fase 2: el docente vive en el grupo). */
+  docentesDeAsignatura(asignaturaId: string): string {
+    const docById = this.state.docenteById();
+    const nombres = [...new Set(
+      this.state.grupos()
+        .filter(g => g.asignaturaId === asignaturaId && g.docenteId)
+        .map(g => docById.get(g.docenteId!)?.nombre)
+        .filter((n): n is string => !!n)
+    )];
+    if (!nombres.length) return '—';
+    return nombres.slice(0, 2).join(', ') + (nombres.length > 2 ? `, +${nombres.length - 2}` : '');
   }
 
   cambiarAlternancia(fila: AsignaturaFila, nuevo: string): void {
