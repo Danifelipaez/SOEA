@@ -3,17 +3,7 @@ import { forkJoin, of, Observable } from 'rxjs';
 import { map, catchError } from 'rxjs/operators';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
-import { MatTableModule } from '@angular/material/table';
-import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatIconModule } from '@angular/material/icon';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatChipsModule } from '@angular/material/chips';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
 import { CatalogoService } from '../../../core/catalogo.service';
@@ -28,135 +18,61 @@ import { ImportExcelStatsDto } from '../../../core/persistencia.service';
 @Component({
   selector: 'app-asignaturas-tab',
   standalone: true,
-  imports: [
-    CommonModule, MatTableModule, MatButtonModule, MatDialogModule,
-    MatFormFieldModule, MatInputModule, MatSelectModule, MatIconModule,
-    MatTooltipModule, MatChipsModule, MatProgressSpinnerModule
-  ],
+  imports: [CommonModule, MatDialogModule],
   template: `
     <div class="tab-content">
-      <!-- ── Barra de herramientas ── -->
-      <div class="actions-row">
-        <mat-form-field appearance="outline" class="filter-input">
-          <mat-label>Buscar...</mat-label>
-          <input matInput (keyup)="applyFilter($event)" placeholder="Ej. Química 101">
-        </mat-form-field>
-        <div class="btn-group">
-          <button mat-stroked-button (click)="importarExcel()" [disabled]="uploading()"
-                  matTooltip="Sube el Excel al servidor — el backend parsea y persiste todo">
-            <mat-icon>upload_file</mat-icon>
-            {{ uploading() ? 'Subiendo...' : 'Importar Excel' }}
+      <div class="toolbar">
+        <div class="filters">
+          <input class="input search" placeholder="🔍 Buscar asignatura…" (input)="filterStr.set($any($event.target).value)">
+          <span class="text-muted count">{{ filtered().length }} asignaturas</span>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" (click)="fileInput.click()" [disabled]="uploading()">
+            {{ uploading() ? 'Subiendo…' : '⬆ Importar Excel' }}
           </button>
-          <button mat-stroked-button (click)="cargarDesdeBD()" [disabled]="saving()">Cargar desde BD</button>
-          <button mat-stroked-button color="accent" (click)="guardarEnBD()" [disabled]="saving()">
-            {{ saving() ? 'Guardando...' : 'Guardar en BD' }}
-          </button>
-          <button mat-flat-button color="primary" class="primary-button" (click)="openDialog()">
-            <mat-icon>add</mat-icon> Agregar asignatura
-          </button>
+          <button class="btn btn-secondary" (click)="cargarDesdeBD()" [disabled]="saving()">Cargar BD</button>
+          <button class="btn btn-secondary" (click)="guardarEnBD()" [disabled]="saving()">{{ saving() ? 'Guardando…' : 'Guardar en BD' }}</button>
+          <button class="btn btn-primary" (click)="openDialog()">＋ Nueva asignatura</button>
         </div>
       </div>
-
-      <!-- ── Input oculto para selección de archivo ── -->
       <input type="file" #fileInput accept=".xlsx,.xls" (change)="onFileSelected($event)" style="display:none">
 
-      <!-- ── Indicador de datos cargados ── -->
-      <div class="stats-row" *ngIf="state.asignaturas().length > 0">
-        <mat-chip-set>
-          <mat-chip>{{ state.asignaturas().length }} asignaturas</mat-chip>
-          <mat-chip>{{ state.facultades().length }} facultades</mat-chip>
-          <mat-chip>{{ state.programas().length }} programas</mat-chip>
-        </mat-chip-set>
-      </div>
-
-      <!-- ── Tabla ── -->
-      <table mat-table [dataSource]="filteredAsignaturas()" class="mat-elevation-z0 border-table">
-
-        <ng-container matColumnDef="facultad">
-          <th mat-header-cell *matHeaderCellDef> Facultad </th>
-          <td mat-cell *matCellDef="let element"> {{ getFacultadName(element.programaId) }} </td>
-        </ng-container>
-
-        <ng-container matColumnDef="programa">
-          <th mat-header-cell *matHeaderCellDef> Programa </th>
-          <td mat-cell *matCellDef="let element"> {{ getProgramaName(element.programaId) }} </td>
-        </ng-container>
-
-        <ng-container matColumnDef="codigo">
-          <th mat-header-cell *matHeaderCellDef> Código </th>
-          <td mat-cell *matCellDef="let element"> {{element.codigo}} </td>
-        </ng-container>
-
-        <ng-container matColumnDef="nombre">
-          <th mat-header-cell *matHeaderCellDef> Nombre </th>
-          <td mat-cell *matCellDef="let element"> {{element.nombre}} </td>
-        </ng-container>
-
-        <ng-container matColumnDef="categoria">
-          <th mat-header-cell *matHeaderCellDef> Tipo </th>
-          <td mat-cell *matCellDef="let element">
-            <span class="badge" [ngClass]="categoriaBadgeClass(element.categoria)">{{ element.categoria ?? '—' }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="alternancia">
-          <th mat-header-cell *matHeaderCellDef> Alternancia </th>
-          <td mat-cell *matCellDef="let element">
-            <span class="badge" [ngClass]="badgeClass(element.alternancia)">{{ element.alternancia }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="sesiones">
-          <th mat-header-cell *matHeaderCellDef> Sesiones/semana </th>
-          <td mat-cell *matCellDef="let element"> {{ resumenSesiones(element) }} </td>
-        </ng-container>
-
-        <ng-container matColumnDef="docente">
-          <th mat-header-cell *matHeaderCellDef> Docente </th>
-          <td mat-cell *matCellDef="let element"> {{getDocenteName(element.docenteId)}} </td>
-        </ng-container>
-
-        <ng-container matColumnDef="acciones">
-          <th mat-header-cell *matHeaderCellDef> Acciones </th>
-          <td mat-cell *matCellDef="let element">
-            <button mat-icon-button class="text-primary" (click)="openDialog(element)" matTooltip="Editar">
-              <mat-icon>edit</mat-icon>
-            </button>
-            <button mat-icon-button class="text-error" (click)="delete(element)" matTooltip="Eliminar">
-              <mat-icon>delete</mat-icon>
-            </button>
-          </td>
-        </ng-container>
-
-        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-        <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
-        <tr class="mat-row" *matNoDataRow>
-          <td class="mat-cell" colspan="9">
-            <div class="empty-hint">
-              <mat-icon>inbox</mat-icon>
-              <p>No hay asignaturas cargadas. Usa "Importar Excel" o "Agregar asignatura".</p>
-            </div>
-          </td>
-        </tr>
+      <table class="table">
+        <thead><tr>
+          <th style="width:24%">Asignatura</th><th>Código</th><th>Ses/sem</th><th>Programa</th><th>Docente</th><th style="width:110px">Alternancia</th><th style="width:60px"></th>
+        </tr></thead>
+        <tbody>
+          @for (a of filtered(); track a.id) {
+            <tr>
+              <td><b>{{ a.nombre }}</b> @if (a.categoria) { <span class="tag tag-neutral" style="font-size:9px">{{ a.categoria }}</span> }</td>
+              <td class="text-muted">{{ a.codigo }}</td>
+              <td class="text-muted">{{ resumenSesiones(a) }}</td>
+              <td>{{ programaNombre(a.programaId) }}</td>
+              <td class="text-muted">{{ docenteNombre(a.docenteId) }}</td>
+              <td><span class="dpill" [ngClass]="altPill(a.alternancia)"><span class="stat" [style.background]="altColor(a.alternancia)"></span>{{ altLabel(a.alternancia) }}</span></td>
+              <td>
+                <span class="icell" (click)="openDialog(a)" title="Editar">✎</span>
+                <span class="icell del" (click)="delete(a)" title="Eliminar">🗑</span>
+              </td>
+            </tr>
+          }
+          @if (filtered().length === 0) {
+            <tr><td colspan="7" class="empty">No hay asignaturas. Usa "⬆ Importar Excel" o "＋ Nueva asignatura".</td></tr>
+          }
+        </tbody>
       </table>
     </div>
   `,
   styles: [`
-    .tab-content { padding: 24px 0; }
-    .actions-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .btn-group { display: flex; gap: 8px; align-items: center; }
-    .filter-input { width: 300px; }
-    .stats-row { margin-bottom: 16px; }
-    .border-table { border: 1px solid #e0e0e0; border-bottom: 0; width: 100%; }
-    .badge { padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500; }
-    .badge-a { background: #fff3e0; color: #e65100; }
-    .badge-b { background: #e3f2fd; color: #1565c0; }
-    .badge-sin   { background: #f3e5f5; color: #6a1b9a; }
-    .badge-oblig { background: #e8f5e9; color: #1b5e20; }
-    .badge-opt   { background: #fff8e1; color: #f57f17; }
-    .badge-elec  { background: #fce4ec; color: #880e4f; }
-    .empty-hint { display: flex; flex-direction: column; align-items: center; padding: 32px; color: #757575; }
-    .empty-hint mat-icon { font-size: 48px; width: 48px; height: 48px; margin-bottom: 8px; }
+    .tab-content { padding: 20px 0; display: flex; flex-direction: column; gap: 14px; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .filters { display: flex; align-items: center; gap: 10px; }
+    .search { width: 240px; }
+    .count { font-size: 12.5px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .icell { padding: 0 5px; font-size: 15px; }
+    .icell.del:hover { color: var(--err-bd); }
+    .empty { text-align: center; color: var(--color-neutral-500); padding: 28px; }
   `]
 })
 export class AsignaturasTabComponent {
@@ -166,71 +82,31 @@ export class AsignaturasTabComponent {
   persistencia = inject(PersistenciaService);
   catalogo = inject(CatalogoService);
 
-  displayedColumns = ['facultad', 'programa', 'codigo', 'nombre', 'categoria', 'alternancia', 'sesiones', 'docente', 'acciones'];
   saving = signal(false);
   uploading = signal(false);
   filterStr = signal('');
 
-  filteredAsignaturas = computed(() => {
+  filtered = computed(() => {
     const f = this.filterStr().toLowerCase();
-    const all = this.state.asignaturas();
-    if (!f) return all;
-    return all.filter(a =>
-      a.nombre.toLowerCase().includes(f) ||
-      a.codigo.toLowerCase().includes(f) ||
-      this.getProgramaName(a.programaId).toLowerCase().includes(f) ||
-      this.getFacultadName(a.programaId).toLowerCase().includes(f)
+    return this.state.asignaturas().filter(a =>
+      !f || a.nombre.toLowerCase().includes(f) || a.codigo.toLowerCase().includes(f) ||
+      this.programaNombre(a.programaId).toLowerCase().includes(f)
     );
   });
 
-  applyFilter(event: Event) {
-    this.filterStr.set((event.target as HTMLInputElement).value);
-  }
+  programaNombre(programaId: string): string { return this.state.getProgramaById(programaId)?.nombre ?? '—'; }
+  docenteNombre(id?: string): string { return id ? (this.state.docentes().find(x => x.id === id)?.nombre ?? 'Sin asignar') : 'Sin asignar'; }
 
-  getFacultadName(programaId: string): string {
-    const prog = this.state.getProgramaById(programaId);
-    if (!prog) return '—';
-    const fac = this.state.getFacultadById(prog.facultadId);
-    return fac ? fac.nombre : '—';
-  }
+  altColor(alt: string): string { return alt === 'TipoA' ? 'var(--alt-a)' : alt === 'TipoB' ? 'var(--alt-b)' : 'var(--alt-sin)'; }
+  altLabel(alt: string): string { return alt === 'SinAlternancia' ? 'SinAlt' : alt; }
+  altPill(alt: string): string { return alt === 'TipoA' ? 'a' : alt === 'TipoB' ? 'b' : 'sin'; }
 
-  getProgramaName(programaId: string): string {
-    const prog = this.state.getProgramaById(programaId);
-    return prog ? prog.nombre : '—';
-  }
-
-  getDocenteName(id?: string): string {
-    if (!id) return 'Sin asignar';
-    const d = this.state.docentes().find(x => x.id === id);
-    return d ? d.nombre : 'Sin asignar';
-  }
-
-  badgeClass(alt: string): string {
-    if (alt === 'TipoA') return 'badge badge-a';
-    if (alt === 'TipoB') return 'badge badge-b';
-    return 'badge badge-sin';
-  }
-
-  categoriaBadgeClass(cat?: string): string {
-    if (cat === 'Obligatoria') return 'badge badge-oblig';
-    if (cat === 'Optativa')    return 'badge badge-opt';
-    if (cat === 'Electiva')    return 'badge badge-elec';
-    return 'badge badge-sin';
-  }
-
-  /** Resumen compacto de los 3 tracks combinables (desglose por tipo de sesión). */
   resumenSesiones(a: Asignatura): string {
-    const partes: string[] = [];
-    if (a.sesionesTeoriaPresencialSemana > 0) partes.push(`${a.sesionesTeoriaPresencialSemana}×${a.horasTeoriaPresencial}h presencial`);
-    if (a.sesionesTeoriaVirtualSemana > 0) partes.push(`${a.sesionesTeoriaVirtualSemana}×${a.horasTeoriaVirtual}h virtual`);
-    if (a.sesionesLaboratorioSemana > 0) partes.push(`${a.sesionesLaboratorioSemana}×${a.horasLaboratorio}h lab`);
-    return partes.length > 0 ? partes.join(' · ') : '—';
-  }
-
-  // ── Importar Excel ────────────────────────────────────────────────────────────
-  importarExcel() {
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    input?.click();
+    const p: string[] = [];
+    if (a.sesionesTeoriaPresencialSemana > 0) p.push(`${a.sesionesTeoriaPresencialSemana}×${a.horasTeoriaPresencial}h pres.`);
+    if (a.sesionesTeoriaVirtualSemana > 0) p.push(`${a.sesionesTeoriaVirtualSemana}×${a.horasTeoriaVirtual}h virt.`);
+    if (a.sesionesLaboratorioSemana > 0) p.push(`${a.sesionesLaboratorioSemana}×${a.horasLaboratorio}h lab`);
+    return p.join(' · ') || '—';
   }
 
   onFileSelected(event: Event) {
@@ -242,7 +118,7 @@ export class AsignaturasTabComponent {
       next: (stats: ImportExcelStatsDto) => {
         this.uploading.set(false);
         this.cargarDesdeBD();
-        this.dialog.open(ImportResultadoDialogComponent, { width: '420px', data: stats });
+        this.dialog.open(ImportResultadoDialogComponent, { width: '340px', data: stats });
       },
       error: (err) => {
         this.uploading.set(false);
@@ -252,26 +128,19 @@ export class AsignaturasTabComponent {
     });
   }
 
-  // ── Dialog manual ─────────────────────────────────────────────────────────────
   openDialog(asignatura?: Asignatura) {
-    const dialogRef = this.dialog.open(AsignaturaDialogComponent, { width: '560px', data: asignatura });
+    const dialogRef = this.dialog.open(AsignaturaDialogComponent, { width: '540px', maxWidth: '95vw', data: asignatura });
     dialogRef.afterClosed().subscribe(result => {
-      if (result) {
-        if (asignatura) {
-          this.state.updateAsignatura({ ...asignatura, ...result });
-          this.snackBar.open('Asignatura actualizada', 'Cerrar', { duration: 3000 });
-        } else {
-          this.state.addAsignatura({ id: crypto.randomUUID(), ...result });
-          this.snackBar.open('Asignatura agregada', 'Cerrar', { duration: 3000 });
-        }
-      }
+      if (!result) return;
+      if (asignatura) { this.state.updateAsignatura({ ...asignatura, ...result }); this.snackBar.open('Asignatura actualizada', '', { duration: 2500 }); }
+      else { this.state.addAsignatura({ id: crypto.randomUUID(), ...result }); this.snackBar.open('Asignatura agregada', '', { duration: 2500 }); }
     });
   }
 
   delete(asignatura: Asignatura) {
     const enBd = this.catalogo.estaEnBd('asignatura', asignatura.id);
     const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
-      width: '420px',
+      width: '320px',
       data: {
         title: 'Eliminar asignatura',
         message: enBd
@@ -281,79 +150,55 @@ export class AsignaturasTabComponent {
     });
     ref.afterClosed().subscribe(confirmado => {
       if (!confirmado) return;
-      if (!enBd) {
-        this.state.deleteAsignatura(asignatura.id);
-        this.snackBar.open('Asignatura eliminada localmente.', 'Cerrar', { duration: 3000 });
-        return;
-      }
+      if (!enBd) { this.state.deleteAsignatura(asignatura.id); this.snackBar.open('Asignatura eliminada localmente.', '', { duration: 2500 }); return; }
       this.persistencia.eliminarAsignatura(asignatura.id).subscribe({
         next: () => {
           this.catalogo.quitarDeBd('asignatura', asignatura.id);
           this.state.deleteAsignatura(asignatura.id);
-          // Refetch para garantizar consistencia UI↔BD tras el borrado.
           this.catalogo.cargarTodo().subscribe();
-          this.snackBar.open('Asignatura eliminada de la BD.', 'Cerrar', { duration: 3000 });
+          this.snackBar.open('Asignatura eliminada de la BD.', '', { duration: 2500 });
         },
-        error: (err) => this.snackBar.open(
-          `Error al eliminar de la BD: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
+        error: (err) => this.snackBar.open(`Error al eliminar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
       });
     });
   }
 
   guardarEnBD() {
     const asignaturas = this.state.asignaturas();
-    if (asignaturas.length === 0) {
-      this.snackBar.open('No hay asignaturas para guardar.', 'Cerrar', { duration: 3000 });
-      return;
-    }
+    if (!asignaturas.length) { this.snackBar.open('No hay asignaturas para guardar.', '', { duration: 2500 }); return; }
     this.saving.set(true);
-
-    // PUT-first (mismo patrón que Docentes/Espacios): las asignaturas que ya existen
-    // en BD se actualizan vía PUT; las creadas localmente van por el import, que
-    // también crea sus facultades/programas/docentes nuevos.
     const existentes = asignaturas.filter(a => this.catalogo.estaEnBd('asignatura', a.id));
-    const nuevas     = asignaturas.filter(a => !this.catalogo.estaEnBd('asignatura', a.id));
-
+    const nuevas = asignaturas.filter(a => !this.catalogo.estaEnBd('asignatura', a.id));
     type Resultado = { ok: boolean; nombre: string; tipo: 'nuevo' | 'actualizado' };
 
     const puts$: Observable<Resultado[]> = existentes.length === 0 ? of([]) : forkJoin(
       existentes.map(a =>
         this.persistencia.actualizarAsignatura(a).pipe(
           map((): Resultado => ({ ok: true, nombre: a.nombre, tipo: 'actualizado' })),
-          catchError(err => of<Resultado>({
-            ok: false, nombre: `${a.nombre} — ${mensajeErrorHttp(err)}`, tipo: 'actualizado'
-          }))
+          catchError(err => of<Resultado>({ ok: false, nombre: `${a.nombre} — ${mensajeErrorHttp(err)}`, tipo: 'actualizado' }))
         )
       )
     );
-
     const import$: Observable<Resultado[]> = nuevas.length === 0 ? of([]) :
       this.persistencia.importarCurriculum(this.construirPayloadImport(nuevas)).pipe(
         map(() => nuevas.map((a): Resultado => ({ ok: true, nombre: a.nombre, tipo: 'nuevo' }))),
-        catchError(err => of(nuevas.map((a): Resultado => ({
-          ok: false, nombre: `${a.nombre} — ${mensajeErrorHttp(err)}`, tipo: 'nuevo'
-        }))))
+        catchError(err => of(nuevas.map((a): Resultado => ({ ok: false, nombre: `${a.nombre} — ${mensajeErrorHttp(err)}`, tipo: 'nuevo' }))))
       );
 
     forkJoin([puts$, import$]).subscribe(([resPuts, resImport]) => {
-      const resultados   = [...resPuts, ...resImport];
-      const nuevos       = resultados.filter(r => r.ok && r.tipo === 'nuevo').map(r => r.nombre);
-      const actualizados = resultados.filter(r => r.ok && r.tipo === 'actualizado').map(r => r.nombre);
-      const errores      = resultados.filter(r => !r.ok).map(r => r.nombre);
-
-      // Refetch completo: reemplaza los IDs temporales locales por los reales de la BD
-      // y deja el estado (y la pertenencia a BD) consistente con lo persistido.
+      const resultados = [...resPuts, ...resImport];
       this.catalogo.cargarTodo().subscribe({
         next: () => this.saving.set(false),
-        error: () => {
-          this.saving.set(false);
-          this.snackBar.open('Guardado procesado, pero falló la recarga desde la BD.', 'Cerrar', { duration: 4000 });
-        }
+        error: () => { this.saving.set(false); this.snackBar.open('Guardado procesado, pero falló la recarga.', 'Cerrar', { duration: 4000 }); }
       });
-
       this.dialog.open(GuardadoResultadoDialogComponent, {
-        width: '420px',
-        data: { entidad: 'asignaturas', nuevos, actualizados, errores }
+        width: '340px',
+        data: {
+          entidad: 'asignaturas',
+          nuevos: resultados.filter(r => r.ok && r.tipo === 'nuevo').map(r => r.nombre),
+          actualizados: resultados.filter(r => r.ok && r.tipo === 'actualizado').map(r => r.nombre),
+          errores: resultados.filter(r => !r.ok).map(r => r.nombre)
+        }
       });
     });
   }
@@ -365,195 +210,120 @@ export class AsignaturasTabComponent {
       docentes: this.state.docentes().map(d => ({ id: d.id, nombre: d.nombre, cedula: d.cedula, maxHoras: d.maxHoras })),
       asignaturas: asignaturas.map(a => ({
         id: a.id, nombre: a.nombre, codigo: a.codigo,
-        // ponytail: /import/curriculum (Excel, fuera de alcance del desglose por tipo) solo
-        // entiende 1 bloque de sesiones — colapsa al primer track no vacío (presencial → lab →
-        // virtual). Una asignatura NUEVA con varios tracks pierde los demás por esta vía la
-        // primera vez que se guarda; volver a editarla y guardar (PUT, ya en BD) la completa.
+        // ponytail: /import/curriculum solo entiende 1 bloque de sesiones — colapsa al primer track.
         horasPorSesion: a.horasTeoriaPresencial || a.horasLaboratorio || a.horasTeoriaVirtual || 2,
         sesionesPorSemana: a.sesionesTeoriaPresencialSemana || a.sesionesLaboratorioSemana || a.sesionesTeoriaVirtualSemana || 1,
         sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
         alternancia: a.alternancia, categoria: a.categoria ?? null,
-        programaId: a.programaId, grupoNumero: a.grupoNumero,
-        docenteId: a.docenteId ?? null
+        programaId: a.programaId, grupoNumero: a.grupoNumero, docenteId: a.docenteId ?? null
       }))
     };
   }
 
-
   cargarDesdeBD() {
     this.saving.set(true);
     this.catalogo.cargarTodo().subscribe({
-      next: (resumen) => {
-        this.saving.set(false);
-        this.snackBar.open(
-          `${resumen.asignaturas} asignatura(s) · ${resumen.docentes} docente(s) cargados desde la BD.`,
-          'Cerrar', { duration: 4000 }
-        );
-      },
-      error: () => {
-        this.saving.set(false);
-        this.snackBar.open('Error al cargar desde la BD.', 'Cerrar', { duration: 4000 });
-      }
+      next: (resumen) => { this.saving.set(false); this.snackBar.open(`${resumen.asignaturas} asignatura(s) · ${resumen.docentes} docente(s) cargados.`, '', { duration: 3500 }); },
+      error: () => { this.saving.set(false); this.snackBar.open('Error al cargar desde la BD.', 'Cerrar', { duration: 4000 }); }
     });
   }
 }
 
-// ─── Dialog de creación/edición manual ───────────────────────────────────────
-
+// ─── Popup: Crear/Editar asignatura (REQUISITOS §1.1) ─────────────────────────
 @Component({
   selector: 'app-asignatura-dialog',
   standalone: true,
-  imports: [
-    CommonModule, ReactiveFormsModule, MatDialogModule, MatFormFieldModule,
-    MatInputModule, MatSelectModule, MatButtonModule, MatCheckboxModule, MatIconModule
-  ],
+  imports: [CommonModule, ReactiveFormsModule, MatDialogModule],
   template: `
-    <h2 mat-dialog-title>{{ data ? 'Editar Asignatura' : 'Nueva Asignatura' }}</h2>
-    <mat-dialog-content>
-      <form [formGroup]="form" class="dialog-form">
+    <div class="pophd">{{ data ? 'Editar asignatura' : 'Nueva asignatura' }} <i (click)="ref.close()">✕</i></div>
+    <form class="popbd" [formGroup]="form" style="max-height:74vh;overflow:auto">
 
-        <!-- Facultad & Programa -->
-        <div class="form-row">
-          <mat-form-field appearance="outline">
-            <mat-label>Facultad</mat-label>
-            <mat-select formControlName="facultadId" required (selectionChange)="onFacultadChange($event.value)">
-              <mat-option *ngFor="let f of facultades" [value]="f.id">{{ f.nombre }}</mat-option>
-              <mat-option value="__nueva__">+ Nueva facultad...</mat-option>
-            </mat-select>
-          </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>Programa</mat-label>
-            <mat-select formControlName="programaId" required>
-              <mat-option *ngFor="let p of programasFiltrados" [value]="p.id">{{ p.nombre }}</mat-option>
-              <mat-option value="__nuevo__">+ Nuevo programa...</mat-option>
-            </mat-select>
-          </mat-form-field>
-        </div>
+      <div style="display:flex;gap:8px">
+        <div class="dfield" style="flex:1"><label>Facultad <span class="rq">*</span></label>
+          <select class="input" formControlName="facultadId" (change)="onFacultadChange($any($event.target).value)">
+            <option value="">—</option>
+            @for (f of state.facultades(); track f.id) { <option [value]="f.id">{{ f.nombre }}</option> }
+            <option value="__nueva__">+ Nueva facultad…</option>
+          </select></div>
+        <div class="dfield" style="flex:1"><label>Programa <span class="rq">*</span></label>
+          <select class="input" formControlName="programaId">
+            <option value="">—</option>
+            @for (p of programasFiltrados; track p.id) { <option [value]="p.id">{{ p.nombre }}</option> }
+            <option value="__nuevo__">+ Nuevo programa…</option>
+          </select></div>
+      </div>
+      @if (form.get('facultadId')?.value === '__nueva__') {
+        <div class="dfield"><label>Nombre de la nueva facultad</label><input class="input" formControlName="nuevaFacultad"></div>
+      }
+      @if (form.get('programaId')?.value === '__nuevo__') {
+        <div class="dfield"><label>Nombre del nuevo programa</label><input class="input" formControlName="nuevoPrograma"></div>
+      }
 
-        <!-- Nueva facultad inline -->
-        <mat-form-field appearance="outline" *ngIf="form.get('facultadId')?.value === '__nueva__'">
-          <mat-label>Nombre de la nueva facultad</mat-label>
-          <input matInput formControlName="nuevaFacultad" required>
-        </mat-form-field>
+      <div style="display:flex;gap:8px">
+        <div class="dfield" style="flex:1"><label>Código <span class="rq">*</span></label><input class="input" formControlName="codigo"></div>
+        <div class="dfield" style="flex:1.4"><label>Nombre <span class="rq">*</span></label><input class="input" formControlName="nombre"></div>
+        <div class="dfield" style="width:120px"><label>Tipo</label>
+          <select class="input" formControlName="categoria">
+            <option value="">—</option><option value="Obligatoria">Obligatoria</option><option value="Optativa">Optativa</option><option value="Electiva">Electiva</option>
+          </select></div>
+      </div>
 
-        <!-- Nuevo programa inline -->
-        <mat-form-field appearance="outline" *ngIf="form.get('programaId')?.value === '__nuevo__'">
-          <mat-label>Nombre del nuevo programa</mat-label>
-          <input matInput formControlName="nuevoPrograma" required>
-        </mat-form-field>
+      <h3 class="sec" style="margin-top:2px">Desglose por tipo de sesión</h3>
+      <div class="track"><span class="tlabel">Teoría presencial</span>
+        <div class="dfield" style="width:96px"><label>Ses/sem</label><input class="input" type="number" min="0" formControlName="sesionesTeoriaPresencialSemana"></div>
+        <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasTeoriaPresencial"></div>
+      </div>
+      <div class="track"><span class="tlabel">Teoría virtual</span>
+        <div class="dfield" style="width:96px"><label>Ses/sem</label><input class="input" type="number" min="0" formControlName="sesionesTeoriaVirtualSemana"></div>
+        <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasTeoriaVirtual"></div>
+      </div>
+      <div class="track"><span class="tlabel">Laboratorio</span>
+        <div class="dfield" style="width:96px"><label>Ses/sem</label><input class="input" type="number" min="0" formControlName="sesionesLaboratorioSemana"></div>
+        <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasLaboratorio"></div>
+        <div class="dfield" style="flex:1"><label>Lab/semestre <span class="rq">*</span></label><input class="input" type="number" min="0" formControlName="sesionesLaboratorioSemestre"></div>
+      </div>
+      <p class="text-muted" style="font-size:11px;margin:0">8=TipoA · &gt;8=TipoB · 0=SinAlternancia (se infiere automáticamente)</p>
 
-        <!-- Datos de la asignatura -->
-        <div class="form-row">
-          <mat-form-field appearance="outline">
-            <mat-label>Código</mat-label>
-            <input matInput formControlName="codigo" required>
-          </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>Nombre</mat-label>
-            <input matInput formControlName="nombre" required>
-          </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>Tipo</mat-label>
-            <mat-select formControlName="categoria">
-              <mat-option value="Obligatoria">Obligatoria</mat-option>
-              <mat-option value="Optativa">Optativa</mat-option>
-              <mat-option value="Electiva">Electiva</mat-option>
-            </mat-select>
-          </mat-form-field>
-        </div>
+      @if (data) {
+        <div class="dfield"><label>Docente asignado (opcional)</label>
+          <select class="input" formControlName="docenteId">
+            <option value="">Sin asignar</option>
+            @for (doc of state.docentes(); track doc.id) { <option [value]="doc.id">{{ doc.nombre }}</option> }
+          </select></div>
+        <div class="dfield"><label>Espacio fijo (opcional)</label>
+          <select class="input" formControlName="espacioFijoId">
+            <option value="">Sin espacio fijo</option>
+            @for (esp of state.espacios(); track esp.id) { <option [value]="esp.id">{{ esp.nombre }}</option> }
+          </select></div>
+      }
 
-        <!-- Desglose por tipo de sesión: hasta 3 tracks combinables, cada uno con su propio
-             conteo semanal y duración. Todo curso es modular; no todo curso usa los 3. -->
-        <div class="form-row">
-          <mat-form-field appearance="outline">
-            <mat-label>Teoría presencial: sesiones/sem</mat-label>
-            <input matInput type="number" formControlName="sesionesTeoriaPresencialSemana" min="0">
-          </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>Horas/sesión</mat-label>
-            <input matInput type="number" formControlName="horasTeoriaPresencial" min="1">
-          </mat-form-field>
-        </div>
-
-        <div class="form-row">
-          <mat-form-field appearance="outline">
-            <mat-label>Teoría virtual: sesiones/sem</mat-label>
-            <input matInput type="number" formControlName="sesionesTeoriaVirtualSemana" min="0">
-          </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>Horas/sesión</mat-label>
-            <input matInput type="number" formControlName="horasTeoriaVirtual" min="1">
-          </mat-form-field>
-        </div>
-
-        <div class="form-row">
-          <mat-form-field appearance="outline">
-            <mat-label>Laboratorio: sesiones/sem</mat-label>
-            <input matInput type="number" formControlName="sesionesLaboratorioSemana" min="0">
-          </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>Horas/sesión</mat-label>
-            <input matInput type="number" formControlName="horasLaboratorio" min="1">
-          </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>Sesiones lab/semestre</mat-label>
-            <input matInput type="number" formControlName="sesionesLaboratorioSemestre" required min="0">
-            <mat-hint>8=TipoA · &gt;8=TipoB · 0=SinAlternancia</mat-hint>
-          </mat-form-field>
-        </div>
-
-        <mat-form-field appearance="outline">
-          <mat-label>Docente asignado (opcional)</mat-label>
-          <mat-select formControlName="docenteId">
-            <mat-option value="">Sin asignar</mat-option>
-            <mat-option *ngFor="let doc of docentes" [value]="doc.id">{{ doc.nombre }}</mat-option>
-          </mat-select>
-        </mat-form-field>
-
-        <mat-checkbox formControlName="reqEspacio" (change)="toggleEspacio($event.checked)">
-          ¿Requiere espacio fijo?
-        </mat-checkbox>
-        <mat-form-field appearance="outline" *ngIf="form.get('reqEspacio')?.value">
-          <mat-label>Espacio fijo</mat-label>
-          <mat-select formControlName="espacioFijoId">
-            <mat-option *ngFor="let esp of espacios" [value]="esp.id">{{ esp.nombre }}</mat-option>
-          </mat-select>
-        </mat-form-field>
-
-      </form>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancelar</button>
-      <button mat-flat-button color="primary" class="primary-button" [disabled]="!canSave()" (click)="save()">Guardar</button>
-    </mat-dialog-actions>
+      <div class="popfoot">
+        <button type="button" class="btn btn-secondary" (click)="ref.close()">Cancelar</button>
+        <button type="button" class="btn btn-primary" [disabled]="!canSave()" (click)="save()">Guardar</button>
+      </div>
+    </form>
   `,
   styles: [`
-    .dialog-form { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; min-width: 480px; }
-    .form-row { display: flex; gap: 16px; }
-    .form-row > * { flex: 1; }
+    .track { display: flex; align-items: flex-end; gap: 8px; padding: 8px 10px; border: 1px solid var(--color-divider); }
+    .tlabel { flex: 1; font: 600 12px var(--font-heading); align-self: center; }
   `]
 })
 export class AsignaturaDialogComponent {
   fb = inject(FormBuilder);
-  dialogRef = inject(MatDialogRef<AsignaturaDialogComponent>);
+  ref = inject(MatDialogRef<AsignaturaDialogComponent>);
   data = inject(MAT_DIALOG_DATA) as Asignatura | undefined;
   state = inject(StateService);
 
-  facultades = this.state.facultades();
-  docentes = this.state.docentes();
-  espacios = this.state.espacios();
   programasFiltrados: Programa[] = [];
 
-  private currentFacultadId: string = '';
-
   form = this.fb.group({
-    facultadId:    ['', Validators.required],
-    programaId:    ['', Validators.required],
+    facultadId: ['', Validators.required],
+    programaId: ['', Validators.required],
     nuevaFacultad: [''],
     nuevoPrograma: [''],
-    codigo:        [this.data?.codigo ?? '', Validators.required],
-    nombre:        [this.data?.nombre ?? '', Validators.required],
-    categoria:     [this.data?.categoria ?? ''],
+    codigo: [this.data?.codigo ?? '', Validators.required],
+    nombre: [this.data?.nombre ?? '', Validators.required],
+    categoria: [this.data?.categoria ?? ''],
     sesionesTeoriaPresencialSemana: [this.data?.sesionesTeoriaPresencialSemana ?? 2, [Validators.required, Validators.min(0)]],
     horasTeoriaPresencial: [this.data?.horasTeoriaPresencial ?? 2, [Validators.required, Validators.min(1)]],
     sesionesTeoriaVirtualSemana: [this.data?.sesionesTeoriaVirtualSemana ?? 0, [Validators.required, Validators.min(0)]],
@@ -561,8 +331,7 @@ export class AsignaturaDialogComponent {
     sesionesLaboratorioSemana: [this.data?.sesionesLaboratorioSemana ?? 0, [Validators.required, Validators.min(0)]],
     horasLaboratorio: [this.data?.horasLaboratorio ?? 2, [Validators.required, Validators.min(1)]],
     sesionesLaboratorioSemestre: [this.data?.sesionesLaboratorioSemestre ?? 0, [Validators.required, Validators.min(0)]],
-    docenteId:     [this.data?.docenteId ?? ''],
-    reqEspacio:    [!!this.data?.espacioFijoId],
+    docenteId: [this.data?.docenteId ?? ''],
     espacioFijoId: [this.data?.espacioFijoId ?? '']
   });
 
@@ -570,7 +339,6 @@ export class AsignaturaDialogComponent {
     if (this.data?.programaId) {
       const prog = this.state.getProgramaById(this.data.programaId);
       if (prog) {
-        this.currentFacultadId = prog.facultadId;
         this.form.patchValue({ facultadId: prog.facultadId, programaId: prog.id });
         this.programasFiltrados = this.state.getProgramasByFacultad(prog.facultadId);
       }
@@ -578,58 +346,33 @@ export class AsignaturaDialogComponent {
   }
 
   onFacultadChange(facultadId: string) {
-    if (facultadId === '__nueva__') {
-      this.programasFiltrados = [];
-      this.form.patchValue({ programaId: '' });
-    } else {
-      this.programasFiltrados = this.state.getProgramasByFacultad(facultadId);
-      this.form.patchValue({ programaId: '' });
-    }
-  }
-
-  toggleEspacio(checked: boolean) {
-    if (!checked) this.form.patchValue({ espacioFijoId: '' });
+    this.programasFiltrados = facultadId === '__nueva__' ? [] : this.state.getProgramasByFacultad(facultadId);
+    this.form.patchValue({ programaId: '' });
   }
 
   canSave(): boolean {
     const v = this.form.value;
-    if (!v.nombre || !v.codigo) return false;
-    if (!v.facultadId) return false;
+    if (!v.nombre || !v.codigo || !v.facultadId) return false;
     if (v.facultadId === '__nueva__' && !v.nuevaFacultad) return false;
     if (!v.programaId) return false;
     if (v.programaId === '__nuevo__' && !v.nuevoPrograma) return false;
-    const totalSesiones = (Number(v.sesionesTeoriaPresencialSemana) || 0)
-      + (Number(v.sesionesTeoriaVirtualSemana) || 0)
-      + (Number(v.sesionesLaboratorioSemana) || 0);
-    if (totalSesiones <= 0) return false;
-    return true;
+    const total = (Number(v.sesionesTeoriaPresencialSemana) || 0) + (Number(v.sesionesTeoriaVirtualSemana) || 0) + (Number(v.sesionesLaboratorioSemana) || 0);
+    return total > 0;
   }
 
   save() {
     if (!this.canSave()) return;
     const v = this.form.value;
-
     let facultadId = v.facultadId!;
-    if (facultadId === '__nueva__') {
-      const fac: Facultad = { id: crypto.randomUUID(), nombre: v.nuevaFacultad! };
-      this.state.addFacultad(fac);
-      facultadId = fac.id;
-    }
-
+    if (facultadId === '__nueva__') { const fac: Facultad = { id: crypto.randomUUID(), nombre: v.nuevaFacultad! }; this.state.addFacultad(fac); facultadId = fac.id; }
     let programaId = v.programaId!;
-    if (programaId === '__nuevo__') {
-      const prog: Programa = { id: crypto.randomUUID(), nombre: v.nuevoPrograma!, facultadId };
-      this.state.addPrograma(prog);
-      programaId = prog.id;
-    }
+    if (programaId === '__nuevo__') { const prog: Programa = { id: crypto.randomUUID(), nombre: v.nuevoPrograma!, facultadId }; this.state.addPrograma(prog); programaId = prog.id; }
 
     const sesionesLab = Number(v.sesionesLaboratorioSemestre) || 0;
-    const alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia' =
-      sesionesLab === 8 ? 'TipoA' : sesionesLab > 8 ? 'TipoB' : 'SinAlternancia';
+    const alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia' = sesionesLab === 8 ? 'TipoA' : sesionesLab > 8 ? 'TipoB' : 'SinAlternancia';
 
-    const result: Partial<Asignatura> = {
-      codigo: v.codigo!,
-      nombre: v.nombre!,
+    this.ref.close({
+      codigo: v.codigo!, nombre: v.nombre!,
       categoria: (v.categoria as 'Obligatoria' | 'Optativa' | 'Electiva') || undefined,
       sesionesTeoriaPresencialSemana: Number(v.sesionesTeoriaPresencialSemana) || 0,
       horasTeoriaPresencial: Number(v.horasTeoriaPresencial) || 2,
@@ -638,12 +381,9 @@ export class AsignaturaDialogComponent {
       sesionesLaboratorioSemana: Number(v.sesionesLaboratorioSemana) || 0,
       horasLaboratorio: Number(v.horasLaboratorio) || 2,
       sesionesLaboratorioSemestre: sesionesLab,
-      alternancia,
-      programaId,
+      alternancia, programaId,
       docenteId: v.docenteId || undefined,
-      espacioFijoId: v.reqEspacio ? (v.espacioFijoId || undefined) : undefined
-    };
-
-    this.dialogRef.close(result);
+      espacioFijoId: v.espacioFijoId || undefined
+    } as Partial<Asignatura>);
   }
 }

@@ -1,299 +1,141 @@
 import { Component, inject, computed, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { BaseChartDirective } from 'ng2-charts';
-import { MatTableModule } from '@angular/material/table';
-import { ChartConfiguration, ChartData } from 'chart.js';
 import { StateService } from '../../core/state.service';
 import { CatalogoService } from '../../core/catalogo.service';
 import { RouterModule } from '@angular/router';
-import { Espacio } from '../../core/models';
 
+/** Paso 4 del journey (HF-4) — KPIs de solo lectura sobre el horario generado. */
 @Component({
   selector: 'app-dashboard-admin',
   standalone: true,
-  imports: [CommonModule, BaseChartDirective, MatTableModule, RouterModule],
+  imports: [CommonModule, RouterModule],
   template: `
-    <div class="dashboard-container">
-      <h1 class="page-title text-primary">Revisar</h1>
-      <p class="page-subtitle">Paso 4 · solo lectura, sobre el horario generado.</p>
+    <div class="rev-head">
+      <span class="soea-tag">Paso 4</span>
+      <h1 class="rev-title">Revisar</h1>
+      <span class="text-muted rev-sub">Solo lectura, tras generar/ajustar el horario.</span>
+    </div>
 
-      <!-- Métricas del horario -->
-      <div class="cards-row">
-        <div class="metric-card">
-          <div class="metric-title">% Ocupación total</div>
-          <div class="metric-value">{{ ocupacionPct() }}%</div>
+    @if (state.sesiones().length === 0) {
+      <div class="blueprint elev-md empty">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <p>Aún no hay un horario generado. Ve a <a routerLink="/horario">Horario</a> y genera uno para ver sus métricas.</p>
+      </div>
+    } @else {
+      <!-- KPIs -->
+      <div class="kpis">
+        <div class="blueprint kpi">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <span class="klabel">Ocupación de espacios</span>
+          <span class="kval accent">{{ ocupacionPct() }}%</span>
+          <div class="bar"><i [style.width.%]="ocupacionPct()"></i></div>
         </div>
-        <div class="metric-card">
-          <div class="metric-title">Total sesiones presenciales</div>
-          <div class="metric-value">{{ totalPresenciales() }}</div>
+        <div class="blueprint kpi">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <span class="klabel">Presencial / Virtual</span>
+          <span class="kval">{{ totalPresenciales() }} / {{ totalVirtuales() }}</span>
+          <div class="bar split"><i class="pres" [style.width.%]="presencialPct()"></i><i class="virt"></i></div>
         </div>
-        <div class="metric-card">
-          <div class="metric-title">Total sesiones virtuales</div>
-          <div class="metric-value">{{ totalVirtuales() }}</div>
+        <div class="blueprint kpi">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <span class="klabel">Franjas ociosas</span>
+          <span class="kval warn">{{ franjasOciosas() }}</span>
+          <span class="text-muted knote">huecos entre sesiones por espacio</span>
         </div>
-        <div class="metric-card">
-          <div class="metric-title">Total franjas ociosas</div>
-          <div class="metric-value">{{ franjasOciosas() }}</div>
-        </div>
+      </div>
+
+      <!-- Carga docente -->
+      <div class="blueprint carga">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div class="carga-head"><h3 class="sec">Carga docente</h3><span class="text-muted">rango de color según carga vs. máximo declarado</span></div>
+        @if (docentesData().length === 0) {
+          <p class="text-muted" style="margin:0">Sin docentes asignados a sesiones.</p>
+        }
+        @for (d of docentesData(); track d.docente) {
+          <div class="crow">
+            <span class="cname">{{ d.docente }}</span>
+            <div class="bar"><i [style.width.%]="d.porcentaje > 100 ? 100 : d.porcentaje" [style.background]="d.color"></i></div>
+            <span class="dpill" [ngClass]="d.pill"><span class="stat" [style.background]="d.color"></span>{{ d.estado }} · {{ d.horasAsignadas }}/{{ d.maxHoras }}</span>
+          </div>
+        }
       </div>
 
       <!-- Catálogo cargado -->
-      <div class="section-title-row"><h2 class="section-title">Catálogo cargado</h2></div>
-      <div class="cards-row cards-row-sm">
-        <div class="metric-card metric-card-sm">
-          <div class="metric-title">Asignaturas</div>
-          <div class="metric-value metric-value-sm">{{ state.asignaturas().length }}</div>
-        </div>
-        <div class="metric-card metric-card-sm">
-          <div class="metric-title">Docentes</div>
-          <div class="metric-value metric-value-sm">{{ state.docentes().length }}</div>
-        </div>
-        <div class="metric-card metric-card-sm">
-          <div class="metric-title">Espacios</div>
-          <div class="metric-value metric-value-sm">{{ state.espacios().length }}</div>
-        </div>
-        <div class="metric-card metric-card-sm">
-          <div class="metric-title">Programas</div>
-          <div class="metric-value metric-value-sm">{{ state.programas().length }}</div>
-        </div>
-        <div class="metric-card metric-card-sm">
-          <div class="metric-title">Facultades</div>
-          <div class="metric-value metric-value-sm">{{ state.facultades().length }}</div>
-        </div>
+      <div class="counts">
+        <div class="blueprint cnt"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="klabel">Asignaturas</span><span class="cval">{{ state.asignaturas().length }}</span></div>
+        <div class="blueprint cnt"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="klabel">Docentes</span><span class="cval">{{ state.docentes().length }}</span></div>
+        <div class="blueprint cnt"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="klabel">Espacios</span><span class="cval">{{ state.espacios().length }}</span></div>
+        <div class="blueprint cnt"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="klabel">Grupos</span><span class="cval">{{ state.grupos().length }}</span></div>
+        <div class="blueprint cnt"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><span class="klabel">Programas</span><span class="cval">{{ state.programas().length }}</span></div>
       </div>
-
-      <div class="chart-row">
-        <div class="card-box flex-1">
-          <h2 class="section-title">Ocupación por espacio</h2>
-          <div class="chart-container">
-            <canvas baseChart
-              [data]="barChartData()"
-              [options]="barChartOptions"
-              [type]="'bar'">
-            </canvas>
-          </div>
-        </div>
-      </div>
-
-      <div class="tables-row">
-        <div class="card-box flex-1">
-          <h2 class="section-title">Ocupación por docente</h2>
-          <table mat-table [dataSource]="docentesData()" class="mat-elevation-z0 border-table">
-            <ng-container matColumnDef="docente">
-              <th mat-header-cell *matHeaderCellDef> Docente </th>
-              <td mat-cell *matCellDef="let element"> {{element.docente}} </td>
-            </ng-container>
-            <ng-container matColumnDef="horasAsignadas">
-              <th mat-header-cell *matHeaderCellDef> Horas asig. </th>
-              <td mat-cell *matCellDef="let element"> {{element.horasAsignadas}} </td>
-            </ng-container>
-            <ng-container matColumnDef="maxHoras">
-              <th mat-header-cell *matHeaderCellDef> Máx. horas </th>
-              <td mat-cell *matCellDef="let element"> {{element.maxHoras}} </td>
-            </ng-container>
-            <ng-container matColumnDef="porcentaje">
-              <th mat-header-cell *matHeaderCellDef> % Carga </th>
-              <td mat-cell *matCellDef="let element"> {{element.porcentaje}}% </td>
-            </ng-container>
-            <ng-container matColumnDef="estado">
-              <th mat-header-cell *matHeaderCellDef> Estado </th>
-              <td mat-cell *matCellDef="let element">
-                <span class="status-badge" [ngClass]="element.estadoClass">{{element.estado}}</span>
-              </td>
-            </ng-container>
-            <tr mat-header-row *matHeaderRowDef="['docente', 'horasAsignadas', 'maxHoras', 'porcentaje', 'estado']"></tr>
-            <tr mat-row *matRowDef="let row; columns: ['docente', 'horasAsignadas', 'maxHoras', 'porcentaje', 'estado'];"></tr>
-          </table>
-        </div>
-      </div>
-
-      <div class="mini-matrix-row">
-        <div class="card-box flex-1">
-          <h2 class="section-title">Mapa de franjas ociosas</h2>
-          @if (state.espacios().length === 0) {
-            <p class="no-data-hint">Sin espacios cargados. Ve a <a routerLink="/catalogo">Catálogo</a> para cargar datos.</p>
-          } @else {
-            <div class="space-selector mb-16">
-              @for (esp of state.espacios(); track esp.id) {
-                <button class="pill-button"
-                        [class.active]="matrixSpace()?.id === esp.id"
-                        (click)="matrixSpace.set(esp)">
-                  {{ esp.nombre }}
-                </button>
-              }
-            </div>
-            <div class="matrix-legend-row">
-              <span class="dia-label" *ngFor="let d of diasLabel">{{ d }}</span>
-            </div>
-            <table class="mini-matrix">
-              <tbody>
-                <tr *ngFor="let f of franjasMiniIdx">
-                  <td *ngFor="let d of diasIdx"
-                      [class.ociosa]="isOciosaMini(f, d)"
-                      [class.ocupada]="!isOciosaMini(f, d)"
-                      [title]="franjaLabel(f) + ' · ' + diasLabel[d]">
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="legend">
-              <span class="legend-item"><span class="box ociosa"></span> Ociosa</span>
-              <span class="legend-item"><span class="box ocupada"></span> Ocupada</span>
-            </div>
-          }
-        </div>
-      </div>
-
-    </div>
+    }
   `,
   styles: [`
-    .dashboard-container { padding: 16px; display: flex; flex-direction: column; gap: 24px; }
-    .page-title { margin: 0; font-weight: 500; font-size: 24px; }
-    .page-subtitle { margin: -12px 0 0; color: #757575; font-size: 13px; }
-    .cards-row { display: flex; gap: 24px; }
-    .metric-card { flex: 1; background: white; padding: 24px; border-radius: 8px; border: 1px solid #e0e0e0; display: flex; flex-direction: column; gap: 8px; }
-    .metric-title { color: #616161; font-size: 14px; font-weight: 500; }
-    .metric-value { font-size: 32px; font-weight: bold; color: #007bff; }
-    
-    .chart-row, .tables-row, .mini-matrix-row { display: flex; }
-    .card-box { background: white; padding: 24px; border-radius: 8px; border: 1px solid #e0e0e0; }
-    .flex-1 { flex: 1; }
-    .section-title { margin: 0 0 16px 0; font-size: 18px; font-weight: 500; }
-    .chart-container { height: 300px; }
-    
-    .border-table { border: 1px solid #e0e0e0; border-bottom: 0; width: 100%; }
-    .status-badge { padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 500; }
-    .status-normal { background: #e8f5e9; color: #2e7d32; }
-    .status-alerta { background: #fff8e1; color: #f57f17; }
-    .status-limite { background: #ffebee; color: #c62828; }
-    
-    .space-selector { display: flex; gap: 8px; overflow-x: auto; }
-    .pill-button { padding: 6px 12px; border-radius: 16px; border: 1px solid #e0e0e0; background: white; cursor: pointer; transition: 0.2s; font-size: 12px; }
-    .pill-button.active { background: #007bff; color: white; border-color: #007bff; }
-    .mb-16 { margin-bottom: 16px; }
-    
-    .mini-matrix { width: 100%; border-collapse: collapse; }
-    .mini-matrix td { height: 28px; border: 1px solid white; cursor: default; }
-    .ociosa { background-color: #fff59d; }
-    .ocupada { background-color: #bbdefb; }
-    .legend { display: flex; gap: 16px; margin-top: 16px; font-size: 12px; }
-    .legend-item { display: flex; align-items: center; gap: 4px; }
-    .legend-item .box { width: 16px; height: 16px; border-radius: 2px; }
-    .matrix-legend-row { display: flex; gap: 1px; margin-bottom: 4px; }
-    .dia-label { flex: 1; text-align: center; font-size: 10px; font-weight: 600; color: #757575; }
-    .no-data-hint { color: #9e9e9e; font-size: 14px; }
-    .section-title-row { margin-bottom: 8px; }
-    .cards-row-sm { gap: 12px; }
-    .metric-card-sm { padding: 16px; }
-    .metric-value-sm { font-size: 24px; }
+    .rev-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+    .soea-tag { font: 600 11px var(--font-heading); letter-spacing: .1em; text-transform: uppercase; background: var(--color-accent-800); color: #fff; padding: 4px 10px; }
+    .rev-title { margin: 0; font-size: 26px; } .rev-sub { font-size: 13px; }
+    .empty { padding: 40px; text-align: center; }
+
+    .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 18px; }
+    .kpi { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
+    .klabel { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--color-neutral-600); }
+    .kval { font: 600 32px var(--font-heading); line-height: 1; }
+    .kval.accent { color: var(--color-accent); } .kval.warn { color: var(--warn-bd); }
+    .knote { font-size: 11.5px; }
+    .bar { height: 12px; border: 1px solid var(--color-neutral-700); position: relative; overflow: hidden; }
+    .bar > i { position: absolute; inset: 0 auto 0 0; background: var(--color-accent); }
+    .bar.split { display: flex; }
+    .bar.split > i { position: static; }
+    .bar.split .pres { background: var(--color-accent); border-right: 1px solid var(--color-neutral-700); }
+    .bar.split .virt { flex: 1; background: repeating-linear-gradient(-45deg, transparent 0 4px, color-mix(in srgb, var(--color-accent) 25%, transparent) 4px 6px); }
+
+    .carga { padding: 16px 18px; margin-bottom: 18px; display: flex; flex-direction: column; gap: 11px; }
+    .carga-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+    .carga-head .text-muted { font-size: 12px; }
+    .crow { display: grid; grid-template-columns: 130px 1fr 150px; gap: 12px; align-items: center; font-size: 13px; }
+    .cname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .counts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+    .cnt { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+    .cval { font: 600 24px var(--font-heading); line-height: 1; }
   `]
 })
 export class DashboardAdminComponent implements OnInit {
-  state    = inject(StateService);
+  state = inject(StateService);
   catalogo = inject(CatalogoService);
 
-  matrixSpace = signal<Espacio | null>(null);
-
   ngOnInit() {
-    if (this.state.espacios().length === 0) {
-      this.catalogo.cargarTodo().subscribe({
-        next: () => {
-          this.matrixSpace.set(this.state.espacios()[0] ?? null);
-        }
-      });
-    } else {
-      this.matrixSpace.set(this.state.espacios()[0] ?? null);
-    }
+    if (this.state.espacios().length === 0) this.catalogo.cargarTodo().subscribe({ error: () => {} });
   }
 
-  readonly diasLabel = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-  readonly diasIdx   = [0, 1, 2, 3, 4, 5];
-  readonly diasNombre = ['lunes','martes','miercoles','jueves','viernes','sabado'];
-  /** Franjas de 07:00 a 20:00 (14 franjas de 1 h). */
-  readonly franjasMiniIdx = Array.from({ length: 14 }, (_, i) => i);
-
-  franjaLabel(idx: number): string {
-    return `${String(7 + idx).padStart(2, '0')}:00`;
-  }
-
-  /** Devuelve true si la franja está libre (sin sesiones presenciales) para el espacio activo. */
-  isOciosaMini(franjaIdx: number, diaIdx: number): boolean {
-    const esp = this.matrixSpace() ?? this.state.espacios()[0];
-    if (!esp || this.state.sesiones().length === 0) return true;
-    const hora = this.franjaLabel(franjaIdx);
-    const dia  = this.diasNombre[diaIdx];
-    return !this.state.sesiones().some(s =>
-      s.espacioId === esp.id && s.dia === dia && s.horaInicio === hora && !s.virtual
-    );
-  }
-
-  // ── Metrics ──────────────────────────────────────────────────────────────────
-
-  totalPresenciales = computed(() =>
-    this.state.sesiones().filter(s => !s.virtual).length);
-
-  totalVirtuales = computed(() =>
-    this.state.sesiones().filter(s => s.virtual).length);
-
-  /** Total slots available across all spaces × all day hours (07-20 = 13h × 6 days). */
-  private totalSlots = computed(() => this.state.espacios().length * 13 * 6);
-
-  ocupacionPct = computed(() => {
-    const slots = this.totalSlots();
-    if (slots === 0) return 0;
-    return Math.round((this.state.sesiones().filter(s => !s.virtual).length / slots) * 100);
+  totalPresenciales = computed(() => this.state.sesiones().filter(s => !s.virtual).length);
+  totalVirtuales = computed(() => this.state.sesiones().filter(s => s.virtual).length);
+  presencialPct = computed(() => {
+    const t = this.totalPresenciales() + this.totalVirtuales();
+    return t ? Math.round((this.totalPresenciales() / t) * 100) : 0;
   });
 
-  /** Idle 1-hour slots = total slots minus occupied presencial sessions. */
-  franjasOciosas = computed(() =>
-    Math.max(0, this.totalSlots() - this.totalPresenciales()));
-
-  // ── Docentes table ────────────────────────────────────────────────────────────
+  private totalSlots = computed(() => this.state.espacios().length * 13 * 6);
+  ocupacionPct = computed(() => { const s = this.totalSlots(); return s ? Math.round((this.totalPresenciales() / s) * 100) : 0; });
+  franjasOciosas = computed(() => Math.max(0, this.totalSlots() - this.totalPresenciales()));
 
   docentesData = computed(() => {
     const sesiones = this.state.sesiones();
-    return this.state.docentes().map(d => {
-      const sesDoc = sesiones.filter(s => s.docenteId === d.id);
-      // Estimate hours: count sessions (each ~2h) or use horaFin-horaInicio when available
-      const horasAsignadas = sesDoc.reduce((acc, s) => {
-        const [hI, mI] = s.horaInicio.split(':').map(Number);
-        const [hF, mF] = s.horaFin.split(':').map(Number);
-        return acc + ((hF * 60 + mF) - (hI * 60 + mI)) / 60;
-      }, 0);
-      const maxHoras = d.maxHoras || 40;
-      const porcentaje = maxHoras > 0 ? Math.round((horasAsignadas / maxHoras) * 100) : 0;
-      const estado = porcentaje >= 100 ? 'Límite' : porcentaje >= 85 ? 'Alerta' : 'Normal';
-      const estadoClass = porcentaje >= 100 ? 'status-limite' : porcentaje >= 85 ? 'status-alerta' : 'status-normal';
-      return { docente: d.nombre, horasAsignadas: Math.round(horasAsignadas * 10) / 10, maxHoras, porcentaje, estado, estadoClass };
-    });
+    return this.state.docentes()
+      .map(d => {
+        const sesDoc = sesiones.filter(s => s.docenteId === d.id);
+        const horas = sesDoc.reduce((acc, s) => {
+          const [hI, mI] = s.horaInicio.split(':').map(Number);
+          const [hF, mF] = s.horaFin.split(':').map(Number);
+          return acc + ((hF * 60 + mF) - (hI * 60 + mI)) / 60;
+        }, 0);
+        const maxHoras = d.maxHoras || 28;
+        const porcentaje = maxHoras > 0 ? Math.round((horas / maxHoras) * 100) : 0;
+        const estado = porcentaje >= 100 ? 'Límite' : porcentaje >= 85 ? 'Alerta' : 'Normal';
+        const pill = porcentaje >= 100 ? 'err' : porcentaje >= 85 ? 'warn' : 'ok';
+        const color = porcentaje >= 100 ? 'var(--err-bd)' : porcentaje >= 85 ? 'var(--warn-bd)' : 'var(--ok-bd)';
+        return { docente: d.nombre, horasAsignadas: Math.round(horas * 10) / 10, maxHoras, porcentaje, estado, pill, color, tiene: sesDoc.length > 0 };
+      })
+      .filter(d => d.tiene);
   });
-
-  // ── Bar chart ─────────────────────────────────────────────────────────────────
-
-  barChartOptions: ChartConfiguration['options'] = {
-    responsive: true,
-    maintainAspectRatio: false,
-    indexAxis: 'y',
-    scales: { x: { min: 0, max: 100 } },
-    plugins: { legend: { display: false } }
-  };
-
-  barChartData = computed<ChartData<'bar'>>(() => {
-    const espacios = this.state.espacios();
-    const sesiones = this.state.sesiones().filter(s => !s.virtual);
-    const slotsPerSpace = 13 * 6;
-    const labels = espacios.map(e => e.nombre);
-    const data = espacios.map(e => {
-      const occ = sesiones.filter(s => s.espacioId === e.id).length;
-      return slotsPerSpace > 0 ? Math.round((occ / slotsPerSpace) * 100) : 0;
-    });
-    return {
-      labels,
-      datasets: [{
-        data,
-        backgroundColor: data.map(v => v > 92 ? '#dc3545' : '#007bff')
-      }]
-    };
-  });
-
 }

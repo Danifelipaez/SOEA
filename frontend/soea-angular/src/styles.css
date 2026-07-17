@@ -1,32 +1,313 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   SOEA — sistema de diseño "Industry" (blueprint plano).
+   Fuente de verdad visual del rediseño "SOEA Alta Fidelidad".
+   Material se conserva solo como plomería (MatDialog, MatSnackBar, MatMenu);
+   el look lo dan las clases DS de este archivo, no los componentes Material.
+   ═══════════════════════════════════════════════════════════════════════════ */
 @import '@angular/material/prebuilt-themes/azure-blue.css';
 
-html, body { height: 100%; margin: 0; }
-body { font-family: Roboto, "Helvetica Neue", sans-serif; background-color: #ffffff; color: #424242; }
+/* ── Tokens ─────────────────────────────────────────────────────────────────── */
+:root {
+  --color-bg: #f2f2f3;
+  --color-surface: #e9e9ea;
+  --color-text: #1d1f20;
+  --color-accent: #5980a6;
+  --color-accent-2: #728fab;
+  --color-divider: color-mix(in srgb, #1d1f20 16%, transparent);
 
-/* Global utility classes based on guidelines */
-.text-primary { color: #007bff; }
-.bg-primary { background-color: #007bff; color: white; }
-.text-error { color: #dc3545; }
-.bg-error { background-color: #dc3545; color: white; }
-.text-success { color: #28a745; }
-.bg-success { background-color: #28a745; color: white; }
+  --color-neutral-100: #f5f5f8;
+  --color-neutral-200: #e7e7ea;
+  --color-neutral-300: #d4d4d7;
+  --color-neutral-400: #b7b7ba;
+  --color-neutral-500: #98989b;
+  --color-neutral-600: #7a7a7d;
+  --color-neutral-700: #5d5d60;
+  --color-neutral-800: #424244;
+  --color-neutral-900: #2b2b2d;
 
-/* Flat design, remove shadows from material */
-.mat-mdc-card {
+  --color-accent-100: #eef6ff;
+  --color-accent-200: #d6ebff;
+  --color-accent-300: #b5d9fd;
+  --color-accent-400: #94bce3;
+  --color-accent-500: #749dc4;
+  --color-accent-600: #597ea3;
+  --color-accent-700: #416180;
+  --color-accent-800: #2c455d;
+  --color-accent-900: #1d2d3d;
+
+  --color-accent-2-100: #eef6ff;
+  --color-accent-2-800: #314457;
+
+  /* Semáforo de carga / feedback */
+  --ok-bg: #e7f0e8; --ok-bd: #4f7a52; --ok-fg: #33562f;
+  --warn-bg: #f6efe0; --warn-bd: #c68a2e; --warn-fg: #7a5a24;
+  --err-bg: #f6e6e3; --err-bd: #b0483e; --err-fg: #883329;
+
+  /* Colores de alternancia (defaults del dominio) */
+  --alt-a: #5980a6; --alt-b: #a8825a; --alt-sin: #8a8f94; --alt-lab: #6f8f6a;
+
+  --font-heading: "Barlow Condensed", system-ui, sans-serif;
+  --font-heading-weight: 600;
+  --font-body: "Barlow", system-ui, sans-serif;
+
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2b2b2d 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2b2b2d 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2b2b2d 22%, transparent);
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+}
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  line-height: 1.12; letter-spacing: -0.015em; margin: 0 0 8px;
+}
+h1 { font-size: 30px; } h2 { font-size: 24px; } h3 { font-size: 20px; } h4 { font-size: 18px; }
+a { color: var(--color-accent); text-underline-offset: 3px; }
+.text-muted { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+
+/* ── Marco blueprint (marcas de registro en las esquinas) ─────────────────────── */
+.blueprint { position: relative; border: 1px solid var(--color-divider); border-radius: 0; background: var(--color-bg); }
+.blueprint > .corner {
+  position: absolute; width: 11px; height: 11px;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+.blueprint > .corner::before, .blueprint > .corner::after { content: ""; position: absolute; background: currentColor; }
+.blueprint > .corner::before { left: 5px; top: 0; width: 1px; height: 100%; }
+.blueprint > .corner::after  { top: 5px; left: 0; width: 100%; height: 1px; }
+.blueprint > .corner.tl { top: -6px; left: -6px; }
+.blueprint > .corner.tr { top: -6px; right: -6px; }
+.blueprint > .corner.bl { bottom: -6px; left: -6px; }
+.blueprint > .corner.br { bottom: -6px; right: -6px; }
+.elev-sm { box-shadow: var(--shadow-sm); }
+.elev-md { box-shadow: var(--shadow-md); }
+.elev-lg { box-shadow: var(--shadow-lg); }
+
+/* ── Botones ────────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; text-decoration: none;
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 14px; line-height: 1.2; color: var(--color-text);
+  background: transparent; border: 1px solid var(--color-divider);
+  padding: 7px 14px; border-radius: 0;
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+.btn-primary:hover:not(:disabled) { background: var(--color-accent-600); }
+.btn-primary:active:not(:disabled) { background: var(--color-accent-700); }
+.btn-secondary:hover:not(:disabled) { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.btn-secondary:active:not(:disabled) { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
+.btn-ghost { color: var(--color-accent); border-color: transparent; padding-inline: 4px; }
+.btn-ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.btn-block { width: 100%; }
+
+/* ── Campos (select "falso" plano y input real) ───────────────────────────────── */
+.selval {
+  width: 100%; min-height: 34px; padding: 6px 10px; font: inherit; font-size: 13px;
+  background: var(--color-surface); border: 1px solid var(--color-divider);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  color: var(--color-text);
+}
+.input {
+  width: 100%; min-height: 34px; padding: 6px 10px; font: inherit; font-size: 13px;
+  color: var(--color-text); caret-color: var(--color-accent);
+  background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: 0;
+}
+.input:hover, .selval:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.input:focus-visible { border-color: var(--color-accent); outline: none; }
+select.input, textarea.input { appearance: auto; }
+textarea.input { min-height: 80px; resize: vertical; }
+.dfield > label { display: block; font-size: 12px; margin-bottom: 4px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+.rq { color: var(--err-bd); }
+.caret { color: var(--color-neutral-500); }
+
+/* Radio DS */
+.radio { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
+.radio input { position: absolute; opacity: 0; width: 0; height: 0; }
+.radio .dot { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1.5px solid var(--color-divider); }
+.radio:hover .dot { border-color: var(--color-accent); }
+.radio input:checked + .dot { border-color: var(--color-accent); background: var(--color-accent); box-shadow: inset 0 0 0 4px var(--color-bg); }
+
+/* Segmented control */
+.seg { display: inline-flex; overflow: hidden; border: 1px solid var(--color-divider); }
+.seg-opt {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px;
+  font: 600 13px var(--font-heading); cursor: pointer; user-select: none; color: var(--color-text);
+}
+.seg-opt + .seg-opt { border-left: 1px solid var(--color-divider); }
+.seg-opt.on { background: var(--color-accent); color: #fff; }
+.seg-opt:not(.on):hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+
+/* ── Tags ───────────────────────────────────────────────────────────────────── */
+.tag { display: inline-flex; align-items: center; font-size: 11px; letter-spacing: 0.02em; padding: 3px 10px; }
+.tag-accent { background: var(--color-accent-100); color: var(--color-accent-800); }
+.tag-accent-2 { background: var(--color-accent-2-100); color: var(--color-accent-2-800); }
+.tag-neutral { background: var(--color-neutral-100); color: var(--color-neutral-800); }
+.tag-outline { border: 1px solid var(--color-accent); color: var(--color-accent); }
+
+/* Chips de alternancia */
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; font-size: 12.5px; border: 1px solid var(--color-divider); }
+.dot { width: 11px; height: 11px; flex: none; }
+
+/* Pills de estado (carga docente) */
+.dpill { font: 600 10px var(--font-heading); letter-spacing: 0.05em; padding: 2px 8px; display: inline-flex; align-items: center; gap: 5px; }
+.dpill.ok   { background: var(--ok-bg);   color: var(--ok-fg);   border: 1px solid var(--ok-bd); }
+.dpill.warn { background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-bd); }
+.dpill.err  { background: var(--err-bg);  color: var(--err-fg);  border: 1px solid var(--err-bd); }
+.stat { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+/* ── Tablas ─────────────────────────────────────────────────────────────────── */
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th {
+  text-align: left; font: 600 11px var(--font-heading); letter-spacing: 0.08em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  padding: 7px 8px; border-bottom: 1px solid var(--color-divider);
+}
+.table td { padding: 7px 8px; border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); vertical-align: middle; }
+.table tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.icell { color: var(--color-accent); cursor: pointer; }
+
+/* ── Feedback ───────────────────────────────────────────────────────────────── */
+.soft { background: var(--warn-bg); border: 1px solid var(--warn-bd); color: var(--warn-fg); padding: 8px 11px; font-size: 12.5px; line-height: 1.35; }
+.errb { background: var(--err-bg);  border: 1px solid var(--err-bd);  color: var(--err-fg);  padding: 8px 11px; font-size: 12.5px; line-height: 1.35; }
+.okb  { background: var(--ok-bg);   border: 1px solid var(--ok-bd);   color: var(--ok-fg);   padding: 8px 11px; font-size: 12.5px; line-height: 1.35; }
+
+/* Sección */
+h3.sec, .sec { font: 600 12px var(--font-heading); letter-spacing: 0.09em; text-transform: uppercase; color: var(--color-neutral-800); margin: 0; }
+
+/* Tabs de catálogo */
+.ctab { padding: 8px 15px; font: 600 13px var(--font-heading); letter-spacing: 0.02em; color: var(--color-neutral-600); border: 0; border-bottom: 2px solid transparent; cursor: pointer; background: transparent; }
+.ctab.on { color: var(--color-accent); border-bottom-color: var(--color-accent); }
+
+/* ── Popup shell (REQUISITOS §1–§3) ───────────────────────────────────────────── */
+.pophd { font: 600 15px var(--font-heading); text-transform: uppercase; letter-spacing: 0.03em; padding: 11px 15px; border-bottom: 1px solid var(--color-divider); display: flex; justify-content: space-between; align-items: center; }
+.pophd i { font-style: normal; color: var(--color-neutral-500); cursor: pointer; }
+.pophd .code { color: var(--err-bd); font-family: var(--font-heading); }
+.popbd { padding: 13px 15px; display: flex; flex-direction: column; gap: 10px; }
+.popfoot { display: flex; gap: 8px; justify-content: flex-end; }
+.pop-x { cursor: pointer; color: var(--color-neutral-500); font-style: normal; }
+
+/* Journey badges (reutilizado por journey-bar) */
+.jbadge { width: 23px; height: 23px; border-radius: 50%; display: grid; place-items: center; font-size: 11.5px; flex: none; }
+.jsep { color: var(--color-neutral-400); font-size: 15px; }
+
+/* ═══ Overrides de Angular Material — aplanar a look blueprint ═══════════════════ */
+
+/* Diálogo: la superficie Material se vuelve marco plano; el contenido usa .pophd/.popbd. */
+.mat-mdc-dialog-surface.mdc-dialog__surface {
+  border-radius: 0 !important;
+  background: var(--color-surface) !important;
+  box-shadow: var(--shadow-lg) !important;
+  border: 1px solid var(--color-divider);
+}
+.cdk-overlay-dark-backdrop { background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent); }
+.mat-mdc-dialog-container { --mdc-dialog-container-color: var(--color-surface); }
+/* Todos los diálogos del rediseño maquetan su propio padding con .pophd/.popbd */
+.mat-mdc-dialog-surface { padding: 0 !important; }
+.mat-mdc-dialog-content { padding: 0 !important; max-height: 78vh; }
+
+/* Snackbar plano */
+.mat-mdc-snack-bar-container {
+  --mdc-snackbar-container-color: var(--color-neutral-900);
+  --mdc-snackbar-supporting-text-color: #f2f2f3;
+  --mat-snack-bar-button-color: var(--color-accent-300);
+}
+.snack-error { --mdc-snackbar-container-color: var(--err-bd); }
+
+/* Menú plano */
+.mat-mdc-menu-panel { border-radius: 0 !important; border: 1px solid var(--color-divider); }
+
+/* Spinner Material → color accent */
+.mat-mdc-progress-spinner { --mdc-circular-progress-active-indicator-color: var(--color-accent); }
+
+/* Botones de icono en tablas/toolbars siguen usables aunque el tema aplane */
+.mat-mdc-icon-button { color: var(--color-neutral-700); }
+
+/* ── Botones Material → planos cuadrados ──────────────────────────────────────── */
+.mat-mdc-button, .mat-mdc-unelevated-button, .mat-mdc-outlined-button,
+.mat-mdc-raised-button {
+  border-radius: 0 !important;
+  font-family: var(--font-heading) !important; font-weight: 600 !important; letter-spacing: .01em;
   box-shadow: none !important;
-  border: 1px solid #e0e0e0;
+}
+.mat-mdc-outlined-button { --mdc-outlined-button-outline-color: var(--color-divider); }
+.mat-mdc-unelevated-button:not(:disabled) {
+  --mdc-filled-button-container-color: var(--color-accent);
+  --mdc-filled-button-label-text-color: #fff;
+}
+.primary-button { background: var(--color-accent) !important; color: #fff !important; }
+.primary-button:hover { background: var(--color-accent-600) !important; }
+.text-primary { color: var(--color-accent) !important; }
+.text-error { color: var(--err-bd) !important; }
+
+/* ── Tablas Material → look blueprint ─────────────────────────────────────────── */
+.mat-mdc-table { background: transparent; }
+.mat-mdc-header-row { background: transparent; }
+.mat-mdc-header-cell {
+  font: 600 11px var(--font-heading) !important; letter-spacing: .08em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent) !important;
+  border-bottom: 1px solid var(--color-divider) !important;
+}
+.mat-mdc-cell {
+  font-family: var(--font-body) !important; font-size: 14px;
+  border-bottom-color: color-mix(in srgb, var(--color-text) 8%, transparent) !important;
+  color: var(--color-text);
+}
+.mat-mdc-row:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.border-table { border: 1px solid var(--color-divider) !important; border-bottom: 0 !important; }
+
+/* ── Form fields Material → cuadrados, hairline, superficie ───────────────────── */
+.mdc-text-field--outlined {
+  --mdc-outlined-text-field-container-shape: 0;
+  --mdc-outlined-text-field-outline-color: var(--color-divider);
+  --mdc-outlined-text-field-hover-outline-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+  --mdc-outlined-text-field-focus-outline-color: var(--color-accent);
+  --mdc-outlined-text-field-caret-color: var(--color-accent);
+  --mdc-outlined-text-field-label-text-color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  --mdc-outlined-text-field-focus-label-text-color: var(--color-accent);
+}
+.mat-mdc-form-field { --mat-sys-corner-extra-small: 0; font-family: var(--font-body); }
+.mat-mdc-select-panel, .mat-mdc-autocomplete-panel { border-radius: 0 !important; }
+.mat-mdc-option { font-family: var(--font-body); }
+
+/* ── Tabs Material → barra ctab ───────────────────────────────────────────────── */
+.mat-mdc-tab-header { border-bottom: 1px solid var(--color-divider); }
+.mat-mdc-tab .mdc-tab__text-label {
+  font-family: var(--font-heading) !important; font-weight: 600 !important; letter-spacing: .02em;
+}
+.mat-mdc-tab-group, .mat-mdc-tab-nav-bar {
+  --mdc-tab-indicator-active-indicator-color: var(--color-accent);
+  --mat-tab-header-active-label-text-color: var(--color-accent);
+  --mat-tab-header-active-focus-label-text-color: var(--color-accent);
+  --mat-tab-header-active-hover-label-text-color: var(--color-accent);
+  --mat-tab-header-active-ripple-color: var(--color-accent);
+  --mat-tab-header-inactive-label-text-color: var(--color-neutral-600);
 }
 
-.mat-mdc-button:not(:disabled) {
-  box-shadow: none !important;
+/* ── Chips Material → tags planos ─────────────────────────────────────────────── */
+.mat-mdc-chip, .mat-mdc-standard-chip {
+  border-radius: 0 !important;
+  --mdc-chip-container-shape-radius: 0;
+  background: var(--color-neutral-100) !important;
+  --mdc-chip-label-text-color: var(--color-neutral-800);
+  font-family: var(--font-body);
 }
 
-.primary-button {
-  background-color: #007bff !important;
-  color: white !important;
-  border-radius: 4px;
-}
-
-.primary-button:hover {
-  background-color: #0069d9 !important;
+/* ── Checkbox / radio Material → accent ───────────────────────────────────────── */
+.mat-mdc-checkbox, .mat-mdc-radio-button {
+  --mdc-checkbox-selected-icon-color: var(--color-accent);
+  --mdc-checkbox-selected-focus-icon-color: var(--color-accent);
+  --mdc-checkbox-selected-hover-icon-color: var(--color-accent);
+  --mdc-radio-selected-icon-color: var(--color-accent);
 }
