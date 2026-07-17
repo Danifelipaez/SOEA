@@ -14,6 +14,7 @@ import { ImportResultadoDialogComponent } from '../../../shared/import-resultado
 import { Asignatura, Facultad, Programa } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { ImportExcelStatsDto } from '../../../core/persistencia.service';
+import { SearchableSelectComponent, SearchableOption } from '../../../shared/searchable-select/searchable-select.component';
 
 @Component({
   selector: 'app-asignaturas-tab',
@@ -39,7 +40,7 @@ import { ImportExcelStatsDto } from '../../../core/persistencia.service';
 
       <table class="table">
         <thead><tr>
-          <th style="width:24%">Asignatura</th><th>Código</th><th>Ses/sem</th><th>Programa</th><th>Docente</th><th style="width:110px">Alternancia</th><th style="width:60px"></th>
+          <th style="width:28%">Asignatura</th><th>Código</th><th>Ses/sem</th><th>Programa</th><th style="width:110px">Alternancia</th><th style="width:60px"></th>
         </tr></thead>
         <tbody>
           @for (a of filtered(); track a.id) {
@@ -48,16 +49,15 @@ import { ImportExcelStatsDto } from '../../../core/persistencia.service';
               <td class="text-muted">{{ a.codigo }}</td>
               <td class="text-muted">{{ resumenSesiones(a) }}</td>
               <td>{{ programaNombre(a.programaId) }}</td>
-              <td class="text-muted">{{ docenteNombre(a.docenteId) }}</td>
               <td><span class="dpill" [ngClass]="altPill(a.alternancia)"><span class="stat" [style.background]="altColor(a.alternancia)"></span>{{ altLabel(a.alternancia) }}</span></td>
               <td>
-                <span class="icell" (click)="openDialog(a)" title="Editar">✎</span>
-                <span class="icell del" (click)="delete(a)" title="Eliminar">🗑</span>
+                <span class="material-icons ic-edit" (click)="openDialog(a)" title="Editar">edit</span>
+                <span class="material-icons ic-del" (click)="delete(a)" title="Eliminar">delete</span>
               </td>
             </tr>
           }
           @if (filtered().length === 0) {
-            <tr><td colspan="7" class="empty">No hay asignaturas. Usa "⬆ Importar Excel" o "＋ Nueva asignatura".</td></tr>
+            <tr><td colspan="6" class="empty">No hay asignaturas. Usa "⬆ Importar Excel" o "＋ Nueva asignatura".</td></tr>
           }
         </tbody>
       </table>
@@ -70,8 +70,6 @@ import { ImportExcelStatsDto } from '../../../core/persistencia.service';
     .search { width: 240px; }
     .count { font-size: 12.5px; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-    .icell { padding: 0 5px; font-size: 15px; }
-    .icell.del:hover { color: var(--err-bd); }
     .empty { text-align: center; color: var(--color-neutral-500); padding: 28px; }
   `]
 })
@@ -95,7 +93,6 @@ export class AsignaturasTabComponent {
   });
 
   programaNombre(programaId: string): string { return this.state.getProgramaById(programaId)?.nombre ?? '—'; }
-  docenteNombre(id?: string): string { return id ? (this.state.docentes().find(x => x.id === id)?.nombre ?? 'Sin asignar') : 'Sin asignar'; }
 
   altColor(alt: string): string { return alt === 'TipoA' ? 'var(--alt-a)' : alt === 'TipoB' ? 'var(--alt-b)' : 'var(--alt-sin)'; }
   altLabel(alt: string): string { return alt === 'SinAlternancia' ? 'SinAlt' : alt; }
@@ -215,7 +212,7 @@ export class AsignaturasTabComponent {
         sesionesPorSemana: a.sesionesTeoriaPresencialSemana || a.sesionesLaboratorioSemana || a.sesionesTeoriaVirtualSemana || 1,
         sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
         alternancia: a.alternancia, categoria: a.categoria ?? null,
-        programaId: a.programaId, grupoNumero: a.grupoNumero, docenteId: a.docenteId ?? null
+        programaId: a.programaId, grupoNumero: a.grupoNumero
       }))
     };
   }
@@ -230,27 +227,21 @@ export class AsignaturasTabComponent {
 }
 
 // ─── Popup: Crear/Editar asignatura (REQUISITOS §1.1) ─────────────────────────
+type CategoriaSesion = 'presencial' | 'virtual' | 'lab';
+
 @Component({
   selector: 'app-asignatura-dialog',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, MatDialogModule],
+  imports: [CommonModule, ReactiveFormsModule, MatDialogModule, SearchableSelectComponent],
   template: `
     <div class="pophd">{{ data ? 'Editar asignatura' : 'Nueva asignatura' }} <i (click)="ref.close()">✕</i></div>
     <form class="popbd" [formGroup]="form" style="max-height:74vh;overflow:auto">
 
       <div style="display:flex;gap:8px">
         <div class="dfield" style="flex:1"><label>Facultad <span class="rq">*</span></label>
-          <select class="input" formControlName="facultadId" (change)="onFacultadChange($any($event.target).value)">
-            <option value="">—</option>
-            @for (f of state.facultades(); track f.id) { <option [value]="f.id">{{ f.nombre }}</option> }
-            <option value="__nueva__">+ Nueva facultad…</option>
-          </select></div>
+          <app-searchable-select formControlName="facultadId" [options]="facultadOptions()" placeholder="— Seleccione —"></app-searchable-select></div>
         <div class="dfield" style="flex:1"><label>Programa <span class="rq">*</span></label>
-          <select class="input" formControlName="programaId">
-            <option value="">—</option>
-            @for (p of programasFiltrados; track p.id) { <option [value]="p.id">{{ p.nombre }}</option> }
-            <option value="__nuevo__">+ Nuevo programa…</option>
-          </select></div>
+          <app-searchable-select formControlName="programaId" [options]="programaOptions()" placeholder="— Seleccione —"></app-searchable-select></div>
       </div>
       @if (form.get('facultadId')?.value === '__nueva__') {
         <div class="dfield"><label>Nombre de la nueva facultad</label><input class="input" formControlName="nuevaFacultad"></div>
@@ -268,33 +259,54 @@ export class AsignaturasTabComponent {
           </select></div>
       </div>
 
-      <h3 class="sec" style="margin-top:2px">Desglose por tipo de sesión</h3>
-      <div class="track"><span class="tlabel">Teoría presencial</span>
-        <div class="dfield" style="width:96px"><label>Ses/sem</label><input class="input" type="number" min="0" formControlName="sesionesTeoriaPresencialSemana"></div>
-        <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasTeoriaPresencial"></div>
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <div class="dfield" style="width:170px"><label>Sesiones por semana <span class="rq">*</span></label>
+          <input class="input" type="number" min="0" [value]="sesionesPorSemana()" (input)="onNChange($any($event.target).value)"></div>
+        <p class="text-muted" style="font-size:11px;margin:0 0 9px">Máximo combinado entre presencial, virtual y laboratorio.</p>
       </div>
-      <div class="track"><span class="tlabel">Teoría virtual</span>
-        <div class="dfield" style="width:96px"><label>Ses/sem</label><input class="input" type="number" min="0" formControlName="sesionesTeoriaVirtualSemana"></div>
-        <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasTeoriaVirtual"></div>
-      </div>
-      <div class="track"><span class="tlabel">Laboratorio</span>
-        <div class="dfield" style="width:96px"><label>Ses/sem</label><input class="input" type="number" min="0" formControlName="sesionesLaboratorioSemana"></div>
-        <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasLaboratorio"></div>
-        <div class="dfield" style="flex:1"><label>Lab/semestre <span class="rq">*</span></label><input class="input" type="number" min="0" formControlName="sesionesLaboratorioSemestre"></div>
-      </div>
-      <p class="text-muted" style="font-size:11px;margin:0">8=TipoA · &gt;8=TipoB · 0=SinAlternancia (se infiere automáticamente)</p>
 
-      @if (data) {
-        <div class="dfield"><label>Docente asignado (opcional)</label>
-          <select class="input" formControlName="docenteId">
-            <option value="">Sin asignar</option>
-            @for (doc of state.docentes(); track doc.id) { <option [value]="doc.id">{{ doc.nombre }}</option> }
-          </select></div>
-        <div class="dfield"><label>Espacio fijo (opcional)</label>
-          <select class="input" formControlName="espacioFijoId">
-            <option value="">Sin espacio fijo</option>
-            @for (esp of state.espacios(); track esp.id) { <option [value]="esp.id">{{ esp.nombre }}</option> }
-          </select></div>
+      <h3 class="sec" style="margin-top:2px">Desglose por tipo de sesión</h3>
+      <div class="track">
+        <span class="tlabel">Teoría presencial</span>
+        <div class="stepper">
+          <button type="button" class="btn btn-secondary step-btn" (click)="dec('presencial')" [disabled]="sesiones().presencial<=0">−</button>
+          <span class="step-val">{{ sesiones().presencial }}</span>
+          <button type="button" class="btn btn-secondary step-btn" (click)="inc('presencial')">+</button>
+        </div>
+        @if (sesiones().presencial > 0) {
+          <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasTeoriaPresencial"></div>
+        }
+      </div>
+      <div class="track">
+        <span class="tlabel">Teoría virtual</span>
+        <div class="stepper">
+          <button type="button" class="btn btn-secondary step-btn" (click)="dec('virtual')" [disabled]="sesiones().virtual<=0">−</button>
+          <span class="step-val">{{ sesiones().virtual }}</span>
+          <button type="button" class="btn btn-secondary step-btn" (click)="inc('virtual')">+</button>
+        </div>
+        @if (sesiones().virtual > 0) {
+          <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasTeoriaVirtual"></div>
+        }
+      </div>
+      <div class="track">
+        <span class="tlabel">Laboratorio</span>
+        <div class="stepper">
+          <button type="button" class="btn btn-secondary step-btn" (click)="dec('lab')" [disabled]="sesiones().lab<=0">−</button>
+          <span class="step-val">{{ sesiones().lab }}</span>
+          <button type="button" class="btn btn-secondary step-btn" (click)="inc('lab')">+</button>
+        </div>
+        @if (sesiones().lab > 0) {
+          <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasLaboratorio"></div>
+        }
+      </div>
+      <p class="text-muted" style="font-size:11px;margin:0">Asignadas: {{ sesiones().presencial + sesiones().virtual + sesiones().lab }} / {{ sesionesPorSemana() }}</p>
+
+      <p class="text-muted" style="font-size:11px;margin:0;border-top:1px dashed var(--color-neutral-300);padding-top:8px">
+        El docente se asigna por <b>grupo</b> (pestaña Grupos), no aquí — la misma asignatura la dictan docentes distintos en grupos distintos.
+      </p>
+      @if (sesiones().lab > 0) {
+        <div class="dfield"><label>Espacio de laboratorio <span class="text-muted" style="font-size:11px">(la asignatura tiene sesiones de lab)</span></label>
+          <app-searchable-select formControlName="espacioFijoId" [options]="labOptions()" placeholder="Sin espacio fijo"></app-searchable-select></div>
       }
 
       <div class="popfoot">
@@ -304,8 +316,11 @@ export class AsignaturasTabComponent {
     </form>
   `,
   styles: [`
-    .track { display: flex; align-items: flex-end; gap: 8px; padding: 8px 10px; border: 1px solid var(--color-divider); }
+    .track { display: flex; align-items: flex-end; gap: 10px; padding: 8px 10px; border: 1px solid var(--color-divider); }
     .tlabel { flex: 1; font: 600 12px var(--font-heading); align-self: center; }
+    .stepper { display: flex; align-items: center; gap: 6px; }
+    .step-btn { min-height: 26px; min-width: 26px; padding: 0; font-size: 15px; line-height: 1; }
+    .step-val { min-width: 20px; text-align: center; font: 600 14px var(--font-heading); }
   `]
 })
 export class AsignaturaDialogComponent {
@@ -314,7 +329,27 @@ export class AsignaturaDialogComponent {
   data = inject(MAT_DIALOG_DATA) as Asignatura | undefined;
   state = inject(StateService);
 
-  programasFiltrados: Programa[] = [];
+  programasFiltrados = signal<Programa[]>([]);
+
+  // ── Presupuesto de sesiones semanales (item 3): las 3 categorías comparten un tope N.
+  // ponytail: al incrementar en el tope se "roba" de la categoría con mayor conteo entre
+  // las otras dos; en empate se prioriza presencial > virtual > lab (orden de PRIORIDAD).
+  private readonly PRIORIDAD: Record<CategoriaSesion, number> = { presencial: 0, virtual: 1, lab: 2 };
+  sesionesPorSemana = signal(this.sumaInicial());
+  sesiones = signal<Record<CategoriaSesion, number>>(this.sesionesIniciales());
+
+  facultadOptions = computed<SearchableOption[]>(() => [
+    ...this.state.facultades().map(f => ({ value: f.id, label: f.nombre })),
+    { value: '__nueva__', label: '+ Nueva facultad…' }
+  ]);
+  programaOptions = computed<SearchableOption[]>(() => [
+    ...this.programasFiltrados().map(p => ({ value: p.id, label: p.nombre })),
+    { value: '__nuevo__', label: '+ Nuevo programa…' }
+  ]);
+  labOptions = computed<SearchableOption[]>(() => [
+    { value: '', label: 'Sin espacio fijo' },
+    ...this.state.espacios().filter(e => e.tipo === 'Laboratorio').map(e => ({ value: e.id, label: e.nombre, sub: e.edificio }))
+  ]);
 
   form = this.fb.group({
     facultadId: ['', Validators.required],
@@ -324,14 +359,9 @@ export class AsignaturaDialogComponent {
     codigo: [this.data?.codigo ?? '', Validators.required],
     nombre: [this.data?.nombre ?? '', Validators.required],
     categoria: [this.data?.categoria ?? ''],
-    sesionesTeoriaPresencialSemana: [this.data?.sesionesTeoriaPresencialSemana ?? 2, [Validators.required, Validators.min(0)]],
     horasTeoriaPresencial: [this.data?.horasTeoriaPresencial ?? 2, [Validators.required, Validators.min(1)]],
-    sesionesTeoriaVirtualSemana: [this.data?.sesionesTeoriaVirtualSemana ?? 0, [Validators.required, Validators.min(0)]],
     horasTeoriaVirtual: [this.data?.horasTeoriaVirtual ?? 2, [Validators.required, Validators.min(1)]],
-    sesionesLaboratorioSemana: [this.data?.sesionesLaboratorioSemana ?? 0, [Validators.required, Validators.min(0)]],
     horasLaboratorio: [this.data?.horasLaboratorio ?? 2, [Validators.required, Validators.min(1)]],
-    sesionesLaboratorioSemestre: [this.data?.sesionesLaboratorioSemestre ?? 0, [Validators.required, Validators.min(0)]],
-    docenteId: [this.data?.docenteId ?? ''],
     espacioFijoId: [this.data?.espacioFijoId ?? '']
   });
 
@@ -339,15 +369,72 @@ export class AsignaturaDialogComponent {
     if (this.data?.programaId) {
       const prog = this.state.getProgramaById(this.data.programaId);
       if (prog) {
-        this.form.patchValue({ facultadId: prog.facultadId, programaId: prog.id });
-        this.programasFiltrados = this.state.getProgramasByFacultad(prog.facultadId);
+        this.form.patchValue({ facultadId: prog.facultadId, programaId: prog.id }, { emitEvent: false });
+        this.programasFiltrados.set(this.state.getProgramasByFacultad(prog.facultadId));
       }
     }
+    // Suscripción registrada después del patch inicial: solo reacciona a cambios del usuario.
+    this.form.get('facultadId')!.valueChanges.subscribe(fid => this.onFacultadChange(fid ?? ''));
   }
 
-  onFacultadChange(facultadId: string) {
-    this.programasFiltrados = facultadId === '__nueva__' ? [] : this.state.getProgramasByFacultad(facultadId);
-    this.form.patchValue({ programaId: '' });
+  private sumaInicial(): number {
+    const a = this.data;
+    const s = (a?.sesionesTeoriaPresencialSemana ?? 0) + (a?.sesionesTeoriaVirtualSemana ?? 0) + (a?.sesionesLaboratorioSemana ?? 0);
+    return s > 0 ? s : 2;
+  }
+
+  private sesionesIniciales(): Record<CategoriaSesion, number> {
+    const a = this.data;
+    if (!a) return { presencial: 2, virtual: 0, lab: 0 };
+    return {
+      presencial: a.sesionesTeoriaPresencialSemana ?? 0,
+      virtual: a.sesionesTeoriaVirtualSemana ?? 0,
+      lab: a.sesionesLaboratorioSemana ?? 0
+    };
+  }
+
+  inc(cat: CategoriaSesion) {
+    const s = { ...this.sesiones() };
+    const suma = s.presencial + s.virtual + s.lab;
+    if (suma >= this.sesionesPorSemana()) {
+      const otras = (['presencial', 'virtual', 'lab'] as CategoriaSesion[]).filter(c => c !== cat);
+      otras.sort((a, b) => (s[b] - s[a]) || (this.PRIORIDAD[a] - this.PRIORIDAD[b]));
+      const victima = otras[0];
+      if (s[victima] <= 0) return; // presupuesto agotado, nada que quitarle a las otras
+      s[victima]--;
+    }
+    s[cat]++;
+    this.sesiones.set(s);
+  }
+
+  dec(cat: CategoriaSesion) {
+    const s = { ...this.sesiones() };
+    if (s[cat] <= 0) return;
+    s[cat]--;
+    this.sesiones.set(s);
+  }
+
+  onNChange(value: string) {
+    const n = Math.max(0, Math.round(Number(value)) || 0);
+    const s = { ...this.sesiones() };
+    const suma = s.presencial + s.virtual + s.lab;
+    if (suma > n) {
+      // El faltante recae primero en presencial; si no alcanza, sigue con virtual y luego lab.
+      let excedente = suma - n;
+      const quitar = (cat: CategoriaSesion) => { const q = Math.min(excedente, s[cat]); s[cat] -= q; excedente -= q; };
+      quitar('presencial');
+      if (excedente > 0) quitar('virtual');
+      if (excedente > 0) quitar('lab');
+    } else if (suma < n) {
+      s.presencial += (n - suma);
+    }
+    this.sesionesPorSemana.set(n);
+    this.sesiones.set(s);
+  }
+
+  private onFacultadChange(facultadId: string) {
+    this.programasFiltrados.set(facultadId === '__nueva__' || !facultadId ? [] : this.state.getProgramasByFacultad(facultadId));
+    this.form.patchValue({ programaId: '' }, { emitEvent: false });
   }
 
   canSave(): boolean {
@@ -356,8 +443,8 @@ export class AsignaturaDialogComponent {
     if (v.facultadId === '__nueva__' && !v.nuevaFacultad) return false;
     if (!v.programaId) return false;
     if (v.programaId === '__nuevo__' && !v.nuevoPrograma) return false;
-    const total = (Number(v.sesionesTeoriaPresencialSemana) || 0) + (Number(v.sesionesTeoriaVirtualSemana) || 0) + (Number(v.sesionesLaboratorioSemana) || 0);
-    return total > 0;
+    const s = this.sesiones();
+    return (s.presencial + s.virtual + s.lab) > 0;
   }
 
   save() {
@@ -368,21 +455,24 @@ export class AsignaturaDialogComponent {
     let programaId = v.programaId!;
     if (programaId === '__nuevo__') { const prog: Programa = { id: crypto.randomUUID(), nombre: v.nuevoPrograma!, facultadId }; this.state.addPrograma(prog); programaId = prog.id; }
 
-    const sesionesLab = Number(v.sesionesLaboratorioSemestre) || 0;
-    const alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia' = sesionesLab === 8 ? 'TipoA' : sesionesLab > 8 ? 'TipoB' : 'SinAlternancia';
+    const s = this.sesiones();
 
     this.ref.close({
       codigo: v.codigo!, nombre: v.nombre!,
       categoria: (v.categoria as 'Obligatoria' | 'Optativa' | 'Electiva') || undefined,
-      sesionesTeoriaPresencialSemana: Number(v.sesionesTeoriaPresencialSemana) || 0,
+      sesionesTeoriaPresencialSemana: s.presencial,
       horasTeoriaPresencial: Number(v.horasTeoriaPresencial) || 2,
-      sesionesTeoriaVirtualSemana: Number(v.sesionesTeoriaVirtualSemana) || 0,
+      sesionesTeoriaVirtualSemana: s.virtual,
       horasTeoriaVirtual: Number(v.horasTeoriaVirtual) || 2,
-      sesionesLaboratorioSemana: Number(v.sesionesLaboratorioSemana) || 0,
+      sesionesLaboratorioSemana: s.lab,
       horasLaboratorio: Number(v.horasLaboratorio) || 2,
-      sesionesLaboratorioSemestre: sesionesLab,
-      alternancia, programaId,
-      docenteId: v.docenteId || undefined,
+      // ponytail: alternancia ya no se infiere de "lab/semestre" (item 2 del debug) — se
+      // conserva el valor existente y se edita aparte en la pestaña Alternancia (PATCH).
+      // sesionesLaboratorioSemestre se sigue enviando solo porque el backend aún lo exige
+      // (columna NOT NULL); se retira del dominio en la Fase 2 de backend.
+      sesionesLaboratorioSemestre: this.data?.sesionesLaboratorioSemestre ?? 0,
+      alternancia: this.data?.alternancia ?? 'SinAlternancia',
+      programaId,
       espacioFijoId: v.espacioFijoId || undefined
     } as Partial<Asignatura>);
   }

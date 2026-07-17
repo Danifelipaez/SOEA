@@ -21,16 +21,16 @@ namespace SOEA.Application.Features.Docentes
     public class FusionDocentesService
     {
         private readonly IDocenteRepositorio _docenteRepo;
-        private readonly IAsignaturaRepositorio _asignaturaRepo;
+        private readonly IGrupoRepositorio _grupoRepo;
         private readonly DocenteService _docenteService;
 
         public FusionDocentesService(
             IDocenteRepositorio docenteRepo,
-            IAsignaturaRepositorio asignaturaRepo,
+            IGrupoRepositorio grupoRepo,
             DocenteService docenteService)
         {
             _docenteRepo = docenteRepo;
-            _asignaturaRepo = asignaturaRepo;
+            _grupoRepo = grupoRepo;
             _docenteService = docenteService;
         }
 
@@ -54,7 +54,7 @@ namespace SOEA.Application.Features.Docentes
 
         /// <summary>
         /// Fusiona los <paramref name="duplicadosIds"/> en <paramref name="canonicoId"/>: mueve sus
-        /// asignaturas al canónico y elimina los registros duplicados.
+        /// grupos al canónico y elimina los registros duplicados.
         /// </summary>
         public async Task<FusionResultado> FusionarAsync(Guid canonicoId, IReadOnlyCollection<Guid> duplicadosIds)
         {
@@ -69,15 +69,15 @@ namespace SOEA.Application.Features.Docentes
             if (aAbsorber.Count == 0)
                 throw new ArgumentException("Debe indicar al menos un docente duplicado distinto del canónico.");
 
-            // Reasignar asignaturas de los duplicados al canónico.
-            var asignaturas = await _asignaturaRepo.GetAllAsync();
+            // Reasignar los grupos de los duplicados al canónico (el docente vive en Grupo).
+            var grupos = await _grupoRepo.GetAllAsync();
             int reasignadas = 0;
-            foreach (var a in asignaturas)
+            foreach (var g in grupos)
             {
-                if (a.DocenteId.HasValue && aAbsorber.Contains(a.DocenteId.Value))
+                if (g.DocenteId.HasValue && aAbsorber.Contains(g.DocenteId.Value))
                 {
-                    a.AsignarDocente(canonicoId);
-                    await _asignaturaRepo.UpdateAsync(a);
+                    g.AsignarDocente(canonicoId);
+                    await _grupoRepo.UpdateAsync(g);
                     reasignadas++;
                 }
             }
@@ -95,5 +95,5 @@ namespace SOEA.Application.Features.Docentes
         }
     }
 
-    public readonly record struct FusionResultado(Guid CanonicoId, int DocentesEliminados, int AsignaturasReasignadas);
+    public readonly record struct FusionResultado(Guid CanonicoId, int DocentesEliminados, int GruposReasignados);
 }

@@ -625,7 +625,6 @@ namespace SOEA.Application.Features.Horario
                     id:                  id,
                     nombre:              dto.Nombre,
                     programaId:          Guid.Empty,   // no requerido para el pipeline
-                    semestre:            1,
                     estudiantesInscritos: Math.Max(1, dto.EstudiantesInscritos),
                     disponibilidad:      disponibilidad,
                     codigo:              dto.Codigo,

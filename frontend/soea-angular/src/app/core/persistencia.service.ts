@@ -119,8 +119,9 @@ export class PersistenciaService {
   guardarGrupo(g: Grupo): Observable<Grupo> {
     return this.http.post<Grupo>(`${this.base}/grupos`, {
       id: g.id, asignaturaId: g.asignaturaId, nombre: g.nombre,
-      estudiantesInscritos: g.estudiantesInscritos, semestre: g.semestre,
+      estudiantesInscritos: g.estudiantesInscritos,
       programaId: g.programaId, facultadId: g.facultadId ?? null,
+      docenteId: g.docenteId ?? null,
       codigo: g.codigo ?? null, disponibilidadUiJson: g.disponibilidadUiJson ?? null
     });
   }
@@ -128,8 +129,9 @@ export class PersistenciaService {
   actualizarGrupo(g: Grupo): Observable<Grupo> {
     return this.http.put<Grupo>(`${this.base}/grupos/${g.id}`, {
       id: g.id, asignaturaId: g.asignaturaId, nombre: g.nombre,
-      estudiantesInscritos: g.estudiantesInscritos, semestre: g.semestre,
+      estudiantesInscritos: g.estudiantesInscritos,
       programaId: g.programaId, facultadId: g.facultadId ?? null,
+      docenteId: g.docenteId ?? null,
       codigo: g.codigo ?? null, disponibilidadUiJson: g.disponibilidadUiJson ?? null
     });
   }
@@ -158,7 +160,6 @@ export class PersistenciaService {
       programaId: a.programaId,
       alternancia: a.alternancia,
       categoria: a.categoria ?? null,
-      docenteId: a.docenteId ?? null,
       espacioFijoId: a.espacioFijoId ?? null
     };
     return this.http.put<any>(`${this.base}/asignaturas/${a.id}`, body);
@@ -225,5 +226,5 @@ export interface ImportExcelStatsDto {
 export interface FusionDocentesResultado {
   canonicoId: string;
   docentesEliminados: number;
-  asignaturasReasignadas: number;
+  gruposReasignados: number;
 }

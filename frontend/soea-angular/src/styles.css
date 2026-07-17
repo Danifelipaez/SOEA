@@ -177,6 +177,14 @@ textarea.input { min-height: 80px; resize: vertical; }
 .table td { padding: 7px 8px; border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); vertical-align: middle; }
 .table tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
 .icell { color: var(--color-accent); cursor: pointer; }
+.ic-edit, .ic-del {
+  font-size: 18px; line-height: 1; cursor: pointer; vertical-align: middle;
+  padding: 2px; user-select: none;
+}
+.ic-edit { color: var(--color-accent); }
+.ic-edit:hover { color: var(--color-accent-700); }
+.ic-del { color: var(--color-neutral-500); }
+.ic-del:hover { color: var(--err-bd); }
 
 /* ── Feedback ───────────────────────────────────────────────────────────────── */
 .soft { background: var(--warn-bg); border: 1px solid var(--warn-bd); color: var(--warn-fg); padding: 8px 11px; font-size: 12.5px; line-height: 1.35; }

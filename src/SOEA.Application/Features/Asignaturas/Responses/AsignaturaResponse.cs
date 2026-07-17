@@ -17,7 +17,6 @@ namespace SOEA.Application.Features.Asignaturas.Responses
         public int SesionesLaboratorioSemestre { get; set; }
         public TipoAlternancia Alternancia { get; set; }
         public Guid ProgramaId { get; set; }
-        public Guid? DocenteId { get; set; }
         public Guid? EspacioFijoId { get; set; }
         public CategoriaAsignatura Categoria { get; set; }
 
@@ -35,7 +34,6 @@ namespace SOEA.Application.Features.Asignaturas.Responses
             SesionesLaboratorioSemestre = a.SesionesLaboratorioSemestre,
             Alternancia = a.Alternancia,
             ProgramaId = a.ProgramaId,
-            DocenteId = a.DocenteId,
             EspacioFijoId = a.EspacioFijoId,
             Categoria = a.Categoria
         };

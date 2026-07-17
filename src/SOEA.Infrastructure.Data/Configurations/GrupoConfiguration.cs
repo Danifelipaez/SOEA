@@ -40,9 +40,9 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasColumnName("facultad_id")
                 .IsRequired(false);
 
-            builder.Property(g => g.Semestre)
-                .HasColumnName("semestre")
-                .IsRequired();
+            builder.Property(g => g.DocenteId)
+                .HasColumnName("docente_id")
+                .IsRequired(false);
 
             builder.Property(g => g.EstudiantesInscritos)
                 .HasColumnName("estudiantes_inscritos")
@@ -80,8 +80,8 @@ namespace SOEA.Infrastructure.Data.Configurations
             builder.HasIndex(g => g.Nombre)
                 .HasDatabaseName("ix_grupo_nombre");
 
-            builder.HasIndex(g => g.Semestre)
-                .HasDatabaseName("ix_grupo_semestre");
+            builder.HasIndex(g => g.DocenteId)
+                .HasDatabaseName("ix_grupo_docente_id");
         }
     }
 }

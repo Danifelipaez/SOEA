@@ -52,8 +52,8 @@ type TipoEspacio = 'Salón' | 'Laboratorio' | 'Auditorio';
               <td>{{ e.capacidad }}</td>
               <td>{{ e.edificio || '—' }}</td>
               <td>
-                <span class="icell" (click)="openDialog(e)" title="Editar">✎</span>
-                <span class="icell del" (click)="delete(e)" title="Eliminar">🗑</span>
+                <span class="material-icons ic-edit" (click)="openDialog(e)" title="Editar">edit</span>
+                <span class="material-icons ic-del" (click)="delete(e)" title="Eliminar">delete</span>
               </td>
             </tr>
           }
@@ -72,8 +72,6 @@ type TipoEspacio = 'Salón' | 'Laboratorio' | 'Auditorio';
     .search { width: 220px; }
     .count { font-size: 12.5px; }
     .actions { display: flex; gap: 8px; }
-    .icell { padding: 0 5px; font-size: 15px; }
-    .icell.del:hover { color: var(--err-bd); }
     .empty { text-align: center; color: var(--color-neutral-500); padding: 28px; }
   `]
 })

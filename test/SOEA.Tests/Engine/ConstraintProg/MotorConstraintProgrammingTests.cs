@@ -259,7 +259,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
         {
             var bloques = CrearBloques(4);
             var cohorte = Guid.NewGuid();
-            var grupo = new Grupo(cohorte, "G", Guid.NewGuid(), 1, 40); // 40 estudiantes
+            var grupo = new Grupo(cohorte, "G", Guid.NewGuid(), 40); // 40 estudiantes
             var sesion = CrearSesionPresencial(cohorte, TipoAlternancia.SinAlternancia, 1m);
             var labPequeno = new Espacio(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 30);
 
@@ -277,7 +277,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
         {
             var bloques = CrearBloques(4);
             var cohorte = Guid.NewGuid();
-            var grupo = new Grupo(cohorte, "G", Guid.NewGuid(), 1, 40);
+            var grupo = new Grupo(cohorte, "G", Guid.NewGuid(), 40);
             var sesion = CrearSesionPresencial(cohorte, TipoAlternancia.SinAlternancia, 1m);
             var labGrande = new Espacio(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 50);
 

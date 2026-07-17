@@ -47,8 +47,8 @@ import { map, catchError } from 'rxjs/operators';
               <td class="text-muted">{{ asignaturasDe(d.id) || '—' }}</td>
               <td><span class="dpill" [ngClass]="d.maxHoras ? 'ok' : ''">{{ d.maxHoras || '—' }}</span></td>
               <td>
-                <span class="icell" (click)="openDialog(d)" title="Editar">✎</span>
-                <span class="icell del" (click)="delete(d)" title="Eliminar">🗑</span>
+                <span class="material-icons ic-edit" (click)="openDialog(d)" title="Editar">edit</span>
+                <span class="material-icons ic-del" (click)="delete(d)" title="Eliminar">delete</span>
               </td>
             </tr>
           }
@@ -67,8 +67,6 @@ import { map, catchError } from 'rxjs/operators';
     .count { font-size: 12.5px; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .disp { font-size: 12.5px; }
-    .icell { padding: 0 5px; font-size: 15px; }
-    .icell.del:hover { color: var(--err-bd); }
     .empty { text-align: center; color: var(--color-neutral-500); padding: 28px; }
   `]
 })
@@ -99,8 +97,15 @@ export class DocentesTabComponent {
     return `${activos.length} día(s) declarados`;
   }
 
+  /** Asignaturas que dicta el docente, derivadas de sus grupos (Fase 2: docente vive en el grupo). */
   asignaturasDe(docenteId: string): string {
-    const nombres = this.state.asignaturas().filter(a => a.docenteId === docenteId).map(a => a.nombre);
+    const asigById = this.state.asignaturaById();
+    const nombres = [...new Set(
+      this.state.grupos()
+        .filter(g => g.docenteId === docenteId)
+        .map(g => asigById.get(g.asignaturaId)?.nombre)
+        .filter((n): n is string => !!n)
+    )];
     return nombres.slice(0, 2).join(', ') + (nombres.length > 2 ? `, +${nombres.length - 2}` : '');
   }
 
@@ -395,7 +400,7 @@ export class FusionDocentesDialogComponent {
     this.persistencia.fusionarDocentes(canonicoId, duplicadosIds).subscribe({
       next: (r) => {
         this.busy.set(false); this.done.add(gi); this.huboFusion = true;
-        this.snackBar.open(`Fusionados ${r.docentesEliminados} docente(s); ${r.asignaturasReasignadas} asignatura(s) reasignada(s).`, '', { duration: 4000 });
+        this.snackBar.open(`Fusionados ${r.docentesEliminados} docente(s); ${r.gruposReasignados} grupo(s) reasignado(s).`, '', { duration: 4000 });
       },
       error: (err) => { this.busy.set(false); this.snackBar.open(`Error al fusionar: ${err?.error ?? 'desconocido'}`, 'Cerrar', { duration: 5000, panelClass: ['snack-error'] }); }
     });

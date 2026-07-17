@@ -127,8 +127,8 @@ namespace SOEA.API.Controllers
             var programas   = MapProgramasDto(dto.Programas, facStrGuid, progStrGuid);
             var docentes    = MapDocentesDto(dto.Docentes, docStrGuid);
             var espacios    = MapEspaciosDto(dto.Espacios);
-            var asignaturas = MapAsignaturasDto(dto.Asignaturas, progStrGuid, docStrGuid, asigStrGuid);
-            var grupos      = MapGruposDeAsignaturas(dto.Asignaturas, progStrGuid, asigStrGuid, grupoStrGuid);
+            var asignaturas = MapAsignaturasDto(dto.Asignaturas, progStrGuid, asigStrGuid);
+            var grupos      = MapGruposDeAsignaturas(dto.Asignaturas, progStrGuid, asigStrGuid, docStrGuid, grupoStrGuid);
             var sesiones    = MapSesionesDto(dto.SesionesPredefinidas);
 
             var resultado = new CurriculumExcelResult(
@@ -241,7 +241,6 @@ namespace SOEA.API.Controllers
         private static List<Asignatura> MapAsignaturasDto(
             IEnumerable<AsignaturaDto>? dtos,
             Dictionary<string, Guid> progStrGuid,
-            Dictionary<string, Guid> docStrGuid,
             Dictionary<string, Guid> strGuidOut)
         {
             var result = new List<Asignatura>();
@@ -267,16 +266,7 @@ namespace SOEA.API.Controllers
                 if (Enum.TryParse<CategoriaAsignatura>(a.Categoria, ignoreCase: true, out var catP))
                     entidad.EstablecerCategoria(catP);
 
-                Guid? docTempId = null;
-                if (!string.IsNullOrWhiteSpace(a.DocenteId))
-                {
-                    if (docStrGuid.TryGetValue(a.DocenteId, out var mdid))
-                        docTempId = mdid;
-                    else if (Guid.TryParse(a.DocenteId, out var pdid) && pdid != Guid.Empty)
-                        docTempId = pdid;
-                }
-                entidad.AsignarDocente(docTempId);
-
+                // El docente ya no vive en la asignatura: se pasa al grupo (ver MapGruposDeAsignaturas).
                 result.Add(entidad);
                 if (!string.IsNullOrWhiteSpace(a.Id)) strGuidOut[a.Id] = id;
             }
@@ -287,6 +277,7 @@ namespace SOEA.API.Controllers
             IEnumerable<AsignaturaDto>? dtos,
             Dictionary<string, Guid> progStrGuid,
             Dictionary<string, Guid> asigStrGuid,
+            Dictionary<string, Guid> docStrGuid,
             Dictionary<string, Guid> strGuidOut)
         {
             var result = new List<Grupo>();
@@ -307,7 +298,18 @@ namespace SOEA.API.Controllers
                     ? ga : TipoAlternancia.SinAlternancia;
                 var tempGroupId = Guid.NewGuid();
 
-                result.Add(new Grupo(tempGroupId, groupName, progTempId, 1, 30, groupAlt));
+                // El grupo lleva su asignatura y su docente (temp IDs, remapeados al persistir).
+                Guid? asigTempId = !string.IsNullOrWhiteSpace(a.Id) && asigStrGuid.TryGetValue(a.Id, out var aid)
+                    ? aid : (Guid.TryParse(a.Id, out var apid) && apid != Guid.Empty ? apid : (Guid?)null);
+                Guid? docTempId = null;
+                if (!string.IsNullOrWhiteSpace(a.DocenteId))
+                {
+                    if (docStrGuid.TryGetValue(a.DocenteId, out var mdid)) docTempId = mdid;
+                    else if (Guid.TryParse(a.DocenteId, out var pdid) && pdid != Guid.Empty) docTempId = pdid;
+                }
+
+                result.Add(new Grupo(tempGroupId, groupName, progTempId, 30, groupAlt,
+                    asignaturaId: asigTempId, docenteId: docTempId));
 
                 var tempKey = BuildGroupTempKey(a.Id, numGrupo);
                 strGuidOut[tempKey] = tempGroupId;

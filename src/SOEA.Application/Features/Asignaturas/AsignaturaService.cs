@@ -62,7 +62,6 @@ public class AsignaturaService
             programaId: request.ProgramaId,
             alternanciaExplicita: request.Alternancia,
             categoria: request.Categoria);
-        asignatura.AsignarDocente(request.DocenteId);
         asignatura.AsignarEspacioFijo(request.EspacioFijoId);
 
         await _repository.UpdateAsync(asignatura);

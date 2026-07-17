@@ -14,9 +14,10 @@ namespace SOEA.API.Controllers
         public Guid? AsignaturaId { get; set; }
         public Guid ProgramaId { get; set; }
         public Guid? FacultadId { get; set; }
+        /// <summary>Docente que dicta la asignatura para este grupo (opcional).</summary>
+        public Guid? DocenteId { get; set; }
         public string Nombre { get; set; } = "";
         public string? Codigo { get; set; }
-        public int Semestre { get; set; }
         public int EstudiantesInscritos { get; set; }
         /// <summary>JSON de disponibilidad tal como viene de la UI (por día: {lunes:{...}, ...}).</summary>
         public string? DisponibilidadUiJson { get; set; }
@@ -76,10 +77,10 @@ namespace SOEA.API.Controllers
                     id,
                     dto.Nombre,
                     dto.ProgramaId,
-                    dto.Semestre,
                     dto.EstudiantesInscritos,
                     asignaturaId: dto.AsignaturaId,
                     facultadId: dto.FacultadId,
+                    docenteId: dto.DocenteId,
                     codigo: dto.Codigo);
 
                 grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
@@ -112,9 +113,9 @@ namespace SOEA.API.Controllers
                 grupo.ActualizarNombre(dto.Nombre);
                 grupo.ActualizarCodigo(dto.Codigo);
                 grupo.ActualizarPrograma(dto.ProgramaId);
-                grupo.ActualizarSemestre(dto.Semestre);
                 grupo.ActualizarEstudiantes(dto.EstudiantesInscritos);
                 grupo.ActualizarAsignatura(dto.AsignaturaId, dto.FacultadId ?? grupo.FacultadId);
+                grupo.AsignarDocente(dto.DocenteId);
                 grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
 
                 await _repo.UpdateAsync(grupo);
@@ -141,9 +142,9 @@ namespace SOEA.API.Controllers
             AsignaturaId = g.AsignaturaId,
             ProgramaId = g.ProgramaId,
             FacultadId = g.FacultadId,
+            DocenteId = g.DocenteId,
             Nombre = g.Nombre,
             Codigo = g.Codigo,
-            Semestre = g.Semestre,
             EstudiantesInscritos = g.EstudiantesInscritos,
             DisponibilidadUiJson = g.DisponibilidadUiJson
         };

@@ -32,9 +32,10 @@ export interface Grupo {
   asignaturaId: string;
   nombre: string;
   estudiantesInscritos: number;
-  semestre: number;
   programaId: string;
   facultadId?: string;
+  /** Docente que dicta la asignatura para este grupo (Fase 2: el docente vive en el grupo). */
+  docenteId?: string;
   codigo?: string;
   disponibilidadUiJson?: string; // JSON crudo por día que envía/recibe la API
 }
@@ -66,7 +67,7 @@ export interface Asignatura {
   /** Total semestral de sesiones de laboratorio — distinto del conteo semanal; solo alimenta la inferencia de alternancia. */
   sesionesLaboratorioSemestre: number;
   programaId: string;
-  docenteId?: string;        // Docente asignado (puede quedar vacío para que el algoritmo decida)
+  // Fase 2: el docente ya no vive en la asignatura, sino en el Grupo (Grupo.docenteId).
   espacioFijoId?: string;    // Espacio requerido (opcional)
 }
 

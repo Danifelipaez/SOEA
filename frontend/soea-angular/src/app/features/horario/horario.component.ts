@@ -9,7 +9,8 @@ import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { PersistenciaService } from '../../core/persistencia.service';
 import { CatalogoService } from '../../core/catalogo.service';
-import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Sesion, TipoSesionUi, tipoFlujoDesde, esVirtualDesde } from '../../core/models';
+import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, Sesion, TipoSesionUi, tipoFlujoDesde, esVirtualDesde } from '../../core/models';
+import { SearchableSelectComponent, SearchableOption } from '../../shared/searchable-select/searchable-select.component';
 
 /** Representación visual de una sesión atómica multi-slot. */
 interface MergedSesion {
@@ -155,7 +156,7 @@ interface MergedSesion {
                       <span class="dot"></span>
                       <span class="base-info"><span class="base-name">{{ base.nombre }}</span><span class="text-muted base-meta">{{ base.sesiones.length }} ses · {{ base.creadoEn | date:'dd/MM HH:mm' }}</span></span>
                     </label>
-                    <span class="icell del" (click)="eliminarBase(base.id)" title="Eliminar">🗑</span>
+                    <span class="material-icons ic-del" (click)="eliminarBase(base.id)" title="Eliminar">delete</span>
                   </div>
                 }
                 @if (state.baseSeleccionada(); as base) {
@@ -228,8 +229,6 @@ interface MergedSesion {
     .base-item.on { border-color: var(--color-accent); background: var(--color-accent-100); }
     .base-info { display: flex; flex-direction: column; }
     .base-name { font-size: 13px; } .base-meta { font-size: 11px; }
-    .icell.del { cursor: pointer; }
-    .icell.del:hover { color: var(--err-bd); }
 
     .empty-state { text-align: center; padding: 56px 32px; color: var(--color-neutral-600); }
   `]
@@ -463,7 +462,7 @@ export class HorarioComponent implements OnInit {
   abrirCrearSesion() {
     const ref = this.dialog.open(CrearSesionDialogComponent, {
       width: '300px', maxHeight: '92vh',
-      data: { asignaturas: this.state.asignaturas(), docentes: this.state.docentes(), espacios: this.state.espacios(), sesiones: this.state.sesiones(), programaById: this.state.programaById() }
+      data: { asignaturas: this.state.asignaturas(), docentes: this.state.docentes(), espacios: this.state.espacios(), grupos: this.state.grupos(), sesiones: this.state.sesiones(), programaById: this.state.programaById() }
     });
     ref.afterClosed().subscribe((nuevas: Sesion[] | undefined) => {
       if (!nuevas?.length) return;
@@ -475,7 +474,7 @@ export class HorarioComponent implements OnInit {
   abrirSesionFija() {
     const ref = this.dialog.open(SesionFijaDialogComponent, {
       width: '300px', maxHeight: '92vh',
-      data: { asignaturas: this.state.asignaturas(), docentes: this.state.docentes(), espacios: this.state.espacios(), programaById: this.state.programaById() }
+      data: { asignaturas: this.state.asignaturas(), docentes: this.state.docentes(), espacios: this.state.espacios(), grupos: this.state.grupos(), programaById: this.state.programaById() }
     });
     ref.afterClosed().subscribe((sesion: Sesion | undefined) => {
       if (!sesion) return;
@@ -658,33 +657,31 @@ export class EditarSesionDialogComponent {
 }
 
 // ═══ Diálogo: Crear sesión manual (REQUISITOS §2) ═══
-interface DialogData { asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[]; sesiones: Sesion[]; programaById: Map<string, { id: string; nombre: string }>; }
+interface DialogData { asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[]; grupos: Grupo[]; sesiones: Sesion[]; programaById: Map<string, { id: string; nombre: string }>; }
 
 @Component({
   selector: 'app-crear-sesion-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, MatDialogModule, MatSnackBarModule],
+  imports: [CommonModule, FormsModule, MatDialogModule, MatSnackBarModule, SearchableSelectComponent],
   template: `
     <div class="pophd">Nueva sesión manual <i (click)="cancelar()">✕</i></div>
     <div class="popbd" style="max-height:80vh;overflow:auto">
       <div class="dfield"><label>Asignatura <span class="rq">*</span></label>
-        <select class="input" [(ngModel)]="asignaturaId" (ngModelChange)="onAsignaturaChange($event)">
-          <option value="">— Seleccione —</option>
-          @for (grupo of gruposAsignatura; track grupo.programa) {
-            <optgroup [label]="grupo.programa">
-              @for (a of grupo.items; track a.id) { <option [value]="a.id">{{ a.nombre }}{{ a.codigo ? ' (' + a.codigo + ')' : '' }}</option> }
-            </optgroup>
-          }
-        </select>
+        <app-searchable-select [(ngModel)]="asignaturaId" (ngModelChange)="onAsignaturaChange($event)"
+                                [options]="asignaturaOptions" placeholder="— Seleccione —"></app-searchable-select>
       </div>
 
       @if (asignaturaSeleccionada()) {
+        <div class="dfield"><label>Grupo <span class="rq">*</span></label>
+          <app-searchable-select [(ngModel)]="grupoId" (ngModelChange)="onGrupoChange()"
+                                  [options]="grupoOptions()" placeholder="— Seleccione grupo —"></app-searchable-select>
+        </div>
         <div class="dfield"><label>Tipo de sesión <span class="rq">*</span></label>
           <div class="seg" style="flex-wrap:wrap">
             @for (t of tiposDisponibles(); track t.tipo) { <label class="seg-opt" [class.on]="tipoSesion() === t.tipo" (click)="setTipoSesion(t.tipo)">{{ t.label }}</label> }
           </div>
         </div>
-        <div class="text-muted" style="font-size:12px">👤 {{ nombreDocente(asignaturaSeleccionada()?.docenteId) }} · ⏱ {{ duracionSeleccionada() }}h por sesión (fijo)</div>
+        <div class="text-muted" style="font-size:12px">👤 {{ docenteDelGrupo() }} · ⏱ {{ duracionSeleccionada() }}h por sesión (fijo)</div>
       }
 
       <div class="dfield"><label>Día <span class="rq">*</span></label>
@@ -703,10 +700,8 @@ interface DialogData { asignaturas: Asignatura[]; docentes: Docente[]; espacios:
         <div class="dfield" style="flex:1"><label>Espacio {{ tipoSesion() === 'TeoriaVirtual' ? '(virtual)' : '' }}</label>
           @if (tipoSesion() === 'TeoriaVirtual') { <div class="selval text-muted">Sin espacio físico</div> }
           @else {
-            <select class="input" [(ngModel)]="espacioId" (ngModelChange)="recheck()" [disabled]="espacioFijoBloqueado()">
-              <option value="">—</option>
-              @for (e of espaciosDisponibles(); track e.id) { <option [value]="e.id">{{ e.nombre }}</option> }
-            </select>
+            <app-searchable-select [(ngModel)]="espacioId" (ngModelChange)="recheck()" [disabled]="espacioFijoBloqueado()"
+                                    [options]="espacioOptions()" placeholder="— Seleccione —"></app-searchable-select>
           }
         </div>
       </div>
@@ -750,7 +745,36 @@ export class CrearSesionDialogComponent {
   espacioFijoBloqueado = signal(false);
   checks = signal<Check[]>([]);
   checksOk = signal(false);
-  readonly gruposAsignatura = this.buildGrupos();
+
+  // item 9: lista plana buscable (sin optgroup por programa) — el programa va como "sub".
+  readonly asignaturaOptions: SearchableOption[] = this.data.asignaturas
+    .map(a => ({
+      value: a.id,
+      label: a.nombre + (a.codigo ? ` (${a.codigo})` : ''),
+      sub: this.data.programaById.get(a.programaId)?.nombre
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  espacioOptions = computed<SearchableOption[]>(() =>
+    this.espaciosDisponibles().map(e => ({ value: e.id, label: e.nombre })));
+
+  // Fase 2: el docente se deriva del GRUPO (la misma asignatura la dictan docentes distintos).
+  grupoId = '';
+  grupoIdSel = signal('');
+  grupoOptions = computed<SearchableOption[]>(() => {
+    const asigId = this.asignaturaSeleccionada()?.id;
+    if (!asigId) return [];
+    return this.data.grupos.filter(g => g.asignaturaId === asigId)
+      .map(g => ({ value: g.id, label: g.nombre, sub: g.docenteId ? this.nombreDocente(g.docenteId) : 'sin docente' }));
+  });
+  private docenteIdDelGrupo(): string {
+    return this.data.grupos.find(g => g.id === this.grupoIdSel())?.docenteId ?? '';
+  }
+  docenteDelGrupo(): string {
+    const id = this.docenteIdDelGrupo();
+    return id ? this.nombreDocente(id) : '— sin docente en el grupo —';
+  }
+  onGrupoChange() { this.grupoIdSel.set(this.grupoId); this.recheck(); }
 
   tiposDisponibles = computed<{ tipo: TipoSesionUi; label: string }[]>(() => {
     const a = this.asignaturaSeleccionada();
@@ -776,11 +800,13 @@ export class CrearSesionDialogComponent {
     return tipo === 'Laboratorio' ? this.data.espacios.filter(e => e.tipo === 'Laboratorio') : this.data.espacios.filter(e => e.tipo !== 'Laboratorio');
   });
 
-  puedeCrear = computed(() => !!this.asignaturaId && !!this.dia && !!this.horaInicio && (!!this.espacioId || this.tipoSesion() === 'TeoriaVirtual') && this.checksOk() && !this.guardando());
+  puedeCrear = computed(() => !!this.asignaturaId && !!this.grupoIdSel() && !!this.dia && !!this.horaInicio && (!!this.espacioId || this.tipoSesion() === 'TeoriaVirtual') && this.checksOk() && !this.guardando());
 
   onAsignaturaChange(id: string) {
     const a = this.data.asignaturas.find(x => x.id === id);
     this.asignaturaSeleccionada.set(a);
+    // Reiniciar el grupo: sus opciones dependen de la asignatura elegida.
+    this.grupoId = ''; this.grupoIdSel.set('');
     this.tipoSesion.set(a && a.sesionesTeoriaPresencialSemana > 0 ? 'TeoriaPresencial' : a && a.sesionesLaboratorioSemana > 0 ? 'Laboratorio' : a && a.sesionesTeoriaVirtualSemana > 0 ? 'TeoriaVirtual' : 'TeoriaPresencial');
     this.aplicarReglasTipo(); this.recheck();
   }
@@ -800,9 +826,12 @@ export class CrearSesionDialogComponent {
     const chks: Check[] = []; let ok = true;
     if (!a || !this.dia || !this.horaInicio || (!this.espacioId && !esVirtual)) { this.checks.set([]); this.checksOk.set(false); return; }
     const startIdx = this.horasDisponibles.indexOf(this.horaInicio), endIdx = startIdx + dur;
-    const conflictoDocente = this.data.sesiones.find(s => s.docenteId === a.docenteId && s.dia === this.dia && this.overlaps(s, startIdx, endIdx));
-    if (conflictoDocente) ok = false;
-    chks.push({ ok: !conflictoDocente, texto: conflictoDocente ? 'El docente ya tiene otra sesión en esa franja' : 'El docente está libre en esa franja' });
+    const docenteId = this.docenteIdDelGrupo();
+    if (docenteId) {
+      const conflictoDocente = this.data.sesiones.find(s => s.docenteId === docenteId && s.dia === this.dia && this.overlaps(s, startIdx, endIdx));
+      if (conflictoDocente) ok = false;
+      chks.push({ ok: !conflictoDocente, texto: conflictoDocente ? 'El docente ya tiene otra sesión en esa franja' : 'El docente está libre en esa franja' });
+    }
     if (!esVirtual) {
       const conflictoEspacio = this.data.sesiones.find(s => s.espacioId === this.espacioId && s.dia === this.dia && !s.virtual && this.overlaps(s, startIdx, endIdx));
       if (conflictoEspacio) ok = false;
@@ -817,7 +846,7 @@ export class CrearSesionDialogComponent {
     this.guardando.set(true); this.errorServidor.set('');
     const a = this.asignaturaSeleccionada()!, tipo = this.tipoSesion();
     this.persistencia.crearSesionManual({
-      asignaturaId: a.id, docenteId: a.docenteId ?? '', espacioId: tipo === 'TeoriaVirtual' ? null : (this.espacioId || null),
+      asignaturaId: a.id, docenteId: this.docenteIdDelGrupo(), espacioId: tipo === 'TeoriaVirtual' ? null : (this.espacioId || null),
       dia: this.dia, horaInicio: this.horaInicio, duracionHoras: this.duracionSeleccionada(), alternancia: this.alternancia,
       tipoFlujo: tipoFlujoDesde(tipo), esVirtual: esVirtualDesde(tipo)
     }).subscribe({
@@ -835,44 +864,27 @@ export class CrearSesionDialogComponent {
   }
   nombreDocente(id?: string): string { return this.data.docentes.find(d => d.id === id)?.nombre ?? '—'; }
   private diffH(i: string, f: string): number { const [hi, mi] = i.split(':').map(Number); const [hf, mf] = f.split(':').map(Number); return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60); }
-  private buildGrupos(): { programa: string; items: Asignatura[] }[] {
-    const map = new Map<string, { programa: string; items: Asignatura[] }>();
-    for (const a of this.data.asignaturas) {
-      const prog = this.data.programaById.get(a.programaId)?.nombre ?? 'Sin programa';
-      if (!map.has(prog)) map.set(prog, { programa: prog, items: [] });
-      map.get(prog)!.items.push(a);
-    }
-    return [...map.values()].sort((a, b) => a.programa.localeCompare(b.programa));
-  }
 }
 
 // ═══ Diálogo: Agregar sesión fija (horario base, REQUISITOS §2) ═══
-interface FijaData { asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[]; programaById: Map<string, { id: string; nombre: string }>; }
+interface FijaData { asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[]; grupos: Grupo[]; programaById: Map<string, { id: string; nombre: string }>; }
 
 @Component({
   selector: 'app-sesion-fija-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, MatDialogModule],
+  imports: [CommonModule, FormsModule, MatDialogModule, SearchableSelectComponent],
   template: `
     <div class="pophd">Agregar sesión fija <i (click)="ref.close()">✕</i></div>
     <div class="popbd" style="max-height:80vh;overflow:auto">
       <div class="dfield"><label>Asignatura <span class="rq">*</span></label>
-        <select class="input" [(ngModel)]="asignaturaId" (ngModelChange)="onAsig($event)">
-          <option value="">— Seleccione —</option>
-          @for (a of asignaturas; track a.id) { <option [value]="a.id">{{ a.nombre }}{{ a.codigo ? ' (' + a.codigo + ')' : '' }}</option> }
-        </select>
+        <app-searchable-select [(ngModel)]="asignaturaId" (ngModelChange)="onAsig($event)"
+                                [options]="asignaturaOptions" placeholder="— Seleccione —"></app-searchable-select>
       </div>
       <div class="dfield"><label>Docente <span class="rq">*</span></label>
-        <select class="input" [(ngModel)]="docenteId">
-          <option value="">— Seleccione —</option>
-          @for (d of docentes; track d.id) { <option [value]="d.id">{{ d.nombre }}</option> }
-        </select>
+        <app-searchable-select [(ngModel)]="docenteId" [options]="docenteOptions" placeholder="— Seleccione —"></app-searchable-select>
       </div>
       <div class="dfield"><label>Espacio <span class="text-muted" style="font-size:11px">(opc. si virtual)</span></label>
-        <select class="input" [(ngModel)]="espacioId" [disabled]="virtual">
-          <option value="">—</option>
-          @for (e of espacios; track e.id) { <option [value]="e.id">{{ e.nombre }}</option> }
-        </select>
+        <app-searchable-select [(ngModel)]="espacioId" [disabled]="virtual" [options]="espacioOptions" placeholder="—"></app-searchable-select>
       </div>
       <div style="display:flex;gap:8px">
         <div class="dfield" style="flex:1"><label>Día <span class="rq">*</span></label>
@@ -906,7 +918,20 @@ export class SesionFijaDialogComponent {
   readonly diasOpc = [{ v: 'lunes', l: 'Lunes' }, { v: 'martes', l: 'Martes' }, { v: 'miercoles', l: 'Miércoles' }, { v: 'jueves', l: 'Jueves' }, { v: 'viernes', l: 'Viernes' }, { v: 'sabado', l: 'Sábado' }];
   readonly horas = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'];
 
-  onAsig(id: string) { const a = this.asignaturas.find(x => x.id === id); if (a?.docenteId) this.docenteId = a.docenteId; }
+  readonly asignaturaOptions: SearchableOption[] = this.asignaturas
+    .map(a => ({
+      value: a.id, label: a.nombre + (a.codigo ? ` (${a.codigo})` : ''),
+      sub: this.data.programaById.get(a.programaId)?.nombre
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  readonly docenteOptions: SearchableOption[] = this.docentes.map(d => ({ value: d.id, label: d.nombre }));
+  readonly espacioOptions: SearchableOption[] = this.espacios.map(e => ({ value: e.id, label: e.nombre }));
+
+  onAsig(id: string) {
+    // Auto-completar el docente desde el primer grupo (con docente) de la asignatura; editable.
+    const g = this.data.grupos.find(x => x.asignaturaId === id && x.docenteId);
+    if (g?.docenteId) this.docenteId = g.docenteId;
+  }
   onVirtual(v: boolean) { if (v) this.espacioId = ''; }
   valido(): boolean { return !!this.asignaturaId && !!this.docenteId && !!this.dia && !!this.horaInicio && this.duracion > 0 && (this.virtual || !!this.espacioId); }
 

@@ -44,8 +44,8 @@ interface AsignaturaFila {
                 <span class="dot" [style.background]="t.color"></span>
                 {{ t.nombre }}
                 @if (t.esSistema) { <span class="tag tag-neutral" style="font-size:9px">SISTEMA</span> }
-                <span class="icell" (click)="abrirTipo(t)" title="Editar">✎</span>
-                @if (!t.esSistema) { <span class="icell del" (click)="eliminarTipo(t)" title="Eliminar">🗑</span> }
+                <span class="material-icons ic-edit" (click)="abrirTipo(t)" title="Editar">edit</span>
+                @if (!t.esSistema) { <span class="material-icons ic-del" (click)="eliminarTipo(t)" title="Eliminar">delete</span> }
               </span>
             }
           </div>
@@ -106,8 +106,6 @@ interface AsignaturaFila {
     .tab-content { padding: 20px 0; display: flex; flex-direction: column; gap: 24px; }
     .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
     .chips { display: flex; gap: 10px; flex-wrap: wrap; }
-    .icell { padding: 0 3px; font-size: 13px; }
-    .icell.del:hover { color: var(--err-bd); }
     .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
     .search { min-width: 240px; width: auto; flex: 1; max-width: 340px; }
     .resumen { display: flex; gap: 8px; margin-left: auto; }

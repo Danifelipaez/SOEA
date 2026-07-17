@@ -11,8 +11,9 @@ using Xunit;
 namespace SOEA.Tests.Application
 {
     /// <summary>
-    /// Verifica la fusión manual de docentes duplicados: reasigna las asignaturas de los duplicados
+    /// Verifica la fusión manual de docentes duplicados: reasigna los GRUPOS de los duplicados
     /// al canónico y elimina los duplicados; y la sugerencia de grupos candidatos.
+    /// (El docente vive en el Grupo, no en la Asignatura.)
     /// Usa repositorios fake en memoria (el proyecto de tests no referencia un mocking framework).
     /// </summary>
     public class FusionDocentesServiceTests
@@ -20,38 +21,38 @@ namespace SOEA.Tests.Application
         private static Docente Docente(Guid id, string nombre) =>
             new(id, nombre, "", $"{id}@x.com", 40m, new List<FranjaHoraria> { FranjaHoraria.Matutino });
 
-        private static Asignatura Asignatura(Guid? docenteId)
+        private static Grupo Grupo(Guid? docenteId)
         {
-            var a = new Asignatura(Guid.NewGuid(), "Quimica", "QUI" + Guid.NewGuid().ToString("N")[..4], 2, 1, 8, Guid.NewGuid());
-            a.AsignarDocente(docenteId);
-            return a;
+            var g = new Grupo(Guid.NewGuid(), "Grupo " + Guid.NewGuid().ToString("N")[..4], Guid.NewGuid(), 30);
+            g.AsignarDocente(docenteId);
+            return g;
         }
 
         private static FusionDocentesService Crear(
-            FakeDocenteRepo docenteRepo, FakeAsignaturaRepo asignaturaRepo) =>
-            new(docenteRepo, asignaturaRepo, new DocenteService(docenteRepo));
+            FakeDocenteRepo docenteRepo, FakeGrupoRepo grupoRepo) =>
+            new(docenteRepo, grupoRepo, new DocenteService(docenteRepo));
 
         [Fact]
-        public async Task Fusionar_ReasignaAsignaturas_YEliminaDuplicados()
+        public async Task Fusionar_ReasignaGrupos_YEliminaDuplicados()
         {
             var canonico = Docente(Guid.NewGuid(), "Victor Macias Villamizar");
             var dup      = Docente(Guid.NewGuid(), "Victor Enrique Macias Vil");
             var docenteRepo = new FakeDocenteRepo(canonico, dup);
 
-            var aDup  = Asignatura(dup.Id);
-            var aCan  = Asignatura(canonico.Id);
-            var aNull = Asignatura(null);
-            var asignaturaRepo = new FakeAsignaturaRepo(aDup, aCan, aNull);
+            var gDup  = Grupo(dup.Id);
+            var gCan  = Grupo(canonico.Id);
+            var gNull = Grupo(null);
+            var grupoRepo = new FakeGrupoRepo(gDup, gCan, gNull);
 
-            var svc = Crear(docenteRepo, asignaturaRepo);
+            var svc = Crear(docenteRepo, grupoRepo);
 
             var r = await svc.FusionarAsync(canonico.Id, new[] { dup.Id });
 
-            Assert.Equal(1, r.AsignaturasReasignadas);
+            Assert.Equal(1, r.GruposReasignados);
             Assert.Equal(1, r.DocentesEliminados);
-            Assert.Equal(canonico.Id, aDup.DocenteId);        // reasignada al canónico
-            Assert.Equal(canonico.Id, aCan.DocenteId);        // intacta
-            Assert.Null(aNull.DocenteId);                     // intacta
+            Assert.Equal(canonico.Id, gDup.DocenteId);        // reasignado al canónico
+            Assert.Equal(canonico.Id, gCan.DocenteId);        // intacto
+            Assert.Null(gNull.DocenteId);                     // intacto
             Assert.Null(await docenteRepo.GetByIdAsync(dup.Id));      // duplicado eliminado
             Assert.NotNull(await docenteRepo.GetByIdAsync(canonico.Id)); // canónico conservado
         }
@@ -60,7 +61,7 @@ namespace SOEA.Tests.Application
         public async Task Fusionar_SinDuplicadosDistintos_Lanza()
         {
             var canonico = Docente(Guid.NewGuid(), "Ana Torres");
-            var svc = Crear(new FakeDocenteRepo(canonico), new FakeAsignaturaRepo());
+            var svc = Crear(new FakeDocenteRepo(canonico), new FakeGrupoRepo());
 
             await Assert.ThrowsAsync<ArgumentException>(
                 () => svc.FusionarAsync(canonico.Id, new[] { canonico.Id }));
@@ -69,7 +70,7 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task Fusionar_CanonicoInexistente_Lanza()
         {
-            var svc = Crear(new FakeDocenteRepo(), new FakeAsignaturaRepo());
+            var svc = Crear(new FakeDocenteRepo(), new FakeGrupoRepo());
 
             await Assert.ThrowsAsync<ArgumentException>(
                 () => svc.FusionarAsync(Guid.NewGuid(), new[] { Guid.NewGuid() }));
@@ -83,7 +84,7 @@ namespace SOEA.Tests.Application
                 Docente(Guid.NewGuid(), "Victor Macias Villamizar"),
                 Docente(Guid.NewGuid(), "Ana Torres"));
 
-            var svc = Crear(docenteRepo, new FakeAsignaturaRepo());
+            var svc = Crear(docenteRepo, new FakeGrupoRepo());
 
             var grupos = await svc.SugerirDuplicadosAsync();
 
@@ -108,22 +109,22 @@ namespace SOEA.Tests.Application
                     d.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase)));
         }
 
-        private sealed class FakeAsignaturaRepo : IAsignaturaRepositorio
+        private sealed class FakeGrupoRepo : IGrupoRepositorio
         {
-            private readonly Dictionary<Guid, Asignatura> _store = new();
-            public FakeAsignaturaRepo(params Asignatura[] asignaturas) { foreach (var a in asignaturas) _store[a.Id] = a; }
-            public Task AddAsync(Asignatura e) { _store[e.Id] = e; return Task.CompletedTask; }
-            public Task<Asignatura?> GetByIdAsync(Guid id) => Task.FromResult(_store.GetValueOrDefault(id));
-            public Task<List<Asignatura>> GetAllAsync() => Task.FromResult(_store.Values.ToList());
-            public Task UpdateAsync(Asignatura e) { _store[e.Id] = e; return Task.CompletedTask; }
+            private readonly Dictionary<Guid, Grupo> _store = new();
+            public FakeGrupoRepo(params Grupo[] grupos) { foreach (var g in grupos) _store[g.Id] = g; }
+            public Task AddAsync(Grupo e) { _store[e.Id] = e; return Task.CompletedTask; }
+            public Task<Grupo?> GetByIdAsync(Guid id) => Task.FromResult(_store.GetValueOrDefault(id));
+            public Task<List<Grupo>> GetAllAsync() => Task.FromResult(_store.Values.ToList());
+            public Task UpdateAsync(Grupo e) { _store[e.Id] = e; return Task.CompletedTask; }
             public Task DeleteAsync(Guid id) { _store.Remove(id); return Task.CompletedTask; }
-            public Task<Asignatura?> GetByCodigoAsync(string codigo) =>
-                Task.FromResult(_store.Values.FirstOrDefault(a => a.Codigo == codigo));
-            public Task<Asignatura?> GetByCodigoYProgramaAsync(string codigo, Guid programaId) =>
-                Task.FromResult(_store.Values.FirstOrDefault(a => a.Codigo == codigo && a.ProgramaId == programaId));
-            public Task<Asignatura?> GetByNombreYProgramaAsync(string nombre, Guid programaId) =>
-                Task.FromResult(_store.Values.FirstOrDefault(a =>
-                    a.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase) && a.ProgramaId == programaId));
+            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) =>
+                Task.FromResult(_store.Values.FirstOrDefault(g =>
+                    g.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase) && g.ProgramaId == programaId));
+            public Task<Grupo?> GetByCodigoAsync(string codigo) =>
+                Task.FromResult(_store.Values.FirstOrDefault(g => g.Codigo == codigo));
+            public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) =>
+                Task.FromResult(_store.Values.Where(g => g.AsignaturaId == asignaturaId).AsEnumerable());
         }
     }
 }

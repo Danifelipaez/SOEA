@@ -21,7 +21,7 @@ namespace SOEA.Application.Features.Asignaturas.Requests
         /// </summary>
         public TipoAlternancia? Alternancia { get; set; }
 
-        public Guid? DocenteId { get; set; }
+        // DocenteId se removió: el docente vive en el Grupo, no en la asignatura (ver Grupo.DocenteId).
         public Guid? EspacioFijoId { get; set; }
 
         /// <summary>

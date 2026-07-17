@@ -57,7 +57,6 @@ export interface GenerarHorarioRequest {
 export interface AsignaturaApiDto {
   id: string;
   nombre: string;
-  docenteId?: string;
   sesionesTeoriaPresencialSemana: number;
   horasTeoriaPresencial: number;
   sesionesTeoriaVirtualSemana: number;
@@ -170,7 +169,6 @@ export class HorarioApiService {
       asignaturas: asignaturas.map(a => ({
         id: a.id,
         nombre: a.nombre,
-        docenteId: a.docenteId,
         sesionesTeoriaPresencialSemana: a.sesionesTeoriaPresencialSemana,
         horasTeoriaPresencial: a.horasTeoriaPresencial,
         sesionesTeoriaVirtualSemana: a.sesionesTeoriaVirtualSemana,

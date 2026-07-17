@@ -47,7 +47,8 @@ namespace SOEA.Domain.Entities
 
         public TipoAlternancia Alternancia { get; private set; }
         public Guid ProgramaId { get; private set; }
-        public Guid? DocenteId { get; private set; }
+        // El docente ya NO vive en la asignatura: se movió a Grupo (la misma asignatura la dictan
+        // docentes distintos en grupos distintos). Ver Grupo.DocenteId.
 
         /// <summary>
         /// Espacio físico específico al que está asignada esta asignatura (proveniente del Excel de curriculum).
@@ -155,11 +156,6 @@ namespace SOEA.Domain.Entities
                    sesionesLaboratorioSemestre: sesionesLaboratorioSemestre, programaId: programaId,
                    umbralTipoA: umbralTipoA, categoria: categoria, horaInicioMin: horaInicioMin, horaFinMax: horaFinMax)
         {
-        }
-
-        public void AsignarDocente(Guid? docenteId)
-        {
-            DocenteId = docenteId;
         }
 
         public void AsignarEspacioFijo(Guid? espacioId)
