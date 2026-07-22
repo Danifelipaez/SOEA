@@ -145,7 +145,8 @@ export class CatalogoService {
       categoria: a.categoria ?? undefined,
       programaId: a.programaId,
       grupoNumero: a.grupoNumero ?? undefined,
-      espacioFijoId: a.espacioFijoId ?? undefined
+      espacioFijoId: a.espacioFijoId ?? undefined,
+      esCandidataAlternancia: a.esCandidataAlternancia ?? false
     };
   }
 

@@ -1,16 +1,10 @@
 import { Component, inject, computed, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
-import { CatalogoService } from '../../../core/catalogo.service';
-import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
-import { Asignatura, TipoAlternanciaConfig } from '../../../core/models';
-
-type Patron = TipoAlternanciaConfig['patronBase'];
-type TipoAlt = 'TipoA' | 'TipoB' | 'SinAlternancia';
+import { Asignatura, CriterioCesionAlternancia } from '../../../core/models';
 
 interface AsignaturaFila {
   asignatura: Asignatura;
@@ -18,52 +12,25 @@ interface AsignaturaFila {
   error: string | null;
 }
 
-/**
- * Fusiona lo que antes eran dos pantallas sueltas (tipos-alternancia +
- * configuracion-alternancia) en una sola pestaña del flujo de Catálogo (HF-2).
- */
 @Component({
   selector: 'app-alternancia-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule, MatDialogModule, MatSnackBarModule],
+  imports: [CommonModule, FormsModule, MatSnackBarModule],
   template: `
     <div class="tab-content">
 
-      <!-- Tipos de alternancia -->
+      <!-- Candidatas a alternancia -->
       <section>
-        <div class="section-head">
-          <h3 class="sec">Tipos de alternancia</h3>
-          <button class="btn btn-ghost" (click)="abrirTipo()">＋ Nuevo tipo</button>
-        </div>
-        @if (cargandoTipos()) {
-          <p class="text-muted">Cargando…</p>
-        } @else {
-          <div class="chips">
-            @for (t of tipos(); track t.id) {
-              <span class="chip">
-                <span class="dot" [style.background]="t.color"></span>
-                {{ t.nombre }}
-                @if (t.esSistema) { <span class="tag tag-neutral" style="font-size:9px">SISTEMA</span> }
-                <span class="material-icons ic-edit" (click)="abrirTipo(t)" title="Editar">edit</span>
-                @if (!t.esSistema) { <span class="material-icons ic-del" (click)="eliminarTipo(t)" title="Eliminar">delete</span> }
-              </span>
-            }
-          </div>
-        }
-      </section>
-
-      <!-- Asignación por asignatura -->
-      <section>
-        <h3 class="sec">Asignación por asignatura</h3>
-        <p class="text-muted" style="font-size:12.5px;margin:2px 0 10px">Una fila por asignatura — fusiona las dos pantallas de hoy.</p>
+        <h3 class="sec">Candidatas a alternancia</h3>
+        <p class="text-muted" style="font-size:12.5px;margin:2px 0 10px">
+          Marca qué asignaturas puede ceder el algoritmo a alternancia cuando el espacio físico no alcanza.
+        </p>
 
         <div class="toolbar">
           <input class="input search" type="text" placeholder="🔍 Filtrar por nombre o docente…"
                  [ngModel]="filtro()" (ngModelChange)="filtro.set($event)">
           <div class="resumen">
-            <span class="chip"><span class="dot" style="background:var(--alt-a)"></span>TipoA: {{ countTipoA() }}</span>
-            <span class="chip"><span class="dot" style="background:var(--alt-b)"></span>TipoB: {{ countTipoB() }}</span>
-            <span class="chip"><span class="dot" style="background:var(--alt-sin)"></span>Sin alt.: {{ countSinAlt() }}</span>
+            <span class="chip"><span class="dot" style="background:var(--color-accent)"></span>{{ countCandidatas() }} candidatas de {{ totalAsignaturas() }} asignaturas</span>
           </div>
         </div>
 
@@ -75,18 +42,16 @@ interface AsignaturaFila {
           <div class="prog-group">
             <div class="prog-head"><span>{{ grupo.programa }}</span><span class="text-muted">{{ grupo.filas.length }} asignatura(s)</span></div>
             <table class="table">
-              <thead><tr><th style="width:42%">Asignatura</th><th>Docentes (grupos)</th><th style="width:210px">Tipo de alternancia</th><th style="width:70px">Estado</th></tr></thead>
+              <thead><tr><th style="width:44%">Asignatura</th><th>Docentes (grupos)</th><th style="width:150px">Candidata a alternancia</th><th style="width:70px">Estado</th></tr></thead>
               <tbody>
                 @for (fila of grupo.filas; track fila.asignatura.id) {
                   <tr [class.guardando]="fila.guardando">
                     <td><b>{{ fila.asignatura.nombre }}</b> @if (fila.asignatura.codigo) { <span class="text-muted" style="font-size:11px">· {{ fila.asignatura.codigo }}</span> }</td>
                     <td class="text-muted">{{ docentesDeAsignatura(fila.asignatura.id) }}</td>
-                    <td>
-                      <select class="input" style="min-height:30px;padding:4px 8px"
-                              [ngModel]="fila.asignatura.alternancia || 'SinAlternancia'"
-                              (ngModelChange)="cambiarAlternancia(fila, $event)" [disabled]="fila.guardando">
-                        @for (t of tipos(); track t.id) { <option [value]="tipoValueFor(t)">{{ t.nombre }}</option> }
-                      </select>
+                    <td style="text-align:center">
+                      <input type="checkbox" [ngModel]="fila.asignatura.esCandidataAlternancia ?? false"
+                             (ngModelChange)="cambiarCandidatura(fila, $event)" [disabled]="fila.guardando"
+                             title="Candidata a ceder a alternancia si el algoritmo agota el espacio físico">
                     </td>
                     <td style="text-align:center">
                       @if (fila.guardando) { <span style="color:var(--color-accent);font-size:12px">Guardando…</span> }
@@ -100,12 +65,48 @@ interface AsignaturaFila {
           </div>
         }
       </section>
+
+      <!-- Orden de cesión a alternancia -->
+      <section>
+        <h3 class="sec">Orden de cesión a alternancia</h3>
+        <p class="text-muted" style="font-size:12.5px;margin:2px 0 10px">
+          Cuando el algoritmo agota el espacio físico disponible, cede sesiones a alternancia siguiendo
+          este orden. Desactiva un criterio para excluirlo por completo de la cesión.
+        </p>
+        @if (cargandoCriterios()) {
+          <p class="text-muted">Cargando…</p>
+        } @else {
+          <table class="table" style="max-width:480px">
+            <thead><tr><th style="width:60px">Orden</th><th>Criterio</th><th style="width:90px">Activo</th><th style="width:70px"></th></tr></thead>
+            <tbody>
+              @for (c of criterios(); track c.id; let i = $index) {
+                <tr>
+                  <td>{{ c.orden }}</td>
+                  <td>{{ etiquetaCriterio(c.criterio) }}
+                    @if (c.criterio === 'MultiplesSesiones') {
+                      <span class="material-icons" style="font-size:15px;vertical-align:-3px;color:var(--color-neutral-500)"
+                            title="No vuelve candidata a una asignatura por sí sola: solo decide qué candidata cede primero cuando varias ya califican por otro criterio.">info</span>
+                    }
+                  </td>
+                  <td style="text-align:center">
+                    <input type="checkbox" [ngModel]="c.activo" (ngModelChange)="toggleCriterioActivo(c, $event)">
+                  </td>
+                  <td style="text-align:right;white-space:nowrap">
+                    <span class="material-icons ic-edit" [class.disabled]="i === 0"
+                          (click)="moverCriterio(c, -1)" title="Subir prioridad">arrow_upward</span>
+                    <span class="material-icons ic-edit" [class.disabled]="i === criterios().length - 1"
+                          (click)="moverCriterio(c, 1)" title="Bajar prioridad">arrow_downward</span>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </section>
     </div>
   `,
   styles: [`
     .tab-content { padding: 20px 0; display: flex; flex-direction: column; gap: 24px; }
-    .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
-    .chips { display: flex; gap: 10px; flex-wrap: wrap; }
     .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
     .search { min-width: 240px; width: auto; flex: 1; max-width: 340px; }
     .resumen { display: flex; gap: 8px; margin-left: auto; }
@@ -114,38 +115,83 @@ interface AsignaturaFila {
     .prog-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; background: var(--color-neutral-100); border-bottom: 1px solid var(--color-divider); font: 600 13px var(--font-heading); }
     .prog-group .table th { background: transparent; }
     tr.guardando td { opacity: .7; }
+    .ic-edit.disabled { opacity: .3; pointer-events: none; }
   `]
 })
 export class AlternanciaTabComponent implements OnInit {
   private state = inject(StateService);
   private persistencia = inject(PersistenciaService);
-  private catalogo = inject(CatalogoService);
   private snack = inject(MatSnackBar);
-  private dialog = inject(MatDialog);
 
-  cargandoTipos = signal(true);
-  tipos = signal<TipoAlternanciaConfig[]>([]);
   filtro = signal('');
+
+  cargandoCriterios = signal(true);
+  criterios = signal<CriterioCesionAlternancia[]>([]);
 
   private guardandoSet = signal<Set<string>>(new Set());
   private errorMap = signal<Map<string, string>>(new Map());
 
-  ngOnInit() { this.cargarTipos(); }
+  ngOnInit() { this.cargarCriterios(); }
 
-  cargarTipos() {
-    this.cargandoTipos.set(true);
-    this.persistencia.cargarTiposAlternancia().subscribe({
-      next: (t) => { this.tipos.set(t); this.cargandoTipos.set(false); },
-      error: () => { this.cargandoTipos.set(false); this.snack.open('No se pudo cargar el catálogo de alternancia. ¿Backend activo?', 'Cerrar', { duration: 4000 }); }
+  cargarCriterios() {
+    this.cargandoCriterios.set(true);
+    this.persistencia.cargarCriteriosCesion().subscribe({
+      next: (c) => { this.criterios.set(this.ordenarCriterios(c)); this.cargandoCriterios.set(false); },
+      error: () => { this.cargandoCriterios.set(false); this.snack.open('No se pudo cargar la lista de criterios de cesión.', 'Cerrar', { duration: 4000 }); }
     });
   }
 
-  tipoValueFor(t: TipoAlternanciaConfig): TipoAlt {
-    if (t.esSistema) return t.nombre as TipoAlt;
-    return t.patronBase === 'PresencialEnSemanaA' ? 'TipoA' : t.patronBase === 'PresencialEnSemanaB' ? 'TipoB' : 'SinAlternancia';
+  private ordenarCriterios(c: CriterioCesionAlternancia[]): CriterioCesionAlternancia[] {
+    return [...c].sort((a, b) => a.orden - b.orden);
+  }
+
+  etiquetaCriterio(c: CriterioCesionAlternancia['criterio']): string {
+    switch (c) {
+      case 'Electiva': return 'Asignaturas electivas';
+      case 'Optativa': return 'Asignaturas optativas';
+      case 'MultiplesSesiones': return '2 o más sesiones semanales';
+      case 'Elegible': return 'Marcadas como candidatas';
+    }
+  }
+
+  toggleCriterioActivo(c: CriterioCesionAlternancia, activo: boolean): void {
+    this.persistencia.actualizarCriterioCesion(c.id, { activo }).subscribe({
+      next: (lista) => this.criterios.set(this.ordenarCriterios(lista)),
+      error: (e) => this.snack.open(`Error: ${e?.error ?? 'desconocido'}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
+    });
+  }
+
+  moverCriterio(c: CriterioCesionAlternancia, direccion: -1 | 1): void {
+    const lista = this.criterios();
+    const i = lista.findIndex(x => x.id === c.id);
+    const j = i + direccion;
+    if (i < 0 || j < 0 || j >= lista.length) return;
+    this.persistencia.actualizarCriterioCesion(c.id, { orden: lista[j].orden }).subscribe({
+      next: (nueva) => this.criterios.set(this.ordenarCriterios(nueva)),
+      error: (e) => this.snack.open(`Error: ${e?.error ?? 'desconocido'}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
+    });
+  }
+
+  cambiarCandidatura(fila: AsignaturaFila, candidata: boolean): void {
+    const id = fila.asignatura.id;
+    this.state.updateAsignatura({ ...fila.asignatura, esCandidataAlternancia: candidata });
+    this.guardandoSet.update(s => { const n = new Set(s); n.add(id); return n; });
+    this.errorMap.update(m => { const n = new Map(m); n.delete(id); return n; });
+    this.persistencia.actualizarElegibilidadAlternancia(id, candidata).subscribe({
+      next: () => this.guardandoSet.update(s => { const n = new Set(s); n.delete(id); return n; }),
+      error: (err) => {
+        this.guardandoSet.update(s => { const n = new Set(s); n.delete(id); return n; });
+        const msg = err?.error?.message ?? err?.message ?? 'Error al guardar';
+        this.errorMap.update(m => { const n = new Map(m); n.set(id, msg); return n; });
+        this.snack.open(`Error: ${msg}`, 'Cerrar', { duration: 4000 });
+      }
+    });
   }
 
   private filas = computed<AsignaturaFila[]>(() => this.state.asignaturas().map(a => ({ asignatura: a, guardando: false, error: null })));
+
+  totalAsignaturas = computed(() => this.state.asignaturas().length);
+  countCandidatas = computed(() => this.state.asignaturas().filter(a => a.esCandidataAlternancia).length);
 
   filasFiltradas = computed<AsignaturaFila[]>(() => {
     const f = this.filtro().toLowerCase().trim();
@@ -165,10 +211,6 @@ export class AlternanciaTabComponent implements OnInit {
     return [...mapa.values()].sort((a, b) => a.programa.localeCompare(b.programa));
   });
 
-  countTipoA = computed(() => this.state.asignaturas().filter(a => a.alternancia === 'TipoA').length);
-  countTipoB = computed(() => this.state.asignaturas().filter(a => a.alternancia === 'TipoB').length);
-  countSinAlt = computed(() => this.state.asignaturas().filter(a => !a.alternancia || a.alternancia === 'SinAlternancia').length);
-
   /** Docentes de la asignatura, derivados de sus grupos (Fase 2: el docente vive en el grupo). */
   docentesDeAsignatura(asignaturaId: string): string {
     const docById = this.state.docenteById();
@@ -180,104 +222,5 @@ export class AlternanciaTabComponent implements OnInit {
     )];
     if (!nombres.length) return '—';
     return nombres.slice(0, 2).join(', ') + (nombres.length > 2 ? `, +${nombres.length - 2}` : '');
-  }
-
-  cambiarAlternancia(fila: AsignaturaFila, nuevo: string): void {
-    const tipo = nuevo as TipoAlt;
-    const id = fila.asignatura.id;
-    this.state.updateAsignatura({ ...fila.asignatura, alternancia: tipo });
-    this.guardandoSet.update(s => { const n = new Set(s); n.add(id); return n; });
-    this.errorMap.update(m => { const n = new Map(m); n.delete(id); return n; });
-    this.persistencia.actualizarAlternancia(id, tipo).subscribe({
-      next: () => this.guardandoSet.update(s => { const n = new Set(s); n.delete(id); return n; }),
-      error: (err) => {
-        this.guardandoSet.update(s => { const n = new Set(s); n.delete(id); return n; });
-        const msg = err?.error?.message ?? err?.message ?? 'Error al guardar';
-        this.errorMap.update(m => { const n = new Map(m); n.set(id, msg); return n; });
-        this.snack.open(`Error: ${msg}`, 'Cerrar', { duration: 4000 });
-      }
-    });
-  }
-
-  abrirTipo(tipo?: TipoAlternanciaConfig) {
-    const ref = this.dialog.open(TipoAlternanciaDialogComponent, { width: '360px', maxWidth: '95vw', data: tipo ? { ...tipo } : null });
-    ref.afterClosed().subscribe((dto?: Partial<TipoAlternanciaConfig>) => {
-      if (!dto) return;
-      const obs = tipo
-        ? this.persistencia.actualizarTipoAlternancia({ ...tipo, ...dto } as TipoAlternanciaConfig)
-        : this.persistencia.crearTipoAlternancia(dto);
-      obs.subscribe({
-        next: () => { this.snack.open(tipo ? 'Tipo actualizado.' : 'Tipo creado.', '', { duration: 3000 }); this.cargarTipos(); },
-        error: (e) => this.snack.open(`Error: ${e?.error ?? 'desconocido'}`, 'Cerrar', { duration: 5000, panelClass: ['snack-error'] })
-      });
-    });
-  }
-
-  eliminarTipo(tipo: TipoAlternanciaConfig) {
-    if (tipo.esSistema) return;
-    const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
-      width: '320px', data: { title: 'Eliminar tipo de alternancia', message: `Se eliminará el tipo "${tipo.nombre}".` }
-    });
-    ref.afterClosed().subscribe(ok => {
-      if (!ok) return;
-      this.persistencia.eliminarTipoAlternancia(tipo.id).subscribe({
-        next: () => { this.snack.open('Tipo eliminado.', '', { duration: 3000 }); this.cargarTipos(); },
-        error: (e) => this.snack.open(`Error: ${e?.error ?? 'desconocido'}`, 'Cerrar', { duration: 5000, panelClass: ['snack-error'] })
-      });
-    });
-  }
-}
-
-// ─── Popup: Crear/Editar tipo de alternancia (REQUISITOS §5) ───────────────────
-@Component({
-  selector: 'app-tipo-alternancia-dialog',
-  standalone: true,
-  imports: [CommonModule, FormsModule, MatDialogModule],
-  template: `
-    <div class="pophd">{{ data ? 'Editar tipo' : 'Nuevo tipo de alternancia' }}
-      <span *ngIf="esSistema" class="tag tag-neutral" style="font-size:9px">SISTEMA</span>
-      <i (click)="ref.close()">✕</i>
-    </div>
-    <div class="popbd">
-      <div class="dfield"><label>Nombre <span class="rq">*</span></label>
-        <input class="input" [(ngModel)]="nombre" placeholder="Ej. Laboratorio intensivo" maxlength="100"></div>
-      <div class="dfield"><label>Patrón base <span class="rq">*</span></label>
-        <select class="input" [(ngModel)]="patronBase" [disabled]="esSistema">
-          <option value="PresencialEnSemanaA">Presencial en semanas A (pares)</option>
-          <option value="PresencialEnSemanaB">Presencial en semanas B (impares)</option>
-          <option value="SinAlternancia">Sin alternancia (presencial siempre)</option>
-        </select>
-        <small *ngIf="esSistema" class="text-muted" style="font-size:11px">Los tipos de sistema no cambian su patrón base.</small></div>
-      <div style="display:flex;gap:8px;align-items:flex-end">
-        <div class="dfield" style="flex:1"><label>Semanas presenciales <span class="rq">*</span></label>
-          <input class="input" type="number" [(ngModel)]="semanasPresenciales" min="0" max="52"></div>
-        <div class="dfield"><label>Color</label>
-          <input type="color" [(ngModel)]="color" style="width:56px;height:34px;padding:2px;border:1px solid var(--color-divider);background:var(--color-surface)"></div>
-      </div>
-      <label class="radio" style="cursor:pointer"><input type="checkbox" [(ngModel)]="activo" style="position:static;width:auto;height:auto;opacity:1"> Activo</label>
-      <div class="popfoot">
-        <button class="btn btn-secondary" (click)="ref.close()">Cancelar</button>
-        <button class="btn btn-primary" [disabled]="!nombre.trim()" (click)="guardar()">Guardar</button>
-      </div>
-    </div>
-  `
-})
-export class TipoAlternanciaDialogComponent {
-  ref = inject(MatDialogRef<TipoAlternanciaDialogComponent>);
-  data = inject(MAT_DIALOG_DATA) as TipoAlternanciaConfig | null;
-
-  nombre = this.data?.nombre ?? '';
-  patronBase: Patron = this.data?.patronBase ?? 'PresencialEnSemanaA';
-  semanasPresenciales = this.data?.semanasPresenciales ?? 8;
-  color = this.data?.color ?? '#6f8f6a';
-  activo = this.data?.activo ?? true;
-  esSistema = this.data?.esSistema ?? false;
-
-  guardar() {
-    if (!this.nombre.trim()) return;
-    this.ref.close({
-      nombre: this.nombre.trim(), patronBase: this.patronBase,
-      semanasPresenciales: Number(this.semanasPresenciales) || 0, color: this.color, activo: this.activo
-    });
   }
 }

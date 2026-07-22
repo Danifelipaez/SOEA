@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { Asignatura, Docente, Espacio, Facultad, Grupo, Programa, Sesion, TipoAlternanciaConfig } from './models';
+import { Asignatura, CriterioCesionAlternancia, Docente, Espacio, Facultad, Grupo, Programa, Sesion } from './models';
 import { environment } from '../../environments/environment';
 
 export interface ImportMapping {
@@ -70,24 +70,6 @@ export class PersistenciaService {
   fusionarDocentes(canonicoId: string, duplicadosIds: string[]): Observable<FusionDocentesResultado> {
     return this.http.post<FusionDocentesResultado>(`${this.base}/docentes/fusionar`,
       { canonicoId, duplicadosIds });
-  }
-
-  // ── Tipos de alternancia (catálogo editable, Inc. C) ────────────────────────────
-
-  cargarTiposAlternancia(): Observable<TipoAlternanciaConfig[]> {
-    return this.http.get<TipoAlternanciaConfig[]>(`${this.base}/tiposalternancia`);
-  }
-
-  crearTipoAlternancia(t: Partial<TipoAlternanciaConfig>): Observable<TipoAlternanciaConfig> {
-    return this.http.post<TipoAlternanciaConfig>(`${this.base}/tiposalternancia`, t);
-  }
-
-  actualizarTipoAlternancia(t: TipoAlternanciaConfig): Observable<TipoAlternanciaConfig> {
-    return this.http.put<TipoAlternanciaConfig>(`${this.base}/tiposalternancia/${t.id}`, t);
-  }
-
-  eliminarTipoAlternancia(id: string): Observable<void> {
-    return this.http.delete<void>(`${this.base}/tiposalternancia/${id}`);
   }
 
   // ── Espacios ───────────────────────────────────────────────────────────────────
@@ -165,8 +147,18 @@ export class PersistenciaService {
     return this.http.put<any>(`${this.base}/asignaturas/${a.id}`, body);
   }
 
-  actualizarAlternancia(id: string, alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia'): Observable<void> {
-    return this.http.patch<void>(`${this.base}/asignaturas/${id}/alternancia`, { alternancia });
+  actualizarElegibilidadAlternancia(id: string, elegible: boolean): Observable<void> {
+    return this.http.patch<void>(`${this.base}/asignaturas/${id}/elegibilidad-alternancia`, { elegible });
+  }
+
+  // ── Criterios de cesión a alternancia (cesión por saturación de espacio) ────────
+
+  cargarCriteriosCesion(): Observable<CriterioCesionAlternancia[]> {
+    return this.http.get<CriterioCesionAlternancia[]>(`${this.base}/criterioscesionalternancia`);
+  }
+
+  actualizarCriterioCesion(id: string, cambios: { orden?: number; activo?: boolean }): Observable<CriterioCesionAlternancia[]> {
+    return this.http.patch<CriterioCesionAlternancia[]>(`${this.base}/criterioscesionalternancia/${id}`, cambios);
   }
 
   eliminarAsignatura(id: string): Observable<void> {

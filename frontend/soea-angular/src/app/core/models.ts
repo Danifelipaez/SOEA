@@ -69,6 +69,8 @@ export interface Asignatura {
   programaId: string;
   // Fase 2: el docente ya no vive en la asignatura, sino en el Grupo (Grupo.docenteId).
   espacioFijoId?: string;    // Espacio requerido (opcional)
+  /** Candidata a ceder a alternancia si el algoritmo agota el espacio físico (cesión por saturación de espacio). */
+  esCandidataAlternancia?: boolean;
 }
 
 /** Parámetros del algoritmo genético y pesos de soft constraints configurados por el developer. */
@@ -87,18 +89,14 @@ export const CONFIGURACION_DEFECTO: ConfiguracionAlgoritmo = {
   pesoErgo: 3, pesoTiempos: 2, pesoAlm: 1,
 };
 
-/**
- * Tipo de alternancia configurable (catálogo editable, Inc. C). Cada tipo mapea a un patrón base
- * sobre el modelo de 2 semanas (A/B). Los de sistema (TipoA/TipoB/SinAlternancia) no se eliminan.
- */
-export interface TipoAlternanciaConfig {
+/** Fila de la lista ordenada/activable de criterios de cesión a alternancia por saturación de
+ *  espacio. Catálogo fijo de 2 filas de sistema. */
+export interface CriterioCesionAlternancia {
   id: string;
-  nombre: string;
-  /** 'PresencialEnSemanaA' | 'PresencialEnSemanaB' | 'SinAlternancia' */
-  patronBase: 'PresencialEnSemanaA' | 'PresencialEnSemanaB' | 'SinAlternancia';
-  semanasPresenciales: number;
-  color: string;
-  esSistema: boolean;
+  /** MultiplesSesiones no otorga elegibilidad por sí solo — solo desempata el orden entre
+   *  asignaturas ya elegibles por otro criterio (Electiva/Optativa/Elegible). */
+  criterio: 'Electiva' | 'Optativa' | 'Elegible' | 'MultiplesSesiones';
+  orden: number;
   activo: boolean;
 }
 

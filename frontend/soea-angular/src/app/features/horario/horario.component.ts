@@ -139,7 +139,7 @@ interface MergedSesion {
                   }
                 </tbody>
               </table>
-              <div class="grid-foot text-muted">⋯ jornada 06:00 – 20:00 ⋯</div>
+              <div class="grid-foot text-muted">⋯ jornada 06:00 – 22:00 (Sáb: 06:00 – 13:00) ⋯</div>
             </div>
           </div>
 
@@ -242,7 +242,7 @@ export class HorarioComponent implements OnInit {
   catalogo = inject(CatalogoService);
 
   dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
-  franjas = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'];
+  franjas = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
 
   activeSpace = signal<Espacio | null>(null);
   activeWeek = signal<'A' | 'B'>('A');
@@ -592,7 +592,7 @@ export class EditarSesionDialogComponent {
     this.hayCambioDocente() || this.dia() !== this.orig.dia || this.horaInicio() !== this.orig.horaInicio ||
     this.espacioId() !== (this.orig.espacioId ?? '') || this.alternancia() !== (this.orig.alternancia as string) || this.semana() !== this.orig.semana);
 
-  readonly horasDisponibles = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'];
+  readonly horasDisponibles = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
   readonly diasOpciones = ['lunes','martes','miercoles','jueves','viernes','sabado'].map(v => ({ valor: v }));
 
   validaciones = computed<Check[]>(() => {
@@ -601,6 +601,9 @@ export class EditarSesionDialogComponent {
     const chks: Check[] = [];
     if (!dia || !inicio) return chks;
     const startIdx = this.horasDisponibles.indexOf(inicio), endIdx = startIdx + Math.round(dur);
+    if (dia === 'sabado' && endIdx > this.horasDisponibles.indexOf('13:00')) {
+      chks.push({ ok: false, texto: 'Sábado solo tiene jornada hasta las 13:00' });
+    }
     if (espacioId && !this.data.sesion.virtual) {
       const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.espacioId === espacioId && s.dia === dia && !s.virtual && this.overlaps(s, startIdx, endIdx));
       const nombre = this.data.espacios.find(e => e.id === espacioId)?.nombre ?? espacioId;
@@ -738,7 +741,7 @@ export class CrearSesionDialogComponent {
   guardando = signal(false); errorServidor = signal('');
 
   readonly dias = [{ valor: 'lunes', etiqueta: 'Lunes' }, { valor: 'martes', etiqueta: 'Martes' }, { valor: 'miercoles', etiqueta: 'Miércoles' }, { valor: 'jueves', etiqueta: 'Jueves' }, { valor: 'viernes', etiqueta: 'Viernes' }, { valor: 'sabado', etiqueta: 'Sábado' }];
-  readonly horasDisponibles = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'];
+  readonly horasDisponibles = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
 
   asignaturaSeleccionada = signal<Asignatura | undefined>(undefined);
   tipoSesion = signal<TipoSesionUi>('Laboratorio');
@@ -826,6 +829,10 @@ export class CrearSesionDialogComponent {
     const chks: Check[] = []; let ok = true;
     if (!a || !this.dia || !this.horaInicio || (!this.espacioId && !esVirtual)) { this.checks.set([]); this.checksOk.set(false); return; }
     const startIdx = this.horasDisponibles.indexOf(this.horaInicio), endIdx = startIdx + dur;
+    if (this.dia === 'sabado' && endIdx > this.horasDisponibles.indexOf('13:00')) {
+      chks.push({ ok: false, texto: 'Sábado solo tiene jornada hasta las 13:00' });
+      ok = false;
+    }
     const docenteId = this.docenteIdDelGrupo();
     if (docenteId) {
       const conflictoDocente = this.data.sesiones.find(s => s.docenteId === docenteId && s.dia === this.dia && this.overlaps(s, startIdx, endIdx));
@@ -916,7 +923,7 @@ export class SesionFijaDialogComponent {
   alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia' = 'SinAlternancia'; virtual = false;
 
   readonly diasOpc = [{ v: 'lunes', l: 'Lunes' }, { v: 'martes', l: 'Martes' }, { v: 'miercoles', l: 'Miércoles' }, { v: 'jueves', l: 'Jueves' }, { v: 'viernes', l: 'Viernes' }, { v: 'sabado', l: 'Sábado' }];
-  readonly horas = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'];
+  readonly horas = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
 
   readonly asignaturaOptions: SearchableOption[] = this.asignaturas
     .map(a => ({
@@ -933,7 +940,16 @@ export class SesionFijaDialogComponent {
     if (g?.docenteId) this.docenteId = g.docenteId;
   }
   onVirtual(v: boolean) { if (v) this.espacioId = ''; }
-  valido(): boolean { return !!this.asignaturaId && !!this.docenteId && !!this.dia && !!this.horaInicio && this.duracion > 0 && (this.virtual || !!this.espacioId); }
+  valido(): boolean {
+    if (!this.asignaturaId || !this.docenteId || !this.dia || !this.horaInicio) return false;
+    if (this.duracion < 1 || this.duracion > 8) return false;
+    if (!this.virtual && !this.espacioId) return false;
+    const startIdx = this.horas.indexOf(this.horaInicio);
+    const endIdx = startIdx + Math.round(this.duracion);
+    if (endIdx > this.horas.length) return false;
+    if (this.dia === 'sabado' && endIdx > this.horas.indexOf('13:00')) return false;
+    return true;
+  }
 
   fijar() {
     if (!this.valido()) return;
