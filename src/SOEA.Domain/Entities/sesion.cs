@@ -44,6 +44,13 @@ namespace SOEA.Domain.Entities
         /// </summary>
         public bool Bloqueada { get; private set; }
 
+        /// <summary>
+        /// True si esta sesión fue cedida a alternancia o virtualizada por el mecanismo de fallback
+        /// presencial-first (saturación de espacio), no por elección manual del usuario en ingesta.
+        /// Habilita el pase de reversión post-Fase 3 (<see cref="RevertirCesion"/>).
+        /// </summary>
+        public bool CedidaPorSaturacion { get; private set; }
+
         // Constructor privado para EF Core
         private Sesion() : base() { }
 
@@ -120,10 +127,11 @@ namespace SOEA.Domain.Entities
         /// está saturada. Se aplica en orden de prioridad (Electiva → Optativa → Obligatoria)
         /// antes de pasar el problema a CP-SAT. EspacioId pasa a null.
         /// </summary>
-        public void VirtualizarSesion()
+        public void VirtualizarSesion(bool cedidaPorSaturacion = false)
         {
             Modalidad = Modalidad.Virtual;
             EspacioId = null;
+            CedidaPorSaturacion = cedidaPorSaturacion;
         }
 
         public void EstablecerFlujo(TipoFlujo tipoFlujo)
@@ -142,11 +150,27 @@ namespace SOEA.Domain.Entities
         /// presencialidad. Fija a la vez el <see cref="PatronAlternanciaId"/> de trazabilidad.
         /// Regla 8: no toca sesiones <see cref="Bloqueada"/> (el optimizador no altera su alternancia).
         /// </summary>
-        public void AplicarAlternancia(TipoAlternancia tipo, Guid? patronAlternanciaId = null)
+        public void AplicarAlternancia(TipoAlternancia tipo, Guid? patronAlternanciaId = null, bool cedidaPorSaturacion = false)
         {
             if (Bloqueada) return;
             Alternancia = tipo;
             PatronAlternanciaId = patronAlternanciaId;
+            CedidaPorSaturacion = cedidaPorSaturacion;
+        }
+
+        /// <summary>
+        /// Revierte una cesión por saturación (<see cref="CedidaPorSaturacion"/>) a presencial puro.
+        /// No-op si la sesión no fue cedida por este mecanismo o está <see cref="Bloqueada"/> — nunca
+        /// toca una alternancia fijada manualmente por el usuario. Devuelve true si revirtió algo.
+        /// </summary>
+        public bool RevertirCesion()
+        {
+            if (!CedidaPorSaturacion || Bloqueada) return false;
+            Modalidad = Modalidad.Presencial;
+            Alternancia = TipoAlternancia.SinAlternancia;
+            PatronAlternanciaId = null;
+            CedidaPorSaturacion = false;
+            return true;
         }
 
         public void Bloquear()

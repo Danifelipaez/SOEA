@@ -5,13 +5,29 @@ using SOEA.Domain.Entities;
 namespace SOEA.Domain.Interfaces
 {
     /// <summary>
+    /// Causa de infactibilidad reportada por la Fase 2, usada por el loop reactivo de cesión a
+    /// alternancia (Etapa 2) para saber si vale la pena ceder una sesión más: solo reintenta cuando
+    /// la causa es <see cref="Espacio"/> — ceder no ayuda contra ventana horaria o franja de grupo.
+    /// </summary>
+    public enum MotivoInfactibilidad
+    {
+        Ninguno,
+        Espacio,
+        VentanaHoraria,
+        FranjaGrupo,
+        Datos,
+        Otro
+    }
+
+    /// <summary>
     /// Resultado de la Fase 2 (Constraint Programming).
     /// Cada sesión lógica factible produce dos <see cref="AsignacionSemanal"/> (Semana A y B).
     /// </summary>
     public record ResultadoFactibilidad(
         bool EsFactible,
         IReadOnlyList<AsignacionSemanal> Asignaciones,
-        string MensajeError);
+        string MensajeError,
+        MotivoInfactibilidad Motivo = MotivoInfactibilidad.Ninguno);
 
     /// <summary>
     /// Motor de Constraint Programming (Fase 2).
