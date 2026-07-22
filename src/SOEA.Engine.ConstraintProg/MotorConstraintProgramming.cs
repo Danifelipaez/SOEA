@@ -87,7 +87,7 @@ namespace SOEA.Engine.ConstraintProg
             if (!sesiones.Any() || !bloques.Any())
             {
                 _logger.LogWarning("No hay sesiones o bloques para procesar en la Fase 2.");
-                return new ResultadoFactibilidad(false, SinAsignaciones, "No hay datos suficientes.");
+                return new ResultadoFactibilidad(false, SinAsignaciones, "No hay datos suficientes.", MotivoInfactibilidad.Datos);
             }
 
             // ── Capacidad de espacios vs demanda presencial POR SEMANA (virtuales no ocupan espacio) ──
@@ -117,7 +117,7 @@ namespace SOEA.Engine.ConstraintProg
                               $"({capacidadBloquesHora}h = {espacios.Count} espacio(s) × {bloques.Count} bloques). " +
                               "Añada más espacios o ajuste la alternancia.";
                     _logger.LogError(msg);
-                    return new ResultadoFactibilidad(false, SinAsignaciones, msg);
+                    return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio);
                 }
             }
 
@@ -247,7 +247,8 @@ namespace SOEA.Engine.ConstraintProg
                         ? $"HC-G01: no hay bloques válidos para la sesión de {dur}h dentro de la disponibilidad declarada del grupo (GrupoId={sesion.GrupoId})."
                         : $"No hay bloques válidos para una sesión de {dur}h (no cabe sin cruzar día en la grilla canónica).";
                     _logger.LogError(msg);
-                    return new ResultadoFactibilidad(false, SinAsignaciones, msg);
+                    var motivo = permitidosPorGrupo is not null ? MotivoInfactibilidad.FranjaGrupo : MotivoInfactibilidad.Otro;
+                    return new ResultadoFactibilidad(false, SinAsignaciones, msg, motivo);
                 }
 
                 // HC-VH: ventana horaria de la asignatura (hard). El intervalo completo
@@ -267,7 +268,7 @@ namespace SOEA.Engine.ConstraintProg
                                   $"cabe dentro de su ventana horaria [{ventana.min:HH\\:mm}–{ventana.max:HH\\:mm}] " +
                                   "en ningún día de la grilla. Amplíe la ventana o reduzca la duración.";
                         _logger.LogError(msg);
-                        return new ResultadoFactibilidad(false, SinAsignaciones, msg);
+                        return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.VentanaHoraria);
                     }
                 }
 
@@ -331,7 +332,7 @@ namespace SOEA.Engine.ConstraintProg
                     {
                         var msg = $"Sesión {sesion.Id} requiere laboratorio pero no hay espacios de ese tipo configurados.";
                         _logger.LogError(msg);
-                        return new ResultadoFactibilidad(false, SinAsignaciones, msg);
+                        return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio);
                     }
 
                     // HC-CAP: descartar espacios con aforo insuficiente para el grupo de la sesión.
@@ -347,7 +348,7 @@ namespace SOEA.Engine.ConstraintProg
                                       $"estudiantes, pero el aforo máximo disponible entre sus candidatos es {aforoMax}. " +
                                       "Añada un espacio con mayor capacidad o reduzca el grupo.";
                             _logger.LogError(msg);
-                            return new ResultadoFactibilidad(false, SinAsignaciones, msg);
+                            return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio);
                         }
                         lista = conAforo;
                     }
@@ -458,7 +459,8 @@ namespace SOEA.Engine.ConstraintProg
 
             _logger.LogWarning("CP-SAT no encontró solución factible. Status: {Status}", status);
             return new ResultadoFactibilidad(false, SinAsignaciones,
-                $"No se encontró solución factible. Status del solver: {status}. Revise restricciones de docente, espacio y disponibilidad.");
+                $"No se encontró solución factible. Status del solver: {status}. Revise restricciones de docente, espacio y disponibilidad.",
+                MotivoInfactibilidad.Espacio);
         }
     }
 }

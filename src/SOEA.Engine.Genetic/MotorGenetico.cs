@@ -42,6 +42,7 @@ namespace SOEA.Engine.Genetic
             IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
             IReadOnlySet<Guid>?            sesionesFijasIds = null,
+            IReadOnlyList<Guid>?           sesionesCedidasParaRevertir = null,
             CancellationToken              ct = default)
         {
             var s  = sesiones.ToList();
@@ -52,7 +53,7 @@ namespace SOEA.Engine.Genetic
             var g  = grupos?.ToList();
             var c  = config ?? new ConfiguracionOptimizacion();
             var ia = infoAsignatura ?? new Dictionary<Guid, (int, CategoriaAsignatura)>();
-            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, g, c, ia, ventanaPorAsignatura, sesionesFijasIds, ct), ct);
+            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, g, c, ia, ventanaPorAsignatura, sesionesFijasIds, sesionesCedidasParaRevertir, ct), ct);
         }
 
         private ResultadoOptimizacion OptimizarSincrono(
@@ -66,6 +67,7 @@ namespace SOEA.Engine.Genetic
             IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)> infoAsignatura,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura,
             IReadOnlySet<Guid>?     sesionesFijasIds,
+            IReadOnlyList<Guid>?    sesionesCedidasParaRevertir,
             CancellationToken ct)
         {
             if (sesiones.Count == 0 || bloques.Count == 0)
@@ -181,9 +183,49 @@ namespace SOEA.Engine.Genetic
                 return new ResultadoOptimizacion(asignacionesFase2, mejorFitness, generacionFinal, UsoFallback: true, penalizacionPresencial);
             }
 
+            // ── Pase de reversión post-Fase 3: recuperar a presencial toda sesión cedida por el
+            // fallback presencial-first (Etapas 1/2) que sí quepa en el empaque REAL de aulas que
+            // dejó el GA — más preciso que el pre-check agregado de Fase 2. Se prueba en orden
+            // INVERSO (última cedida primero); cada intento se confirma solo si AsignadorEspacios
+            // sigue encontrando una asignación completa para TODAS las sesiones presenciales.
+            var sesionesRevertidas = new List<Guid>();
+            if (sesionesCedidasParaRevertir is { Count: > 0 })
+            {
+                var sesionPorId = sesiones.ToDictionary(x => x.Id);
+                for (int k = sesionesCedidasParaRevertir.Count - 1; k >= 0; k--)
+                {
+                    if (!sesionPorId.TryGetValue(sesionesCedidasParaRevertir[k], out var sesionCedida)) continue;
+                    if (!sesionCedida.CedidaPorSaturacion || sesionCedida.Bloqueada) continue;
+
+                    var modalidadPrevia   = sesionCedida.Modalidad;
+                    var alternanciaPrevia = sesionCedida.Alternancia;
+                    var patronPrevio      = sesionCedida.PatronAlternanciaId;
+
+                    if (!sesionCedida.RevertirCesion()) continue;
+
+                    var aulasTentativas = AsignadorEspacios.Asignar(
+                        sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx, estudiantesPorGrupo);
+
+                    if (aulasTentativas is not null)
+                    {
+                        aulas = aulasTentativas;
+                        sesionesRevertidas.Add(sesionCedida.Id);
+                    }
+                    else if (modalidadPrevia == Modalidad.Virtual)
+                        sesionCedida.VirtualizarSesion(cedidaPorSaturacion: true);
+                    else
+                        sesionCedida.AplicarAlternancia(alternanciaPrevia, patronPrevio, cedidaPorSaturacion: true);
+                }
+
+                if (sesionesRevertidas.Count > 0)
+                    _logger.LogInformation(
+                        "Fase 3: {N} sesión(es) revertidas a presencial tras validar aulas reales.", sesionesRevertidas.Count);
+            }
+
             var asignacionesGA = Decodificar(sesiones, mejor, bloques, aulas);
             _logger.LogInformation("Fase 3 completada. Generaciones={G}, Fitness={F}.", generacionFinal, mejorFitness);
-            return new ResultadoOptimizacion(asignacionesGA, mejorFitness, generacionFinal, UsoFallback: false, penalizacionPresencial);
+            return new ResultadoOptimizacion(asignacionesGA, mejorFitness, generacionFinal, UsoFallback: false, penalizacionPresencial,
+                sesionesRevertidas.Count > 0 ? sesionesRevertidas : null);
         }
 
         // Inicios semilla desde la Semana A de Fase 2 (Start). Regla 9: A y B comparten franja en
