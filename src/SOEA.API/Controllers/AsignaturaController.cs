@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Mvc;
 using SOEA.Application.Features.Asignaturas;
 using SOEA.Application.Features.Asignaturas.Requests;
 using SOEA.Application.Features.Asignaturas.Responses;
-using SOEA.Domain.Enums;
 
 namespace SOEA.API.Controllers
 {
@@ -101,16 +100,17 @@ namespace SOEA.API.Controllers
         }
 
         /// <summary>
-        /// Actualiza el tipo de alternancia de una asignatura.
-        /// Body: { "alternancia": "TipoA" | "TipoB" | "SinAlternancia" }
+        /// Marca (o desmarca) la asignatura como candidata a ceder a alternancia si el algoritmo
+        /// agota el espacio físico disponible (cesión por saturación de espacio).
+        /// Body: { "elegible": true | false }
         /// </summary>
-        [HttpPatch("{id}/alternancia")]
-        public async Task<IActionResult> UpdateAlternancia(Guid id, [FromBody] UpdateAlternanciaDto dto)
+        [HttpPatch("{id}/elegibilidad-alternancia")]
+        public async Task<IActionResult> UpdateElegibilidadAlternancia(Guid id, [FromBody] UpdateElegibilidadAlternanciaDto dto)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
             try
             {
-                await _service.UpdateAlternanciaAsync(id, dto.Alternancia);
+                await _service.UpdateElegibilidadAlternanciaAsync(id, dto.Elegible);
                 return NoContent();
             }
             catch (InvalidOperationException ex)
@@ -120,8 +120,8 @@ namespace SOEA.API.Controllers
         }
     }
 
-    public class UpdateAlternanciaDto
+    public class UpdateElegibilidadAlternanciaDto
     {
-        public TipoAlternancia Alternancia { get; set; }
+        public bool Elegible { get; set; }
     }
 }
