@@ -1,5 +1,4 @@
 using SOEA.Domain.Entities;
-using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 using SOEA.Application.Features.Asignaturas.Requests;
 using SOEA.Application.Features.Asignaturas.Responses;
@@ -62,7 +61,6 @@ public class AsignaturaService
             programaId: request.ProgramaId,
             alternanciaExplicita: request.Alternancia,
             categoria: request.Categoria);
-        asignatura.AsignarDocente(request.DocenteId);
         asignatura.AsignarEspacioFijo(request.EspacioFijoId);
 
         await _repository.UpdateAsync(asignatura);
@@ -77,14 +75,14 @@ public class AsignaturaService
     }
 
     /// <summary>
-    /// Permite a la coordinadora asignar manualmente el tipo de alternancia
-    /// (TipoA / TipoB / SinAlternancia) a una asignatura existente.
+    /// Marca (o desmarca) la asignatura como candidata a ceder a alternancia si el algoritmo
+    /// agota el espacio físico disponible (cesión por saturación de espacio).
     /// </summary>
-    public async Task UpdateAlternanciaAsync(Guid id, TipoAlternancia alternancia)
+    public async Task UpdateElegibilidadAlternanciaAsync(Guid id, bool elegible)
     {
         var asignatura = await _repository.GetByIdAsync(id)
             ?? throw new InvalidOperationException($"Asignatura con ID {id} no encontrada.");
-        asignatura.EstablecerAlternancia(alternancia);
+        asignatura.EstablecerElegibilidadAlternancia(elegible);
         await _repository.UpdateAsync(asignatura);
     }
 }

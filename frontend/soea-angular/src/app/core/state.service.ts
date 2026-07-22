@@ -79,16 +79,30 @@ export class StateService {
   executionLogs = signal<string[]>([]);
 
   setSesiones(s: Sesion[])       { this.sesiones.set(s); }
-  updateSesion(s: Sesion)        { this.sesiones.update(v => v.map(x => x.id === s.id ? s : x)); }
   /**
-   * Mueve una sesión a un nuevo día/franja conservando la modalidad, semana y espacio de
-   * CADA fila. Las filas A y B de una misma sesión comparten `id` y ocupan el mismo horario
-   * (el horario es idéntico en ambas semanas; solo cambia presencial↔virtual), por lo que el
-   * movimiento aplica a todas sus filas a la vez sin colapsarlas en un único objeto.
+   * Aplica una edición a TODAS las filas que comparten `id`. Las filas A y B de una misma
+   * sesión comparten `id` y ocupan el mismo horario (idéntico en ambas semanas; solo cambia
+   * presencial↔virtual — ver Sesion.semana en models.ts), así que día/hora/docente/alternancia
+   * se sincronizan en ambas filas. `espacioId` es la excepción: una fila virtual siempre debe
+   * quedar en null (regla 9, CLAUDE.md) aunque el usuario haya editado el espacio presencial;
+   * ese valor se refleja en `espacioIdHogar` para que la fila virtual siga apuntando al lab.
+   * `semana` NUNCA se sincroniza: es precisamente el campo que distingue una fila de la otra
+   * (en sesiones sin alternancia ambas filas son presenciales — solo `semana` las diferencia).
+   * Reemplazar con el objeto completo (como antes) colapsaba ambas filas en una sola copia
+   * idéntica, perdiendo esa distinción — la sesión "duplicada" que se veía en el grid tras
+   * mover un día/hora era esa copia corrupta.
    */
-  moverSesion(id: string, dia: string, horaInicio: string, horaFin: string) {
-    this.sesiones.update(v => v.map(x =>
-      x.id === id ? { ...x, dia, horaInicio, horaFin } : x));
+  updateSesion(s: Sesion) {
+    this.sesiones.update(v => v.map(x => x.id !== s.id ? x : {
+      ...x,
+      docenteId: s.docenteId,
+      dia: s.dia,
+      horaInicio: s.horaInicio,
+      horaFin: s.horaFin,
+      alternancia: s.alternancia,
+      espacioId: x.virtual ? undefined : s.espacioId,
+      espacioIdHogar: s.espacioId ?? x.espacioIdHogar,
+    }));
   }
   setExecutionLogs(logs: string[]) { this.executionLogs.set(logs); }
 

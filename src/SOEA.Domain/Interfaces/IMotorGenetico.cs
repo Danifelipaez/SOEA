@@ -21,12 +21,18 @@ namespace SOEA.Domain.Interfaces
     /// inicio) — por eso se reporta aparte en vez de sumarse al fitness, donde no aportaba señal
     /// de optimización.
     /// </param>
+    /// <param name="SesionesRevertidasIds">
+    /// IDs de sesiones que el pase de reversión post-Fase 3 recuperó a presencial (ver
+    /// <paramref name="sesionesCedidasParaRevertir"/> en <see cref="IMotorGenetico.OptimizarAsync"/>
+    /// más abajo). Null o vacío = no se revirtió ninguna.
+    /// </param>
     public record ResultadoOptimizacion(
         IReadOnlyList<AsignacionSemanal> AsignacionesOptimizadas,
         decimal PuntajeFitness,
         int Generaciones,
         bool UsoFallback,
-        decimal PenalizacionPresencial = 0m);
+        decimal PenalizacionPresencial = 0m,
+        IReadOnlyList<Guid>? SesionesRevertidasIds = null);
 
     /// <summary>
     /// Parámetros de ejecución del algoritmo genético y pesos de restricciones blandas.
@@ -72,6 +78,13 @@ namespace SOEA.Domain.Interfaces
         /// Sesiones del horario base (regla 8): CP-SAT las fija por igualdad y el GA NO puede
         /// moverlas — sus genes quedan congelados en la franja de Fase 2. Null = sin fijas.
         /// </param>
+        /// <param name="sesionesCedidasParaRevertir">
+        /// IDs de sesiones marcadas <c>CedidaPorSaturacion=true</c> por las Etapas 1/2 del fallback
+        /// presencial-first, en el orden en que fueron cedidas (Etapa 1 primero). Tras optimizar y
+        /// asignar aulas reales, el motor intenta revertir cada una a presencial empezando por la
+        /// ÚLTIMA de la lista, validando contra el empaque real de aulas (no el pre-check agregado de
+        /// Fase 2). Null o vacío = no se intenta ninguna reversión (comportamiento actual sin cambios).
+        /// </param>
         Task<ResultadoOptimizacion> OptimizarAsync(
             IEnumerable<Sesion>             sesiones,
             IEnumerable<AsignacionSemanal>  asignacionesFase2,
@@ -83,6 +96,7 @@ namespace SOEA.Domain.Interfaces
             IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
             IReadOnlySet<Guid>?             sesionesFijasIds = null,
+            IReadOnlyList<Guid>?            sesionesCedidasParaRevertir = null,
             CancellationToken               ct = default);
     }
 }

@@ -83,14 +83,15 @@ namespace SOEA.Infrastructure.Excel
             // ── 3. Main pass: construir entidades ─────────────────────────────────────
             var facultadesDict  = new Dictionary<string, Facultad>(StringComparer.OrdinalIgnoreCase);
             var programasDict   = new Dictionary<string, Programa>(StringComparer.OrdinalIgnoreCase);
-            // Clave: (asig_norm, programaId, docente_norm) → Asignatura (1 por grupo)
-            var asignaturasDict = new Dictionary<(string AsigNorm, Guid ProgramaId, string DocNorm), Asignatura>();
+            // Clave: (asig_norm, programaId) → Asignatura ÚNICA (el docente NO es parte de la clave;
+            // la misma asignatura la dictan docentes distintos, diferenciados por Grupo).
+            var asignaturasDict = new Dictionary<(string AsigNorm, Guid ProgramaId), Asignatura>();
             // Clave: docente_norm → Docente
             var docentesDict    = new Dictionary<string, Docente>(StringComparer.OrdinalIgnoreCase);
             var espaciosDict    = new Dictionary<string, Espacio>(StringComparer.OrdinalIgnoreCase);
             var sesionesPredefinidas = new List<Sesion>();
             var grupos          = new List<Grupo>();
-            // Recuperar el Grupo creado para cada (asig, prog, docente) al construir sesiones
+            // Clave: (asig_norm, programaId, docente_norm) → Grupo (un grupo por docente de la asignatura)
             var gruposDict      = new Dictionary<(string AsigNorm, Guid ProgramaId, string DocNorm), Grupo>();
             // conteo de grupos por (asig_norm, programaId) para numerar secuencialmente
             var gruposContador  = new Dictionary<(string AsigNorm, Guid ProgramaId), int>();
@@ -150,15 +151,10 @@ namespace SOEA.Infrastructure.Excel
                 var claveConteo = (asignaturaNorm, NormalizadorTexto.Normalizar(txtPrograma), docenteNorm);
                 int sesionesSemana = conteoGrupos.TryGetValue(claveConteo, out int cnt2) ? cnt2 : 1;
 
-                // Asignatura: una por (asig_norm, programaId, docente_norm) = un "grupo de clase"
-                var claveAsig = (asignaturaNorm, programa.Id, docenteNorm);
+                // Asignatura: ÚNICA por (asig_norm, programaId) — el docente ya no la diferencia.
+                var claveAsig = (asignaturaNorm, programa.Id);
                 if (!asignaturasDict.TryGetValue(claveAsig, out var asignatura))
                 {
-                    var grupoKey = (asignaturaNorm, programa.Id);
-                    gruposContador.TryGetValue(grupoKey, out int numGrupoActual);
-                    numGrupoActual++;
-                    gruposContador[grupoKey] = numGrupoActual;
-
                     asignatura = new Asignatura(
                         id: Guid.NewGuid(),
                         nombre: txtAsignatura,
@@ -169,13 +165,6 @@ namespace SOEA.Infrastructure.Excel
                         programaId: programa.Id
                     );
                     asignaturasDict[claveAsig] = asignatura;
-
-                    // Grupo asociado a este (asignatura, docente) combinación
-                    var nombreGrupo = $"{txtAsignatura} - Grupo {numGrupoActual}";
-                    var grupo = new Grupo(Guid.NewGuid(), nombreGrupo, programa.Id, 1, 30, asignatura.Alternancia);
-                    grupos.Add(grupo);
-                    // Asociar grupo a asignatura clave para recuperarlo al crear sesiones
-                    gruposDict[claveAsig] = grupo;
                 }
 
                 // Espacio
@@ -204,8 +193,23 @@ namespace SOEA.Infrastructure.Excel
                         docentesDict[docenteNorm] = docente;
                     }
 
-                    // Vincular asignatura → docente
-                    asignaturasDict[claveAsig].AsignarDocente(docente.Id);
+                    // Grupo: uno por (asignatura, programa, docente). El docente vive en el GRUPO,
+                    // no en la asignatura (la misma asignatura la dictan docentes distintos).
+                    var claveGrupo = (asignaturaNorm, programa.Id, docenteNorm);
+                    if (!gruposDict.TryGetValue(claveGrupo, out var grupoDocente))
+                    {
+                        var grupoKey = (asignaturaNorm, programa.Id);
+                        gruposContador.TryGetValue(grupoKey, out int numGrupoActual);
+                        numGrupoActual++;
+                        gruposContador[grupoKey] = numGrupoActual;
+
+                        var nombreGrupo = $"{txtAsignatura} - Grupo {numGrupoActual}";
+                        grupoDocente = new Grupo(
+                            Guid.NewGuid(), nombreGrupo, programa.Id, 30, asignatura.Alternancia,
+                            asignaturaId: asignatura.Id, facultadId: facultad.Id, docenteId: docente.Id);
+                        grupos.Add(grupoDocente);
+                        gruposDict[claveGrupo] = grupoDocente;
+                    }
 
                     // Disponibilidad del docente: expandir rango en bloques de 1h
                     Guid bloqueIdParaSesion = Guid.Empty;
@@ -254,16 +258,14 @@ namespace SOEA.Infrastructure.Excel
                     }
 
                     // Sesión predefinida (solo una por fila, referencia el bloque de inicio del slot)
-                    var asigFinal = asignaturasDict[claveAsig];
-                    var grupoFinal = gruposDict[claveAsig];
                     var sesion = new Sesion(
                         id: Guid.NewGuid(),
-                        asignaturaId: asigFinal.Id,
+                        asignaturaId: asignatura.Id,
                         docenteId: docente.Id,
                         bloqueId: bloqueIdParaSesion,
                         espacioId: espacioAsignado?.Id,
-                        grupoId: grupoFinal.Id,
-                        alternancia: asigFinal.Alternancia,
+                        grupoId: grupoDocente.Id,
+                        alternancia: asignatura.Alternancia,
                         modalidad: Modalidad.Presencial,
                         duracionHoras: duracion,
                         esBloque: false,
@@ -501,11 +503,13 @@ namespace SOEA.Infrastructure.Excel
                 var asignaturaParaGrupo = asignaturasDict[claveAsignatura];
                 var numeroGrupo = listaGrupos.Count + 1;
                 var nombreGrupo = $"{txtAsignatura} - Grupo {numeroGrupo}";
-                var nuevoGrupo = new Grupo(Guid.NewGuid(), nombreGrupo, programa.Id, 1, 30, asignaturaParaGrupo.Alternancia);
+                var nuevoGrupo = new Grupo(Guid.NewGuid(), nombreGrupo, programa.Id, 30, asignaturaParaGrupo.Alternancia,
+                    asignaturaId: asignaturaParaGrupo.Id);
                 listaGrupos.Add(nuevoGrupo);
                 grupos.Add(nuevoGrupo);
 
-                // 4. Docente (Solo creación básica, la disponibilidad se cargará con el Excel 3)
+                // 4. Docente (Solo creación básica, la disponibilidad se cargará con el Excel 3).
+                //    El docente vive en el GRUPO, no en la asignatura.
                 if (!string.IsNullOrWhiteSpace(txtDocente))
                 {
                     if (!docentesDict.TryGetValue(txtDocente, out var docente))
@@ -513,6 +517,7 @@ namespace SOEA.Infrastructure.Excel
                         docente = new Docente(Guid.NewGuid(), txtDocente, "", "", 40m, new List<FranjaHoraria> { FranjaHoraria.Matutino });
                         docentesDict[txtDocente] = docente;
                     }
+                    nuevoGrupo.AsignarDocente(docente.Id);
                 }
 
                 // 5. Espacio

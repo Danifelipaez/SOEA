@@ -29,7 +29,7 @@ namespace SOEA.Tests.Application
             new(id, nombre, codigo, 2, 1, 8, progId);
 
         private static Grupo Grupo(Guid id, string nombre, Guid progId) =>
-            new(id, nombre, progId, 1, 30);
+            new(id, nombre, progId, 30);
 
         // ── Construcción del servicio ────────────────────────────────────────────
 

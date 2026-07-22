@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;  // EPPlus 8 license
 using SOEA.Application.Features.Asignaturas;
+using SOEA.Application.Features.CriteriosCesionAlternancia;
 using SOEA.Application.Features.Docentes;
 using SOEA.Application.Features.Horario;
-using SOEA.Application.Features.TiposAlternancia;
 using SOEA.Domain.Interfaces;
 using SOEA.Engine.ConstraintProg;
 using SOEA.Engine.Genetic;
@@ -56,7 +56,7 @@ builder.Services.AddScoped<IDocenteRepositorio, DocenteRepositorio>();
 builder.Services.AddScoped<IEspacioRepositorio, EspacioRepositorio>();
 builder.Services.AddScoped<IGrupoRepositorio, GrupoRepositorio>();
 builder.Services.AddScoped<IBloqueTiempoRepositorio, BloqueTiempoRepositorio>();
-builder.Services.AddScoped<ITipoAlternanciaConfigRepositorio, TipoAlternanciaConfigRepositorio>();
+builder.Services.AddScoped<ICriterioCesionAlternanciaRepositorio, CriterioCesionAlternanciaRepositorio>();
 builder.Services.AddScoped<IFacultadRepositorio, FacultadRepositorio>();
 builder.Services.AddScoped<IProgramaRepositorio, ProgramaRepositorio>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -84,8 +84,8 @@ builder.Services.AddScoped<CrearSesionManualService>();
 // CRUD Docentes
 builder.Services.AddScoped<DocenteService>();
 builder.Services.AddScoped<FusionDocentesService>();
-// Catálogo de tipos de alternancia (Inc. C)
-builder.Services.AddScoped<TipoAlternanciaConfigService>();
+// Lista ordenada/activable de criterios de cesión a alternancia (cesión por saturación de espacio)
+builder.Services.AddScoped<CriterioCesionAlternanciaService>();
 // Generación de horario
 builder.Services.AddScoped<GenerarHorarioService>();
 // Importación de curriculum

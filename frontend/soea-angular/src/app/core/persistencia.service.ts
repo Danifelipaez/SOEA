@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { Asignatura, Docente, Espacio, Facultad, Grupo, Programa, Sesion, TipoAlternanciaConfig } from './models';
+import { Asignatura, CriterioCesionAlternancia, Docente, Espacio, Facultad, Grupo, Programa, Sesion } from './models';
 import { environment } from '../../environments/environment';
 
 export interface ImportMapping {
@@ -72,24 +72,6 @@ export class PersistenciaService {
       { canonicoId, duplicadosIds });
   }
 
-  // ── Tipos de alternancia (catálogo editable, Inc. C) ────────────────────────────
-
-  cargarTiposAlternancia(): Observable<TipoAlternanciaConfig[]> {
-    return this.http.get<TipoAlternanciaConfig[]>(`${this.base}/tiposalternancia`);
-  }
-
-  crearTipoAlternancia(t: Partial<TipoAlternanciaConfig>): Observable<TipoAlternanciaConfig> {
-    return this.http.post<TipoAlternanciaConfig>(`${this.base}/tiposalternancia`, t);
-  }
-
-  actualizarTipoAlternancia(t: TipoAlternanciaConfig): Observable<TipoAlternanciaConfig> {
-    return this.http.put<TipoAlternanciaConfig>(`${this.base}/tiposalternancia/${t.id}`, t);
-  }
-
-  eliminarTipoAlternancia(id: string): Observable<void> {
-    return this.http.delete<void>(`${this.base}/tiposalternancia/${id}`);
-  }
-
   // ── Espacios ───────────────────────────────────────────────────────────────────
 
   cargarEspacios(): Observable<Espacio[]> {
@@ -119,8 +101,9 @@ export class PersistenciaService {
   guardarGrupo(g: Grupo): Observable<Grupo> {
     return this.http.post<Grupo>(`${this.base}/grupos`, {
       id: g.id, asignaturaId: g.asignaturaId, nombre: g.nombre,
-      estudiantesInscritos: g.estudiantesInscritos, semestre: g.semestre,
+      estudiantesInscritos: g.estudiantesInscritos,
       programaId: g.programaId, facultadId: g.facultadId ?? null,
+      docenteId: g.docenteId ?? null,
       codigo: g.codigo ?? null, disponibilidadUiJson: g.disponibilidadUiJson ?? null
     });
   }
@@ -128,8 +111,9 @@ export class PersistenciaService {
   actualizarGrupo(g: Grupo): Observable<Grupo> {
     return this.http.put<Grupo>(`${this.base}/grupos/${g.id}`, {
       id: g.id, asignaturaId: g.asignaturaId, nombre: g.nombre,
-      estudiantesInscritos: g.estudiantesInscritos, semestre: g.semestre,
+      estudiantesInscritos: g.estudiantesInscritos,
       programaId: g.programaId, facultadId: g.facultadId ?? null,
+      docenteId: g.docenteId ?? null,
       codigo: g.codigo ?? null, disponibilidadUiJson: g.disponibilidadUiJson ?? null
     });
   }
@@ -158,14 +142,23 @@ export class PersistenciaService {
       programaId: a.programaId,
       alternancia: a.alternancia,
       categoria: a.categoria ?? null,
-      docenteId: a.docenteId ?? null,
       espacioFijoId: a.espacioFijoId ?? null
     };
     return this.http.put<any>(`${this.base}/asignaturas/${a.id}`, body);
   }
 
-  actualizarAlternancia(id: string, alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia'): Observable<void> {
-    return this.http.patch<void>(`${this.base}/asignaturas/${id}/alternancia`, { alternancia });
+  actualizarElegibilidadAlternancia(id: string, elegible: boolean): Observable<void> {
+    return this.http.patch<void>(`${this.base}/asignaturas/${id}/elegibilidad-alternancia`, { elegible });
+  }
+
+  // ── Criterios de cesión a alternancia (cesión por saturación de espacio) ────────
+
+  cargarCriteriosCesion(): Observable<CriterioCesionAlternancia[]> {
+    return this.http.get<CriterioCesionAlternancia[]>(`${this.base}/criterioscesionalternancia`);
+  }
+
+  actualizarCriterioCesion(id: string, cambios: { orden?: number; activo?: boolean }): Observable<CriterioCesionAlternancia[]> {
+    return this.http.patch<CriterioCesionAlternancia[]>(`${this.base}/criterioscesionalternancia/${id}`, cambios);
   }
 
   eliminarAsignatura(id: string): Observable<void> {
@@ -225,5 +218,5 @@ export interface ImportExcelStatsDto {
 export interface FusionDocentesResultado {
   canonicoId: string;
   docentesEliminados: number;
-  asignaturasReasignadas: number;
+  gruposReasignados: number;
 }

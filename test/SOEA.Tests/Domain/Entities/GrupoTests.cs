@@ -14,13 +14,12 @@ namespace SOEA.Tests.Domain.Entities
         public void Constructor_WithValidData_CreatesGrupo()
         {
             // Act
-            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 1, 30, TipoAlternancia.TipoA);
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30, TipoAlternancia.TipoA);
 
             // Assert
             Assert.Equal(_validId, grupo.Id);
             Assert.Equal("Grupo A", grupo.Nombre);
             Assert.Equal(_validProgramaId, grupo.ProgramaId);
-            Assert.Equal(1, grupo.Semestre);
             Assert.Equal(30, grupo.EstudiantesInscritos);
             Assert.Equal(TipoAlternancia.TipoA, grupo.Alternancia);
         }
@@ -32,21 +31,7 @@ namespace SOEA.Tests.Domain.Entities
         {
             // Act & Assert
             Assert.Throws<ArgumentException>(() =>
-                new Grupo(_validId, nombre, _validProgramaId, 1, 30));
-        }
-
-        [Theory]
-        [InlineData(0)]
-        [InlineData(-1)]
-        [InlineData(11)]
-        [InlineData(15)]
-        public void Constructor_WithInvalidSemestre_ThrowsArgumentException(int semestre)
-        {
-            // Act & Assert
-            var ex = Assert.Throws<ArgumentException>(() =>
-                new Grupo(_validId, "Grupo A", _validProgramaId, semestre, 30));
-            
-            Assert.Contains("semestre", ex.Message.ToLower());
+                new Grupo(_validId, nombre, _validProgramaId, 30));
         }
 
         [Theory]
@@ -56,8 +41,8 @@ namespace SOEA.Tests.Domain.Entities
         {
             // Act & Assert
             var ex = Assert.Throws<ArgumentException>(() =>
-                new Grupo(_validId, "Grupo A", _validProgramaId, 1, estudiantes));
-            
+                new Grupo(_validId, "Grupo A", _validProgramaId, estudiantes));
+
             Assert.Contains("estudiantes", ex.Message.ToLower());
         }
 
@@ -65,17 +50,48 @@ namespace SOEA.Tests.Domain.Entities
         public void Constructor_WithDefaultAlternancia_SetsSinAlternancia()
         {
             // Act
-            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 1, 30);
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
 
             // Assert
             Assert.Equal(TipoAlternancia.SinAlternancia, grupo.Alternancia);
         }
 
         [Fact]
+        public void Constructor_WithDocente_SetsDocenteId()
+        {
+            // Arrange
+            var docenteId = Guid.NewGuid();
+
+            // Act
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30, docenteId: docenteId);
+
+            // Assert
+            Assert.Equal(docenteId, grupo.DocenteId);
+        }
+
+        [Fact]
+        public void AsignarDocente_UpdatesDocenteId()
+        {
+            // Arrange
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
+            var docenteId = Guid.NewGuid();
+
+            // Act
+            grupo.AsignarDocente(docenteId);
+
+            // Assert
+            Assert.Equal(docenteId, grupo.DocenteId);
+
+            // Act: desasignar
+            grupo.AsignarDocente(null);
+            Assert.Null(grupo.DocenteId);
+        }
+
+        [Fact]
         public void ActualizarNombre_WithValidNombre_Updates()
         {
             // Arrange
-            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 1, 30);
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
 
             // Act
             grupo.ActualizarNombre("Grupo B");
@@ -90,7 +106,7 @@ namespace SOEA.Tests.Domain.Entities
         public void ActualizarNombre_WithInvalidNombre_ThrowsArgumentException(string nombre)
         {
             // Arrange
-            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 1, 30);
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
 
             // Act & Assert
             Assert.Throws<ArgumentException>(() => grupo.ActualizarNombre(nombre));
@@ -100,7 +116,7 @@ namespace SOEA.Tests.Domain.Entities
         public void ActualizarEstudiantes_WithValidCantidad_Updates()
         {
             // Arrange
-            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 1, 30);
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
 
             // Act
             grupo.ActualizarEstudiantes(45);
@@ -115,7 +131,7 @@ namespace SOEA.Tests.Domain.Entities
         public void ActualizarEstudiantes_WithInvalidCantidad_ThrowsArgumentException(int cantidad)
         {
             // Arrange
-            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 1, 30);
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
 
             // Act & Assert
             Assert.Throws<ArgumentException>(() => grupo.ActualizarEstudiantes(cantidad));
@@ -125,7 +141,7 @@ namespace SOEA.Tests.Domain.Entities
         public void ActualizarAlternancia_WithValidAlternancia_Updates()
         {
             // Arrange
-            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 1, 30, TipoAlternancia.TipoA);
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30, TipoAlternancia.TipoA);
 
             // Act
             grupo.ActualizarAlternancia(TipoAlternancia.TipoB);
@@ -138,8 +154,8 @@ namespace SOEA.Tests.Domain.Entities
         public void Equals_WithSameId_ReturnsTrue()
         {
             // Arrange
-            var grupo1 = new Grupo(_validId, "Grupo A", _validProgramaId, 1, 30);
-            var grupo2 = new Grupo(_validId, "Grupo B", Guid.NewGuid(), 2, 50);
+            var grupo1 = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
+            var grupo2 = new Grupo(_validId, "Grupo B", Guid.NewGuid(), 50);
 
             // Act & Assert
             Assert.Equal(grupo1, grupo2);
@@ -149,8 +165,8 @@ namespace SOEA.Tests.Domain.Entities
         public void Equals_WithDifferentId_ReturnsFalse()
         {
             // Arrange
-            var grupo1 = new Grupo(_validId, "Grupo A", _validProgramaId, 1, 30);
-            var grupo2 = new Grupo(Guid.NewGuid(), "Grupo A", _validProgramaId, 1, 30);
+            var grupo1 = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
+            var grupo2 = new Grupo(Guid.NewGuid(), "Grupo A", _validProgramaId, 30);
 
             // Act & Assert
             Assert.NotEqual(grupo1, grupo2);
@@ -160,24 +176,11 @@ namespace SOEA.Tests.Domain.Entities
         public void GetHashCode_WithSameId_ReturnsSameHashCode()
         {
             // Arrange
-            var grupo1 = new Grupo(_validId, "Grupo A", _validProgramaId, 1, 30);
-            var grupo2 = new Grupo(_validId, "Grupo B", Guid.NewGuid(), 5, 50);
+            var grupo1 = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
+            var grupo2 = new Grupo(_validId, "Grupo B", Guid.NewGuid(), 50);
 
             // Act & Assert
             Assert.Equal(grupo1.GetHashCode(), grupo2.GetHashCode());
-        }
-
-        [Theory]
-        [InlineData(1)]
-        [InlineData(5)]
-        [InlineData(10)]
-        public void Constructor_WithValidSemestre_Succeeds(int semestre)
-        {
-            // Act
-            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, semestre, 30);
-
-            // Assert
-            Assert.Equal(semestre, grupo.Semestre);
         }
     }
 }

@@ -57,7 +57,6 @@ export interface GenerarHorarioRequest {
 export interface AsignaturaApiDto {
   id: string;
   nombre: string;
-  docenteId?: string;
   sesionesTeoriaPresencialSemana: number;
   horasTeoriaPresencial: number;
   sesionesTeoriaVirtualSemana: number;
@@ -70,6 +69,8 @@ export interface AsignaturaApiDto {
   espacioFijoId?: string;
   /** Prioridad de presencialidad (SC-PRES): 'Obligatoria' | 'Optativa' | 'Electiva'. */
   categoria?: string;
+  /** Candidata a ceder a alternancia si el algoritmo agota el espacio físico (cesión por saturación de espacio). */
+  esCandidataAlternancia?: boolean;
 }
 
 export interface DocenteApiDto {
@@ -170,7 +171,6 @@ export class HorarioApiService {
       asignaturas: asignaturas.map(a => ({
         id: a.id,
         nombre: a.nombre,
-        docenteId: a.docenteId,
         sesionesTeoriaPresencialSemana: a.sesionesTeoriaPresencialSemana,
         horasTeoriaPresencial: a.horasTeoriaPresencial,
         sesionesTeoriaVirtualSemana: a.sesionesTeoriaVirtualSemana,
@@ -180,7 +180,8 @@ export class HorarioApiService {
         programaId: a.programaId,
         alternancia: a.alternancia,
         espacioFijoId: a.espacioFijoId,
-        categoria: a.categoria
+        categoria: a.categoria,
+        esCandidataAlternancia: a.esCandidataAlternancia
       })),
       docentes: docentes.map(d => ({
         id: d.id,

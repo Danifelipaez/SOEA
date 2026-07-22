@@ -24,9 +24,15 @@ namespace SOEA.Domain.Entities
         public Guid? FacultadId { get; private set; }
         /// <summary>Programa académico del grupo (heredado del modelo anterior, se conserva).</summary>
         public Guid ProgramaId { get; private set; }
+        /// <summary>
+        /// Docente que dicta la asignatura para ESTE grupo. La relación docente↔grupo (no
+        /// docente↔asignatura) es la correcta: la misma asignatura la dictan docentes distintos
+        /// en grupos distintos del mismo programa. Opcional: el docente se puede asignar después.
+        /// La pipeline de generación lo ignora (el docente se agenda tras generar).
+        /// </summary>
+        public Guid? DocenteId { get; private set; }
 
         // ── Datos académicos ─────────────────────────────────────────────────────
-        public int Semestre { get; private set; }
         public int EstudiantesInscritos { get; private set; }
         public TipoAlternancia Alternancia { get; private set; }
 
@@ -48,24 +54,24 @@ namespace SOEA.Domain.Entities
             Guid id,
             string nombre,
             Guid programaId,
-            int semestre,
             int estudiantesInscritos,
             TipoAlternancia alternancia = TipoAlternancia.SinAlternancia,
             string? codigo = null,
             Guid? asignaturaId = null,
             Guid? facultadId = null,
+            Guid? docenteId = null,
             List<FranjaHoraria>? disponibilidad = null) : base(id)
         {
-            Validar(nombre, semestre, estudiantesInscritos);
+            Validar(nombre, estudiantesInscritos);
 
             Codigo              = codigo;
             Nombre              = nombre;
             ProgramaId          = programaId;
-            Semestre            = semestre;
             EstudiantesInscritos = estudiantesInscritos;
             Alternancia         = alternancia;
             AsignaturaId        = asignaturaId;
             FacultadId          = facultadId;
+            DocenteId           = docenteId;
             Disponibilidad      = disponibilidad ?? new();
         }
 
@@ -95,12 +101,8 @@ namespace SOEA.Domain.Entities
 
         public void ActualizarPrograma(Guid programaId) => ProgramaId = programaId;
 
-        public void ActualizarSemestre(int nuevoSemestre)
-        {
-            if (nuevoSemestre < 1 || nuevoSemestre > 10)
-                throw new ArgumentException("El semestre debe estar entre 1 y 10.");
-            Semestre = nuevoSemestre;
-        }
+        /// <summary>Asigna (o desasigna con null) el docente que dicta la asignatura para este grupo.</summary>
+        public void AsignarDocente(Guid? docenteId) => DocenteId = docenteId;
 
         public void ActualizarAlternancia(TipoAlternancia nuevaAlternancia) =>
             Alternancia = nuevaAlternancia;
@@ -120,12 +122,10 @@ namespace SOEA.Domain.Entities
         }
 
         // ── Validación ────────────────────────────────────────────────────────────
-        private static void Validar(string nombre, int semestre, int estudiantesInscritos)
+        private static void Validar(string nombre, int estudiantesInscritos)
         {
             if (string.IsNullOrWhiteSpace(nombre))
                 throw new ArgumentException("El nombre del grupo no puede estar vacío.");
-            if (semestre < 1 || semestre > 10)
-                throw new ArgumentException("El semestre debe estar entre 1 y 10.");
             if (estudiantesInscritos <= 0)
                 throw new ArgumentException("La cantidad de estudiantes debe ser un valor positivo.");
         }

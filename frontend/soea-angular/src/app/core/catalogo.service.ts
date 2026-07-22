@@ -144,9 +144,9 @@ export class CatalogoService {
       alternancia: a.alternancia ?? 'SinAlternancia',
       categoria: a.categoria ?? undefined,
       programaId: a.programaId,
-      docenteId: a.docenteId ?? undefined,
       grupoNumero: a.grupoNumero ?? undefined,
-      espacioFijoId: a.espacioFijoId ?? undefined
+      espacioFijoId: a.espacioFijoId ?? undefined,
+      esCandidataAlternancia: a.esCandidataAlternancia ?? false
     };
   }
 
@@ -156,9 +156,9 @@ export class CatalogoService {
       asignaturaId: g.asignaturaId ?? '',
       nombre: g.nombre,
       estudiantesInscritos: g.estudiantesInscritos ?? 0,
-      semestre: g.semestre ?? 1,
       programaId: g.programaId ?? '',
       facultadId: g.facultadId ?? undefined,
+      docenteId: g.docenteId ?? undefined,
       codigo: g.codigo ?? undefined,
       disponibilidadUiJson: g.disponibilidadUiJson ?? undefined
     };

@@ -4,14 +4,11 @@ using SOEA.Domain.Enums;
 namespace SOEA.Domain.Entities
 {
     /// <summary>
-    /// Tipo de alternancia configurable (catálogo editable). Permite que la institución defina y
-    /// nombre sus propias lógicas de alternancia ("Química Orgánica", "Tipo A 8 semanas", etc.) y
-    /// agregue tantas como quiera, todas mapeadas sobre la base de 2 semanas (A/B) — ver
-    /// <see cref="PatronBaseAlternancia"/>. La lógica de Tipos es dinámica (prueban 8/8, 8/11,
-    /// "solo orgánica TipoA"); este catálogo la hace editable sin tocar el motor.
-    ///
-    /// El número de semanas presenciales es informativo: el motor opera sobre la abstracción A/B,
-    /// no sobre el conteo real de semanas ("basta A/B por ahora").
+    /// Catálogo fijo de los 3 patrones base de alternancia (TipoA, TipoB, SinAlternancia) — ver
+    /// <see cref="PatronBaseAlternancia"/>. Ya no es editable desde la UI (el algoritmo decide
+    /// dinámicamente qué asignaturas ceden a alternancia vía <c>CriterioCesionAlternancia</c>);
+    /// esta entidad solo sobrevive como catálogo de IDs de sistema estables, referenciados por
+    /// <see cref="Sesion.PatronAlternanciaId"/> para trazabilidad de qué patrón se aplicó.
     /// </summary>
     public class TipoAlternanciaConfig : EntidadBase
     {
@@ -48,26 +45,6 @@ namespace SOEA.Domain.Entities
             EsSistema = esSistema;
             Activo = true;
         }
-
-        public void ActualizarDatos(string nombre, PatronBaseAlternancia patronBase, int semanasPresenciales, string? color, bool activo)
-        {
-            Validar(nombre, semanasPresenciales);
-            Nombre = nombre.Trim();
-            // Los tipos de sistema no cambian su patrón base (otros componentes dependen de él);
-            // sí pueden ajustar nombre, semanas, color y estado.
-            if (!EsSistema) PatronBase = patronBase;
-            SemanasPresenciales = semanasPresenciales;
-            if (!string.IsNullOrWhiteSpace(color)) Color = color.Trim();
-            Activo = activo;
-        }
-
-        /// <summary>Mapea el patrón base al enum que entiende el motor (regla 9 / ModalidadSemanal).</summary>
-        public TipoAlternancia ResolverTipoAlternancia() => PatronBase switch
-        {
-            PatronBaseAlternancia.PresencialEnSemanaA => TipoAlternancia.TipoA,
-            PatronBaseAlternancia.PresencialEnSemanaB => TipoAlternancia.TipoB,
-            _                                         => TipoAlternancia.SinAlternancia
-        };
 
         private static void Validar(string nombre, int semanasPresenciales)
         {

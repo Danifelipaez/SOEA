@@ -47,7 +47,8 @@ namespace SOEA.Domain.Entities
 
         public TipoAlternancia Alternancia { get; private set; }
         public Guid ProgramaId { get; private set; }
-        public Guid? DocenteId { get; private set; }
+        // El docente ya NO vive en la asignatura: se movió a Grupo (la misma asignatura la dictan
+        // docentes distintos en grupos distintos). Ver Grupo.DocenteId.
 
         /// <summary>
         /// Espacio físico específico al que está asignada esta asignatura (proveniente del Excel de curriculum).
@@ -67,6 +68,13 @@ namespace SOEA.Domain.Entities
         /// </summary>
         public TimeOnly? HoraInicioMin { get; private set; }
         public TimeOnly? HoraFinMax { get; private set; }
+
+        /// <summary>
+        /// Marca la asignatura como candidata a ceder a alternancia si el algoritmo agota el espacio
+        /// físico disponible (cesión por saturación de espacio). Lo fija el departamento dueño de la
+        /// asignatura — no es automático ni depende de la categoría curricular.
+        /// </summary>
+        public bool EsCandidataAlternancia { get; private set; }
 
         /// <summary>Alias legado de <see cref="HorasTeoriaPresencial"/>. Lo lee ImportarCurriculumService
         /// sobre entidades construidas por LectorExcel (shape legado) — no usar en código nuevo.</summary>
@@ -157,11 +165,6 @@ namespace SOEA.Domain.Entities
         {
         }
 
-        public void AsignarDocente(Guid? docenteId)
-        {
-            DocenteId = docenteId;
-        }
-
         public void AsignarEspacioFijo(Guid? espacioId)
         {
             EspacioFijoId = espacioId;
@@ -191,6 +194,15 @@ namespace SOEA.Domain.Entities
         public void EstablecerAlternancia(TipoAlternancia tipo)
         {
             Alternancia = tipo;
+        }
+
+        /// <summary>
+        /// Fija si la asignatura es candidata a ceder a alternancia por saturación de espacio
+        /// (ver <see cref="EsCandidataAlternancia"/>).
+        /// </summary>
+        public void EstablecerElegibilidadAlternancia(bool elegible)
+        {
+            EsCandidataAlternancia = elegible;
         }
 
         /// <summary>

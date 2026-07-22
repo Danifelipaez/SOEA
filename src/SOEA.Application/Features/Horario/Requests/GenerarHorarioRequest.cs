@@ -112,6 +112,11 @@ namespace SOEA.Application.Features.Horario.Requests
         /// </summary>
         public string? HoraInicioMin { get; set; }
         public string? HoraFinMax    { get; set; }
+        /// <summary>
+        /// Candidata a ceder a alternancia si el algoritmo agota el espacio físico disponible
+        /// (cesión por saturación de espacio). Ver <c>Asignatura.EsCandidataAlternancia</c>.
+        /// </summary>
+        public bool EsCandidataAlternancia { get; set; }
     }
 
     public class DocenteDto

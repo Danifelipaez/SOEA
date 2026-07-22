@@ -188,8 +188,6 @@ namespace SOEA.Application.Features.Import
                 foreach (var a in resultado.Asignaturas)
                 {
                     var progRealId = programaIdMap.TryGetValue(a.ProgramaId, out var pid) ? pid : a.ProgramaId;
-                    var docenteRealId = a.DocenteId.HasValue && docenteIdMap.TryGetValue(a.DocenteId.Value, out var did)
-                        ? did : a.DocenteId;
 
                     Guid? espacioFijoRealId = null;
                     if (espacioPorAsignatura.TryGetValue(a.Id, out var espacioTempId))
@@ -213,7 +211,6 @@ namespace SOEA.Application.Features.Import
                             a.HorasPorSesion, a.SesionesPorSemana, a.SesionesLaboratorioSemestre, progRealId);
                         if (a.Alternancia != TipoAlternancia.SinAlternancia)
                             nueva.EstablecerAlternancia(a.Alternancia);
-                        nueva.AsignarDocente(docenteRealId);
                         nueva.AsignarEspacioFijo(espacioFijoRealId);
                         _uow.Track(nueva);
                         asignaturaIdMap[a.Id] = nueva.Id;
@@ -232,7 +229,6 @@ namespace SOEA.Application.Features.Import
                         existe.ActualizarDatos(a.Nombre, a.Codigo, a.HorasPorSesion,
                             a.SesionesPorSemana, a.SesionesLaboratorioSemestre, progRealId,
                             alternanciaFinal);
-                        existe.AsignarDocente(docenteRealId);
                         existe.AsignarEspacioFijo(espacioFijoRealId);
                         asignaturaIdMap[a.Id] = existe.Id;
                         stats.AsignaturasActualizadas++;
@@ -240,20 +236,32 @@ namespace SOEA.Application.Features.Import
                 }
                 await _uow.SaveAsync();
 
-                // ── Grupos ────────────────────────────────────────────────────────────
+                // ── Grupos (el grupo carga su asignatura y su docente — remapeados temp→real) ──
                 foreach (var g in resultado.Grupos)
                 {
                     var progRealId = programaIdMap.TryGetValue(g.ProgramaId, out var pid2) ? pid2 : g.ProgramaId;
+                    Guid? asigRealId = g.AsignaturaId.HasValue && asignaturaIdMap.TryGetValue(g.AsignaturaId.Value, out var garid)
+                        ? garid : g.AsignaturaId;
+                    Guid? docRealId = g.DocenteId.HasValue && docenteIdMap.TryGetValue(g.DocenteId.Value, out var gdid)
+                        ? gdid : g.DocenteId;
+
                     var existe = await _grupos.GetByNombreYProgramaAsync(g.Nombre, progRealId);
                     if (existe == null)
                     {
-                        var nuevo = new Grupo(Guid.NewGuid(), g.Nombre, progRealId, 1, 30, g.Alternancia);
+                        var nuevo = new Grupo(Guid.NewGuid(), g.Nombre, progRealId, 30, g.Alternancia,
+                            asignaturaId: asigRealId, facultadId: g.FacultadId, docenteId: docRealId);
                         _uow.Track(nuevo);
                         grupoIdMap[g.Id] = nuevo.Id;
                         stats.GruposCreados++;
                     }
                     else
                     {
+                        // Grupo existente: completar el docente si viene en el import y aún no lo tiene.
+                        if (docRealId.HasValue && !existe.DocenteId.HasValue)
+                        {
+                            existe.AsignarDocente(docRealId);
+                            await _grupos.UpdateAsync(existe);
+                        }
                         grupoIdMap[g.Id] = existe.Id;
                     }
                 }
@@ -293,8 +301,9 @@ namespace SOEA.Application.Features.Import
                 throw;
             }
 
-            // Post-transacción: estadísticas adicionales
-            stats.AsignaturasSinDocente = resultado.Asignaturas.Count(a => !a.DocenteId.HasValue);
+            // Post-transacción: estadísticas adicionales.
+            // El docente vive en el grupo: "sin docente" = grupos sin docente asignado.
+            stats.AsignaturasSinDocente = resultado.Grupos.Count(g => !g.DocenteId.HasValue);
             stats.Advertencias.AddRange(resultado.Advertencias);
 
             var todosDocentes = await _docentes.GetAllAsync();

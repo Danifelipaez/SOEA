@@ -14,8 +14,13 @@ import { AlternanciaTabComponent } from './alternancia-tab/alternancia-tab.compo
   standalone: true,
   imports: [CommonModule, MatTabsModule, EspaciosTabComponent, GrupoTabComponent, AsignaturasTabComponent, DocentesTabComponent, AlternanciaTabComponent],
   template: `
-    <div class="ingesta-container">
-      <h1 class="page-title text-primary">Catálogo del semestre</h1>
+    <div class="cat-head">
+      <span class="soea-tag">Paso 1</span>
+      <h1 class="cat-title">Catálogo del semestre</h1>
+      <span class="text-muted cat-sub">Asignaturas, docentes, espacios, grupos y alternancia en una sola vista.</span>
+    </div>
+    <div class="blueprint elev-md ingesta-container">
+      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
       <mat-tab-group>
         <mat-tab label="Asignaturas">
           <app-asignaturas-tab></app-asignaturas-tab>
@@ -36,8 +41,13 @@ import { AlternanciaTabComponent } from './alternancia-tab/alternancia-tab.compo
     </div>
   `,
   styles: [`
-    .ingesta-container { padding: 16px; background: white; border-radius: 8px; border: 1px solid #e0e0e0; }
-    .page-title { margin-bottom: 24px; font-weight: 500; font-size: 24px; }
+    .cat-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+    .soea-tag { font: 600 11px var(--font-heading); letter-spacing: .1em; text-transform: uppercase;
+      background: var(--color-accent-800); color: #fff; padding: 4px 10px; }
+    .cat-title { margin: 0; font-size: 26px; letter-spacing: .01em; }
+    .cat-sub { font-size: 13px; }
+    .ingesta-container { background: var(--color-bg); padding: 4px 22px 22px; }
+    .ingesta-container ::ng-deep .mat-mdc-tab-body-content { overflow: visible; }
   `]
 })
 export class IngestaComponent implements OnInit {

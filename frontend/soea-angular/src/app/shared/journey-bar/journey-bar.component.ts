@@ -33,29 +33,36 @@ const STEPS: JourneyStep[] = [
              [class.done]="step.done"
              [class.disabled]="step.disabled"
              [routerLink]="step.disabled ? null : step.path">
-            <span class="badge">{{ step.done ? '✓' : step.badge }}</span>
-            <span class="label">{{ step.label }}</span>
+            <span class="jbadge">{{ step.done ? '✓' : step.badge }}</span>
+            <span class="jname">{{ step.label }}</span>
           </a>
-          @if (!last) { <span class="sep">›</span> }
+          @if (!last) { <span class="jsep">›</span> }
         }
       </div>
+      <div class="ctx">2026-1 · Ing. Sistemas</div>
     </nav>
   `,
   styles: [`
-    .journey-bar { display: flex; align-items: center; gap: 24px; height: 64px; padding: 0 24px;
-      background: #fff; border-bottom: 1px solid #e0e0e0; position: fixed; top: 0; left: 0; right: 0; z-index: 1000; }
-    .brand { font-size: 21px; font-weight: 600; letter-spacing: 0.02em; color: #212121; }
+    .journey-bar { display: flex; align-items: center; gap: 24px; height: 57px; padding: 0 22px;
+      background: var(--color-bg); border-bottom: 1px solid var(--color-divider);
+      position: fixed; top: 0; left: 0; right: 0; z-index: 1000; }
+    .brand { font: 600 21px var(--font-heading); letter-spacing: 0.02em; color: var(--color-text); }
     .steps { display: flex; align-items: center; gap: 18px; }
-    .step { display: flex; align-items: center; gap: 9px; text-decoration: none; color: #757575; }
+    .step { display: flex; align-items: center; gap: 9px; text-decoration: none; }
     .step.disabled { opacity: .55; cursor: default; pointer-events: none; }
-    .badge { width: 23px; height: 23px; border-radius: 50%; display: grid; place-items: center;
-      font-size: 11px; font-weight: 600; flex: none; border: 1.5px solid #d0d0d0; color: #757575; }
-    .step.done .badge { background: #1565c0; color: #fff; border-color: #1565c0; }
-    .step.active .badge { background: #007bff; color: #fff; border-color: #007bff; }
-    .step.disabled .badge { border-style: dashed; }
-    .label { font-size: 15px; font-weight: 600; }
-    .step.active .label { color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 3px; }
-    .sep { color: #bdbdbd; font-size: 15px; }
+
+    /* badge base = paso siguiente (pendiente): borde sólido */
+    .jbadge { border: 1.5px solid var(--color-divider); color: var(--color-neutral-600); }
+    .jname  { font: 600 15px var(--font-heading); letter-spacing: 0.01em; color: var(--color-neutral-600); }
+
+    .step.done .jbadge   { background: var(--color-accent-800); color: #fff; border-color: var(--color-accent-800); }
+    .step.done .jname    { color: var(--color-text); }
+    .step.active .jbadge { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+    .step.active .jname  { color: var(--color-accent); border-bottom: 2px solid var(--color-accent); padding-bottom: 3px; }
+    .step.disabled .jbadge { border-style: dashed; border-color: var(--color-neutral-400); color: var(--color-neutral-500); }
+    .step.disabled .jname  { color: var(--color-neutral-500); }
+
+    .ctx { margin-left: auto; font-size: 13px; color: var(--color-neutral-700); }
   `]
 })
 export class JourneyBarComponent {
