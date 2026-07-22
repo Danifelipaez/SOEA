@@ -104,6 +104,12 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("codigo");
 
+                    b.Property<bool>("EsCandidataAlternancia")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("es_candidata_alternancia");
+
                     b.Property<Guid?>("EspacioFijoId")
                         .HasColumnType("uuid")
                         .HasColumnName("espacio_fijo_id");
@@ -191,6 +197,63 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_bloque_tiempo_dia");
 
                     b.ToTable("BloqueTiempos", (string)null);
+                });
+
+            modelBuilder.Entity("SOEA.Domain.Entities.CriterioCesionAlternancia", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("activo");
+
+                    b.Property<string>("Criterio")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("criterio");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("integer")
+                        .HasColumnName("orden");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CriteriosCesionAlternancia", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("c0000000-0000-0000-0000-000000000004"),
+                            Activo = true,
+                            Criterio = "MultiplesSesiones",
+                            Orden = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("c0000000-0000-0000-0000-000000000001"),
+                            Activo = true,
+                            Criterio = "Electiva",
+                            Orden = 2
+                        },
+                        new
+                        {
+                            Id = new Guid("c0000000-0000-0000-0000-000000000003"),
+                            Activo = true,
+                            Criterio = "Optativa",
+                            Orden = 3
+                        },
+                        new
+                        {
+                            Id = new Guid("c0000000-0000-0000-0000-000000000002"),
+                            Activo = true,
+                            Criterio = "Elegible",
+                            Orden = 4
+                        });
                 });
 
             modelBuilder.Entity("SOEA.Domain.Entities.Docente", b =>
@@ -473,6 +536,12 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("bloqueada");
+
+                    b.Property<bool>("CedidaPorSaturacion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("cedida_por_saturacion");
 
                     b.Property<Guid?>("DocenteId")
                         .HasColumnType("uuid")

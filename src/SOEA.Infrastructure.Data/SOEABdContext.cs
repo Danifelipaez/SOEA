@@ -17,6 +17,7 @@ namespace SOEA.Infrastructure.Data.Context
         public DbSet<Facultad>   Facultades  { get; set; }
         public DbSet<Programa>   Programas   { get; set; }
         public DbSet<TipoAlternanciaConfig> TiposAlternancia { get; set; }
+        public DbSet<CriterioCesionAlternancia> CriteriosCesionAlternancia { get; set; }
 
         public SOEABdContext(DbContextOptions<SOEABdContext> options) : base(options) { }
 
@@ -36,6 +37,7 @@ namespace SOEA.Infrastructure.Data.Context
             modelBuilder.ApplyConfiguration(new FacultadConfiguration());
             modelBuilder.ApplyConfiguration(new ProgramaConfiguration());
             modelBuilder.ApplyConfiguration(new TipoAlternanciaConfigConfiguration());
+            modelBuilder.ApplyConfiguration(new CriterioCesionAlternanciaConfiguration());
         }
     }
 }
