@@ -82,6 +82,11 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasDefaultValue(false)
                 .IsRequired();
 
+            builder.Property(s => s.CedidaPorSaturacion)
+                .HasColumnName("cedida_por_saturacion")
+                .HasDefaultValue(false)
+                .IsRequired();
+
             // Relación opcional al catálogo de alternancia (sin navegación inversa).
             // Al borrar el patrón, las sesiones quedan en presencial puro (SetNull).
             builder.HasOne<TipoAlternanciaConfig>()

@@ -83,6 +83,11 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasColumnName("hora_fin_max")
                 .IsRequired(false);
 
+            builder.Property(a => a.EsCandidataAlternancia)
+                .HasColumnName("es_candidata_alternancia")
+                .HasDefaultValue(false)
+                .IsRequired();
+
             // Alias legado de solo lectura (HorasPorSesion/SesionesPorSemana delegan a los campos
             // de teoría presencial) — no son columnas propias, EF no debe intentar mapearlos.
             builder.Ignore(a => a.HorasPorSesion);
