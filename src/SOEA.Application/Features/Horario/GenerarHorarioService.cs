@@ -21,6 +21,7 @@ namespace SOEA.Application.Features.Horario
         private readonly IHorarioRepositorio         _horarioRepo;
         private readonly ISesionRepositorio          _sesionRepo;
         private readonly IAsignacionSemanalRepositorio _asignacionRepo;
+        private readonly ICriterioCesionAlternanciaRepositorio _criterioCesionRepo;
         private readonly IUnitOfWork                 _uow;
 
         public GenerarHorarioService(
@@ -30,6 +31,7 @@ namespace SOEA.Application.Features.Horario
             IHorarioRepositorio         horarioRepo,
             ISesionRepositorio          sesionRepo,
             IAsignacionSemanalRepositorio asignacionRepo,
+            ICriterioCesionAlternanciaRepositorio criterioCesionRepo,
             IUnitOfWork                 uow)
         {
             _fase1       = fase1;
@@ -38,6 +40,7 @@ namespace SOEA.Application.Features.Horario
             _horarioRepo = horarioRepo;
             _sesionRepo  = sesionRepo;
             _asignacionRepo = asignacionRepo;
+            _criterioCesionRepo = criterioCesionRepo;
             _uow         = uow;
         }
 
@@ -53,21 +56,24 @@ namespace SOEA.Application.Features.Horario
             var bloques   = GenerarBloquesTiempo();
             var docentes  = MapearDocentes(request.Docentes, bloques);
 
-            // CR-08: cohorte implícita — todas las materias de este run pertenecen al mismo grupo
-            // de estudiantes y deben serializarse (un grupo no puede estar en dos sesiones a la vez).
-            // "Un run = un grupo": si el request trae un grupo, usamos SU Id como cohorteId para que
-            // sus sesiones crucen con la disponibilidad declarada (HC-G01). Sin grupo → id sintético
-            // (comportamiento previo: serialización de cohorte sin restricción de franja).
-            var cohorteId = request.Grupos
+            // "Un run = un grupo": todas las sesiones de este run son mutuamente excluyentes en el
+            // tiempo (un grupo no puede estar en dos sesiones a la vez). Si el request trae un grupo,
+            // usamos SU Id como GrupoId para que sus sesiones crucen con la disponibilidad declarada
+            // (HC-G01). Sin grupo → id sintético (mismo efecto de exclusión mutua, sin franja).
+            var grupoIdRun = request.Grupos
                 .Select(g => Guid.TryParse(g.Id, out var gid) ? gid : (Guid?)null)
                 .FirstOrDefault(g => g.HasValue) ?? Guid.NewGuid();
 
-            // SC-PRES: mapa de categoria por asignatura para priorizar asignación presencial.
-            // Obligatoria > Optativa > Electiva (se virtualiza en orden inverso si hay saturación).
+            // SC-PRES: mapa de categoría por asignatura (alimenta el criterio "Electiva" de la lista
+            // de cesión) y de elegibilidad explícita (criterio "Elegible", marcado por el departamento).
             var categoriaPorAsig = request.Asignaturas
                 .ToDictionary(
                     dto => Guid.TryParse(dto.Id, out var aid) ? aid : Guid.Empty,
                     dto => ParseCategoria(dto.Categoria));
+            var elegiblePorAsig = request.Asignaturas
+                .ToDictionary(
+                    dto => Guid.TryParse(dto.Id, out var aid) ? aid : Guid.Empty,
+                    dto => dto.EsCandidataAlternancia);
 
             // HC-VH: ventana horaria por asignatura (la fija Secretaría Académica). Se pasa a CP-SAT
             // como hard constraint — ninguna sesión se asigna fuera de [HoraInicioMin, HoraFinMax].
@@ -76,7 +82,7 @@ namespace SOEA.Application.Features.Horario
                     dto => Guid.TryParse(dto.Id, out var aid) ? aid : Guid.Empty,
                     dto => (ParseHora(dto.HoraInicioMin), ParseHora(dto.HoraFinMax)));
 
-            var sesiones = MapearSesionesIniciales(request.Asignaturas, cohorteId);
+            var sesiones = MapearSesionesIniciales(request.Asignaturas, grupoIdRun);
             logs.Add($"[INFO] Sesiones creadas a partir de asignaturas: {sesiones.Count}.");
 
             // ── 1b. Sesiones fijas (horario base) — se añaden con bloque pre-asignado ──
@@ -84,7 +90,7 @@ namespace SOEA.Application.Features.Horario
             int sesionesFijasOmitidas = 0;
             if (request.SesionesFijas is { Count: > 0 })
             {
-                var (fijas, omitidas) = MapearSesionesFijas(request.SesionesFijas, bloques, cohorteId);
+                var (fijas, omitidas) = MapearSesionesFijas(request.SesionesFijas, bloques, grupoIdRun);
                 sesionesFijasIds = fijas.Select(s => s.Id).ToHashSet();
                 sesionesFijasOmitidas = omitidas.Count;
                 sesiones.AddRange(fijas);
@@ -93,16 +99,44 @@ namespace SOEA.Application.Features.Horario
                     logs.Add($"[WARN] Sesión fija omitida: {motivo}");
             }
 
-            // ── 1c. SC-PRES: presencial-first — virtualizar por prioridad si hay saturación ──
-            // Si la demanda presencial supera la capacidad estimada, se virtualizan sesiones
-            // en orden: Electiva → Optativa → Obligatoria (nunca se toca lo que el usuario
-            // marcó como virtual desde el principio).
-            int downgradeados = AplicarPrioridadPresencial(sesiones, espacios, categoriaPorAsig);
-            if (downgradeados > 0)
-                logs.Add($"[INFO] SC-PRES: {downgradeados} sesión(es) cedieron presencialidad por saturación de espacios. " +
-                         "Prioridad de cesión — nivel 1: 2ª sesión de materias con 2 sesiones/sem antes que materias " +
-                         "de sesión única; nivel 2: Electiva → Optativa → Obligatoria. Se alterna (\"Tipo C\" dinámico: " +
-                         "presencial 1 semana) antes de virtualizar por completo.");
+            // Lista ordenada/activable de criterios de cesión (MultiplesSesiones / Electiva / Optativa /
+            // Elegible). Consultada por Etapa 1 (teoría, heurística) y Etapa 2 (labs, reactiva) — un
+            // mismo predicado por criterio activo, en el orden configurado. Una sesión sin ningún
+            // criterio activo que la alcance nunca es candidata a cesión (no hay regla implícita por
+            // categoría). "MultiplesSesiones" es la excepción: no otorga elegibilidad por sí solo, solo
+            // desempata el orden entre sesiones ya elegibles por otro criterio (ver AplicarPrioridadPresencial).
+            var criteriosActivos = (await _criterioCesionRepo.GetAllAsync())
+                .Where(c => c.Activo)
+                .OrderBy(c => c.Orden)
+                .ToList();
+            var totalSesionesPorAsig = sesiones
+                .GroupBy(s => s.AsignaturaId)
+                .ToDictionary(g => g.Key, g => g.Count());
+            var predicadosCesion = criteriosActivos
+                .Select(c => (c.Criterio, Predicado: (Func<Sesion, bool>)(s => c.Criterio switch
+                {
+                    CriterioElegibilidadAlternancia.Electiva =>
+                        categoriaPorAsig.TryGetValue(s.AsignaturaId, out var catE) && catE == CategoriaAsignatura.Electiva,
+                    CriterioElegibilidadAlternancia.Optativa =>
+                        categoriaPorAsig.TryGetValue(s.AsignaturaId, out var catO) && catO == CategoriaAsignatura.Optativa,
+                    CriterioElegibilidadAlternancia.Elegible =>
+                        elegiblePorAsig.TryGetValue(s.AsignaturaId, out var eleg) && eleg,
+                    CriterioElegibilidadAlternancia.MultiplesSesiones =>
+                        totalSesionesPorAsig.TryGetValue(s.AsignaturaId, out var n) && n >= 2,
+                    _ => false
+                })))
+                .ToList();
+
+            // ── 1c. Etapa 1 (teoría, heurística) — presencial-first: ceder por prioridad si hay
+            // saturación estimada. Candidatas: sesiones de teoría que matchean algún criterio activo
+            // de elegibilidad (Electiva / Optativa / Elegible), nunca lo que el usuario marcó virtual
+            // desde el principio. Se acumulan en sesionesCedidasEnOrden para el pase de reversión
+            // post-Fase 3.
+            var sesionesCedidasEnOrden = AplicarPrioridadPresencial(sesiones, espacios, predicadosCesion);
+            if (sesionesCedidasEnOrden.Count > 0)
+                logs.Add($"[INFO] Etapa 1: {sesionesCedidasEnOrden.Count} sesión(es) cedieron presencialidad por saturación de espacios. " +
+                         $"Orden de cesión — criterios activos en orden configurado: {string.Join(" → ", criteriosActivos.Select(c => c.Criterio))}. " +
+                         "Se alterna (\"Tipo C\" dinámico: presencial 1 semana) antes de virtualizar por completo.");
 
             // ── 2. Fase 1 — Coloración de Grafo (pre-asignación de bloques) ────
             // HC-G01/HC-VH: se pasan grupos y ventanas para que el warm-start caiga siempre dentro
@@ -127,6 +161,27 @@ namespace SOEA.Application.Features.Horario
                 sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null,
                 ventanaPorAsignatura: ventanaPorAsig,
                 ct);
+
+            // ── Etapa 2 (labs, reactiva) — presencial-first: si Fase 2 es infactible por espacio
+            // REAL (no la heurística de Etapa 1), cede candidatos de laboratorio uno a uno (misma
+            // lista de criterios activos) y reintenta Fase 1/2, hasta agotar candidatos o lograr
+            // factibilidad. Si la infactibilidad no es por espacio (ventana horaria, franja de
+            // grupo, datos), ceder no ayuda — no entra al loop.
+            while (!resultadoFactibilidad.EsFactible
+                   && resultadoFactibilidad.Motivo == MotivoInfactibilidad.Espacio
+                   && CederSiguienteCandidatoLab(sesiones, predicadosCesion, sesionesFijasIds, sesionesCedidasEnOrden))
+            {
+                sesionesColoreadas = (await _fase1.AsignarBloquesDeTiempoAsync(
+                    sesiones, bloques, grupos, ventanaPorAsig, ct)).ToList();
+                resultadoFactibilidad = await _fase2.ResolverFactibilidadAsync(
+                    sesionesColoreadas, bloques, espacios, docentes,
+                    grupos: grupos,
+                    sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null,
+                    ventanaPorAsignatura: ventanaPorAsig,
+                    ct);
+                logs.Add($"[INFO] Etapa 2: cedida sesión de laboratorio adicional por saturación de espacio real; " +
+                         $"reintentando Fase 1/2 ({sesionesCedidasEnOrden.Count} sesión(es) cedidas en total).");
+            }
             swFase2.Stop();
 
             if (!resultadoFactibilidad.EsFactible)
@@ -167,10 +222,14 @@ namespace SOEA.Application.Features.Horario
                 infoAsignatura: infoAsignatura,
                 ventanaPorAsignatura: ventanaPorAsig,   // HC-VH: el GA no puede sacar sesiones de su ventana
                 sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null, // regla 8: el GA no mueve el horario base
+                sesionesCedidasParaRevertir: sesionesCedidasEnOrden.Count > 0 ? sesionesCedidasEnOrden : null,
                 ct: ct);
             swFase3.Stop();
             logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness={resultadoGA.PuntajeFitness}, " +
                      $"generaciones={resultadoGA.Generaciones}, fallback={resultadoGA.UsoFallback}.");
+            if (resultadoGA.SesionesRevertidasIds is { Count: > 0 })
+                logs.Add($"[INFO] Pase de reversión: {resultadoGA.SesionesRevertidasIds.Count} sesión(es) recuperadas a " +
+                         "presencial tras validar el empaque real de aulas del GA.");
 
             var asignaciones   = resultadoGA.AsignacionesOptimizadas;
             var puntajeFitness = resultadoGA.PuntajeFitness;
@@ -304,7 +363,7 @@ namespace SOEA.Application.Features.Horario
         private static (List<Sesion> fijas, List<string> omitidas) MapearSesionesFijas(
             List<SesionFijaDto> dtos,
             List<BloqueTiempo> bloques,
-            Guid cohorteId)
+            Guid grupoIdRun)
         {
             // Índice rápido: (dia, horaInicio) → BloqueTiempo
             var bloqueDict = bloques.ToDictionary(
@@ -337,7 +396,7 @@ namespace SOEA.Application.Features.Horario
                     docenteId: null,
                     bloqueId: bloque.Id,
                     espacioId: espId,
-                    grupoId: cohorteId,
+                    grupoId: grupoIdRun,
                     alternancia: alternancia,
                     modalidad: dto.Virtual ? Modalidad.Virtual : Modalidad.Presencial,
                     duracionHoras: dto.DuracionHoras > 0 ? dto.DuracionHoras : 2m,
@@ -476,7 +535,7 @@ namespace SOEA.Application.Features.Horario
 
         private static List<Sesion> MapearSesionesIniciales(
             List<AsignaturaDto> asignaturasDtos,
-            Guid cohorteId)
+            Guid grupoIdRun)
         {
             var sesiones = new List<Sesion>();
             // Bloque placeholder — Fase 1 lo reemplazará
@@ -516,7 +575,7 @@ namespace SOEA.Application.Features.Horario
                             bloqueId: bloqueTemp,
                             // Teoría virtual nunca tiene espacio (regla 9 CLAUDE.md): es sincrónica online.
                             espacioId: modalidad == Modalidad.Virtual ? null : espacioFijo,
-                            grupoId: cohorteId,
+                            grupoId: grupoIdRun,
                             alternancia: alternancia,
                             modalidad: modalidad,
                             duracionHoras: duracionHoras,
@@ -674,19 +733,21 @@ namespace SOEA.Application.Features.Horario
             };
 
         /// <summary>
-        /// SC-PRES: cuando la demanda presencial supera la capacidad estimada de espacios,
-        /// virtualiza sesiones en orden de menor a mayor prioridad:
-        ///   Electiva → Optativa → Obligatoria
-        /// Solo actúa sobre sesiones que el usuario NO marcó como virtuales desde el principio
-        /// (EsVirtual=true en el DTO). Retorna cuántas sesiones fueron convertidas.
+        /// Etapa 1 (teoría, heurística pre-Fase 1): cuando la demanda presencial supera la
+        /// capacidad estimada de espacios, cede sesiones candidatas — aquellas que matchean AL MENOS
+        /// UN criterio activo de <paramref name="predicadosCesion"/>, en el orden de esa lista.
+        /// Una sesión que no matchea ningún criterio activo NUNCA es candidata (no hay regla
+        /// implícita por categoría). Nunca toca lo que el usuario marcó virtual desde el principio.
+        /// Devuelve los IDs de las sesiones cedidas, EN ORDEN de cesión.
         /// </summary>
         // internal (no private) para verificación directa de la prioridad de cesión en SOEA.Tests.
-        internal static int AplicarPrioridadPresencial(
+        internal static List<Guid> AplicarPrioridadPresencial(
             List<Sesion> sesiones,
             List<Espacio> espacios,
-            Dictionary<Guid, CategoriaAsignatura> categoriaPorAsig)
+            IReadOnlyList<(CriterioElegibilidadAlternancia Criterio, Func<Sesion, bool> Predicado)> criterios)
         {
-            if (espacios.Count == 0) return 0; // sin espacios → todas son virtuales por naturaleza
+            var cedidasIds = new List<Guid>();
+            if (espacios.Count == 0 || criterios.Count == 0) return cedidasIds;
 
             // Capacidad máxima estimada: nro_espacios × días × horas_útiles. Heurística de pre-pase;
             // el gate duro real es CP-SAT (HC-CAP / demanda-vs-capacidad por semana).
@@ -695,33 +756,33 @@ namespace SOEA.Application.Features.Horario
 
             int demandaHoras = sesiones.Where(s => s.Modalidad == Modalidad.Presencial).Sum(Horas);
             int excesohoras  = demandaHoras - capacidadMaxEstimada;
-            if (excesohoras <= 0) return 0; // sin saturación → no tocar nada
+            if (excesohoras <= 0) return cedidasIds; // sin saturación → no tocar nada
 
-            // Sesiones por asignatura (cohorte implícita = 1 grupo/run ⇒ = sesiones/semana).
+            // Sesiones por asignatura (un run = un grupo ⇒ = sesiones/semana).
             var totalPorAsig = sesiones
                 .GroupBy(s => s.AsignaturaId)
                 .ToDictionary(g => g.Key, g => g.Count());
 
-            // Nivel 2 (desempate por categoría): Electiva cede primero, Obligatoria última.
-            int CategoriaRank(Sesion s) =>
-                categoriaPorAsig.TryGetValue(s.AsignaturaId, out var cat)
-                    ? cat switch
-                    {
-                        CategoriaAsignatura.Electiva => 0,
-                        CategoriaAsignatura.Optativa => 1,
-                        _                            => 2
-                    }
-                    : 2;
+            // MultiplesSesiones no otorga elegibilidad por sí solo (evita que CUALQUIER asignatura con
+            // 2+ sesiones se vuelva candidata) — solo desempata el orden entre quienes ya matchean un
+            // criterio de elegibilidad real (Electiva/Optativa/Elegible).
+            var criteriosElegibilidad = criterios
+                .Where(c => c.Criterio != CriterioElegibilidadAlternancia.MultiplesSesiones)
+                .ToList();
+            bool EsCandidata(Sesion s) => criteriosElegibilidad.Any(c => c.Predicado(s));
 
-            // Nivel 1 (estructural): asignatura con ≥2 sesiones cede primero (0); con 1 sesión, último (1).
-            int EstructuralRank(Sesion s) =>
-                totalPorAsig.TryGetValue(s.AsignaturaId, out var n) && n >= 2 ? 0 : 1;
+            // El primer criterio activo (en el orden configurado) que matchea gana — cede primero.
+            // "MultiplesSesiones" participa aquí como desempate (si está activo y en primer lugar,
+            // reproduce la prioridad estructural: 2+ sesiones antes que sesión única).
+            int CriterioRank(Sesion s)
+            {
+                for (int i = 0; i < criterios.Count; i++)
+                    if (criterios[i].Predicado(s)) return i;
+                return int.MaxValue;
+            }
 
-            // Orden de cesión: estructural y luego categoría (ascendente ⇒ cede primero).
-            List<Sesion> OrdenarCesion(IEnumerable<Sesion> ss) =>
-                ss.OrderBy(EstructuralRank).ThenBy(CategoriaRank).ToList();
+            List<Sesion> OrdenarCesion(IEnumerable<Sesion> ss) => ss.OrderBy(CriterioRank).ToList();
 
-            int cedidas = 0;
             var tiposAB = new[] { TipoAlternancia.TipoA, TipoAlternancia.TipoB };
             var patronDeTipo = new Dictionary<TipoAlternancia, Guid>
             {
@@ -732,44 +793,83 @@ namespace SOEA.Application.Features.Horario
             // ── Pase 1 — "Tipo C" dinámico: alternar (presencial 1 semana) en vez de virtualizar.
             // Solo asignaturas con ≥2 sesiones y conservando SIEMPRE ≥1 sesión presencial pura por
             // asignatura. Respeta Bloqueada. Alterna A/B en zigzag para repartir la huella entre semanas.
-            // Excluye TipoFlujo.Laboratorio: un laboratorio no tiene contraparte virtual con sentido
-            // pedagógico (decisión del desglose por tipo — solo teoría cede presencialidad).
+            // Excluye TipoFlujo.Laboratorio: la Etapa 2 (reactiva) se encarga de los labs.
             var presencialesPurasPorAsig = new Dictionary<Guid, int>(totalPorAsig);
             int ab = 0;
             foreach (var s in OrdenarCesion(sesiones.Where(s =>
                          s.Modalidad == Modalidad.Presencial &&
                          s.TipoFlujo != TipoFlujo.Laboratorio &&
                          s.Alternancia == TipoAlternancia.SinAlternancia &&
-                         !s.Bloqueada)))
+                         !s.Bloqueada &&
+                         EsCandidata(s))))
             {
                 if (excesohoras <= 0) break;
                 if (!totalPorAsig.TryGetValue(s.AsignaturaId, out var n) || n < 2) continue; // single → pase 2
                 if (presencialesPurasPorAsig[s.AsignaturaId] <= 1) continue;                  // conserva ≥1 presencial
 
                 var tipo = tiposAB[ab++ % 2];
-                s.AplicarAlternancia(tipo, patronDeTipo[tipo]);
+                s.AplicarAlternancia(tipo, patronDeTipo[tipo], cedidaPorSaturacion: true);
                 presencialesPurasPorAsig[s.AsignaturaId]--;
                 excesohoras -= (Horas(s) + 1) / 2; // alterna ⇒ ~la mitad de huella presencial (heurística)
-                cedidas++;
+                cedidasIds.Add(s.Id);
             }
 
             // ── Pase 2 — último recurso: virtualización total, mismo orden de prioridad.
             // Aquí sí pueden caer las sesiones únicas (single-session), solo si alternar no bastó.
-            // Excluye Laboratorio por la misma razón que el Pase 1: bajo saturación extrema, la
-            // generación puede reportar infactibilidad en vez de virtualizar un lab (preferible a
-            // un lab con modalidad contradictoria).
+            // Excluye Laboratorio por la misma razón que el Pase 1.
             foreach (var s in OrdenarCesion(sesiones.Where(s =>
                          s.Modalidad == Modalidad.Presencial &&
                          s.TipoFlujo != TipoFlujo.Laboratorio &&
-                         !s.Bloqueada)))
+                         !s.Bloqueada &&
+                         EsCandidata(s))))
             {
                 if (excesohoras <= 0) break;
-                s.VirtualizarSesion();
+                s.VirtualizarSesion(cedidaPorSaturacion: true);
                 excesohoras -= Horas(s);
-                cedidas++;
+                cedidasIds.Add(s.Id);
             }
 
-            return cedidas;
+            return cedidasIds;
+        }
+
+        /// <summary>
+        /// Etapa 2 (labs, reactiva): cede UNA sesión de laboratorio candidata cuando Fase 2 reporta
+        /// infactibilidad real de espacio. Candidata: presencial, sin alternancia, no bloqueada, no
+        /// fija, y que matchea AL MENOS UN criterio de elegibilidad activo (Electiva/Optativa/Elegible
+        /// — mismo orden que Etapa 1, se prueba el primer criterio de la lista completo antes de pasar
+        /// al siguiente; MultiplesSesiones se ignora aquí, no otorga elegibilidad). Alterna TipoA/TipoB
+        /// en zigzag entre las sesiones de laboratorio ya cedidas. Devuelve false si no quedan candidatas.
+        /// </summary>
+        private static bool CederSiguienteCandidatoLab(
+            List<Sesion> sesiones,
+            IReadOnlyList<(CriterioElegibilidadAlternancia Criterio, Func<Sesion, bool> Predicado)> criterios,
+            HashSet<Guid> sesionesFijasIds,
+            List<Guid> sesionesCedidasEnOrden)
+        {
+            var candidatos = sesiones.Where(s =>
+                s.TipoFlujo == TipoFlujo.Laboratorio &&
+                s.Modalidad == Modalidad.Presencial &&
+                s.Alternancia == TipoAlternancia.SinAlternancia &&
+                !s.Bloqueada &&
+                !sesionesFijasIds.Contains(s.Id)).ToList();
+            if (candidatos.Count == 0) return false;
+
+            // MultiplesSesiones no otorga elegibilidad — ver AplicarPrioridadPresencial.
+            foreach (var (criterio, predicado) in criterios)
+            {
+                if (criterio == CriterioElegibilidadAlternancia.MultiplesSesiones) continue;
+                var candidato = candidatos.FirstOrDefault(predicado);
+                if (candidato is null) continue;
+
+                int labsCedidos = sesiones.Count(s => s.TipoFlujo == TipoFlujo.Laboratorio && s.CedidaPorSaturacion);
+                var tipo = labsCedidos % 2 == 0 ? TipoAlternancia.TipoA : TipoAlternancia.TipoB;
+                var patron = tipo == TipoAlternancia.TipoA ? TipoAlternanciaConfig.IdTipoA : TipoAlternanciaConfig.IdTipoB;
+
+                candidato.AplicarAlternancia(tipo, patron, cedidaPorSaturacion: true);
+                sesionesCedidasEnOrden.Add(candidato.Id);
+                return true;
+            }
+            return false;
         }
     }
 }
