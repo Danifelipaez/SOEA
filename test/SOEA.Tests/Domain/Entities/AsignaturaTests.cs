@@ -186,6 +186,19 @@ namespace SOEA.Tests.Domain.Entities
         }
 
         [Fact]
+        public void EsCandidataAlternancia_DefaultFalse_YEstablecerElegibilidadActualiza()
+        {
+            var asignatura = CrearValida();
+            Assert.False(asignatura.EsCandidataAlternancia);
+
+            asignatura.EstablecerElegibilidadAlternancia(true);
+            Assert.True(asignatura.EsCandidataAlternancia);
+
+            asignatura.EstablecerElegibilidadAlternancia(false);
+            Assert.False(asignatura.EsCandidataAlternancia);
+        }
+
+        [Fact]
         public void ActualizarDatos_SinCategoria_ConservaLaActual()
         {
             // Arrange — llama al ActualizarDatos legado (6 args posicionales)

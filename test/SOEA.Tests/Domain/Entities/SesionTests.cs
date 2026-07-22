@@ -302,6 +302,85 @@ namespace SOEA.Tests.Domain.Entities
             Assert.Throws<ArgumentException>(() => sesion.AsignarDocente(Guid.Empty));
         }
 
+        // ── CedidaPorSaturacion / RevertirCesion (fallback presencial-first) ────────
+
+        private Sesion CrearSesionPresencialPura() => new(
+            _validId, _validAsignaturaId, null, _validBloqueId,
+            null, null, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false);
+
+        [Fact]
+        public void AplicarAlternancia_CedidaPorSaturacionTrue_MarcaElFlag()
+        {
+            var sesion = CrearSesionPresencialPura();
+            var patronId = Guid.NewGuid();
+
+            sesion.AplicarAlternancia(TipoAlternancia.TipoA, patronId, cedidaPorSaturacion: true);
+
+            Assert.True(sesion.CedidaPorSaturacion);
+            Assert.Equal(TipoAlternancia.TipoA, sesion.Alternancia);
+        }
+
+        [Fact]
+        public void AplicarAlternancia_SinCedidaPorSaturacion_DefaultFalse()
+        {
+            var sesion = CrearSesionPresencialPura();
+
+            sesion.AplicarAlternancia(TipoAlternancia.TipoA);
+
+            Assert.False(sesion.CedidaPorSaturacion);
+        }
+
+        [Fact]
+        public void VirtualizarSesion_CedidaPorSaturacionTrue_MarcaElFlag()
+        {
+            var sesion = CrearSesionPresencialPura();
+
+            sesion.VirtualizarSesion(cedidaPorSaturacion: true);
+
+            Assert.True(sesion.CedidaPorSaturacion);
+            Assert.Equal(Modalidad.Virtual, sesion.Modalidad);
+        }
+
+        [Fact]
+        public void RevertirCesion_SesionCedida_VuelveAPresencialPuroYLimpiaFlag()
+        {
+            var sesion = CrearSesionPresencialPura();
+            sesion.AplicarAlternancia(TipoAlternancia.TipoA, Guid.NewGuid(), cedidaPorSaturacion: true);
+
+            var revirtio = sesion.RevertirCesion();
+
+            Assert.True(revirtio);
+            Assert.False(sesion.CedidaPorSaturacion);
+            Assert.Equal(TipoAlternancia.SinAlternancia, sesion.Alternancia);
+            Assert.Equal(Modalidad.Presencial, sesion.Modalidad);
+            Assert.Null(sesion.PatronAlternanciaId);
+        }
+
+        [Fact]
+        public void RevertirCesion_SesionNoCedida_EsNoOp()
+        {
+            var sesion = CrearSesionPresencialPura();
+            // Alternancia fijada manualmente por el usuario (no por saturación).
+            sesion.AplicarAlternancia(TipoAlternancia.TipoA, cedidaPorSaturacion: false);
+
+            var revirtio = sesion.RevertirCesion();
+
+            Assert.False(revirtio);
+            Assert.Equal(TipoAlternancia.TipoA, sesion.Alternancia); // intacta
+        }
+
+        [Fact]
+        public void RevertirCesion_SesionBloqueada_EsNoOp()
+        {
+            var sesion = new Sesion(
+                _validId, _validAsignaturaId, null, _validBloqueId,
+                null, null, TipoAlternancia.TipoA, Modalidad.Presencial, 2m, false, false,
+                bloqueada: true);
+            // Bloqueada ⇒ AplicarAlternancia ya es no-op y CedidaPorSaturacion nunca se marca,
+            // pero RevertirCesion debe seguir siendo no-op explícitamente por el guard de Bloqueada.
+            Assert.False(sesion.RevertirCesion());
+        }
+
         [Fact]
         public void Equals_WithSameId_ReturnsTrue()
         {

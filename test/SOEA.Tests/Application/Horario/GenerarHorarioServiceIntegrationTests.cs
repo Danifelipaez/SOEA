@@ -66,6 +66,24 @@ namespace SOEA.Tests.Application.Horario
             }
         }
 
+        /// <summary>Repo fake con los 4 criterios de sistema (MultiplesSesiones orden 1, Electiva orden 2,
+        /// Optativa orden 3, Elegible orden 4, todos activos) — mismo estado que deja el seed real de la migración.</summary>
+        private sealed class FakeCriterioCesionRepo : ICriterioCesionAlternanciaRepositorio
+        {
+            public readonly List<CriterioCesionAlternancia> Items = new()
+            {
+                new(CriterioCesionAlternancia.IdMultiplesSesiones, CriterioElegibilidadAlternancia.MultiplesSesiones, 1),
+                new(CriterioCesionAlternancia.IdElectiva, CriterioElegibilidadAlternancia.Electiva, 2),
+                new(CriterioCesionAlternancia.IdOptativa, CriterioElegibilidadAlternancia.Optativa, 3),
+                new(CriterioCesionAlternancia.IdElegible, CriterioElegibilidadAlternancia.Elegible, 4)
+            };
+            public Task AddAsync(CriterioCesionAlternancia entity) { Items.Add(entity); return Task.CompletedTask; }
+            public Task<CriterioCesionAlternancia?> GetByIdAsync(Guid id) => Task.FromResult(Items.FirstOrDefault(c => c.Id == id));
+            public Task<List<CriterioCesionAlternancia>> GetAllAsync() => Task.FromResult(Items.ToList());
+            public Task UpdateAsync(CriterioCesionAlternancia entity) => Task.CompletedTask;
+            public Task DeleteAsync(Guid id) { Items.RemoveAll(c => c.Id == id); return Task.CompletedTask; }
+        }
+
         private sealed class FakeUow : IUnitOfWork
         {
             public int Commits, Rollbacks;
@@ -93,6 +111,7 @@ namespace SOEA.Tests.Application.Horario
                 IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,
                 IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
                 IReadOnlySet<Guid>? sesionesFijasIds = null,
+                IReadOnlyList<Guid>? sesionesCedidasParaRevertir = null,
                 CancellationToken ct = default)
             {
                 var bloque0 = bloques.First();
@@ -121,7 +140,7 @@ namespace SOEA.Tests.Application.Horario
                 new ConstructorGrafoConflictos(), NullLogger<AgendadorColoracionGrafo>.Instance);
             var fase2 = new MotorConstraintProgramming(NullLogger<MotorConstraintProgramming>.Instance, cpSatOptions);
             fase3 ??= new MotorGenetico(NullLogger<MotorGenetico>.Instance);
-            return new GenerarHorarioService(fase1, fase2, fase3, horarioRepo, sesionRepo, asigRepo, uow);
+            return new GenerarHorarioService(fase1, fase2, fase3, horarioRepo, sesionRepo, asigRepo, new FakeCriterioCesionRepo(), uow);
         }
 
         private static readonly Guid GrupoId = Guid.NewGuid();

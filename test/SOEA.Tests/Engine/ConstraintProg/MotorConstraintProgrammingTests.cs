@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
+using SOEA.Domain.Interfaces;
 using SOEA.Engine.ConstraintProg;
 
 namespace SOEA.Tests.Engine.ConstraintProg
@@ -76,6 +77,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 sesiones, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>());
 
             Assert.False(resultado.EsFactible);
+            Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
         }
 
         // HC-I02 + HC-I03: docente with sufficient blocks and 1 session must yield a feasible assignment
@@ -105,6 +107,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 sesiones, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>());
 
             Assert.False(resultado.EsFactible);
+            Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
         }
 
         // Sesión de 2h en una grilla de un solo bloque → infactible por estructura: no hay dos
@@ -121,6 +124,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 new[] { sesion }, bloques, Enumerable.Empty<Espacio>(), new[] { docente });
 
             Assert.False(resultado.EsFactible);
+            Assert.Equal(MotivoInfactibilidad.Otro, resultado.Motivo);
         }
 
         // Dos sesiones de la misma cohorte con duraciones distintas no pueden solapar
@@ -269,6 +273,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
 
             Assert.False(resultado.EsFactible);
             Assert.Contains("HC-CAP", resultado.MensajeError);
+            Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
         }
 
         // Con un espacio de aforo 50 para el mismo grupo de 40 → factible.
@@ -337,6 +342,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
 
             Assert.False(resultado.EsFactible);
             Assert.Contains("HC-VH", resultado.MensajeError);
+            Assert.Equal(MotivoInfactibilidad.VentanaHoraria, resultado.Motivo);
         }
     }
 }
