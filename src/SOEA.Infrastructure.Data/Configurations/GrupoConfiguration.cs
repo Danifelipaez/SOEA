@@ -53,16 +53,16 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasConversion<string>()
                 .IsRequired();
 
-            // Disponibilidad como JSON (misma estrategia que Docente)
-            builder.Property(g => g.Disponibilidad)
-                .HasColumnName("disponibilidad")
-                .HasConversion(
-                    v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => System.Text.Json.JsonSerializer.Deserialize<List<FranjaHoraria>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new())
-                .IsRequired(false);
-
             builder.Property(g => g.DisponibilidadUiJson)
                 .HasColumnName("disponibilidad_ui_json")
+                .IsRequired(false);
+
+            // Requisitos de espacio por tipo de sesión, como JSON (misma estrategia que Disponibilidad).
+            builder.Property(g => g.RequisitosEspacio)
+                .HasColumnName("requisitos_espacio")
+                .HasConversion(
+                    v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => System.Text.Json.JsonSerializer.Deserialize<List<SOEA.Domain.ValueObjects.RequisitoEspacio>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new())
                 .IsRequired(false);
 
             // Índices
