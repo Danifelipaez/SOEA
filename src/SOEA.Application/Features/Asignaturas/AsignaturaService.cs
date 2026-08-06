@@ -61,7 +61,6 @@ public class AsignaturaService
             programaId: request.ProgramaId,
             alternanciaExplicita: request.Alternancia,
             categoria: request.Categoria);
-        asignatura.AsignarEspacioFijo(request.EspacioFijoId);
 
         await _repository.UpdateAsync(asignatura);
         return AsignaturaResponse.FromEntity(asignatura);
