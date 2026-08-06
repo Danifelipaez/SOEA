@@ -1,0 +1,39 @@
+    1. Unir la vista de grupos a la vista de asignaturas de forma que los grupos sean desplegables de cada asignarura a la que pertenecen:
+
+    "Nombre asignatura"  "codigo"   "Sesiones semanales"  "Programa"   "cantidad de grupos"          editar eliminar
+        "nombre grupo"   "espacio"  "dia"  "Hora" "Docente" "num estudiantes" "disponibilidad"       editar eliminar
+        "nombre grupo"   "espacio"  "dia"  "Hora" "Docente" "num estudiantes" "disponibilidad"       editar eliminar
+        "nombre grupo"   "espacio"  "dia"  "Hora" "Docente" "num estudiantes" "disponibilidad"       editar eliminar
+
+
+    2. Unificar proceso de creación de asignatura y grupo de la siguiente forma:
+    Si se va a crear una asignatura debajo de la toma de datos habra una capsula que dice "nuevo grupo   +"
+
+    3. Asignar espacio por grupo, no asignatura (e2e)
+    4. Crear lógica para asignar tambien los espacios de horas teoricas, crear UI-UX para asignar diferentes tipos de espacios que necesita un grupo (ej: 1 sesion lab bioquimica, 1 sesion salon 201)
+    5. Corregir logica de restricciones, actualmente no se están cumpliendo. El horario asigna a cualquier hora y no respeta la disponibilidad que se pone en el popup de crear grupo.
+
+    6. Eliminar botones de guardar / cargar desde DB a traves de todo el UI y absorber esa función al darle el boton "aceptar" de todos los popups de creación o edición de datos (facultades, programas, docentes, asignaturas, grupos)
+
+    7. no se esta teniendo en cuenta la teoria fisica y virtual
+    8. No esta entrando en el pipeline las sesiones teoricas (recuerda que los horarios son orientados a espacios)
+    9. No hay logica de disponibilidad para sesiones teoricas presenciales de grupos que tienen dos sesiones a la semana (laboratorio y teorica presencial)
+    10. No hay logica de disponibilidad para asignaturas combinadas (teoricas presencial/virtual y laboratorios al tiempo)
+
+    11. Hay un error en la logica y es que el usuario puede asignar un dia a una asignatura que tiene dos sesiones a la semana (recuerda que cuando son dos sesiones debe haber minimo un dia de separación entre sesiones)
+
+    12. agregar una paleta de colores por asignatura en la vista del horario
+
+    13. Cada vez que se edite una asignatura en la vista de horario recalcular horario solo haciendo las modificaciones minimas para reacomodar el horario (evitar mover todo el horario sin dejar de lado la calidad del algoritmo)
+
+
+    14. El pipeline no esta respetando la disponibilidad de espacio que se le asigna a cada grupo en la vista de crear /editar grupo pero si al momento de editar en el horario
+
+    VERIFICA:
+        la alternancia debe ver en cuenta con qué asignatura se intercala y si esta está disponible para alternar
+        la alternancia debe hacerse en pares, ambos grupos deben ser disponibles para alternar
+        la alternanacia debe ser atomica por espacio
+        
+
+
+
