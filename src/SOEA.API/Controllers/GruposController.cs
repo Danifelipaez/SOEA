@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.ValueObjects;
 
 namespace SOEA.API.Controllers
 {
@@ -21,6 +22,18 @@ namespace SOEA.API.Controllers
         public int EstudiantesInscritos { get; set; }
         /// <summary>JSON de disponibilidad tal como viene de la UI (por día: {lunes:{...}, ...}).</summary>
         public string? DisponibilidadUiJson { get; set; }
+        /// <summary>Requisito de espacio por tipo de sesión (HC-S03/HC-S05).</summary>
+        public List<RequisitoEspacioDto> RequisitosEspacio { get; set; } = new();
+    }
+
+    public class RequisitoEspacioDto
+    {
+        /// <summary>TeoriaPresencial | TeoriaVirtual | Laboratorio.</summary>
+        public TipoSesion TipoSesion { get; set; }
+        /// <summary>Espacio concreto exigido. Null = cualquier espacio de <see cref="TipoEspacio"/>.</summary>
+        public Guid? EspacioId { get; set; }
+        public TipoEspacio TipoEspacio { get; set; }
+        public int Sesiones { get; set; }
     }
 
     // ── Controller ────────────────────────────────────────────────────────────────
@@ -84,6 +97,7 @@ namespace SOEA.API.Controllers
                     codigo: dto.Codigo);
 
                 grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
+                grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
 
                 await _repo.AddAsync(grupo);
                 return StatusCode(StatusCodes.Status201Created, MapToDto(grupo));
@@ -117,6 +131,7 @@ namespace SOEA.API.Controllers
                 grupo.ActualizarAsignatura(dto.AsignaturaId, dto.FacultadId ?? grupo.FacultadId);
                 grupo.AsignarDocente(dto.DocenteId);
                 grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
+                grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
 
                 await _repo.UpdateAsync(grupo);
                 return Ok(MapToDto(grupo));
@@ -146,7 +161,19 @@ namespace SOEA.API.Controllers
             Nombre = g.Nombre,
             Codigo = g.Codigo,
             EstudiantesInscritos = g.EstudiantesInscritos,
-            DisponibilidadUiJson = g.DisponibilidadUiJson
+            DisponibilidadUiJson = g.DisponibilidadUiJson,
+            RequisitosEspacio = g.RequisitosEspacio
+                .Select(r => new RequisitoEspacioDto
+                {
+                    TipoSesion = r.TipoSesion,
+                    EspacioId = r.EspacioId,
+                    TipoEspacio = r.TipoEspacio,
+                    Sesiones = r.Sesiones
+                })
+                .ToList()
         };
+
+        private static List<RequisitoEspacio> MapearRequisitosEspacio(List<RequisitoEspacioDto> dtos) =>
+            dtos.Select(d => new RequisitoEspacio(d.TipoSesion, d.EspacioId, d.TipoEspacio, d.Sesiones)).ToList();
     }
 }
