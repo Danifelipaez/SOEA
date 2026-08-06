@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using SOEA.Domain.Enums;
+using SOEA.Domain.ValueObjects;
 
 namespace SOEA.Domain.Entities
 {
@@ -59,6 +60,10 @@ namespace SOEA.Domain.Entities
             CedulaIdentidad = cedula;
             DisponibilidadUiJson = disponibilidadJson;
         }
+
+        /// <summary>Deriva la disponibilidad estructurada (por día) desde <see cref="DisponibilidadUiJson"/>.</summary>
+        public DisponibilidadSemanal ObtenerDisponibilidadSemanal() =>
+            DisponibilidadSemanal.DesdeJson(DisponibilidadUiJson);
 
         /// <summary>
         /// Actualiza los datos editables del docente.
