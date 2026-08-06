@@ -438,7 +438,7 @@ export class HorarioComponent implements OnInit {
     }
     const asignaturas = this.state.asignaturas();
     const dialogRef = this.dialog.open(ProgressDialogComponent, { disableClose: true, width: '340px' });
-    this.horarioApi.generarHorario(asignaturas, this.state.docentes(), this.state.espacios(), this.state.configuracionAlgoritmo(), '2026-1', this.state.baseSeleccionada() ?? undefined)
+    this.horarioApi.generarHorario(asignaturas, this.state.docentes(), this.state.espacios(), this.state.configuracionAlgoritmo(), '2026-1', this.state.baseSeleccionada() ?? undefined, this.state.grupos())
       .subscribe({
         next: (respuesta) => {
           dialogRef.close();

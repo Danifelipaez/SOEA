@@ -39,8 +39,7 @@ export interface GrupoApiDto {
   asignaturaId?: string;
   facultadId?: string;
   estudiantesInscritos: number;
-  /** Franjas válidas para el grupo: "Matutino" | "Vespertino". Vacío = sin restricción (HC-G01). */
-  disponibilidad: string[];
+  /** JSON crudo por día (misma forma que Docente.disponibilidad); el backend deriva la ventana HC-G01. */
   disponibilidadUiJson?: string;
 }
 
@@ -150,7 +149,6 @@ export class HorarioApiService {
       asignaturaId: g.asignaturaId,
       facultadId: g.facultadId,
       estudiantesInscritos: g.estudiantesInscritos,
-      disponibilidad: this.franjasDeGrupo(g.disponibilidadUiJson),
       disponibilidadUiJson: g.disponibilidadUiJson,
     }));
 
@@ -211,38 +209,6 @@ export class HorarioApiService {
       alternancia: (s.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia',
       semana: (s.semana === 'A' || s.semana === 'B') ? s.semana : undefined,
     }));
-  }
-
-  /**
-   * Reduce la disponibilidad por día del grupo (JSON de la UI) a las franjas que entiende
-   * HC-G01 en el backend: "Matutino" (06–13) y/o "Vespertino" (13–20).
-   * Une las franjas de todos los días configurados. Si cubre ambas → devuelve [] (sin
-   * restricción, evita un filtro inútil). Sin JSON → [] (grupo sin restricción de franja).
-   */
-  private franjasDeGrupo(json?: string): string[] {
-    if (!json) return [];
-    let disp: Record<string, any>;
-    try { disp = JSON.parse(json); } catch { return []; }
-
-    const set = new Set<string>();
-    for (const dia of Object.keys(disp)) {
-      const d = disp[dia];
-      if (!d || d.noDisponible) continue;
-      const tipo   = String(d.tipo ?? '').toLowerCase();
-      const franja = String(d.franjaGeneral ?? '').toLowerCase();
-      const tiene  = (s: string) => tipo.includes(s) || franja.includes(s);
-
-      if (tiene('todo')) { set.add('Matutino'); set.add('Vespertino'); }
-      else if (tiene('matutino')) set.add('Matutino');
-      else if (tiene('vespertino') || tiene('nocturno')) set.add('Vespertino');
-      else if (tiene('especific')) {
-        const desde = d.desde ?? '06:00';
-        const hasta = d.hasta ?? '22:00';
-        if (desde < '13:00') set.add('Matutino');
-        if (hasta > '13:00') set.add('Vespertino');
-      } else { set.add('Matutino'); set.add('Vespertino'); }
-    }
-    return set.size >= 2 ? [] : [...set];
   }
 
   private diffHoras(horaInicio: string, horaFin: string): number {
