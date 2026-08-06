@@ -184,6 +184,10 @@ namespace SOEA.Application.Features.Import
                     .GroupBy(s => s.AsignaturaId)
                     .ToDictionary(g => g.Key, g => g.First().EspacioId!.Value);
 
+                // Requisito de laboratorio por asignatura (Id REAL, post-remap), consumido al crear
+                // los grupos de esa asignatura — reemplaza a Asignatura.EspacioFijoId (ver Grupo.RequisitosEspacio).
+                var espacioFijoPorAsignaturaReal = new Dictionary<Guid, Guid>();
+
                 // ── Asignaturas ───────────────────────────────────────────────────────
                 foreach (var a in resultado.Asignaturas)
                 {
@@ -211,7 +215,8 @@ namespace SOEA.Application.Features.Import
                             a.HorasPorSesion, a.SesionesPorSemana, a.SesionesLaboratorioSemestre, progRealId);
                         if (a.Alternancia != TipoAlternancia.SinAlternancia)
                             nueva.EstablecerAlternancia(a.Alternancia);
-                        nueva.AsignarEspacioFijo(espacioFijoRealId);
+                        if (espacioFijoRealId.HasValue)
+                            espacioFijoPorAsignaturaReal[nueva.Id] = espacioFijoRealId.Value;
                         _uow.Track(nueva);
                         asignaturaIdMap[a.Id] = nueva.Id;
                         stats.AsignaturasCreadas++;
@@ -229,7 +234,8 @@ namespace SOEA.Application.Features.Import
                         existe.ActualizarDatos(a.Nombre, a.Codigo, a.HorasPorSesion,
                             a.SesionesPorSemana, a.SesionesLaboratorioSemestre, progRealId,
                             alternanciaFinal);
-                        existe.AsignarEspacioFijo(espacioFijoRealId);
+                        if (espacioFijoRealId.HasValue)
+                            espacioFijoPorAsignaturaReal[existe.Id] = espacioFijoRealId.Value;
                         asignaturaIdMap[a.Id] = existe.Id;
                         stats.AsignaturasActualizadas++;
                     }
@@ -245,11 +251,19 @@ namespace SOEA.Application.Features.Import
                     Guid? docRealId = g.DocenteId.HasValue && docenteIdMap.TryGetValue(g.DocenteId.Value, out var gdid)
                         ? gdid : g.DocenteId;
 
+                    Guid? espacioFijoDelGrupo = asigRealId.HasValue &&
+                        espacioFijoPorAsignaturaReal.TryGetValue(asigRealId.Value, out var espFijo) ? espFijo : null;
+
                     var existe = await _grupos.GetByNombreYProgramaAsync(g.Nombre, progRealId);
                     if (existe == null)
                     {
                         var nuevo = new Grupo(Guid.NewGuid(), g.Nombre, progRealId, 30, g.Alternancia,
                             asignaturaId: asigRealId, facultadId: g.FacultadId, docenteId: docRealId);
+                        if (espacioFijoDelGrupo.HasValue)
+                            nuevo.ActualizarRequisitosEspacio(new List<RequisitoEspacio>
+                            {
+                                new(TipoSesion.Laboratorio, espacioFijoDelGrupo, TipoEspacio.Laboratorio, 0)
+                            });
                         _uow.Track(nuevo);
                         grupoIdMap[g.Id] = nuevo.Id;
                         stats.GruposCreados++;
@@ -257,11 +271,22 @@ namespace SOEA.Application.Features.Import
                     else
                     {
                         // Grupo existente: completar el docente si viene en el import y aún no lo tiene.
+                        bool cambios = false;
                         if (docRealId.HasValue && !existe.DocenteId.HasValue)
                         {
                             existe.AsignarDocente(docRealId);
-                            await _grupos.UpdateAsync(existe);
+                            cambios = true;
                         }
+                        if (espacioFijoDelGrupo.HasValue &&
+                            !existe.RequisitosEspacio.Any(r => r.TipoSesion == TipoSesion.Laboratorio))
+                        {
+                            existe.ActualizarRequisitosEspacio(new List<RequisitoEspacio>(existe.RequisitosEspacio)
+                            {
+                                new(TipoSesion.Laboratorio, espacioFijoDelGrupo, TipoEspacio.Laboratorio, 0)
+                            });
+                            cambios = true;
+                        }
+                        if (cambios) await _grupos.UpdateAsync(existe);
                         grupoIdMap[g.Id] = existe.Id;
                     }
                 }
