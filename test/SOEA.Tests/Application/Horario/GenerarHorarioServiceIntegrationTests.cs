@@ -143,9 +143,15 @@ namespace SOEA.Tests.Application.Horario
             return new GenerarHorarioService(fase1, fase2, fase3, horarioRepo, sesionRepo, asigRepo, new FakeCriterioCesionRepo(), uow);
         }
 
-        private static readonly Guid GrupoId = Guid.NewGuid();
         private static readonly string LabId = Guid.NewGuid().ToString();
         private static readonly string SalonId = Guid.NewGuid().ToString();
+        private static readonly string QuimicaId = Guid.NewGuid().ToString();
+        private static readonly string CalculoId = Guid.NewGuid().ToString();
+        private static readonly string EticaId = Guid.NewGuid().ToString();
+
+        // JSON crudo (mismo shape que produce la UI) con toda la semana restringida a Matutino/Vespertino.
+        private const string DisponibilidadUiJsonMatutino =
+            """{"lunes":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"martes":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"miercoles":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"jueves":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"viernes":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"sabado":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"}}""";
 
         private static GenerarHorarioRequest RequestBase() => new()
         {
@@ -154,13 +160,13 @@ namespace SOEA.Tests.Application.Horario
             {
                 new()
                 {
-                    Id = Guid.NewGuid().ToString(), Nombre = "Química Orgánica",
+                    Id = QuimicaId, Nombre = "Química Orgánica",
                     SesionesLaboratorioSemana = 1, HorasLaboratorio = 2,
                     Alternancia = "TipoA", Categoria = "Obligatoria"
                 },
                 new()
                 {
-                    Id = Guid.NewGuid().ToString(), Nombre = "Cálculo I",
+                    Id = CalculoId, Nombre = "Cálculo I",
                     SesionesTeoriaPresencialSemana = 2, HorasTeoriaPresencial = 2,
                     Categoria = "Obligatoria",
                     // HC-VH: toda sesión de esta asignatura debe caer en [08:00, 12:00].
@@ -168,7 +174,7 @@ namespace SOEA.Tests.Application.Horario
                 },
                 new()
                 {
-                    Id = Guid.NewGuid().ToString(), Nombre = "Ética",
+                    Id = EticaId, Nombre = "Ética",
                     SesionesTeoriaVirtualSemana = 1, HorasTeoriaVirtual = 2,
                     Categoria = "Electiva"
                 }
@@ -178,24 +184,40 @@ namespace SOEA.Tests.Application.Horario
                 new() { Id = LabId,   Nombre = "Lab Química", Tipo = "laboratorio", Capacidad = 30 },
                 new() { Id = SalonId, Nombre = "Salón 101",   Tipo = "salon",       Capacidad = 30 }
             },
+            // Multi-grupo real (P1): un grupo por asignatura — las sesiones se expanden desde el
+            // grupo, no desde la asignatura. Los 3 comparten disponibilidad Matutino (HC-G01).
             Grupos = new List<GrupoDto>
             {
                 new()
                 {
-                    Id = GrupoId.ToString(), Nombre = "Cohorte 2026-1",
-                    EstudiantesInscritos = 20,
-                    Disponibilidad = new List<string> { "Matutino" }
+                    Id = Guid.NewGuid().ToString(), Nombre = "Cohorte Química",
+                    AsignaturaId = QuimicaId, EstudiantesInscritos = 20,
+                    DisponibilidadUiJson = DisponibilidadUiJsonMatutino
+                },
+                new()
+                {
+                    Id = Guid.NewGuid().ToString(), Nombre = "Cohorte Cálculo",
+                    AsignaturaId = CalculoId, EstudiantesInscritos = 20,
+                    DisponibilidadUiJson = DisponibilidadUiJsonMatutino
+                },
+                new()
+                {
+                    Id = Guid.NewGuid().ToString(), Nombre = "Cohorte Ética",
+                    AsignaturaId = EticaId, EstudiantesInscritos = 20,
+                    DisponibilidadUiJson = DisponibilidadUiJsonMatutino
                 }
             }
         };
 
         private static int Hora(string hhmm) => int.Parse(hhmm.Split(':')[0]);
 
-        /// <summary>Aserción post-hoc de HC-C01: dentro de cada semana, ninguna pareja de
-        /// sesiones de la cohorte se solapa (todas las filas del run son de la misma cohorte).</summary>
+        /// <summary>Aserción post-hoc de HC-C01: dentro de cada semana, ninguna pareja de sesiones
+        /// del MISMO grupo se solapa. Multi-grupo real (P1): grupos distintos son cohortes de
+        /// estudiantes distintas y sí pueden solaparse; en este fixture cada grupo tiene exactamente
+        /// una asignatura, así que agrupar por AsignaturaId identifica al grupo.</summary>
         private static void AssertSinSolapesDeCohorte(IEnumerable<SesionGeneradaDto> sesiones)
         {
-            foreach (var grupoSemanaDia in sesiones.GroupBy(s => (s.Semana, s.Dia)))
+            foreach (var grupoSemanaDia in sesiones.GroupBy(s => (s.Semana, s.Dia, s.AsignaturaId)))
             {
                 var spans = grupoSemanaDia
                     .Select(s => (ini: Hora(s.HoraInicio), fin: Hora(s.HoraInicio) + (int)Math.Ceiling(s.DuracionHoras), s.Id))

@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using Xunit;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
+using SOEA.Domain.ValueObjects;
 
 namespace SOEA.Tests.Domain.Entities
 {
@@ -148,6 +150,49 @@ namespace SOEA.Tests.Domain.Entities
 
             // Assert
             Assert.Equal(TipoAlternancia.TipoB, grupo.Alternancia);
+        }
+
+        [Fact]
+        public void ObtenerDisponibilidadSemanal_SinJson_EsSinRestriccion()
+        {
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
+
+            var disp = grupo.ObtenerDisponibilidadSemanal();
+
+            Assert.True(disp.PermiteBloque(DiaDeSemana.Sábado, new TimeOnly(20, 0), new TimeOnly(21, 0)));
+        }
+
+        [Fact]
+        public void ActualizarDisponibilidadUi_DerivaLaMismaRestriccionEnObtenerDisponibilidadSemanal()
+        {
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
+            grupo.ActualizarDisponibilidadUi("""{"lunes":{"noDisponible":true}}""");
+
+            var disp = grupo.ObtenerDisponibilidadSemanal();
+
+            Assert.False(disp.PermiteBloque(DiaDeSemana.Lunes, new TimeOnly(8, 0), new TimeOnly(9, 0)));
+            Assert.True(disp.PermiteBloque(DiaDeSemana.Martes, new TimeOnly(8, 0), new TimeOnly(9, 0)));
+        }
+
+        // Regresión P1.4: GruposController persiste RequisitosEspacio a través de este mutador —
+        // reemplaza a Asignatura.EspacioFijoId (un solo uuid por asignatura, sólo laboratorio).
+        [Fact]
+        public void ActualizarRequisitosEspacio_ReemplazaLaListaCompleta()
+        {
+            var grupo = new Grupo(_validId, "Grupo A", _validProgramaId, 30);
+            var espacioId = Guid.NewGuid();
+
+            grupo.ActualizarRequisitosEspacio(new List<RequisitoEspacio>
+            {
+                new(TipoSesion.Laboratorio, espacioId, TipoEspacio.Laboratorio, Sesiones: 1)
+            });
+
+            var requisito = Assert.Single(grupo.RequisitosEspacio);
+            Assert.Equal(TipoSesion.Laboratorio, requisito.TipoSesion);
+            Assert.Equal(espacioId, requisito.EspacioId);
+
+            grupo.ActualizarRequisitosEspacio(new List<RequisitoEspacio>());
+            Assert.Empty(grupo.RequisitosEspacio);
         }
 
         [Fact]

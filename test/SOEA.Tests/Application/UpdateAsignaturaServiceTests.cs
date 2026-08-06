@@ -66,23 +66,6 @@ namespace SOEA.Tests.Application
         }
 
         [Fact]
-        public async Task ActualizaEspacioFijo()
-        {
-            // El docente ya no vive en la asignatura (se movió a Grupo): aquí solo se prueba EspacioFijo.
-            var progId    = Guid.NewGuid();
-            var espacioId = Guid.NewGuid();
-            var asig      = Existente(Guid.NewGuid(), progId);
-            var service   = new AsignaturaService(new FakeAsignaturaRepo(asig));
-
-            var request = Request(progId);
-            request.EspacioFijoId = espacioId;
-
-            var response = await service.UpdateAsync(asig.Id, request);
-
-            Assert.Equal(espacioId, response.EspacioFijoId);
-        }
-
-        [Fact]
         public async Task LanzaInvalidOperation_SiNoExiste()
         {
             var service = new AsignaturaService(new FakeAsignaturaRepo());

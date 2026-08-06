@@ -31,14 +31,18 @@ namespace SOEA.Tests.Engine.GraphColoring
             new(Guid.NewGuid(), asignaturaId ?? Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, dur, false, false);
 
+        // JSON crudo (mismo shape que produce la UI) con las 3 franjas de Grilla() restringidas a Matutino.
+        private static string DisponibilidadUiJsonMatutino() =>
+            """{"lunes":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"martes":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"miercoles":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"}}""";
+
         // HC-G01: un grupo Matutino nunca debe recibir un bloque en la tarde, aunque el warm-start
         // sea solo una pista para CP-SAT — antes ignoraba la franja por completo.
         [Fact]
         public async Task GrupoMatutino_NingunBloqueAsignadoCaeEnLaTarde()
         {
             var grupoId = Guid.NewGuid();
-            var grupo = new Grupo(grupoId, "Cohorte", Guid.Empty, estudiantesInscritos: 20,
-                disponibilidad: new List<FranjaHoraria> { FranjaHoraria.Matutino });
+            var grupo = new Grupo(grupoId, "Cohorte", Guid.Empty, estudiantesInscritos: 20);
+            grupo.ActualizarDisponibilidadUi(DisponibilidadUiJsonMatutino());
             // 12 bloques/día (06:00–18:00): la mitad matutina, la mitad vespertina.
             var bloques = Grilla(12);
             var sesiones = Enumerable.Range(0, 6).Select(_ => Sesion(grupoId)).ToList();

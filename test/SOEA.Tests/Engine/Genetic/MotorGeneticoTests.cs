@@ -253,8 +253,7 @@ namespace SOEA.Tests.Engine.Genetic
             var grupoId  = Guid.NewGuid();
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Salón chico", TipoEspacio.Salon, 10) };
             var bloques  = Grilla(6);
-            var grupo = new Grupo(grupoId, "Cohorte", Guid.Empty, estudiantesInscritos: 40,
-                disponibilidad: new List<FranjaHoraria>());
+            var grupo = new Grupo(grupoId, "Cohorte", Guid.Empty, estudiantesInscritos: 40);
 
             var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false,

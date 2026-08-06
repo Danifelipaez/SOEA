@@ -293,6 +293,46 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.True(resultado.EsFactible);
         }
 
+        // ── HC-G01: disponibilidad declarada por grupo (P1 — antes no había ni un test que le
+        // pasara a CP-SAT un grupo con disponibilidad real; la disponibilidad nunca llegaba al
+        // motor). Dos grupos con disponibilidad distinta deben producir dominios de inicio
+        // distintos para sus sesiones.
+
+        [Fact]
+        public async Task HCG01_DosGruposConDisponibilidadDistinta_AsignanEnFranjasDistintas()
+        {
+            var bloques = CrearBloques(10); // starts 07:00..16:00 → cruza mediodía
+            var cohorteMatutina = Guid.NewGuid();
+            var cohorteVespertina = Guid.NewGuid();
+
+            // Franja específica (no la etiqueta "Matutino"/"Vespertino"): esa ventana fija histórica
+            // llega hasta las 13:00 y por tanto toca la hora 12 (vespertino en PerteneceAFranja) —
+            // aquí se necesita un corte limpio en el mediodía para que el test sea inequívoco.
+            var grupoMatutino = new Grupo(cohorteMatutina, "Matutino", Guid.NewGuid(), 20);
+            grupoMatutino.ActualizarDisponibilidadUi(
+                """{"lunes":{"noDisponible":false,"tipo":"Franja específica","desde":"06:00","hasta":"11:00"}}""");
+
+            var grupoVespertino = new Grupo(cohorteVespertina, "Vespertino", Guid.NewGuid(), 20);
+            grupoVespertino.ActualizarDisponibilidadUi(
+                """{"lunes":{"noDisponible":false,"tipo":"Franja específica","desde":"13:00","hasta":"18:00"}}""");
+
+            var sesionMatutina = CrearSesion(cohorteMatutina, duracion: 1m);
+            var sesionVespertina = CrearSesion(cohorteVespertina, duracion: 1m);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesionMatutina, sesionVespertina }, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>(),
+                grupos: new[] { grupoMatutino, grupoVespertino });
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            var bloqueMatutino = bloques.First(b => b.Id ==
+                resultado.Asignaciones.First(a => a.SesionId == sesionMatutina.Id).BloqueTiempoId);
+            var bloqueVespertino = bloques.First(b => b.Id ==
+                resultado.Asignaciones.First(a => a.SesionId == sesionVespertina.Id).BloqueTiempoId);
+
+            Assert.True(bloqueMatutino.HoraInicio.Hour < 12);
+            Assert.True(bloqueVespertino.HoraInicio.Hour >= 12);
+        }
+
         // ── HC-VH: ventana horaria de la asignatura ─────────────────────────────────
 
         // Con ventana [09:00, 11:00], toda asignación de la sesión cae dentro del rango.
