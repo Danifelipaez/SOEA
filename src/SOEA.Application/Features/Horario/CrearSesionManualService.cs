@@ -15,18 +15,15 @@ namespace SOEA.Application.Features.Horario
     public class CrearSesionManualService
     {
         private readonly IBloqueTiempoRepositorio     _bloques;
-        private readonly IAsignaturaRepositorio        _asignaturas;
         private readonly ISesionRepositorio            _sesiones;
         private readonly IAsignacionSemanalRepositorio _asignaciones;
 
         public CrearSesionManualService(
             IBloqueTiempoRepositorio     bloques,
-            IAsignaturaRepositorio        asignaturas,
             ISesionRepositorio            sesiones,
             IAsignacionSemanalRepositorio asignaciones)
         {
             _bloques      = bloques;
-            _asignaturas  = asignaturas;
             _sesiones     = sesiones;
             _asignaciones = asignaciones;
         }
@@ -65,16 +62,9 @@ namespace SOEA.Application.Features.Horario
 
             Guid? espacioFinal = modalidad == Modalidad.Virtual ? null : req.EspacioId;
 
-            // ── HC-S05: espacio fijo ──────────────────────────────────────────────
-            var asignatura = await _asignaturas.GetByIdAsync(req.AsignaturaId);
-            if (asignatura?.EspacioFijoId is Guid espacioFijo &&
-                espacioFinal.HasValue &&
-                espacioFinal.Value != espacioFijo)
-            {
-                throw new InvalidOperationException(
-                    "HC-S05: Esta asignatura tiene un laboratorio fijo asignado en el currículum. " +
-                    "La sesión debe crearse en ese mismo laboratorio.");
-            }
+            // ponytail: HC-S05 (espacio fijo) se validaba aquí contra Asignatura.EspacioFijoId,
+            // eliminado — el requisito ahora vive por grupo (Grupo.RequisitosEspacio). Recuperar
+            // esta validación cuando CrearSesionManualRequest reciba GrupoId (P2/P4).
 
             // ── HC-I01: conflicto de docente ──────────────────────────────────────
             // Verificamos a nivel de BloqueTiempoId (slot de inicio). El frontend ya validó

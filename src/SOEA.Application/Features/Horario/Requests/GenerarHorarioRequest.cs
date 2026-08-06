@@ -94,11 +94,6 @@ namespace SOEA.Application.Features.Horario.Requests
         /// <summary>TipoA | TipoB | SinAlternancia — solo aplica al track de laboratorio.</summary>
         public string? Alternancia    { get; set; }
         /// <summary>
-        /// Espacio físico fijo para esta asignatura (HC-S05).
-        /// Cuando está presente, CP-SAT solo asigna sesiones presenciales a este espacio.
-        /// </summary>
-        public string? EspacioFijoId  { get; set; }
-        /// <summary>
         /// Categoría de la asignatura para priorizar la asignación presencial (SC-PRES).
         /// Obligatoria tiene máxima prioridad; Electiva se puede virtualizar primero cuando
         /// la capacidad de espacios está saturada.
@@ -158,10 +153,23 @@ namespace SOEA.Application.Features.Horario.Requests
         public string? FacultadId          { get; set; }
         public int     EstudiantesInscritos { get; set; } = 1;
         /// <summary>
-        /// Disponibilidad horaria del grupo. Valores válidos: "Matutino", "Vespertino".
-        /// Lista vacía = sin restricción de franja (el grupo puede tener clase a cualquier hora).
+        /// JSON crudo de disponibilidad por día (mismo shape que <see cref="DocenteDto.Disponibilidad"/>).
+        /// El backend deriva la ventana HC-G01 de aquí — ver <c>DisponibilidadSemanal</c>.
         /// </summary>
-        public List<string> Disponibilidad { get; set; } = new();
         public string? DisponibilidadUiJson { get; set; }
+        /// <summary>Requisito de espacio por tipo de sesión (HC-S03/HC-S05). Reemplaza a
+        /// <c>AsignaturaDto.EspacioFijoId</c> — ahora vive por grupo, no por asignatura.</summary>
+        public List<RequisitoEspacioDto> RequisitosEspacio { get; set; } = new();
+    }
+
+    public class RequisitoEspacioDto
+    {
+        /// <summary>TeoriaPresencial | TeoriaVirtual | Laboratorio.</summary>
+        public string  TipoSesion  { get; set; } = "TeoriaPresencial";
+        /// <summary>Espacio concreto exigido. Null = cualquier espacio de <see cref="TipoEspacio"/>.</summary>
+        public string? EspacioId   { get; set; }
+        /// <summary>Salon | Laboratorio | Auditorio. Ignorado si <see cref="EspacioId"/> está presente.</summary>
+        public string? TipoEspacio { get; set; }
+        public int     Sesiones    { get; set; }
     }
 }

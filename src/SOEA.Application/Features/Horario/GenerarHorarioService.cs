@@ -4,6 +4,7 @@ using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.Services;
+using SOEA.Domain.ValueObjects;
 
 namespace SOEA.Application.Features.Horario
 {
@@ -55,14 +56,10 @@ namespace SOEA.Application.Features.Horario
             var espacios  = MapearEspacios(request.Espacios);
             var bloques   = GenerarBloquesTiempo();
             var docentes  = MapearDocentes(request.Docentes, bloques);
-
-            // "Un run = un grupo": todas las sesiones de este run son mutuamente excluyentes en el
-            // tiempo (un grupo no puede estar en dos sesiones a la vez). Si el request trae un grupo,
-            // usamos SU Id como GrupoId para que sus sesiones crucen con la disponibilidad declarada
-            // (HC-G01). Sin grupo → id sintético (mismo efecto de exclusión mutua, sin franja).
-            var grupoIdRun = request.Grupos
-                .Select(g => Guid.TryParse(g.Id, out var gid) ? gid : (Guid?)null)
-                .FirstOrDefault(g => g.HasValue) ?? Guid.NewGuid();
+            // Multi-grupo real: cada grupo lleva su propio Id como GrupoId de sus sesiones, así que
+            // HC-C01 (solape) y HC-G01 (franja) se aplican por grupo, no sobre un id sintético
+            // compartido por todo el run.
+            var grupos    = MapearGrupos(request.Grupos);
 
             // SC-PRES: mapa de categoría por asignatura (alimenta el criterio "Electiva" de la lista
             // de cesión) y de elegibilidad explícita (criterio "Elegible", marcado por el departamento).
@@ -82,15 +79,18 @@ namespace SOEA.Application.Features.Horario
                     dto => Guid.TryParse(dto.Id, out var aid) ? aid : Guid.Empty,
                     dto => (ParseHora(dto.HoraInicioMin), ParseHora(dto.HoraFinMax)));
 
-            var sesiones = MapearSesionesIniciales(request.Asignaturas, grupoIdRun);
-            logs.Add($"[INFO] Sesiones creadas a partir de asignaturas: {sesiones.Count}.");
+            var sesiones = MapearSesionesIniciales(grupos, request.Asignaturas);
+            logs.Add($"[INFO] Sesiones creadas a partir de grupos: {sesiones.Count}.");
 
             // ── 1b. Sesiones fijas (horario base) — se añaden con bloque pre-asignado ──
+            // Sin grupo propio (SesionFijaDto no lo trae): comparten un id sintético entre sí,
+            // suficiente para la exclusión mutua de horario que necesitan (no participan de HC-G01).
+            var sesionesFijasGrupoId = Guid.NewGuid();
             var sesionesFijasIds = new HashSet<Guid>();
             int sesionesFijasOmitidas = 0;
             if (request.SesionesFijas is { Count: > 0 })
             {
-                var (fijas, omitidas) = MapearSesionesFijas(request.SesionesFijas, bloques, grupoIdRun);
+                var (fijas, omitidas) = MapearSesionesFijas(request.SesionesFijas, bloques, sesionesFijasGrupoId);
                 sesionesFijasIds = fijas.Select(s => s.Id).ToHashSet();
                 sesionesFijasOmitidas = omitidas.Count;
                 sesiones.AddRange(fijas);
@@ -142,7 +142,6 @@ namespace SOEA.Application.Features.Horario
             // HC-G01/HC-VH: se pasan grupos y ventanas para que el warm-start caiga siempre dentro
             // del dominio que CP-SAT va a exigir (misma fuente: CalculadorDominioSesion).
             logs.Add("[INFO] Fase 1: Pre-procesamiento (Coloración de grafos) iniciada.");
-            var grupos = MapearGrupos(request.Grupos);
             var swFase1 = System.Diagnostics.Stopwatch.StartNew();
             var sesionesColoreadas = (await _fase1.AsignarBloquesDeTiempoAsync(
                 sesiones, bloques, grupos, ventanaPorAsig, ct)).ToList();
@@ -245,7 +244,7 @@ namespace SOEA.Application.Features.Horario
                 VentanaPorAsignatura: ventanaPorAsig,   // los nombres de tupla no afectan la conversión
                 FranjasPorGrupo: grupos
                     .GroupBy(g => g.Id)
-                    .ToDictionary(g => g.Key, g => (IReadOnlyList<FranjaHoraria>)g.First().Disponibilidad.ToList()),
+                    .ToDictionary(g => g.Key, g => (IReadOnlyList<FranjaHoraria>)g.First().ObtenerDisponibilidadSemanal().ComoFranjasCoarse()),
                 EstudiantesPorGrupo: grupos
                     .GroupBy(g => g.Id)
                     .ToDictionary(g => g.Key, g => g.First().EstudiantesInscritos),
@@ -363,7 +362,7 @@ namespace SOEA.Application.Features.Horario
         private static (List<Sesion> fijas, List<string> omitidas) MapearSesionesFijas(
             List<SesionFijaDto> dtos,
             List<BloqueTiempo> bloques,
-            Guid grupoIdRun)
+            Guid sesionesFijasGrupoId)
         {
             // Índice rápido: (dia, horaInicio) → BloqueTiempo
             var bloqueDict = bloques.ToDictionary(
@@ -396,7 +395,7 @@ namespace SOEA.Application.Features.Horario
                     docenteId: null,
                     bloqueId: bloque.Id,
                     espacioId: espId,
-                    grupoId: grupoIdRun,
+                    grupoId: sesionesFijasGrupoId,
                     alternancia: alternancia,
                     modalidad: dto.Virtual ? Modalidad.Virtual : Modalidad.Presencial,
                     duracionHoras: dto.DuracionHoras > 0 ? dto.DuracionHoras : 2m,
@@ -430,80 +429,18 @@ namespace SOEA.Application.Features.Horario
                 var id = Guid.TryParse(dto.Id, out var did) ? did : Guid.NewGuid();
                 var maxHoras = dto.MaxHoras.HasValue && dto.MaxHoras > 0 ? dto.MaxHoras.Value : 20m;
 
-                var franjas = new HashSet<FranjaHoraria>();
-                var bloquesDisponibles = new List<BloqueTiempo>();
+                // Fuente única del parseo por día (A1): sin información → sin restricción (todos los
+                // bloques); día explícitamente no-disponible → cerrado; el resto respeta su ventana.
+                var disponibilidad = DisponibilidadSemanal.Desde(MapearEntradasCrudas(dto.Disponibilidad));
+                var bloquesDisponibles = bloques
+                    .Where(b => disponibilidad.PermiteBloque(b.Dia, b.HoraInicio, b.HoraFin))
+                    .ToList();
 
-                foreach (var (diaNombre, dispDia) in dto.Disponibilidad)
-                {
-                    if (dispDia.NoDisponible) continue;
-
-                    var dia = ParseDiaSemana(diaNombre);
-                    if (dia == null) continue;
-
-                    TimeOnly? desde = null;
-                    TimeOnly? hasta = null;
-
-                    if (!string.IsNullOrWhiteSpace(dispDia.Desde) && TimeOnly.TryParse(dispDia.Desde, out var d))
-                        desde = d;
-                    if (!string.IsNullOrWhiteSpace(dispDia.Hasta) && TimeOnly.TryParse(dispDia.Hasta, out var h))
-                        hasta = h;
-
-                    if (desde == null && hasta == null && !string.IsNullOrWhiteSpace(dispDia.FranjaGeneral))
-                    {
-                        // Frontend sends the full label, e.g. "Matutino (6:00–12:00)".
-                        // Use StartsWith so both the short key and the full label match.
-                        if (dispDia.FranjaGeneral.StartsWith("Matutino", StringComparison.OrdinalIgnoreCase))
-                        {
-                            desde = new TimeOnly(6, 0);
-                            hasta = new TimeOnly(13, 0);
-                            franjas.Add(FranjaHoraria.Matutino);
-                        }
-                        else if (dispDia.FranjaGeneral.StartsWith("Vespertino", StringComparison.OrdinalIgnoreCase))
-                        {
-                            desde = new TimeOnly(13, 0);
-                            hasta = new TimeOnly(20, 0);
-                            franjas.Add(FranjaHoraria.Vespertino);
-                        }
-                        else if (dispDia.FranjaGeneral.StartsWith("Nocturno", StringComparison.OrdinalIgnoreCase))
-                        {
-                            desde = new TimeOnly(18, 0);
-                            hasta = new TimeOnly(22, 0);
-                            franjas.Add(FranjaHoraria.Vespertino);
-                        }
-                        else
-                        {
-                            franjas.Add(FranjaHoraria.Matutino);
-                            franjas.Add(FranjaHoraria.Vespertino);
-                        }
-                    }
-                    else
-                    {
-                        franjas.Add(FranjaHoraria.Matutino);
-                        franjas.Add(FranjaHoraria.Vespertino);
-                    }
-
-                    var bloquesDia = bloques.Where(b => b.Dia == dia.Value);
-                    if (desde.HasValue) bloquesDia = bloquesDia.Where(b => b.HoraInicio >= desde.Value);
-                    if (hasta.HasValue) bloquesDia = bloquesDia.Where(b => b.HoraFin <= hasta.Value);
-
-                    foreach (var bloque in bloquesDia)
-                        bloquesDisponibles.Add(bloque);
-                }
-
-                // If the DTO sends no availability data, fall back to unrestricted (both franjas).
-                var disponibilidadFinal = franjas.Count > 0
-                    ? franjas.ToList()
-                    : new List<FranjaHoraria> { FranjaHoraria.Matutino, FranjaHoraria.Vespertino };
-
-                // P1.3 auditoría: distinguir "sin información" de "explícitamente no disponible".
-                // Solo aplicamos el fallback "todos los bloques" cuando el DTO NO trae ninguna
-                // información de disponibilidad. Si el usuario configuró días (todos NoDisponible
-                // o con horarios que no calzan con la grilla), respetamos esa restricción: la
-                // lista queda vacía y la Fase 2 (HC-I02) reportará infactible con un mensaje claro,
-                // en vez de agendar silenciosamente a un docente marcado como no disponible.
-                bool sinInformacionDisponibilidad = dto.Disponibilidad.Count == 0;
-                if (bloquesDisponibles.Count == 0 && sinInformacionDisponibilidad)
-                    bloquesDisponibles.AddRange(bloques);
+                // Docente exige una lista no vacía (validación de dominio); sin restricción real
+                // equivale a "ambas franjas".
+                var disponibilidadFinal = disponibilidad.ComoFranjasCoarse();
+                if (disponibilidadFinal.Count == 0)
+                    disponibilidadFinal = new List<FranjaHoraria> { FranjaHoraria.Matutino, FranjaHoraria.Vespertino };
 
                 var docente = new Docente(
                     id: id,
@@ -520,30 +457,33 @@ namespace SOEA.Application.Features.Horario
             }).ToList();
         }
 
-        private static DiaDeSemana? ParseDiaSemana(string dia) => dia.Trim().ToLowerInvariant() switch
-        {
-            "lunes"      => DiaDeSemana.Lunes,
-            "martes"     => DiaDeSemana.Martes,
-            "miercoles"  => DiaDeSemana.Miercoles,
-            "miércoles"  => DiaDeSemana.Miercoles,
-            "jueves"     => DiaDeSemana.Jueves,
-            "viernes"    => DiaDeSemana.Viernes,
-            "sabado"     => DiaDeSemana.Sábado,
-            "sábado"     => DiaDeSemana.Sábado,
-            _            => null
-        };
+        private static Dictionary<string, DisponibilidadSemanal.DiaEntradaCruda> MapearEntradasCrudas(
+            Dictionary<string, DisponibilidadDiaDto> disponibilidad) =>
+            disponibilidad.ToDictionary(
+                kv => kv.Key,
+                kv => new DisponibilidadSemanal.DiaEntradaCruda(
+                    kv.Value.NoDisponible, kv.Value.Tipo, kv.Value.FranjaGeneral, kv.Value.Desde, kv.Value.Hasta));
 
+        /// <summary>
+        /// Multi-grupo real (P1): itera grupos, no asignaturas — cada grupo expande los 3 tracks
+        /// de SU asignatura con SU GrupoId. Antes todas las sesiones del run compartían un
+        /// GrupoId sintético (<c>grupoIdRun</c>), lo que serializaba el run entero contra HC-C01.
+        /// </summary>
         private static List<Sesion> MapearSesionesIniciales(
-            List<AsignaturaDto> asignaturasDtos,
-            Guid grupoIdRun)
+            List<Grupo> grupos,
+            List<AsignaturaDto> asignaturasDtos)
         {
             var sesiones = new List<Sesion>();
             // Bloque placeholder — Fase 1 lo reemplazará
             var bloqueTemp = Guid.NewGuid();
+            var asignaturaPorId = asignaturasDtos
+                .Where(dto => Guid.TryParse(dto.Id, out _))
+                .ToDictionary(dto => Guid.Parse(dto.Id));
 
-            foreach (var dto in asignaturasDtos)
+            foreach (var grupo in grupos)
             {
-                var asigId = Guid.TryParse(dto.Id, out var aid) ? aid : Guid.NewGuid();
+                if (grupo.AsignaturaId is not { } asigId || !asignaturaPorId.TryGetValue(asigId, out var dto))
+                    continue;
 
                 // CR-08 / presencial-first: el docente sale del pipeline (se asigna DESPUÉS de
                 // generar el horario). Las sesiones se generan sin docente; el eje de conflicto
@@ -559,13 +499,16 @@ namespace SOEA.Application.Features.Horario
                     _                => TipoAlternancia.SinAlternancia
                 };
 
-                // HC-S05: si la asignatura tiene espacio fijo, se lo pasamos a la sesión
-                // para que CP-SAT lo respete como hard constraint (solo ese espacio).
-                Guid? espacioFijo = !string.IsNullOrWhiteSpace(dto.EspacioFijoId) &&
-                                    Guid.TryParse(dto.EspacioFijoId, out var efid) ? efid : null;
+                // HC-S05: espacio concreto exigido por el grupo para este tipo de sesión, si lo hay
+                // (reemplaza a Asignatura.EspacioFijoId — ver Grupo.RequisitosEspacio).
+                Guid? EspacioFijoDe(TipoSesion tipo) =>
+                    grupo.RequisitosEspacio.FirstOrDefault(r => r.TipoSesion == tipo)?.EspacioId;
 
-                void Agregar(int cantidad, int duracionHoras, TipoFlujo tipoFlujo, Modalidad modalidad, TipoAlternancia alternancia)
+                void Agregar(int cantidad, int duracionHoras, TipoFlujo tipoFlujo, Modalidad modalidad,
+                    TipoAlternancia alternancia, TipoSesion tipoSesion)
                 {
+                    // Teoría virtual nunca tiene espacio (regla 9 CLAUDE.md): es sincrónica online.
+                    Guid? espacioFijo = modalidad == Modalidad.Virtual ? null : EspacioFijoDe(tipoSesion);
                     for (int i = 0; i < cantidad; i++)
                     {
                         sesiones.Add(new Sesion(
@@ -573,9 +516,8 @@ namespace SOEA.Application.Features.Horario
                             asignaturaId: asigId,
                             docenteId: null,
                             bloqueId: bloqueTemp,
-                            // Teoría virtual nunca tiene espacio (regla 9 CLAUDE.md): es sincrónica online.
-                            espacioId: modalidad == Modalidad.Virtual ? null : espacioFijo,
-                            grupoId: grupoIdRun,
+                            espacioId: espacioFijo,
+                            grupoId: grupo.Id,
                             alternancia: alternancia,
                             modalidad: modalidad,
                             duracionHoras: duracionHoras,
@@ -586,11 +528,11 @@ namespace SOEA.Application.Features.Horario
                 }
 
                 Agregar(dto.SesionesTeoriaPresencialSemana, dto.HorasTeoriaPresencial,
-                    TipoFlujo.AulaVirtual, Modalidad.Presencial, TipoAlternancia.SinAlternancia);
+                    TipoFlujo.AulaVirtual, Modalidad.Presencial, TipoAlternancia.SinAlternancia, TipoSesion.TeoriaPresencial);
                 Agregar(dto.SesionesTeoriaVirtualSemana, dto.HorasTeoriaVirtual,
-                    TipoFlujo.AulaVirtual, Modalidad.Virtual, TipoAlternancia.SinAlternancia);
+                    TipoFlujo.AulaVirtual, Modalidad.Virtual, TipoAlternancia.SinAlternancia, TipoSesion.TeoriaVirtual);
                 Agregar(dto.SesionesLaboratorioSemana, dto.HorasLaboratorio,
-                    TipoFlujo.Laboratorio, Modalidad.Presencial, alternanciaLab);
+                    TipoFlujo.Laboratorio, Modalidad.Presencial, alternanciaLab, TipoSesion.Laboratorio);
             }
             return sesiones;
         }
@@ -654,9 +596,9 @@ namespace SOEA.Application.Features.Horario
                     Semilla:              dto.Semilla);
 
         /// <summary>
-        /// Convierte los GrupoDtos del request a entidades de dominio Grupo con su disponibilidad.
-        /// Los grupos informan HC-G01 en CP-SAT: si Disponibilidad no está vacía, el solver
-        /// solo asignará sus sesiones en bloques dentro de esa franja.
+        /// Convierte los GrupoDtos del request a entidades de dominio Grupo. La disponibilidad
+        /// (HC-G01) y los requisitos de espacio (HC-S03/HC-S05) quedan derivables bajo demanda
+        /// desde <see cref="Grupo.ObtenerDisponibilidadSemanal"/> y <see cref="Grupo.RequisitosEspacio"/>.
         /// </summary>
         private static List<Grupo> MapearGrupos(List<GrupoDto> dtos)
         {
@@ -665,36 +607,40 @@ namespace SOEA.Application.Features.Horario
             {
                 if (!Guid.TryParse(dto.Id, out var id)) continue;
 
-                var disponibilidad = dto.Disponibilidad
-                    .Select(s => s.Trim().ToLowerInvariant() switch
-                    {
-                        "matutino"   => (FranjaHoraria?)FranjaHoraria.Matutino,
-                        "vespertino" => (FranjaHoraria?)FranjaHoraria.Vespertino,
-                        _            => null
-                    })
-                    .Where(f => f.HasValue)
-                    .Select(f => f!.Value)
-                    .Distinct()
-                    .ToList();
-
-                Guid? asigId    = Guid.TryParse(dto.AsignaturaId, out var aid) ? aid : null;
-                Guid? facId     = Guid.TryParse(dto.FacultadId,   out var fid) ? fid : null;
+                Guid? asigId = Guid.TryParse(dto.AsignaturaId, out var aid) ? aid : null;
+                Guid? facId  = Guid.TryParse(dto.FacultadId,   out var fid) ? fid : null;
 
                 var grupo = new Grupo(
-                    id:                  id,
-                    nombre:              dto.Nombre,
-                    programaId:          Guid.Empty,   // no requerido para el pipeline
+                    id:                   id,
+                    nombre:               dto.Nombre,
+                    programaId:           Guid.Empty,   // no requerido para el pipeline
                     estudiantesInscritos: Math.Max(1, dto.EstudiantesInscritos),
-                    disponibilidad:      disponibilidad,
-                    codigo:              dto.Codigo,
-                    asignaturaId:        asigId,
-                    facultadId:          facId);
+                    codigo:               dto.Codigo,
+                    asignaturaId:         asigId,
+                    facultadId:           facId);
 
                 grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
+                grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
                 grupos.Add(grupo);
             }
             return grupos;
         }
+
+        private static List<RequisitoEspacio> MapearRequisitosEspacio(List<RequisitoEspacioDto> dtos) =>
+            dtos.Select(d => new RequisitoEspacio(
+                TipoSesion:  ParseTipoSesion(d.TipoSesion),
+                EspacioId:   Guid.TryParse(d.EspacioId, out var eid) ? eid : null,
+                TipoEspacio: ParseTipoEspacio(d.TipoEspacio),
+                Sesiones:    d.Sesiones))
+            .ToList();
+
+        private static TipoSesion ParseTipoSesion(string? tipo) => tipo?.Trim().ToLowerInvariant() switch
+        {
+            "teoriapresencial" => TipoSesion.TeoriaPresencial,
+            "teoriavirtual"    => TipoSesion.TeoriaVirtual,
+            "laboratorio"      => TipoSesion.Laboratorio,
+            _                  => TipoSesion.TeoriaPresencial
+        };
 
         private static string DiaToString(DiaDeSemana dia) => dia switch
         {
