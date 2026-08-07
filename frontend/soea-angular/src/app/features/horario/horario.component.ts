@@ -795,11 +795,12 @@ export class CrearSesionDialogComponent {
     switch (this.tipoSesion()) { case 'TeoriaVirtual': return a.horasTeoriaVirtual; case 'Laboratorio': return a.horasLaboratorio; default: return a.horasTeoriaPresencial; }
   });
 
+  // ponytail: sin requisito de espacio del GRUPO aquí todavía (Grupo.requisitosEspacio no está
+  // wireado al frontend — B3/P4). Default correcto por TipoSesion (A2, espejo del backend
+  // CalculadorEspaciosSesion): Laboratorio exige laboratorio, teoría presencial lo excluye.
   espaciosDisponibles = computed(() => {
-    const a = this.asignaturaSeleccionada(), tipo = this.tipoSesion();
+    const tipo = this.tipoSesion();
     if (tipo === 'TeoriaVirtual') return [];
-    if (!a) return this.data.espacios;
-    if (a.espacioFijoId) return this.data.espacios.filter(e => e.id === a.espacioFijoId);
     return tipo === 'Laboratorio' ? this.data.espacios.filter(e => e.tipo === 'Laboratorio') : this.data.espacios.filter(e => e.tipo !== 'Laboratorio');
   });
 
@@ -819,9 +820,8 @@ export class CrearSesionDialogComponent {
     const a = this.asignaturaSeleccionada(), tipo = this.tipoSesion();
     if (tipo === 'Laboratorio' && a?.alternancia && a.alternancia !== 'SinAlternancia') this.alternancia = a.alternancia as 'TipoA' | 'TipoB';
     else this.alternancia = 'SinAlternancia';
-    if (tipo === 'TeoriaVirtual') { this.espacioId = ''; this.espacioFijoBloqueado.set(false); }
-    else if (a?.espacioFijoId) { this.espacioId = a.espacioFijoId; this.espacioFijoBloqueado.set(true); }
-    else { this.espacioFijoBloqueado.set(false); this.espacioId = ''; }
+    this.espacioFijoBloqueado.set(false);
+    if (tipo === 'TeoriaVirtual') this.espacioId = '';
   }
 
   recheck() {
