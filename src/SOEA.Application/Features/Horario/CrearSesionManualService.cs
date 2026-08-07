@@ -120,6 +120,27 @@ namespace SOEA.Application.Features.Horario
                 estaDividida: false,
                 tipoFlujo:    tipoFlujo);
 
+            // ── HC-SEP: separación mínima de días entre sesiones semanales (petición 11) ──
+            // ponytail: agrupa por (asignatura, tipo de sesión) — CrearSesionManualRequest no
+            // trae GrupoId todavía (mismo gap que el comentario HC-S05 de arriba). Subir a
+            // (grupo, asignatura, tipo) cuando el request lo incluya (P2/P4).
+            var tipoSesionNueva = CalculadorEspaciosSesion.TipoSesionDe(sesion);
+            var mismaAsignaturaYTipo = (await _sesiones.GetAllAsync())
+                .Where(s => s.AsignaturaId == req.AsignaturaId && CalculadorEspaciosSesion.TipoSesionDe(s) == tipoSesionNueva)
+                .ToList();
+            if (mismaAsignaturaYTipo.Count > 0)
+            {
+                var bloquePorId = (await _bloques.GetAllAsync()).ToDictionary(b => b.Id);
+                foreach (var otra in mismaAsignaturaYTipo)
+                {
+                    if (!bloquePorId.TryGetValue(otra.BloqueTiempoId, out var otroBloque)) continue;
+                    if (!ReglasSesion.SeparacionDiasOk(dia, otroBloque.Dia))
+                        throw new InvalidOperationException(
+                            $"HC-SEP: ya existe otra sesión de esta asignatura/tipo el {otroBloque.Dia}. " +
+                            "Las sesiones semanales repetidas necesitan al menos un día de separación.");
+                }
+            }
+
             await _sesiones.AddAsync(sesion);
 
             // ── Crear AsignacionSemanal (1 o 2 filas según alternancia) ───────────
