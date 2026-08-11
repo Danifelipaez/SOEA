@@ -73,6 +73,15 @@ interface MergedSesion {
         </div>
       </div>
 
+      <!-- leyenda de colores por asignatura (petición 12) -->
+      @if (leyendaAsignaturas().length > 0) {
+        <div class="asig-legend">
+          @for (item of leyendaAsignaturas(); track item.id) {
+            <span class="asig-legend-item"><span class="lg-box" [style.background]="item.color"></span>{{ item.nombre }}</span>
+          }
+        </div>
+      }
+
       <!-- parámetros avanzados -->
       <div class="adv">
         <button class="adv-toggle" (click)="avanzadoAbierto.set(!avanzadoAbierto())">
@@ -103,8 +112,9 @@ interface MergedSesion {
             <!-- selector de espacio -->
             <div class="space-sel">
               @for (esp of state.espacios(); track esp.id) {
-                <button class="chip space-chip" [class.on]="activeSpace()?.id === esp.id" (click)="selectSpace(esp)">{{ esp.nombre }}</button>
+                <button class="chip space-chip" [class.on]="!modoVirtual() && activeSpace()?.id === esp.id" (click)="selectSpace(esp)">{{ esp.nombre }}</button>
               }
+              <button class="chip space-chip" [class.on]="modoVirtual()" (click)="selectVirtual()">⌁ Virtual (sin espacio)</button>
             </div>
 
             @if (!backendReady()) {
@@ -122,7 +132,9 @@ interface MergedSesion {
                         @if (!isCoveredByMergedPrior(dia, franja)) {
                           <td class="mcell" [attr.rowspan]="getMergedRowspan(dia, franja)" [class.free]="getMergedCellSesiones(dia, franja).length === 0 && !isOutOfHours(dia, franja)">
                             @for (merged of getMergedCellSesiones(dia, franja); track merged.key) {
-                              <div class="gcell" [class.gvirt]="merged.virtual" [style.border-left]="'5px solid ' + altColor(merged)" (click)="abrirEditarSesion(merged)" title="Clic para editar">
+                              <div class="gcell" [class.gvirt]="merged.virtual"
+                                   [style.background]="gcellBg(merged)" [style.border-left]="'5px solid ' + altColor(merged)"
+                                   (click)="abrirEditarSesion(merged)" title="Clic para editar">
                                 <div class="s">
                                   @if (merged.virtual) { ⌁ }{{ getAsignaturaName(merged) }}
                                   @if (getContextLabel(merged); as c) { <span class="ctx">· {{ c }}</span> }
@@ -187,6 +199,9 @@ interface MergedSesion {
     .legend span { display: flex; gap: 7px; align-items: center; }
     .lg-box { width: 24px; height: 14px; border: 1px solid var(--color-neutral-700); border-left: 4px solid var(--color-accent); }
     .lg-box.virt { border-style: dashed; background: repeating-linear-gradient(-45deg, transparent 0 3px, color-mix(in srgb, var(--color-accent) 18%, transparent) 3px 5px); }
+    .asig-legend { display: flex; gap: 14px; align-items: center; flex-wrap: nowrap; overflow-x: auto; padding: 2px 0 8px; font-size: 11.5px; color: var(--color-neutral-700); }
+    .asig-legend-item { display: flex; gap: 6px; align-items: center; white-space: nowrap; flex: 0 0 auto; }
+    .asig-legend-item .lg-box { width: 14px; height: 14px; border-left-width: 1px; flex: 0 0 auto; }
     .tb-right { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; }
 
     .adv { border-bottom: 1px solid var(--color-divider); }
@@ -245,6 +260,10 @@ export class HorarioComponent implements OnInit {
   franjas = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
 
   activeSpace = signal<Espacio | null>(null);
+  /** Chip "Virtual (sin espacio)" (petición 8 UI): aísla las teorías virtuales en su propia
+   *  vista en vez de dejarlas dispersas/duplicadas entre los chips de espacio físico. */
+  modoVirtual = signal(false);
+  private readonly ESPACIO_VIRTUAL = '__virtual__';
   activeWeek = signal<'A' | 'B'>('A');
   loadingBackend = signal(false);
   backendReady = signal(false);
@@ -256,10 +275,25 @@ export class HorarioComponent implements OnInit {
   ngOnInit() { this.syncFromBackend(); }
   constructor() { const espacios = this.state.espacios(); if (espacios.length > 0) this.activeSpace.set(espacios[0]); }
 
-  selectSpace(esp: Espacio) { this.activeSpace.set(esp); }
+  selectSpace(esp: Espacio) { this.modoVirtual.set(false); this.activeSpace.set(esp); }
+  selectVirtual() { this.modoVirtual.set(true); }
   selectWeek(week: 'A' | 'B') { this.activeWeek.set(week); }
   diaCorto(dia: string): string { return { lunes: 'Lun', martes: 'Mar', miercoles: 'Mié', jueves: 'Jue', viernes: 'Vie', sabado: 'Sáb' }[dia] ?? dia; }
   altColor(m: MergedSesion): string { return m.alternancia === 'TipoA' ? '#5980a6' : m.alternancia === 'TipoB' ? '#a8825a' : '#8a8f94'; }
+
+  /** Fondo de .gcell por asignatura (petición 12). Las virtuales conservan el rayado de
+   *  .gvirt (indica modalidad, no asignatura) — null deja que gane la regla CSS de la clase. */
+  gcellBg(m: MergedSesion): string | null {
+    if (m.virtual) return null;
+    return `color-mix(in srgb, ${this.state.colorDeAsignatura(m.asignaturaId)} 20%, white)`;
+  }
+
+  leyendaAsignaturas = computed(() => {
+    const ids = new Set(this.state.sesiones().map(s => s.asignaturaId));
+    return [...ids]
+      .map(id => ({ id, nombre: this.state.asignaturaById().get(id)?.nombre ?? id, color: this.state.colorDeAsignatura(id) }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  });
 
   syncFromBackend() {
     this.loadingBackend.set(true);
@@ -303,10 +337,13 @@ export class HorarioComponent implements OnInit {
   }
 
   private sesionPerteneceAlEspacio(s: Sesion, spaceId: string | undefined): boolean {
+    if (spaceId === this.ESPACIO_VIRTUAL) return s.virtual;
     if (!spaceId) return true;
     if (s.espacioId === spaceId) return true;
     if (s.espacioIdHogar) return s.espacioIdHogar === spaceId;
-    return s.virtual;
+    // Antes caía aquí "return s.virtual", lo que duplicaba las virtuales sin hogar en TODOS los
+    // chips físicos. Ahora tienen su propia vista dedicada (chip "Virtual (sin espacio)").
+    return false;
   }
 
   private sesionVisibleEnSemana(s: Sesion): boolean {
@@ -315,7 +352,8 @@ export class HorarioComponent implements OnInit {
     return this.activeWeek() === 'A' ? s.alternancia === 'TipoA' : s.alternancia === 'TipoB';
   }
 
-  mergedByCell = computed(() => this.computeMergedMap(this.activeSpace()?.id, this.state.sesiones()));
+  mergedByCell = computed(() => this.computeMergedMap(
+    this.modoVirtual() ? this.ESPACIO_VIRTUAL : this.activeSpace()?.id, this.state.sesiones()));
 
   coveredCells = computed(() => {
     const covered = new Set<string>();
@@ -380,7 +418,10 @@ export class HorarioComponent implements OnInit {
     });
     ref.afterClosed().subscribe((result: EditarSesionResult | undefined) => {
       if (!result) return;
-      this.state.updateSesion(result.sesion);
+      // Petición 13: un cambio de día/hora/espacio ya refrescó el StateService completo desde la
+      // respuesta de /reacomodar (puede haber movido otras sesiones en conflicto); solo un cambio
+      // de docente/alternancia/semana sigue siendo una mutación local puntual.
+      if (result.sesion) this.state.updateSesion(result.sesion);
       if (result.advertencias?.length) this.snackBar.open(`Sesión actualizada con avisos: ${result.advertencias.join(' · ')}`, 'Cerrar', { duration: 8000 });
       else this.snackBar.open('Sesión actualizada.', '', { duration: 2500 });
     });
@@ -445,6 +486,7 @@ export class HorarioComponent implements OnInit {
           const sesiones = this.horarioApi.mapearSesiones(respuesta.sesiones);
           this.state.setSesiones(sesiones);
           this.state.setExecutionLogs(respuesta.logs || []);
+          this.state.horarioId.set(respuesta.horarioId);
           this.snackBar.open(`Horario generado: ${sesiones.length} sesiones (fitness: ${respuesta.puntajeFitness.toFixed(2)}).`, 'Cerrar', { duration: 6000 });
         },
         error: (err: any) => {
@@ -500,7 +542,8 @@ interface EditarSesionDialogData {
   merged: MergedSesion; sesion: Sesion; asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[];
   sesiones: Sesion[]; programaById: Map<string, { id: string; nombre: string; facultadId: string }>; facultadById: Map<string, { id: string; nombre: string }>;
 }
-interface EditarSesionResult { sesion: Sesion; advertencias: string[]; }
+/** `sesion` ausente = un cambio de día/hora/espacio ya refrescó el StateService completo (P5). */
+interface EditarSesionResult { sesion?: Sesion; advertencias: string[]; }
 
 @Component({
   selector: 'app-editar-sesion-dialog',
@@ -573,6 +616,8 @@ export class EditarSesionDialogComponent {
   private dialogRef = inject(MatDialogRef<EditarSesionDialogComponent>);
   readonly data: EditarSesionDialogData = inject(MAT_DIALOG_DATA);
   private persistencia = inject(PersistenciaService);
+  private horarioApi = inject(HorarioApiService);
+  private state = inject(StateService);
   private readonly orig = this.data.merged;
 
   docenteId = signal(this.orig.docenteId ?? '');
@@ -588,9 +633,12 @@ export class EditarSesionDialogComponent {
   asignatura = computed(() => this.data.asignaturas.find(a => a.id === this.orig.asignaturaId));
   esLaboratorio = computed(() => this.data.sesion.tipoFlujo === 'Laboratorio');
   hayCambioDocente = computed(() => this.docenteId() !== (this.orig.docenteId ?? ''));
+  /** Petición 13: mover día/hora/espacio ya no es una mutación local — pasa por /reacomodar. */
+  hayCambioSlot = computed(() =>
+    this.dia() !== this.orig.dia || this.horaInicio() !== this.orig.horaInicio || this.espacioId() !== (this.orig.espacioId ?? ''));
   hayCambios = computed(() =>
-    this.hayCambioDocente() || this.dia() !== this.orig.dia || this.horaInicio() !== this.orig.horaInicio ||
-    this.espacioId() !== (this.orig.espacioId ?? '') || this.alternancia() !== (this.orig.alternancia as string) || this.semana() !== this.orig.semana);
+    this.hayCambioDocente() || this.hayCambioSlot() ||
+    this.alternancia() !== (this.orig.alternancia as string) || this.semana() !== this.orig.semana);
 
   readonly horasDisponibles = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
   readonly diasOpciones = ['lunes','martes','miercoles','jueves','viernes','sabado'].map(v => ({ valor: v }));
@@ -625,23 +673,59 @@ export class EditarSesionDialogComponent {
     this.guardando.set(true); this.errorServidor.set(''); this.advertencias.set([]);
     if (this.hayCambioDocente()) {
       this.persistencia.asignarDocente(this.data.sesion.id, this.docenteId() || null).subscribe({
-        next: (resp) => { this.advertencias.set(resp.advertencias ?? []); this.commitLocal(); },
+        next: (resp) => { this.advertencias.set(resp.advertencias ?? []); this.continuar(); },
         error: (err: any) => {
           this.guardando.set(false);
           const msg = err?.error?.error ?? err?.message ?? 'Error al asignar el docente.';
           this.errorServidor.set(err?.status === 409 ? `Conflicto de horario (409): ${msg}` : msg);
         }
       });
-    } else { this.commitLocal(); }
+    } else { this.continuar(); }
+  }
+
+  private continuar() {
+    if (this.hayCambioSlot()) this.reacomodar();
+    else this.commitLocal();
+  }
+
+  /** Petición 13: mover día/hora/espacio ya no muta memoria — pasa por /reacomodar y refresca
+   * el StateService completo desde la respuesta (puede haber liberado y reubicado otras sesiones). */
+  private reacomodar() {
+    const horarioId = this.state.horarioId();
+    if (!horarioId) {
+      this.guardando.set(false);
+      this.errorServidor.set('No hay un horario generado en esta sesión — genera el horario de nuevo antes de mover sesiones.');
+      return;
+    }
+    this.horarioApi.reacomodar({
+      horarioId,
+      sesionEditadaId: this.data.sesion.id,
+      dia: this.dia(),
+      horaInicio: this.horaInicio(),
+      espacioId: this.espacioId() || undefined
+    }).subscribe({
+      next: (resp) => {
+        if (!resp.esFactible) {
+          this.guardando.set(false);
+          this.errorServidor.set(resp.mensajeError || 'No se pudo reacomodar el horario.');
+          return;
+        }
+        this.state.setSesiones(this.horarioApi.mapearSesiones(resp.sesiones));
+        const avisos = [...this.advertencias(), ...resp.advertencias];
+        this.guardando.set(false);
+        this.dialogRef.close({ advertencias: avisos } satisfies EditarSesionResult);
+      },
+      error: (err: any) => {
+        this.guardando.set(false);
+        this.errorServidor.set(err?.mensajeError ?? err?.error?.error ?? err?.message ?? 'Error al reacomodar la sesión.');
+      }
+    });
   }
 
   private commitLocal() {
-    const dur = Math.round(this.data.sesion.duracionHoras ?? 2);
-    const startIdx = this.horasDisponibles.indexOf(this.horaInicio()), endIdx = startIdx + dur;
-    const horaFin = endIdx < this.horasDisponibles.length ? this.horasDisponibles[endIdx] : this.addH(this.horaInicio(), dur);
     const updated: Sesion = {
-      ...this.data.sesion, docenteId: this.docenteId() || undefined, dia: this.dia(), horaInicio: this.horaInicio(),
-      horaFin, espacioId: this.espacioId() || undefined, alternancia: this.alternancia(), semana: this.semana()
+      ...this.data.sesion, docenteId: this.docenteId() || undefined,
+      alternancia: this.alternancia(), semana: this.semana()
     };
     // Si sólo hubo aviso blando, se dejó ver 1.2s antes de cerrar.
     if (this.advertencias().length) { setTimeout(() => { this.guardando.set(false); this.dialogRef.close({ sesion: updated, advertencias: this.advertencias() }); }, 1200); }
@@ -777,7 +861,7 @@ export class CrearSesionDialogComponent {
     const id = this.docenteIdDelGrupo();
     return id ? this.nombreDocente(id) : '— sin docente en el grupo —';
   }
-  onGrupoChange() { this.grupoIdSel.set(this.grupoId); this.recheck(); }
+  onGrupoChange() { this.grupoIdSel.set(this.grupoId); this.espacioId = ''; this.recheck(); }
 
   tiposDisponibles = computed<{ tipo: TipoSesionUi; label: string }[]>(() => {
     const a = this.asignaturaSeleccionada();
@@ -795,12 +879,15 @@ export class CrearSesionDialogComponent {
     switch (this.tipoSesion()) { case 'TeoriaVirtual': return a.horasTeoriaVirtual; case 'Laboratorio': return a.horasLaboratorio; default: return a.horasTeoriaPresencial; }
   });
 
-  // ponytail: sin requisito de espacio del GRUPO aquí todavía (Grupo.requisitosEspacio no está
-  // wireado al frontend — B3/P4). Default correcto por TipoSesion (A2, espejo del backend
-  // CalculadorEspaciosSesion): Laboratorio exige laboratorio, teoría presencial lo excluye.
+  // Espejo (cliente) de CalculadorEspaciosSesion.Candidatos: HC-S05 (requisito de espacio del
+  // grupo, si lo hay) ∩ HC-S03 (tipo por defecto según TipoSesion cuando no hay requisito).
   espaciosDisponibles = computed(() => {
     const tipo = this.tipoSesion();
     if (tipo === 'TeoriaVirtual') return [];
+    const grupo = this.data.grupos.find(g => g.id === this.grupoIdSel());
+    const requisito = grupo?.requisitosEspacio?.find(r => r.tipoSesion === tipo);
+    if (requisito?.espacioId) return this.data.espacios.filter(e => e.id === requisito.espacioId);
+    if (requisito?.tipoEspacio) return this.data.espacios.filter(e => e.tipo === (requisito.tipoEspacio === 'Salon' ? 'Salón' : requisito.tipoEspacio));
     return tipo === 'Laboratorio' ? this.data.espacios.filter(e => e.tipo === 'Laboratorio') : this.data.espacios.filter(e => e.tipo !== 'Laboratorio');
   });
 

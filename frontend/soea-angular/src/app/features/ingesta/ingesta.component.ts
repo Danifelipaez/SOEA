@@ -4,7 +4,6 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { CatalogoService } from '../../core/catalogo.service';
 import { EspaciosTabComponent } from './espacios-tab/espacios-tab.component';
-import { GrupoTabComponent } from './grupo-tab/grupo-tab.component';
 import { AsignaturasTabComponent } from './asignaturas-tab/asignaturas-tab.component';
 import { DocentesTabComponent } from './docentes-tab/docentes-tab.component';
 import { AlternanciaTabComponent } from './alternancia-tab/alternancia-tab.component';
@@ -12,7 +11,7 @@ import { AlternanciaTabComponent } from './alternancia-tab/alternancia-tab.compo
 @Component({
   selector: 'app-ingesta',
   standalone: true,
-  imports: [CommonModule, MatTabsModule, EspaciosTabComponent, GrupoTabComponent, AsignaturasTabComponent, DocentesTabComponent, AlternanciaTabComponent],
+  imports: [CommonModule, MatTabsModule, EspaciosTabComponent, AsignaturasTabComponent, DocentesTabComponent, AlternanciaTabComponent],
   template: `
     <div class="cat-head">
       <span class="soea-tag">Paso 1</span>
@@ -30,9 +29,6 @@ import { AlternanciaTabComponent } from './alternancia-tab/alternancia-tab.compo
         </mat-tab>
         <mat-tab label="Espacios">
           <app-espacios-tab></app-espacios-tab>
-        </mat-tab>
-        <mat-tab label="Grupos">
-          <app-grupo-tab></app-grupo-tab>
         </mat-tab>
         <mat-tab label="Alternancia">
           <app-alternancia-tab></app-alternancia-tab>

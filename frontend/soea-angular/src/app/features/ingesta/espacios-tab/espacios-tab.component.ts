@@ -6,12 +6,9 @@ import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
 import { CatalogoService } from '../../../core/catalogo.service';
 import { mensajeErrorHttp } from '../../../core/http-error.util';
-import { GuardadoResultadoDialogComponent } from '../../../shared/guardado-resultado-dialog/guardado-resultado-dialog.component';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { Espacio } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { forkJoin, of } from 'rxjs';
-import { map, catchError } from 'rxjs/operators';
 
 type TipoEspacio = 'Salón' | 'Laboratorio' | 'Auditorio';
 
@@ -34,8 +31,6 @@ type TipoEspacio = 'Salón' | 'Laboratorio' | 'Auditorio';
           <span class="text-muted count">{{ filtered().length }} espacios</span>
         </div>
         <div class="actions">
-          <button class="btn btn-secondary" (click)="cargarDesdeBD()" [disabled]="saving()">Cargar BD</button>
-          <button class="btn btn-secondary" (click)="guardarEnBD()" [disabled]="saving()">{{ saving() ? 'Guardando…' : 'Guardar en BD' }}</button>
           <button class="btn btn-primary" (click)="openDialog()">＋ Nuevo espacio</button>
         </div>
       </div>
@@ -84,7 +79,6 @@ export class EspaciosTabComponent {
 
   filterStr = signal('');
   tipoFiltro = signal<'Todos' | TipoEspacio>('Todos');
-  saving = signal(false);
 
   filtered = computed(() => {
     const f = this.filterStr().toLowerCase();
@@ -105,13 +99,11 @@ export class EspaciosTabComponent {
     const dialogRef = this.dialog.open(EspacioDialogComponent, { width: '320px', data: espacio });
     dialogRef.afterClosed().subscribe(result => {
       if (!result) return;
-      if (espacio) {
-        this.state.updateEspacio({ ...espacio, ...result });
-        this.snackBar.open('Espacio actualizado', '', { duration: 2500 });
-      } else {
-        this.state.addEspacio({ id: crypto.randomUUID(), ...result });
-        this.snackBar.open('Espacio agregado', '', { duration: 2500 });
-      }
+      const entidad: Espacio = espacio ? { ...espacio, ...result } : { id: crypto.randomUUID(), ...result };
+      this.catalogo.guardar('espacio', entidad).subscribe({
+        next: () => this.snackBar.open(espacio ? 'Espacio actualizado' : 'Espacio agregado', '', { duration: 2500 }),
+        error: (err) => this.snackBar.open(`Error al guardar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 4000 })
+      });
     });
   }
 
@@ -145,45 +137,6 @@ export class EspaciosTabComponent {
     });
   }
 
-  guardarEnBD() {
-    const espacios = this.state.espacios();
-    if (!espacios.length) { this.snackBar.open('No hay espacios para guardar.', '', { duration: 2500 }); return; }
-    this.saving.set(true);
-    const calls$ = espacios.map(e =>
-      this.persistencia.actualizarEspacio(e).pipe(
-        map(() => { this.catalogo.marcarEnBd('espacio', e.id); return { ok: true, nombre: e.nombre, tipo: 'actualizado' as const }; }),
-        catchError(err => {
-          if (err.status === 404) {
-            return this.persistencia.guardarEspacio(e).pipe(
-              map(() => { this.catalogo.marcarEnBd('espacio', e.id); return { ok: true, nombre: e.nombre, tipo: 'nuevo' as const }; }),
-              catchError(() => of({ ok: false, nombre: e.nombre, tipo: 'nuevo' as const }))
-            );
-          }
-          return of({ ok: false, nombre: e.nombre, tipo: 'actualizado' as const });
-        })
-      )
-    );
-    forkJoin(calls$).subscribe(results => {
-      this.saving.set(false);
-      this.dialog.open(GuardadoResultadoDialogComponent, {
-        width: '340px',
-        data: {
-          entidad: 'espacios',
-          nuevos: results.filter(r => r.ok && r.tipo === 'nuevo').map(r => r.nombre),
-          actualizados: results.filter(r => r.ok && r.tipo === 'actualizado').map(r => r.nombre),
-          errores: results.filter(r => !r.ok).map(r => r.nombre)
-        }
-      });
-    });
-  }
-
-  cargarDesdeBD() {
-    this.saving.set(true);
-    this.catalogo.cargarTodo().subscribe({
-      next: (resumen) => { this.saving.set(false); this.snackBar.open(`${resumen.espacios} espacio(s) cargados.`, '', { duration: 3000 }); },
-      error: () => { this.saving.set(false); this.snackBar.open('Error al cargar desde la BD.', 'Cerrar', { duration: 4000 }); }
-    });
-  }
 }
 
 // ─── Popup: Crear/Editar espacio (REQUISITOS §1.3) ────────────────────────────

@@ -1,17 +1,15 @@
 import { Component, inject, computed, signal } from '@angular/core';
-import { CommonModule, TitleCasePipe } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormsModule, FormBuilder, Validators, FormGroup } from '@angular/forms';
 import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
 import { CatalogoService } from '../../../core/catalogo.service';
 import { mensajeErrorHttp } from '../../../core/http-error.util';
-import { GuardadoResultadoDialogComponent } from '../../../shared/guardado-resultado-dialog/guardado-resultado-dialog.component';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { Docente } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { forkJoin, of } from 'rxjs';
-import { map, catchError } from 'rxjs/operators';
+import { DisponibilidadEditorComponent, FranjaOption } from '../../../shared/disponibilidad-editor/disponibilidad-editor.component';
 
 @Component({
   selector: 'app-docentes-tab',
@@ -25,8 +23,6 @@ import { map, catchError } from 'rxjs/operators';
           <span class="text-muted count">{{ filtered().length }} docentes</span>
         </div>
         <div class="actions">
-          <button class="btn btn-secondary" (click)="cargarDesdeBD()" [disabled]="saving()">Cargar BD</button>
-          <button class="btn btn-secondary" (click)="guardarEnBD()" [disabled]="saving()">{{ saving() ? 'Guardando…' : 'Guardar en BD' }}</button>
           <button class="btn btn-secondary" (click)="detectarDuplicados()" [disabled]="saving()">Revisar duplicados</button>
           <button class="btn btn-primary" (click)="openDialog()">＋ Nuevo docente</button>
         </div>
@@ -113,13 +109,11 @@ export class DocentesTabComponent {
     const dialogRef = this.dialog.open(DocenteDialogComponent, { width: '620px', maxWidth: '95vw', data: docente });
     dialogRef.afterClosed().subscribe(result => {
       if (!result) return;
-      if (docente) {
-        this.state.updateDocente({ ...docente, ...result });
-        this.snackBar.open('Docente actualizado', '', { duration: 2500 });
-      } else {
-        this.state.addDocente({ id: crypto.randomUUID(), ...result });
-        this.snackBar.open('Docente agregado', '', { duration: 2500 });
-      }
+      const entidad: Docente = docente ? { ...docente, ...result } : { id: crypto.randomUUID(), ...result };
+      this.catalogo.guardar('docente', entidad).subscribe({
+        next: () => this.snackBar.open(docente ? 'Docente actualizado' : 'Docente agregado', '', { duration: 2500 }),
+        error: (err) => this.snackBar.open(`Error al guardar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 4000 })
+      });
     });
   }
 
@@ -153,38 +147,6 @@ export class DocentesTabComponent {
     });
   }
 
-  guardarEnBD() {
-    const docentes = this.state.docentes();
-    if (!docentes.length) { this.snackBar.open('No hay docentes para guardar.', '', { duration: 2500 }); return; }
-    this.saving.set(true);
-    const calls$ = docentes.map(d =>
-      this.persistencia.actualizarDocente(d).pipe(
-        map(updated => { this.state.updateDocente(updated); this.catalogo.marcarEnBd('docente', updated.id); return { ok: true, nombre: d.nombre, tipo: 'actualizado' as const }; }),
-        catchError(err => {
-          if (err.status === 404) {
-            return this.persistencia.guardarDocente(d).pipe(
-              map(created => { this.catalogo.marcarEnBd('docente', created.id); this.state.updateDocente(created); return { ok: true, nombre: d.nombre, tipo: 'nuevo' as const }; }),
-              catchError(() => of({ ok: false, nombre: d.nombre, tipo: 'nuevo' as const }))
-            );
-          }
-          return of({ ok: false, nombre: d.nombre, tipo: 'actualizado' as const });
-        })
-      )
-    );
-    forkJoin(calls$).subscribe(results => {
-      this.saving.set(false);
-      this.dialog.open(GuardadoResultadoDialogComponent, {
-        width: '340px',
-        data: {
-          entidad: 'docentes',
-          nuevos: results.filter(r => r.ok && r.tipo === 'nuevo').map(r => r.nombre),
-          actualizados: results.filter(r => r.ok && r.tipo === 'actualizado').map(r => r.nombre),
-          errores: results.filter(r => !r.ok).map(r => r.nombre)
-        }
-      });
-    });
-  }
-
   detectarDuplicados() {
     this.saving.set(true);
     this.persistencia.detectarDuplicadosDocentes().subscribe({
@@ -211,7 +173,7 @@ export class DocentesTabComponent {
 @Component({
   selector: 'app-docente-dialog',
   standalone: true,
-  imports: [CommonModule, TitleCasePipe, ReactiveFormsModule, MatDialogModule],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, MatDialogModule, DisponibilidadEditorComponent],
   template: `
     <div class="pophd">{{ data ? 'Editar docente' : 'Nuevo docente' }} <i (click)="ref.close()">✕</i></div>
     <div class="popbd" style="max-height:74vh;overflow:auto">
@@ -225,82 +187,40 @@ export class DocentesTabComponent {
       </form>
 
       <h3 class="sec" style="margin-top:4px">Disponibilidad por día</h3>
-      <div class="disp-table">
-        <div class="disp-row hd">
-          <span class="c-dia">Día</span><span class="c-nd">No disp.</span><span class="c-tipo">Franja</span><span class="c-times">Horario</span>
-        </div>
-        <div *ngFor="let dia of dias" class="disp-row">
-          <span class="c-dia">{{ dia | titlecase }}</span>
-          <span class="c-nd">
-            <input type="checkbox" [checked]="getDisp(dia,'noDisponible')"
-                   (change)="setDisp(dia,'noDisponible',$any($event.target).checked)">
-          </span>
-          <span class="c-tipo">
-            <select *ngIf="!getDisp(dia,'noDisponible')" class="input" style="min-height:30px;padding:4px 8px"
-                    [value]="getDisp(dia,'tipo')" (change)="setDisp(dia,'tipo',$any($event.target).value)">
-              <option value="todo">Todo el día (06:00–22:00)</option>
-              <option value="oficina">Oficina (06:00–18:00)</option>
-              <option value="matutino">Matutino (06:00–12:00)</option>
-              <option value="vespertino">Vespertino (12:00–18:00)</option>
-              <option value="nocturno">Nocturno (18:00–22:00)</option>
-              <option value="especifico">Franja específica</option>
-            </select>
-            <span *ngIf="getDisp(dia,'noDisponible')" class="text-muted">—</span>
-          </span>
-          <span class="c-times">
-            <ng-container *ngIf="!getDisp(dia,'noDisponible') && getDisp(dia,'tipo')==='especifico'">
-              <input class="input time" type="time" [value]="getDisp(dia,'desde')" (input)="setDisp(dia,'desde',$any($event.target).value)">
-              <span class="text-muted">–</span>
-              <input class="input time" type="time" [value]="getDisp(dia,'hasta')" (input)="setDisp(dia,'hasta',$any($event.target).value)">
-            </ng-container>
-            <span *ngIf="!getDisp(dia,'noDisponible') && getDisp(dia,'tipo')!=='especifico'" class="text-muted">{{ tipoLabel(dia) }}</span>
-            <span *ngIf="getDisp(dia,'noDisponible')" class="text-muted">—</span>
-          </span>
-        </div>
-      </div>
+      <app-disponibilidad-editor [opciones]="opcionesFranja" [legacyMap]="legacyMap"
+        [ngModel]="disponibilidad()" (ngModelChange)="disponibilidad.set($event)"></app-disponibilidad-editor>
 
       <div class="popfoot">
         <button type="button" class="btn btn-secondary" (click)="ref.close()">Cancelar</button>
         <button type="button" class="btn btn-primary" [disabled]="form.invalid" (click)="save()">Guardar</button>
       </div>
     </div>
-  `,
-  styles: [`
-    .disp-table { border: 1px solid var(--color-divider); }
-    .disp-row { display: flex; gap: 8px; align-items: center; padding: 7px 11px; border-top: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); min-height: 44px; }
-    .disp-row.hd { border-top: 0; background: var(--color-neutral-100); font: 600 10px var(--font-heading); letter-spacing: .08em; text-transform: uppercase; color: var(--color-neutral-600); min-height: 32px; }
-    .c-dia { width: 82px; font-size: 13px; }
-    .c-nd { width: 60px; display: flex; justify-content: center; }
-    .c-tipo { width: 200px; }
-    .c-times { flex: 1; display: flex; gap: 6px; align-items: center; font-size: 12.5px; }
-    .time { width: 96px; min-height: 30px; padding: 3px 6px; }
-  `]
+  `
 })
 export class DocenteDialogComponent {
   fb = inject(FormBuilder);
   ref = inject(MatDialogRef<DocenteDialogComponent>);
   data = inject(MAT_DIALOG_DATA);
 
-  dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
   form: FormGroup;
-  disp: Record<string, any> = {};
+  disponibilidad = signal<Record<string, any>>(this.data?.disponibilidad ?? {});
+
+  readonly opcionesFranja: FranjaOption[] = [
+    { value: 'todo', label: 'Todo el día (06:00–22:00)' },
+    { value: 'oficina', label: 'Horario de oficina (06:00–18:00)' },
+    { value: 'matutino', label: 'Matutino (06:00–12:00)' },
+    { value: 'vespertino', label: 'Vespertino (12:00–18:00)' },
+    { value: 'nocturno', label: 'Nocturno (18:00–22:00)' }
+  ];
+  // Variantes de texto que ya no coinciden con los labels vigentes (horarios históricos de Excel).
+  readonly legacyMap: Record<string, string> = {
+    'Todo el día': 'todo',
+    'Matutino (06:00–13:00)': 'matutino',
+    'Vespertino (13:00–19:00)': 'vespertino',
+    'Nocturno (19:00–22:00)': 'nocturno'
+  };
 
   constructor() {
-    const generalToTipo: Record<string, string> = {
-      'Todo el día': 'todo', 'Todo el día (06:00–22:00)': 'todo',
-      'Horario de oficina (06:00–18:00)': 'oficina',
-      'Matutino (06:00–12:00)': 'matutino', 'Matutino (06:00–13:00)': 'matutino',
-      'Vespertino (12:00–18:00)': 'vespertino', 'Vespertino (13:00–19:00)': 'vespertino',
-      'Nocturno (18:00–22:00)': 'nocturno', 'Nocturno (19:00–22:00)': 'nocturno'
-    };
-    this.dias.forEach(dia => {
-      const d = this.data?.disponibilidad?.[dia] ?? {};
-      const tipoRaw = d.tipo ?? 'todo';
-      let tipo = tipoRaw;
-      if (tipoRaw === 'Franja específica') tipo = 'especifico';
-      else if (tipoRaw === 'Franja general') tipo = generalToTipo[d.franjaGeneral] ?? 'todo';
-      this.disp[dia] = { noDisponible: d.noDisponible ?? false, tipo, desde: d.desde ?? '06:00', hasta: d.hasta ?? '22:00' };
-    });
     this.form = this.fb.group({
       nombre: [this.data?.nombre ?? '', Validators.required],
       cedula: [this.data?.cedula ?? ''],
@@ -308,36 +228,9 @@ export class DocenteDialogComponent {
     });
   }
 
-  getDisp(dia: string, field: string): any { return this.disp[dia]?.[field]; }
-  setDisp(dia: string, field: string, value: any): void { this.disp[dia] = { ...this.disp[dia], [field]: value }; }
-
-  tipoLabel(dia: string): string {
-    switch (this.disp[dia]?.tipo) {
-      case 'todo': return '06:00 – 22:00';
-      case 'oficina': return '06:00 – 18:00';
-      case 'matutino': return '06:00 – 12:00';
-      case 'vespertino': return '12:00 – 18:00';
-      case 'nocturno': return '18:00 – 22:00';
-      default: return '';
-    }
-  }
-
   save() {
     if (this.form.invalid) return;
-    const disponibilidad: Record<string, any> = {};
-    this.dias.forEach(dia => {
-      const d = this.disp[dia];
-      if (d.noDisponible) { disponibilidad[dia] = { noDisponible: true }; }
-      else if (d.tipo === 'especifico') { disponibilidad[dia] = { noDisponible: false, tipo: 'Franja específica', desde: d.desde, hasta: d.hasta }; }
-      else {
-        const franjaMap: Record<string, string> = {
-          todo: 'Todo el día (06:00–22:00)', oficina: 'Horario de oficina (06:00–18:00)',
-          matutino: 'Matutino (06:00–12:00)', vespertino: 'Vespertino (12:00–18:00)', nocturno: 'Nocturno (18:00–22:00)'
-        };
-        disponibilidad[dia] = { noDisponible: false, tipo: 'Franja general', franjaGeneral: franjaMap[d.tipo] ?? 'Todo el día (06:00–22:00)' };
-      }
-    });
-    this.ref.close({ ...this.form.value, disponibilidad });
+    this.ref.close({ ...this.form.value, disponibilidad: this.disponibilidad() });
   }
 }
 
