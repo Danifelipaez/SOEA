@@ -1,6 +1,8 @@
 # Mapeo de roles y flujos — rediseño frontend SOEA
 
 > Fecha: 2026-07-16. Complementa `docs/REQUISITOS_FRONTEND.md` (catálogo de endpoints y popups por pantalla); este documento define roles, journey y agrupación por flujo. Es el paso 1 del rediseño acordado: mapeo → sitemap/IA → wireframes → implementación.
+>
+> **Estado (verificado 2026-08-07): las decisiones de este documento ya se ejecutaron en el código.** El frontend real vive hoy en `/catalogo`, `/horario`, `/revisar`, `/publicar` (ver `frontend/soea-angular/README.md`); `/horario-docente` y `dashboard-developer` como pantalla aparte ya no existen en `src/app/`. Este documento sigue siendo la referencia correcta del "por qué" de esas decisiones.
 
 ## Contexto
 
