@@ -92,6 +92,8 @@ builder.Services.AddScoped<GenerarHorarioService>();
 builder.Services.AddScoped<ImportarCurriculumService>();
 // Asignación de docente post-generación (HU-04, Etapa 4)
 builder.Services.AddScoped<AsignarDocenteSesionService>();
+// Petición 13: recálculo mínimo al editar una sesión ya generada
+builder.Services.AddScoped<ReacomodarHorarioService>();
 
 // ── OpenAPI + Controladores ───────────────────────────────────────────────────
 builder.Services.AddControllers()
