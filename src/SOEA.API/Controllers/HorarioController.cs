@@ -11,15 +11,18 @@ namespace SOEA.API.Controllers
     {
         private readonly GenerarHorarioService       _generarService;
         private readonly CrearSesionManualService    _sesionManualService;
+        private readonly ReacomodarHorarioService    _reacomodarService;
         private readonly ILogger<HorarioController>  _logger;
 
         public HorarioController(
             GenerarHorarioService       generarService,
             CrearSesionManualService    sesionManualService,
+            ReacomodarHorarioService    reacomodarService,
             ILogger<HorarioController>  logger)
         {
             _generarService      = generarService;
             _sesionManualService = sesionManualService;
+            _reacomodarService   = reacomodarService;
             _logger              = logger;
         }
 
@@ -118,6 +121,41 @@ namespace SOEA.API.Controllers
                 _logger.LogError(ex, "Error inesperado al crear sesión manual.");
                 return StatusCode(StatusCodes.Status500InternalServerError,
                     new { error = "Error interno al crear la sesión.", detalle = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Petición 13 — mueve una sesión ya generada a un nuevo (día, hora, espacio) sin
+        /// regenerar el horario completo. Solo la sesión editada y las que ahora chocan con ella
+        /// se recalculan; el resto del horario no se mueve.
+        /// </summary>
+        [HttpPost("reacomodar")]
+        [ProducesResponseType(typeof(ReacomodarHorarioResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ReacomodarHorarioResponse), StatusCodes.Status422UnprocessableEntity)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> Reacomodar([FromBody] ReacomodarHorarioRequest request, CancellationToken ct)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            try
+            {
+                var resultado = await _reacomodarService.EjecutarAsync(request, ct);
+                return resultado.EsFactible ? Ok(resultado) : UnprocessableEntity(resultado);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error inesperado al reacomodar el horario.");
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    new { error = "Error interno al reacomodar el horario.", detalle = ex.Message });
             }
         }
     }

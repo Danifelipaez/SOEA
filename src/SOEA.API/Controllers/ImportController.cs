@@ -20,21 +20,15 @@ namespace SOEA.API.Controllers
         private readonly ImportarCurriculumService _importService;
         private readonly ILectorExcel _lectorExcel;
         private readonly IBloqueTiempoRepositorio _bloques;
-        private readonly IFacultadRepositorio _facultades;
-        private readonly IProgramaRepositorio _programas;
 
         public ImportController(
             ImportarCurriculumService importService,
             ILectorExcel lectorExcel,
-            IBloqueTiempoRepositorio bloques,
-            IFacultadRepositorio facultades,
-            IProgramaRepositorio programas)
+            IBloqueTiempoRepositorio bloques)
         {
             _importService = importService;
             _lectorExcel   = lectorExcel;
             _bloques       = bloques;
-            _facultades    = facultades;
-            _programas     = programas;
         }
 
         /// <summary>
@@ -94,18 +88,6 @@ namespace SOEA.API.Controllers
                 Advertencias            = stats.Advertencias
             });
         }
-
-        [HttpGet("/api/facultades")]
-        public async Task<IActionResult> GetFacultades()
-            => Ok((await _facultades.GetAllAsync())
-                .OrderBy(f => f.Nombre)
-                .Select(f => new { id = f.Id.ToString(), nombre = f.Nombre }));
-
-        [HttpGet("/api/programas")]
-        public async Task<IActionResult> GetProgramas()
-            => Ok((await _programas.GetAllAsync())
-                .OrderBy(p => p.Nombre)
-                .Select(p => new { id = p.Id.ToString(), nombre = p.Nombre, facultadId = p.FacultadId.ToString() }));
 
         /// <summary>
         /// Recibe la jerarquía curricular en JSON con IDs temporales del cliente
