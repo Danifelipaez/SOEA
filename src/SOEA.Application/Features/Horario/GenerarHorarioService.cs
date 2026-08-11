@@ -310,34 +310,7 @@ namespace SOEA.Application.Features.Horario
             logs.Add($"[INFO] Pipeline total ejecutado en {stopwatch.ElapsedMilliseconds}ms.");
 
             // ── 6. Mapear asignaciones al DTO de respuesta (una DTO por semana) ─
-            var sesionPorId = sesionesColoreadas.ToDictionary(s => s.Id);
-            // Lab de origen por sesión = espacio de su asignación presencial. Permite al frontend
-            // ubicar la fila virtual (EspacioId=null) en el laboratorio donde la sesión es presencial.
-            var espacioHogarPorSesion = asignaciones
-                .Where(a => a.Modalidad == Modalidad.Presencial && a.EspacioId.HasValue)
-                .GroupBy(a => a.SesionId)
-                .ToDictionary(g => g.Key, g => g.First().EspacioId!.Value.ToString());
-
-            // Petición 8: una teoría virtual nunca tiene asignación presencial (nunca alterna) — sin
-            // este fallback su fila queda sin hogar y desaparece de una grilla orientada a espacios.
-            // Se rellena desde el requisito de espacio del grupo (A2), si declaró uno concreto.
-            var requisitosPorGrupoDto = grupos.GroupBy(g => g.Id).ToDictionary(g => g.Key, g => g.First().RequisitosEspacio);
-            foreach (var sesion in sesionesColoreadas)
-            {
-                if (espacioHogarPorSesion.ContainsKey(sesion.Id)) continue;
-                if (!sesion.GrupoId.HasValue || !requisitosPorGrupoDto.TryGetValue(sesion.GrupoId.Value, out var reqs)) continue;
-                var requisito = reqs.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion));
-                if (requisito?.EspacioId is Guid espacioHogar)
-                    espacioHogarPorSesion[sesion.Id] = espacioHogar.ToString();
-            }
-
-            var bloquePorId = bloques.ToDictionary(b => b.Id);
-            var sesionesDto = asignaciones
-                .Where(a => sesionPorId.ContainsKey(a.SesionId))
-                .Select(a => MapearSesionDto(
-                    a, sesionPorId[a.SesionId], bloquePorId,
-                    espacioHogarPorSesion.GetValueOrDefault(a.SesionId)))
-                .ToList();
+            var sesionesDto = ConstruirSesionesDto(sesionesColoreadas, asignaciones, grupos, bloques);
 
             return new GenerarHorarioResponse
             {
@@ -406,8 +379,9 @@ namespace SOEA.Application.Features.Horario
                     _                => TipoAlternancia.SinAlternancia
                 };
 
+                var id = Guid.TryParse(dto.Id, out var sid) ? sid : Guid.NewGuid();
                 var sesion = new Sesion(
-                    id: Guid.NewGuid(),
+                    id: id,
                     asignaturaId: asigId,
                     docenteId: null,
                     bloqueId: bloque.Id,
@@ -560,7 +534,49 @@ namespace SOEA.Application.Features.Horario
         /// </summary>
         private static List<BloqueTiempo> GenerarBloquesTiempo() => GrillaInstitucional.GenerarBloques();
 
-        private static SesionGeneradaDto MapearSesionDto(
+        /// <summary>
+        /// Mapea sesiones + asignaciones al DTO de respuesta, con el hogar de espacio de la
+        /// petición 8 (teoría virtual sin espacio propio hereda el requisito de espacio del grupo).
+        /// internal (no private): reutilizado por <see cref="ReacomodarHorarioService"/> para
+        /// devolver el horario refrescado tras un movimiento parcial (P5).
+        /// </summary>
+        internal static List<SesionGeneradaDto> ConstruirSesionesDto(
+            IReadOnlyList<Sesion> sesiones,
+            IReadOnlyList<AsignacionSemanal> asignaciones,
+            IReadOnlyList<Grupo> grupos,
+            IReadOnlyList<BloqueTiempo> bloques)
+        {
+            var sesionPorId = sesiones.ToDictionary(s => s.Id);
+            // Lab de origen por sesión = espacio de su asignación presencial. Permite al frontend
+            // ubicar la fila virtual (EspacioId=null) en el laboratorio donde la sesión es presencial.
+            var espacioHogarPorSesion = asignaciones
+                .Where(a => a.Modalidad == Modalidad.Presencial && a.EspacioId.HasValue)
+                .GroupBy(a => a.SesionId)
+                .ToDictionary(g => g.Key, g => g.First().EspacioId!.Value.ToString());
+
+            // Petición 8: una teoría virtual nunca tiene asignación presencial (nunca alterna) — sin
+            // este fallback su fila queda sin hogar y desaparece de una grilla orientada a espacios.
+            // Se rellena desde el requisito de espacio del grupo (A2), si declaró uno concreto.
+            var requisitosPorGrupoDto = grupos.GroupBy(g => g.Id).ToDictionary(g => g.Key, g => g.First().RequisitosEspacio);
+            foreach (var sesion in sesiones)
+            {
+                if (espacioHogarPorSesion.ContainsKey(sesion.Id)) continue;
+                if (!sesion.GrupoId.HasValue || !requisitosPorGrupoDto.TryGetValue(sesion.GrupoId.Value, out var reqs)) continue;
+                var requisito = reqs.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion));
+                if (requisito?.EspacioId is Guid espacioHogar)
+                    espacioHogarPorSesion[sesion.Id] = espacioHogar.ToString();
+            }
+
+            var bloquePorId = bloques.ToDictionary(b => b.Id);
+            return asignaciones
+                .Where(a => sesionPorId.ContainsKey(a.SesionId))
+                .Select(a => MapearSesionDto(
+                    a, sesionPorId[a.SesionId], bloquePorId,
+                    espacioHogarPorSesion.GetValueOrDefault(a.SesionId)))
+                .ToList();
+        }
+
+        internal static SesionGeneradaDto MapearSesionDto(
             AsignacionSemanal a, Sesion s, IReadOnlyDictionary<Guid, BloqueTiempo> bloquePorId, string? espacioIdHogar)
         {
             bloquePorId.TryGetValue(a.BloqueTiempoId, out var bloque);
@@ -659,7 +675,7 @@ namespace SOEA.Application.Features.Horario
             _                  => TipoSesion.TeoriaPresencial
         };
 
-        private static string DiaToString(DiaDeSemana dia) => dia switch
+        internal static string DiaToString(DiaDeSemana dia) => dia switch
         {
             DiaDeSemana.Lunes     => "lunes",
             DiaDeSemana.Martes    => "martes",

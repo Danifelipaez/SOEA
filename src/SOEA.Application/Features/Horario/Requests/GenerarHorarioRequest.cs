@@ -37,6 +37,8 @@ namespace SOEA.Application.Features.Horario.Requests
 
     public class SesionFijaDto
     {
+        /// <summary>Id de la sesión de origen (p. ej. una editada en la vista de horario). Vacío/no-guid → se genera uno nuevo.</summary>
+        public string? Id           { get; set; }
         public string  AsignaturaId { get; set; } = string.Empty;
         public string  DocenteId    { get; set; } = string.Empty;
         public string? EspacioId    { get; set; }

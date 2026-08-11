@@ -179,7 +179,8 @@ namespace SOEA.Application.Features.Horario
                 _             => TipoFlujo.AulaVirtual   // default: teoría
             };
 
-        private static List<AsignacionSemanal> CrearAsignaciones(Sesion sesion, Guid bloqueId)
+        /// <summary>internal (no private): reutilizado por <see cref="ReacomodarHorarioService"/> (P5) para reconstruir las 2 filas A/B tras mover una sesión.</summary>
+        internal static List<AsignacionSemanal> CrearAsignaciones(Sesion sesion, Guid bloqueId)
         {
             Modalidad ModalidadParaSemana(SemanaAcademica s) => ModalidadSemanal.Derivar(sesion, s);
 
@@ -195,7 +196,8 @@ namespace SOEA.Application.Features.Horario
             };
         }
 
-        private static DiaDeSemana? MapearDia(string dia) =>
+        /// <summary>internal (no private): reutilizado por <see cref="ReacomodarHorarioService"/> (P5).</summary>
+        internal static DiaDeSemana? MapearDia(string dia) =>
             dia.ToLowerInvariant().Trim() switch
             {
                 "lunes"     => DiaDeSemana.Lunes,
