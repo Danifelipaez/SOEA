@@ -19,6 +19,7 @@ export interface ConfiguracionAlgoritmoApiDto {
 }
 
 export interface SesionFijaApiDto {
+  id?: string;
   asignaturaId: string;
   docenteId?: string;
   espacioId?: string;
@@ -65,7 +66,6 @@ export interface AsignaturaApiDto {
   programaId?: string;
   /** TipoA | TipoB | SinAlternancia — solo aplica al track de laboratorio. */
   alternancia?: string;
-  espacioFijoId?: string;
   /** Prioridad de presencialidad (SC-PRES): 'Obligatoria' | 'Optativa' | 'Electiva'. */
   categoria?: string;
   /** Candidata a ceder a alternancia si el algoritmo agota el espacio físico (cesión por saturación de espacio). */
@@ -106,6 +106,21 @@ export interface GenerarHorarioResponse {
   sesiones: (Omit<Sesion, 'alternancia' | 'semana'> & { alternancia: string; semana?: string })[];
 }
 
+export interface ReacomodarHorarioRequest {
+  horarioId: string;
+  sesionEditadaId: string;
+  dia: string;
+  horaInicio: string;
+  espacioId?: string;
+}
+
+export interface ReacomodarHorarioResponse {
+  esFactible: boolean;
+  mensajeError?: string;
+  advertencias: string[];
+  sesiones: (Omit<Sesion, 'alternancia' | 'semana'> & { alternancia: string; semana?: string })[];
+}
+
 // ── Servicio ───────────────────────────────────────────────────────────────────
 
 @Injectable({ providedIn: 'root' })
@@ -130,6 +145,7 @@ export class HorarioApiService {
     grupos?: Grupo[]
   ): Observable<GenerarHorarioResponse> {
     const sesionesFijas: SesionFijaApiDto[] | undefined = base?.sesiones.map(s => ({
+      id:           s.id,
       asignaturaId: s.asignaturaId,
       docenteId:    s.docenteId,
       espacioId:    s.espacioId,
@@ -177,7 +193,6 @@ export class HorarioApiService {
         horasLaboratorio: a.horasLaboratorio,
         programaId: a.programaId,
         alternancia: a.alternancia,
-        espacioFijoId: a.espacioFijoId,
         categoria: a.categoria,
         esCandidataAlternancia: a.esCandidataAlternancia
       })),
@@ -197,6 +212,16 @@ export class HorarioApiService {
 
     return this.http
       .post<GenerarHorarioResponse>(`${this.apiBase}/horario/generar`, body)
+      .pipe(catchError(this.manejarError));
+  }
+
+  /**
+   * Petición 13: mueve una sesión ya generada a un nuevo (día, hora, espacio) sin regenerar el
+   * horario completo. El backend recalcula solo la sesión editada y las que ahora chocan con ella.
+   */
+  reacomodar(request: ReacomodarHorarioRequest): Observable<ReacomodarHorarioResponse> {
+    return this.http
+      .post<ReacomodarHorarioResponse>(`${this.apiBase}/horario/reacomodar`, request)
       .pipe(catchError(this.manejarError));
   }
 

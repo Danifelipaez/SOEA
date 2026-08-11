@@ -26,6 +26,16 @@ export interface Docente {
   disponibilidad: any; // { lunes: { noDisponible, tipo, franjaGeneral, desde, hasta }, ... }
 }
 
+/** Requisito de espacio de un grupo por tipo de sesión (HC-S03/HC-S05). Reemplaza a
+ *  Asignatura.espacioFijoId — ahora vive por grupo y por tipo de sesión. */
+export interface RequisitoEspacio {
+  tipoSesion: 'TeoriaPresencial' | 'TeoriaVirtual' | 'Laboratorio';
+  /** Espacio concreto exigido. Ausente = cualquier espacio de tipoEspacio. */
+  espacioId?: string;
+  tipoEspacio: 'Salon' | 'Laboratorio' | 'Auditorio';
+  sesiones: number;
+}
+
 export interface Grupo {
   id: string;
   /** Asignatura a la que pertenece el grupo. Requerido en creación — invariante de dominio. */
@@ -38,6 +48,7 @@ export interface Grupo {
   docenteId?: string;
   codigo?: string;
   disponibilidadUiJson?: string; // JSON crudo por día que envía/recibe la API
+  requisitosEspacio?: RequisitoEspacio[];
 }
 
 /**
@@ -68,7 +79,7 @@ export interface Asignatura {
   sesionesLaboratorioSemestre: number;
   programaId: string;
   // Fase 2: el docente ya no vive en la asignatura, sino en el Grupo (Grupo.docenteId).
-  espacioFijoId?: string;    // Espacio requerido (opcional)
+  // El requisito de espacio tampoco vive aquí: ver Grupo.requisitosEspacio.
   /** Candidata a ceder a alternancia si el algoritmo agota el espacio físico (cesión por saturación de espacio). */
   esCandidataAlternancia?: boolean;
 }
