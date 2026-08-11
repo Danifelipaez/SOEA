@@ -4,6 +4,7 @@ using System.Linq;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Services;
+using SOEA.Domain.ValueObjects;
 
 namespace SOEA.Engine.Genetic
 {
@@ -11,11 +12,10 @@ namespace SOEA.Engine.Genetic
     /// Asigna aulas a las sesiones presenciales DESPUÉS de que el GA fijó los inicios.
     /// Como los inicios son fijos, el problema se reduce a un coloreo de intervalos por
     /// (espacio, semana): greedy por inicio = óptimo para intervalos. Garantiza HC-S01
-    /// (no dos sesiones presenciales solapadas en el mismo aula/semana), HC-S03 (si la
-    /// sesión requiere laboratorio, el aula es laboratorio), HC-S05 (espacio fijo de la
-    /// asignatura: si la sesión trae EspacioId y ese espacio existe, es el único candidato)
-    /// y HC-CAP (aforo: Capacidad ≥ estudiantes inscritos del grupo) — los mismos filtros
-    /// de candidatos que CP-SAT aplica en Fase 2.
+    /// (no dos sesiones presenciales solapadas en el mismo aula/semana), HC-S03/HC-S05
+    /// (tipo/espacio fijo, vía <see cref="CalculadorEspaciosSesion"/> — A2) y HC-CAP
+    /// (aforo: Capacidad ≥ estudiantes inscritos del grupo) — los mismos filtros de
+    /// candidatos que CP-SAT aplica en Fase 2.
     ///
     /// Devuelve un mapa (sesionId, semana) → espacioId para las semanas presenciales, o
     /// <c>null</c> si NO existe asignación factible (el orquestador hará fallback a Fase 2).
@@ -29,7 +29,8 @@ namespace SOEA.Engine.Genetic
             int[] duracionPorSesion,
             IReadOnlyList<Espacio> espacios,
             DiaDeSemana[] diaPorIdx,
-            IReadOnlyDictionary<Guid, int>? estudiantesPorGrupo = null)
+            IReadOnlyDictionary<Guid, int>? estudiantesPorGrupo = null,
+            IReadOnlyDictionary<Guid, List<RequisitoEspacio>>? requisitosPorGrupo = null)
         {
             var resultado = new Dictionary<(Guid, SemanaAcademica), Guid>();
             if (espacios.Count == 0)
@@ -60,7 +61,7 @@ namespace SOEA.Engine.Genetic
                     int dur   = duracionPorSesion[i];
 
                     int asignado = -1;
-                    foreach (var e in CandidatosDe(sesiones[i], espacios, estudiantesPorGrupo))
+                    foreach (var e in CandidatosDe(sesiones[i], espacios, estudiantesPorGrupo, requisitosPorGrupo))
                     {
                         var ocupados = ocupacion.TryGetValue(e, out var lista) ? lista : null;
                         bool libre = ocupados == null ||
@@ -80,41 +81,27 @@ namespace SOEA.Engine.Genetic
         }
 
         /// <summary>
-        /// Índices de espacios candidatos para una sesión, con los mismos filtros que CP-SAT:
-        /// HC-S05 (espacio fijo existente ⇒ único candidato), HC-S03 (laboratorio ⇒ solo labs)
-        /// y HC-CAP (aforo ≥ estudiantes del grupo).
+        /// Índices de espacios candidatos para una sesión: HC-S05 + HC-S03 vía
+        /// <see cref="CalculadorEspaciosSesion.Candidatos"/> (misma fuente que CP-SAT — A2),
+        /// más HC-CAP (aforo ≥ estudiantes del grupo).
         /// </summary>
         private static IEnumerable<int> CandidatosDe(
             Sesion sesion,
             IReadOnlyList<Espacio> espacios,
-            IReadOnlyDictionary<Guid, int>? estudiantesPorGrupo)
+            IReadOnlyDictionary<Guid, int>? estudiantesPorGrupo,
+            IReadOnlyDictionary<Guid, List<RequisitoEspacio>>? requisitosPorGrupo)
         {
             int estudiantes = sesion.GrupoId.HasValue && estudiantesPorGrupo != null &&
                 estudiantesPorGrupo.TryGetValue(sesion.GrupoId.Value, out var n) ? n : 0;
 
-            // HC-S05: espacio fijo → único candidato si existe en la lista (mismo criterio que CP-SAT).
-            if (sesion.EspacioId.HasValue)
-            {
-                for (int e = 0; e < espacios.Count; e++)
-                {
-                    if (espacios[e].Id != sesion.EspacioId.Value) continue;
-                    if (estudiantes > 0 && espacios[e].Capacidad < estudiantes) yield break; // HC-CAP
+            RequisitoEspacio? requisito = sesion.GrupoId.HasValue && requisitosPorGrupo != null &&
+                requisitosPorGrupo.TryGetValue(sesion.GrupoId.Value, out var reqs)
+                ? reqs.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion))
+                : null;
+
+            foreach (var e in CalculadorEspaciosSesion.Candidatos(sesion, espacios, requisito))
+                if (estudiantes == 0 || espacios[e].Capacidad >= estudiantes) // HC-CAP
                     yield return e;
-                    yield break;
-                }
-                // El espacio fijo no está en la lista: cae al filtrado normal (igual que CP-SAT).
-            }
-
-            bool requiereLab = RequiereLaboratorio(sesion);
-            for (int e = 0; e < espacios.Count; e++)
-            {
-                if (requiereLab && espacios[e].Tipo != TipoEspacio.Laboratorio) continue;   // HC-S03
-                if (estudiantes > 0 && espacios[e].Capacidad < estudiantes) continue;        // HC-CAP
-                yield return e;
-            }
         }
-
-        /// <summary>HC-S03 (mismo criterio que CP-SAT): la sesión requiere laboratorio si y solo si su TipoFlujo lo es.</summary>
-        private static bool RequiereLaboratorio(Sesion sesion) => sesion.TipoFlujo == TipoFlujo.Laboratorio;
     }
 }

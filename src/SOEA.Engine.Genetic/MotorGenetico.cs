@@ -17,9 +17,9 @@ namespace SOEA.Engine.Genetic
     /// <c>Start</c> (Semana A) y <c>StartB</c> (Semana B). Para TipoA/TipoB ambos coinciden
     /// siempre (regla 9 / ALT-05); para SinAlternancia pueden diferir (ALT-06).
     /// Las restricciones duras se preservan así:
-    ///   - HC-G01 (disponibilidad de grupo): los operadores solo eligen inicios en la franja
-    ///     declarada por el grupo (Matutino / Vespertino). El docente NO restringe el dominio.
-    ///   - HC-S01/S03 (aulas): pase determinista posterior con los inicios ya fijados, por semana.
+    ///   - HC-G01 (disponibilidad de grupo): los operadores solo eligen inicios dentro de la
+    ///     disponibilidad declarada por el grupo, por día. El docente NO restringe el dominio.
+    ///   - HC-S01/S03/S05 (aulas): pase determinista posterior con los inicios ya fijados, por semana.
     ///   - HC-I03 (horas semanales): invariante (el GA no cambia duraciones; docente se asigna post-gen).
     /// Si el mejor cromosoma no es factible (aulas no asignables), hace FALLBACK a las asignaciones
     /// de Fase 2 — nunca devuelve un horario peor o inválido.
@@ -175,8 +175,14 @@ namespace SOEA.Engine.Genetic
                 .GroupBy(gr => gr.Id)
                 .ToDictionary(gr => gr.Key, gr => gr.First().EstudiantesInscritos);
 
+            // HC-S03/HC-S05: requisitos de espacio por grupo (A2).
+            var requisitosPorGrupo = (grupos ?? new List<Grupo>())
+                .Where(gr => gr.Id != Guid.Empty)
+                .GroupBy(gr => gr.Id)
+                .ToDictionary(gr => gr.Key, gr => gr.First().RequisitosEspacio);
+
             var aulas = AsignadorEspacios.Asignar(
-                sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx, estudiantesPorGrupo);
+                sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx, estudiantesPorGrupo, requisitosPorGrupo);
             if (aulas is null)
             {
                 _logger.LogWarning("Fase 3: no hay asignación de aulas factible para el mejor cromosoma; fallback a Fase 2.");
@@ -189,32 +195,60 @@ namespace SOEA.Engine.Genetic
             // INVERSO (última cedida primero); cada intento se confirma solo si AsignadorEspacios
             // sigue encontrando una asignación completa para TODAS las sesiones presenciales.
             var sesionesRevertidas = new List<Guid>();
+            // Restaura exactamente el estado cedido previo (mismo criterio que el else-if original:
+            // virtual → VirtualizarSesion; alternada → AplicarAlternancia con su patrón y pareja).
+            static void Deshacer(Sesion s, Modalidad modPrev, TipoAlternancia altPrev, Guid? patPrev, Guid? parPrev)
+            {
+                if (modPrev == Modalidad.Virtual) s.VirtualizarSesion(cedidaPorSaturacion: true);
+                else s.AplicarAlternancia(altPrev, patPrev, cedidaPorSaturacion: true, parejaAlternanciaId: parPrev);
+            }
             if (sesionesCedidasParaRevertir is { Count: > 0 })
             {
                 var sesionPorId = sesiones.ToDictionary(x => x.Id);
+                var yaProcesadas = new HashSet<Guid>();
                 for (int k = sesionesCedidasParaRevertir.Count - 1; k >= 0; k--)
                 {
-                    if (!sesionPorId.TryGetValue(sesionesCedidasParaRevertir[k], out var sesionCedida)) continue;
+                    var id = sesionesCedidasParaRevertir[k];
+                    if (yaProcesadas.Contains(id)) continue;
+                    if (!sesionPorId.TryGetValue(id, out var sesionCedida)) continue;
                     if (!sesionCedida.CedidaPorSaturacion || sesionCedida.Bloqueada) continue;
 
-                    var modalidadPrevia   = sesionCedida.Modalidad;
-                    var alternanciaPrevia = sesionCedida.Alternancia;
-                    var patronPrevio      = sesionCedida.PatronAlternanciaId;
+                    // VERIFICA: revertir una pareja de alternancia (A4) es todo o nada — nunca deja
+                    // a la otra sesión de la pareja huérfana (sin compañera de tipo opuesto).
+                    Sesion? pareja = sesionCedida.ParejaAlternanciaId.HasValue
+                        ? sesiones.FirstOrDefault(s => s.Id != sesionCedida.Id && s.ParejaAlternanciaId == sesionCedida.ParejaAlternanciaId)
+                        : null;
+                    if (pareja is not null && (!pareja.CedidaPorSaturacion || pareja.Bloqueada)) continue;
+
+                    yaProcesadas.Add(sesionCedida.Id);
+                    if (pareja is not null) yaProcesadas.Add(pareja.Id);
+
+                    var (modPrev1, altPrev1, patPrev1, parPrev1) =
+                        (sesionCedida.Modalidad, sesionCedida.Alternancia, sesionCedida.PatronAlternanciaId, sesionCedida.ParejaAlternanciaId);
+                    var (modPrev2, altPrev2, patPrev2, parPrev2) = pareja is null
+                        ? default : (pareja.Modalidad, pareja.Alternancia, pareja.PatronAlternanciaId, pareja.ParejaAlternanciaId);
 
                     if (!sesionCedida.RevertirCesion()) continue;
+                    if (pareja is not null && !pareja.RevertirCesion())
+                    {
+                        sesionCedida.AplicarAlternancia(altPrev1, patPrev1, cedidaPorSaturacion: true, parejaAlternanciaId: parPrev1);
+                        continue;
+                    }
 
                     var aulasTentativas = AsignadorEspacios.Asignar(
-                        sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx, estudiantesPorGrupo);
+                        sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx, estudiantesPorGrupo, requisitosPorGrupo);
 
                     if (aulasTentativas is not null)
                     {
                         aulas = aulasTentativas;
                         sesionesRevertidas.Add(sesionCedida.Id);
+                        if (pareja is not null) sesionesRevertidas.Add(pareja.Id);
                     }
-                    else if (modalidadPrevia == Modalidad.Virtual)
-                        sesionCedida.VirtualizarSesion(cedidaPorSaturacion: true);
                     else
-                        sesionCedida.AplicarAlternancia(alternanciaPrevia, patronPrevio, cedidaPorSaturacion: true);
+                    {
+                        Deshacer(sesionCedida, modPrev1, altPrev1, patPrev1, parPrev1);
+                        if (pareja is not null) Deshacer(pareja, modPrev2, altPrev2, patPrev2, parPrev2);
+                    }
                 }
 
                 if (sesionesRevertidas.Count > 0)
