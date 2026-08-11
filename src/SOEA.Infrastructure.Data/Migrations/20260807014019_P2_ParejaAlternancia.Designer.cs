@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SOEA.Infrastructure.Data.Context;
@@ -11,9 +12,11 @@ using SOEA.Infrastructure.Data.Context;
 namespace SOEA.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(SOEABdContext))]
-    partial class SOEABdContextModelSnapshot : ModelSnapshot
+    [Migration("20260807014019_P2_ParejaAlternancia")]
+    partial class P2_ParejaAlternancia
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -575,8 +578,7 @@ namespace SOEA.Infrastructure.Data.Migrations
 
                     b.Property<string>("MotivoConflicto")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("motivo_conflicto");
+                        .HasColumnType("text");
 
                     b.Property<Guid?>("ParejaAlternanciaId")
                         .HasColumnType("uuid")
