@@ -86,20 +86,14 @@ namespace SOEA.Domain.ValueObjects
         }
 
         /// <summary>
-        /// Reduce la disponibilidad por día a las 2 franjas que hoy entiende
-        /// <see cref="Services.CalculadorDominioSesion"/> (Matutino/Vespertino sobre el inicio).
-        /// Pierde la dimensión "día" — puente hacia P2, que reescribe
-        /// <c>CalculadorDominioSesion.BloquesPermitidos</c> para consumir esta clase directamente.
-        /// Lista vacía = sin restricción (misma semántica que <see cref="FranjaHoraria"/> hoy).
+        /// Reduce la disponibilidad por día a las 2 franjas del modelo legacy
+        /// (Matutino/Vespertino sobre el inicio) que todavía usa <see cref="Entities.Docente"/>
+        /// (su <c>Disponibilidad</c> sigue siendo <c>List&lt;FranjaHoraria&gt;</c> — fuera del
+        /// pipeline de generación, CR-08). <see cref="Services.CalculadorDominioSesion"/> (HC-G01
+        /// de grupo) ya NO pasa por este puente desde P2: consume esta clase directamente vía
+        /// <c>PermiteBloque</c>, con precisión por día. Pierde la dimensión "día" — solo usar para
+        /// Docente. Lista vacía = sin restricción (misma semántica que <see cref="FranjaHoraria"/> hoy).
         /// </summary>
-        /// <remarks>
-        /// ponytail: la ventana fija histórica de "Franja general: Matutino" llega hasta las 13:00
-        /// (ver <see cref="VentanaDe"/>), así que toca la hora 12 y este método reporta también
-        /// Vespertino — HC-G01 queda efectivamente sin restringir para un grupo que declaró
-        /// "Matutino" por el desplegable (no por "Franja específica"). Techo conocido de este
-        /// puente; se cierra en P2 cuando <c>CalculadorDominioSesion</c> consuma esta clase directo
-        /// en vez de esta reducción a 2 franjas.
-        /// </remarks>
         public List<FranjaHoraria> ComoFranjasCoarse()
         {
             var franjas = new List<FranjaHoraria>();
