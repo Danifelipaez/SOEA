@@ -47,33 +47,38 @@ namespace SOEA.Tests.Application.Horario
         public void Cesion_RespetaPrioridadDosNiveles_YBloqueada()
         {
             var grupo = Guid.NewGuid();
-            var asigFiller = Guid.NewGuid(); // Marcada "Elegible" (rank 1), multi: absorbe el resto del exceso
-            var asigEle    = Guid.NewGuid(); // Electiva (rank 0), 2 sesiones: candidata primaria
+            var asigFiller = Guid.NewGuid(); // Marcada "Elegible" (rank 1): sin pareja compatible (dura 8h/2h), no alterna
+            var asigEleA   = Guid.NewGuid(); // Electiva (rank 0), 2 sesiones de 1h: candidata primaria
+            var asigEleB   = Guid.NewGuid(); // Electiva (rank 0), 2 sesiones de 1h: única pareja de espacio/duración compatible con asigEleA
             var asigObl    = Guid.NewGuid(); // Obligatoria, 1 sesión: no matchea ningún criterio, no cede
             var asigBlk    = Guid.NewGuid(); // Electiva, 2 sesiones bloqueadas: nunca se tocan
 
-            // 1 espacio → umbral de saturación = 1*5*8 = 40h. Demanda > 40h dispara la cesión.
+            // 1 espacio → umbral de saturación = 1*5*8 = 40h. Demanda (41h) 1h por encima del umbral:
+            // el exceso alcanza para exactamente UNA pareja (2h de huella ⇒ 1h heurística) y nada más.
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "E", TipoEspacio.Laboratorio, 30) };
 
-            var filler = Enumerable.Range(0, 5).Select(_ => Pres(asigFiller, grupo, 8m)).ToList(); // 40h
-            var ele    = new List<Sesion> { Pres(asigEle, grupo, 1m), Pres(asigEle, grupo, 1m) };
+            var filler = new[] { 8m, 8m, 8m, 8m, 2m }.Select(h => Pres(asigFiller, grupo, h)).ToList(); // 34h
+            var eleA   = new List<Sesion> { Pres(asigEleA, grupo, 1m), Pres(asigEleA, grupo, 1m) };
+            var eleB   = new List<Sesion> { Pres(asigEleB, grupo, 1m), Pres(asigEleB, grupo, 1m) };
             var obl    = Pres(asigObl, grupo, 1m);
             var blk    = new List<Sesion> { Pres(asigBlk, grupo, 1m, bloqueada: true),
                                             Pres(asigBlk, grupo, 1m, bloqueada: true) };
 
             var sesiones = new List<Sesion>();
             sesiones.AddRange(filler);
-            sesiones.AddRange(ele);
+            sesiones.AddRange(eleA);
+            sesiones.AddRange(eleB);
             sesiones.Add(obl);
             sesiones.AddRange(blk);
 
             var categoria = new Dictionary<Guid, CategoriaAsignatura>
             {
-                [asigEle] = CategoriaAsignatura.Electiva,
-                [asigBlk] = CategoriaAsignatura.Electiva
+                [asigEleA] = CategoriaAsignatura.Electiva,
+                [asigEleB] = CategoriaAsignatura.Electiva,
+                [asigBlk]  = CategoriaAsignatura.Electiva
             };
             // Criterio "Electiva" tiene prioridad 0 (rank más bajo = cede primero); "Elegible" es rank 1
-            // — asigFiller solo matchea Elegible, así que ele SIEMPRE cede antes que filler.
+            // — asigFiller solo matchea Elegible, así que eleA/eleB SIEMPRE ceden antes que filler.
             var elegibles = new HashSet<Guid> { asigFiller };
             var predicados = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)>
                 { CriterioElectiva(categoria), CriterioElegible(elegibles) };
@@ -82,11 +87,22 @@ namespace SOEA.Tests.Application.Horario
 
             Assert.True(cedidasIds.Count > 0);
 
-            // La Electiva "ele" (2 sesiones) cede exactamente UNA por alternancia; conserva ≥1 presencial.
-            Assert.Equal(1, ele.Count(s => s.Alternancia != TipoAlternancia.SinAlternancia));
-            Assert.Equal(1, ele.Count(s => s.Alternancia == TipoAlternancia.SinAlternancia));
-            // Y queda marcada como cedida por saturación (no por elección manual del usuario).
-            Assert.Contains(ele, s => s.CedidaPorSaturacion);
+            // VERIFICA: la alternancia se aplica EN PAREJAS. eleA y eleB (2 sesiones cada una) ceden
+            // exactamente UNA cada una, emparejadas entre sí (única pareja de duración/espacio
+            // compatible en la corrida); conservan ≥1 presencial pura cada una.
+            Assert.Equal(1, eleA.Count(s => s.Alternancia != TipoAlternancia.SinAlternancia));
+            Assert.Equal(1, eleB.Count(s => s.Alternancia != TipoAlternancia.SinAlternancia));
+            var alternadaA = eleA.Single(s => s.Alternancia != TipoAlternancia.SinAlternancia);
+            var alternadaB = eleB.Single(s => s.Alternancia != TipoAlternancia.SinAlternancia);
+            Assert.NotEqual(alternadaA.Alternancia, alternadaB.Alternancia); // tipos opuestos (TipoA/TipoB)
+            Assert.NotNull(alternadaA.ParejaAlternanciaId);
+            Assert.Equal(alternadaA.ParejaAlternanciaId, alternadaB.ParejaAlternanciaId); // misma pareja (A4)
+            // La otra sesión de cada asignatura conserva su presencialidad pura intacta.
+            Assert.All(eleA.Where(s => s.Id != alternadaA.Id), s => Assert.Equal(Modalidad.Presencial, s.Modalidad));
+            Assert.All(eleB.Where(s => s.Id != alternadaB.Id), s => Assert.Equal(Modalidad.Presencial, s.Modalidad));
+            // Y quedan marcadas como cedidas por saturación (no por elección manual del usuario).
+            Assert.Contains(eleA, s => s.CedidaPorSaturacion);
+            Assert.Contains(eleB, s => s.CedidaPorSaturacion);
 
             // La Obligatoria de sesión única no matchea ningún criterio activo: NUNCA es candidata.
             Assert.Equal(TipoAlternancia.SinAlternancia, obl.Alternancia);

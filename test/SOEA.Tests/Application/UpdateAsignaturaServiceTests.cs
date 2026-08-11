@@ -65,6 +65,56 @@ namespace SOEA.Tests.Application
             Assert.Equal(TipoAlternancia.TipoA, response.Alternancia);
         }
 
+        // ── P3.1: POST /api/asignaturas — id de cliente + Categoria/Alternancia explícitas ──
+
+        private static CreateAsignaturaRequest CreateRequest(Guid progId) => new()
+        {
+            Nombre = "Física I",
+            Codigo = "FIS101",
+            SesionesTeoriaPresencialSemana = 2,
+            HorasTeoriaPresencial = 2,
+            ProgramaId = progId
+        };
+
+        [Fact]
+        public async Task CreateAsync_ConIdDeCliente_LaRespeta()
+        {
+            var repo = new FakeAsignaturaRepo();
+            var service = new AsignaturaService(repo);
+            var idCliente = Guid.NewGuid();
+
+            var request = CreateRequest(Guid.NewGuid());
+            request.Id = idCliente;
+
+            var response = await service.CreateAsync(request);
+
+            Assert.Equal(idCliente, response.Id);
+        }
+
+        [Fact]
+        public async Task CreateAsync_SinIdDeCliente_GeneraUno()
+        {
+            var service = new AsignaturaService(new FakeAsignaturaRepo());
+
+            var response = await service.CreateAsync(CreateRequest(Guid.NewGuid()));
+
+            Assert.NotEqual(Guid.Empty, response.Id);
+        }
+
+        [Fact]
+        public async Task CreateAsync_AplicaCategoriaYAlternanciaExplicitas()
+        {
+            var service = new AsignaturaService(new FakeAsignaturaRepo());
+            var request = CreateRequest(Guid.NewGuid());
+            request.Categoria = CategoriaAsignatura.Electiva;
+            request.Alternancia = TipoAlternancia.TipoA;
+
+            var response = await service.CreateAsync(request);
+
+            Assert.Equal(CategoriaAsignatura.Electiva, response.Categoria);
+            Assert.Equal(TipoAlternancia.TipoA, response.Alternancia);
+        }
+
         [Fact]
         public async Task LanzaInvalidOperation_SiNoExiste()
         {

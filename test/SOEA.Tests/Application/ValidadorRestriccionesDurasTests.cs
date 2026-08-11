@@ -4,6 +4,7 @@ using System.Linq;
 using SOEA.Application.Features.Horario;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
+using SOEA.Domain.ValueObjects;
 using Xunit;
 
 namespace SOEA.Tests.Application
@@ -128,16 +129,24 @@ namespace SOEA.Tests.Application
         private static ContextoValidacion Contexto(
             List<BloqueTiempo> bloques,
             Dictionary<Guid, (TimeOnly?, TimeOnly?)>? ventanas = null,
-            Dictionary<Guid, IReadOnlyList<FranjaHoraria>>? franjas = null,
+            Dictionary<Guid, DisponibilidadSemanal>? disponibilidad = null,
             Dictionary<Guid, int>? estudiantes = null,
             IEnumerable<Espacio>? espacios = null,
             HashSet<Guid>? fijas = null) =>
             new(bloques,
                 ventanas ?? new Dictionary<Guid, (TimeOnly?, TimeOnly?)>(),
-                franjas ?? new Dictionary<Guid, IReadOnlyList<FranjaHoraria>>(),
+                disponibilidad ?? new Dictionary<Guid, DisponibilidadSemanal>(),
                 estudiantes ?? new Dictionary<Guid, int>(),
                 (espacios ?? Enumerable.Empty<Espacio>()).ToDictionary(e => e.Id),
                 fijas);
+
+        // "Franja específica" con ventana exacta — evita el ambiguo límite de las 13:00 de la
+        // etiqueta "Matutino" (ver DisponibilidadSemanalTests) para que los tests sean inequívocos.
+        private static DisponibilidadSemanal DisponibilidadLunes(string desde, string hasta) =>
+            DisponibilidadSemanal.Desde(new Dictionary<string, DisponibilidadSemanal.DiaEntradaCruda>
+            {
+                ["lunes"] = new(false, "Franja específica", null, desde, hasta)
+            });
 
         [Fact]
         public void HCVH_SesionFueraDeVentana_Detecta()
@@ -184,16 +193,16 @@ namespace SOEA.Tests.Application
         [Fact]
         public void HCG01_InicioFueraDeFranja_Detecta()
         {
-            var (bloques, indice) = CrearGrilla(5); // 07:00–12:00 → todo Matutino
+            var (bloques, indice) = CrearGrilla(5); // bloques 07:00..12:00 (lunes)
             var grupoId = Guid.NewGuid();
             var s = CrearSesionCompleta(Guid.NewGuid(), grupoId, 1m);
             var asignaciones = new[]
             {
                 new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual)
             };
-            var ctx = Contexto(bloques, franjas: new()
+            var ctx = Contexto(bloques, disponibilidad: new()
             {
-                [grupoId] = new List<FranjaHoraria> { FranjaHoraria.Vespertino } // grupo solo tarde
+                [grupoId] = DisponibilidadLunes("13:00", "18:00") // grupo solo tarde
             });
 
             var conflictos = ValidadorRestriccionesDuras.Validar(
@@ -275,7 +284,7 @@ namespace SOEA.Tests.Application
             };
             var ctx = Contexto(bloques,
                 ventanas: new() { [asigId] = (new TimeOnly(8, 0), new TimeOnly(10, 0)) },
-                franjas: new() { [grupoId] = new List<FranjaHoraria> { FranjaHoraria.Matutino } },
+                disponibilidad: new() { [grupoId] = DisponibilidadLunes("06:00", "12:00") },
                 estudiantes: new() { [grupoId] = 20 },
                 espacios: new[] { lab });
 

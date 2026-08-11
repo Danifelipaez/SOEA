@@ -48,6 +48,13 @@ namespace SOEA.Tests.Engine.ConstraintProg
                     new TimeOnly(7 + i, 0), new TimeOnly(8 + i, 0)))
                 .ToList();
 
+        // Un bloque de 1h por día, lunes..viernes (para HC-SEP: necesita más de un día en la grilla).
+        private static List<BloqueTiempo> CrearBloquesMultiDia(int dias = 5) =>
+            new[] { DiaDeSemana.Lunes, DiaDeSemana.Martes, DiaDeSemana.Miercoles, DiaDeSemana.Jueves, DiaDeSemana.Viernes }
+                .Take(dias)
+                .Select(dia => new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(7, 0), new TimeOnly(8, 0)))
+                .ToList();
+
         // CR-08 / degradación HC-I02: la disponibilidad docente ya NO es hard constraint de
         // generación. Un docente sin bloques disponibles se agenda igual (cabe en la grilla).
         [Fact]
@@ -383,6 +390,102 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.False(resultado.EsFactible);
             Assert.Contains("HC-VH", resultado.MensajeError);
             Assert.Equal(MotivoInfactibilidad.VentanaHoraria, resultado.Motivo);
+        }
+
+        // ── HC-SEP: separación mínima de días entre sesiones semanales del mismo
+        // (grupo, asignatura, tipo de sesión) — petición 11 (P2.3).
+
+        [Fact]
+        public async Task HCSEP_DosSesionesSemanalesMismaAsignaturaYTipo_QuedanConSeparacionDeDias()
+        {
+            var bloques = CrearBloquesMultiDia(5); // lunes..viernes, 1 bloque/día
+            var grupoId = Guid.NewGuid();
+            var asigId = Guid.NewGuid();
+            var s1 = new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
+            var s2 = new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { s1, s2 }, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>());
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            var b1 = bloques.First(b => b.Id == resultado.Asignaciones.First(a => a.SesionId == s1.Id).BloqueTiempoId);
+            var b2 = bloques.First(b => b.Id == resultado.Asignaciones.First(a => a.SesionId == s2.Id).BloqueTiempoId);
+            Assert.True(Math.Abs((int)b1.Dia - (int)b2.Dia) >= 2, $"Días sin separación mínima: {b1.Dia} / {b2.Dia}");
+        }
+
+        // ── HC-S03: tipo de espacio según TipoSesion (A2/A3) — petición 7 (P2.2). Antes solo se
+        // protegían los laboratorios; una teoría presencial podía caer en cualquier espacio,
+        // incluido un laboratorio.
+
+        [Fact]
+        public async Task HCS03_TeoriaPresencialSinRequisito_NuncaCaeEnLaboratorio()
+        {
+            var bloques = CrearBloques(2);
+            var grupoId = Guid.NewGuid();
+            var lab = CrearLaboratorio();
+            var salon = new Espacio(Guid.NewGuid(), "Salón", TipoEspacio.Salon, 30);
+            var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesion }, bloques, new[] { lab, salon }, Enumerable.Empty<Docente>());
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            // SinAlternancia: presencial en ambas semanas — deben coincidir en el mismo salón.
+            Assert.All(resultado.Asignaciones.Where(a => a.SesionId == sesion.Id),
+                a => Assert.Equal(salon.Id, a.EspacioId));
+        }
+
+        [Fact]
+        public async Task HCS03_TeoriaPresencialSinRequisito_SoloHayLaboratorio_RetornaInfactible()
+        {
+            var bloques = CrearBloques(2);
+            var grupoId = Guid.NewGuid();
+            var lab = CrearLaboratorio();
+            var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesion }, bloques, new[] { lab }, Enumerable.Empty<Docente>());
+
+            Assert.False(resultado.EsFactible);
+        }
+
+        // ── HC-ALT: alternancia atómica por espacio (A4/VERIFICA) — petición del bloque VERIFICA
+        // (P2.4). Una pareja (mismo ParejaAlternanciaId, tipos opuestos) debe compartir bloque y
+        // espacio: una presencial en semana A, la otra en semana B, en el mismo salón.
+
+        [Fact]
+        public async Task HCALT_ParejaDeAlternancia_ComparteBloqueYEspacio()
+        {
+            var bloques = CrearBloques(3);
+            var salon = new Espacio(Guid.NewGuid(), "Salón", TipoEspacio.Salon, 30);
+            var patron = Guid.NewGuid();
+
+            var s1 = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, Guid.NewGuid(),
+                TipoAlternancia.TipoA, Modalidad.Presencial, 1m, false, false,
+                tipoFlujo: TipoFlujo.AulaVirtual, patronAlternanciaId: TipoAlternanciaConfig.IdTipoA,
+                parejaAlternanciaId: patron);
+            var s2 = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, Guid.NewGuid(),
+                TipoAlternancia.TipoB, Modalidad.Presencial, 1m, false, false,
+                tipoFlujo: TipoFlujo.AulaVirtual, patronAlternanciaId: TipoAlternanciaConfig.IdTipoB,
+                parejaAlternanciaId: patron);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { s1, s2 }, bloques, new[] { salon }, Enumerable.Empty<Docente>());
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+
+            var a1A = resultado.Asignaciones.Single(a => a.SesionId == s1.Id && a.Semana == SemanaAcademica.A);
+            var a2A = resultado.Asignaciones.Single(a => a.SesionId == s2.Id && a.Semana == SemanaAcademica.A);
+            Assert.Equal(a1A.BloqueTiempoId, a2A.BloqueTiempoId); // mismo horario
+
+            var a2B = resultado.Asignaciones.Single(a => a.SesionId == s2.Id && a.Semana == SemanaAcademica.B);
+            Assert.Equal(salon.Id, a1A.EspacioId);   // s1 presencial en semana A
+            Assert.Equal(salon.Id, a2B.EspacioId);   // s2 presencial en semana B
+            Assert.Equal(a1A.EspacioId, a2B.EspacioId); // mismo espacio entre semanas presenciales
         }
     }
 }
