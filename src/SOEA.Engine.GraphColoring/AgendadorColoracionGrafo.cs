@@ -71,7 +71,7 @@ namespace SOEA.Engine.GraphColoring
                 foreach (var grupo in grupos)
                 {
                     if (grupo.Id == Guid.Empty) continue;
-                    var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.ObtenerDisponibilidadSemanal().ComoFranjasCoarse());
+                    var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.ObtenerDisponibilidadSemanal());
                     if (permitidos is not null)
                         bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
                 }
