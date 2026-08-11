@@ -8,6 +8,7 @@ using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.Services;
+using SOEA.Domain.ValueObjects;
 using CpDomain = Google.OrTools.Util.Domain;
 #pragma warning disable CA1860 // Evitar usar el método 'Contains' de Enumerable -- se usa HashSet<int>
 
@@ -142,7 +143,7 @@ namespace SOEA.Engine.ConstraintProg
             foreach (var grupo in grupos)
             {
                 if (grupo.Id == Guid.Empty) continue;
-                var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.ObtenerDisponibilidadSemanal().ComoFranjasCoarse());
+                var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.ObtenerDisponibilidadSemanal());
                 if (permitidos is not null)
                     bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
             }
@@ -153,6 +154,12 @@ namespace SOEA.Engine.ConstraintProg
                 .Where(gr => gr.Id != Guid.Empty)
                 .GroupBy(gr => gr.Id)
                 .ToDictionary(gr => gr.Key, gr => gr.First().EstudiantesInscritos);
+
+            // HC-S03/HC-S05: requisitos de espacio por grupo (A2), indexados por GrupoId.
+            var requisitosPorGrupo = grupos
+                .Where(gr => gr.Id != Guid.Empty)
+                .GroupBy(gr => gr.Id)
+                .ToDictionary(gr => gr.Key, gr => gr.First().RequisitosEspacio);
 
             // ── Variables: intervalo de longitud DuracionHoras por (sesión, semana) ─────
             var startVars    = new Dictionary<(Guid, SemanaAcademica), IntVar>();
@@ -185,6 +192,30 @@ namespace SOEA.Engine.ConstraintProg
             {
                 if (sesion.Alternancia is TipoAlternancia.TipoA or TipoAlternancia.TipoB)
                     model.Add(startVars[(sesion.Id, SemanaAcademica.A)] == startVars[(sesion.Id, SemanaAcademica.B)]);
+            }
+
+            // ── HC-ALT: alternancia atómica por espacio (A4/VERIFICA) — cada pareja
+            // (mismo Sesion.ParejaAlternanciaId) comparte el MISMO bloque y el MISMO espacio físico,
+            // una presencial en semana A y la otra en B. "Mismo start" basta declararlo para la
+            // Semana A: el enlace regla 9 de cada sesión (arriba) ya liga su propia A↔B.
+            foreach (var pareja in sesiones
+                         .Where(s => s.ParejaAlternanciaId.HasValue)
+                         .GroupBy(s => s.ParejaAlternanciaId!.Value)
+                         .Where(g => g.Count() == 2))
+            {
+                var miembros = pareja.ToList();
+                var s1 = miembros[0]; var s2 = miembros[1];
+                model.Add(startVars[(s1.Id, SemanaAcademica.A)] == startVars[(s2.Id, SemanaAcademica.A)]);
+
+                // Cada miembro solo tiene spaceVar en su propia semana presencial (TipoA→A, TipoB→B);
+                // igualarlas cruzando semana es justamente "comparten el mismo espacio, en semanas
+                // distintas" — la atomicidad por espacio que pide VERIFICA.
+                if (spaceVars.TryGetValue((s1.Id, SemanaAcademica.A), out var sv1A) &&
+                    spaceVars.TryGetValue((s2.Id, SemanaAcademica.B), out var sv2B))
+                    model.Add(sv1A == sv2B);
+                else if (spaceVars.TryGetValue((s1.Id, SemanaAcademica.B), out var sv1B) &&
+                         spaceVars.TryGetValue((s2.Id, SemanaAcademica.A), out var sv2A))
+                    model.Add(sv1B == sv2A);
             }
 
             // ── Warm-start y fijación de sesiones base ───────────────────────────────
@@ -277,6 +308,38 @@ namespace SOEA.Engine.ConstraintProg
                     model.AddLinearExpressionInDomain(startVars[(sesion.Id, semana)], dominio);
             }
 
+            // ── HC-SEP: separación mínima de días entre sesiones semanales del mismo
+            // (grupo, asignatura, tipo de sesión) — petición 11 (A5, ReglasSesion). Canaliza el
+            // día de cada start con AddElement y exige, por cada par y por semana, que el día
+            // difiera en ≥2 posiciones (lunes/martes no; lunes/miércoles sí). Sesiones fijas
+            // quedan fuera: ya están fijadas por igualdad y no participan de este dominio.
+            var diaConstPorIdx = bloques.Select(bl => model.NewConstant((int)bl.Dia)).ToArray();
+            var gruposSeparacion = sesiones
+                .Where(s => !sesionesFijasIds.Contains(s.Id) && s.GrupoId.HasValue)
+                .GroupBy(s => (s.GrupoId!.Value, s.AsignaturaId, Tipo: CalculadorEspaciosSesion.TipoSesionDe(s)))
+                .Where(g => g.Count() >= 2);
+            foreach (var grupo in gruposSeparacion)
+            {
+                var lista = grupo.ToList();
+                foreach (var semana in Semanas)
+                {
+                    var diaVars = lista.Select(s =>
+                    {
+                        var diaVar = model.NewIntVar(0, 5, $"dia_{s.Id}_{semana}");
+                        model.AddElement(startVars[(s.Id, semana)], diaConstPorIdx, diaVar);
+                        return diaVar;
+                    }).ToList();
+
+                    for (int i = 0; i < diaVars.Count; i++)
+                        for (int j = i + 1; j < diaVars.Count; j++)
+                        {
+                            var b = model.NewBoolVar($"sep_{lista[i].Id}_{lista[j].Id}_{semana}");
+                            model.Add(diaVars[i] - diaVars[j] >= 2).OnlyEnforceIf(b);
+                            model.Add(diaVars[j] - diaVars[i] >= 2).OnlyEnforceIf(b.Not());
+                        }
+                }
+            }
+
             // ── HC-C01: conflicto de cohorte — NoOverlap por (grupo, semana) ──────────
             // CR-08 (presencial-first): el grupo de estudiantes es el eje de no-solapamiento (el
             // docente sale del pipeline y se asigna después de generar). Incluye presenciales y
@@ -307,30 +370,17 @@ namespace SOEA.Engine.ConstraintProg
                     bool tienePresencial = Semanas.Any(w => spaceVars.ContainsKey((sesion.Id, w)));
                     if (!tienePresencial) continue;
 
-                    List<int> lista;
-
-                    // HC-S05: espacio fijo → solo ese índice
-                    if (sesion.EspacioId.HasValue && espacioIndex.TryGetValue(sesion.EspacioId.Value, out var idxFijo))
-                    {
-                        lista = new List<int> { idxFijo };
-                    }
-                    else
-                    {
-                        // HC-S03: sesiones de tipo Laboratorio solo pueden ir a espacios Laboratorio.
-                        // TipoFlujo.Laboratorio es el default; AulaVirtual permite cualquier espacio.
-                        bool requiereLab = sesion.TipoFlujo == TipoFlujo.Laboratorio;
-
-                        lista = new List<int>();
-                        for (int e = 0; e < espacios.Count; e++)
-                        {
-                            if (requiereLab && espacios[e].Tipo != TipoEspacio.Laboratorio) continue;
-                            lista.Add(e);
-                        }
-                    }
+                    // HC-S05 (espacio fijo, de la sesión o del requisito del grupo) ∩ HC-S03
+                    // (tipo de espacio según TipoSesion — A2/A3, fuente única).
+                    RequisitoEspacio? requisito = sesion.GrupoId.HasValue &&
+                        requisitosPorGrupo.TryGetValue(sesion.GrupoId.Value, out var reqs)
+                        ? reqs.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion))
+                        : null;
+                    var lista = CalculadorEspaciosSesion.Candidatos(sesion, espacios, requisito).ToList();
 
                     if (lista.Count == 0)
                     {
-                        var msg = $"Sesión {sesion.Id} requiere laboratorio pero no hay espacios de ese tipo configurados.";
+                        var msg = $"Sesión {sesion.Id} ({CalculadorEspaciosSesion.TipoSesionDe(sesion)}) no tiene ningún espacio candidato del tipo requerido entre los espacios configurados.";
                         _logger.LogError(msg);
                         return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio);
                     }
