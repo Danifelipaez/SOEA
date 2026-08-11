@@ -14,7 +14,7 @@ public class AsignaturaService
     public async Task<AsignaturaResponse> CreateAsync(CreateAsignaturaRequest request)
     {
         var asignatura = new Asignatura(
-            Guid.NewGuid(),
+            request.Id == Guid.Empty ? Guid.NewGuid() : request.Id,
             request.Nombre,
             request.Codigo,
             sesionesTeoriaPresencialSemana: request.SesionesTeoriaPresencialSemana,
@@ -24,7 +24,11 @@ public class AsignaturaService
             sesionesLaboratorioSemana: request.SesionesLaboratorioSemana,
             horasLaboratorio: request.HorasLaboratorio,
             sesionesLaboratorioSemestre: request.SesionesLaboratorioSemestre,
-            programaId: request.ProgramaId);
+            programaId: request.ProgramaId,
+            categoria: request.Categoria ?? Domain.Enums.CategoriaAsignatura.Obligatoria);
+
+        if (request.Alternancia.HasValue)
+            asignatura.EstablecerAlternancia(request.Alternancia.Value);
 
         await _repository.AddAsync(asignatura);
         return AsignaturaResponse.FromEntity(asignatura);
