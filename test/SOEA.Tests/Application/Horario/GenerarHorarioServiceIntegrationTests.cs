@@ -360,6 +360,120 @@ namespace SOEA.Tests.Application.Horario
             AssertSinSolapesDeCohorte(r.Sesiones);
         }
 
+        // ── RequisitosEspacio de grupo, de punta a punta (M9: RequestBase() nunca los poblaba,
+        // así que ningún test de integración probaba el camino completo DTO → dominio → motores).
+
+        private static (string asigId, string grupoId, GenerarHorarioRequest request) RequestMinimaTeoriaPresencial(
+            List<EspacioDto> espacios, List<RequisitoEspacioDto> requisitosEspacio)
+        {
+            var asigId = Guid.NewGuid().ToString();
+            var grupoId = Guid.NewGuid().ToString();
+            var request = new GenerarHorarioRequest
+            {
+                Semestre = "2026-1",
+                Asignaturas = new List<AsignaturaDto>
+                {
+                    new()
+                    {
+                        Id = asigId, Nombre = "Asignatura de prueba",
+                        SesionesTeoriaPresencialSemana = 1, HorasTeoriaPresencial = 2,
+                        Categoria = "Obligatoria"
+                    }
+                },
+                Espacios = espacios,
+                Grupos = new List<GrupoDto>
+                {
+                    new()
+                    {
+                        Id = grupoId, Nombre = "Grupo de prueba",
+                        AsignaturaId = asigId, EstudiantesInscritos = 20,
+                        DisponibilidadUiJson = DisponibilidadUiJsonMatutino,
+                        RequisitosEspacio = requisitosEspacio
+                    }
+                }
+            };
+            return (asigId, grupoId, request);
+        }
+
+        [Fact]
+        public async Task RequisitoDeAulaConcreta_SeRespeta()
+        {
+            var salonPreferido = Guid.NewGuid().ToString();
+            var salonOtro = Guid.NewGuid().ToString();
+            var (_, _, request) = RequestMinimaTeoriaPresencial(
+                espacios: new List<EspacioDto>
+                {
+                    new() { Id = salonPreferido, Nombre = "Salón preferido", Tipo = "salon", Capacidad = 30 },
+                    new() { Id = salonOtro, Nombre = "Salón otro", Tipo = "salon", Capacidad = 30 }
+                },
+                requisitosEspacio: new List<RequisitoEspacioDto>
+                {
+                    new() { TipoSesion = "TeoriaPresencial", EspacioId = salonPreferido, TipoEspacio = "Salon", Sesiones = 1 }
+                });
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.NotEmpty(r.Sesiones);
+            Assert.All(r.Sesiones, s => Assert.Equal(salonPreferido, s.EspacioId));
+        }
+
+        [Fact]
+        public async Task RequisitoSoloLaboratorio_ExcluyeSalones()
+        {
+            var lab = Guid.NewGuid().ToString();
+            var salon = Guid.NewGuid().ToString();
+            // Sesión de teoría presencial: la regla por defecto EXCLUYE laboratorio (petición 7).
+            // El requisito del grupo la reautoriza explícitamente para un laboratorio.
+            var (_, _, request) = RequestMinimaTeoriaPresencial(
+                espacios: new List<EspacioDto>
+                {
+                    new() { Id = lab, Nombre = "Laboratorio", Tipo = "laboratorio", Capacidad = 30 },
+                    new() { Id = salon, Nombre = "Salón", Tipo = "salon", Capacidad = 30 }
+                },
+                requisitosEspacio: new List<RequisitoEspacioDto>
+                {
+                    new() { TipoSesion = "TeoriaPresencial", TipoEspacio = "Laboratorio", Sesiones = 1 }
+                });
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.NotEmpty(r.Sesiones);
+            Assert.All(r.Sesiones, s => Assert.Equal(lab, s.EspacioId));
+        }
+
+        [Fact]
+        public async Task RequisitoImposible_RetornaInfactibleConMensajeDeEspacio()
+        {
+            // El requisito del grupo exige un espacio concreto que no existe entre los espacios
+            // del run (p. ej. borrado del catálogo tras configurar el requisito). M10: a diferencia
+            // de un Sesion.EspacioId ausente, esto NO cae al filtro genérico por tipo — la sesión
+            // queda sin ningún candidato y el pipeline debe fallar de forma explícita, nunca
+            // devolver un horario que ignore el requisito en silencio.
+            var espacioInexistente = Guid.NewGuid().ToString();
+            var salonReal = Guid.NewGuid().ToString();
+            var (_, _, request) = RequestMinimaTeoriaPresencial(
+                espacios: new List<EspacioDto>
+                {
+                    new() { Id = salonReal, Nombre = "Salón real", Tipo = "salon", Capacidad = 30 }
+                },
+                requisitosEspacio: new List<RequisitoEspacioDto>
+                {
+                    new() { TipoSesion = "TeoriaPresencial", EspacioId = espacioInexistente, TipoEspacio = "Salon", Sesiones = 1 }
+                });
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.False(r.EsFactible);
+            Assert.False(string.IsNullOrEmpty(r.MensajeError));
+            Assert.Contains("espacio", r.MensajeError, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(r.Sesiones);
+        }
+
         // B4: la Semilla del DTO ahora llega al GA (antes se descartaba en MapearConfiguracion),
         // así que dos ejecuciones del pipeline completo con la misma entrada y semilla producen
         // el mismo horario. NumWorkers:1 fija también a CP-SAT (Fase 2) para que el determinismo

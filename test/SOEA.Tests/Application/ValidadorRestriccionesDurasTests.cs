@@ -33,6 +33,17 @@ namespace SOEA.Tests.Application
             new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, duracion, false, false);
 
+        // Grilla de un bloque de 1h por día, lunes..viernes (HC-SEP necesita días distintos).
+        private static (List<BloqueTiempo> bloques, Dictionary<Guid, int> indice) CrearGrillaMultiDia()
+        {
+            var bloques = new[] { DiaDeSemana.Lunes, DiaDeSemana.Martes, DiaDeSemana.Miercoles, DiaDeSemana.Jueves, DiaDeSemana.Viernes }
+                .Select(dia => new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(7, 0), new TimeOnly(8, 0)))
+                .ToList();
+            var indice = new Dictionary<Guid, int>();
+            for (int i = 0; i < bloques.Count; i++) indice[bloques[i].Id] = i;
+            return (bloques, indice);
+        }
+
         [Fact]
         public void SinSolapes_DevuelveListaVacia()
         {
@@ -132,13 +143,15 @@ namespace SOEA.Tests.Application
             Dictionary<Guid, DisponibilidadSemanal>? disponibilidad = null,
             Dictionary<Guid, int>? estudiantes = null,
             IEnumerable<Espacio>? espacios = null,
-            HashSet<Guid>? fijas = null) =>
+            HashSet<Guid>? fijas = null,
+            Dictionary<Guid, List<RequisitoEspacio>>? requisitosPorGrupo = null) =>
             new(bloques,
                 ventanas ?? new Dictionary<Guid, (TimeOnly?, TimeOnly?)>(),
                 disponibilidad ?? new Dictionary<Guid, DisponibilidadSemanal>(),
                 estudiantes ?? new Dictionary<Guid, int>(),
                 (espacios ?? Enumerable.Empty<Espacio>()).ToDictionary(e => e.Id),
-                fijas);
+                fijas,
+                requisitosPorGrupo);
 
         // "Franja específica" con ventana exacta — evita el ambiguo límite de las 13:00 de la
         // etiqueta "Matutino" (ver DisponibilidadSemanalTests) para que los tests sean inequívocos.
@@ -267,6 +280,290 @@ namespace SOEA.Tests.Application
                 asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
 
             Assert.Contains(conflictos, c => c.StartsWith("HC-S05"));
+        }
+
+        // ── HC-S03/HC-S05 vía Grupo.RequisitosEspacio (M9: nunca probado end-to-end) ─
+
+        [Fact]
+        public void HCS03_RequisitoDeGrupoPermiteTipoDistintoAlDefault_SinConflicto()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var grupoId = Guid.NewGuid();
+            // Sesión de teoría presencial (default: excluye laboratorio); el requisito del
+            // grupo la reautoriza explícitamente para un laboratorio (CumpleTipo, rama :37).
+            var s = CrearSesionCompleta(Guid.NewGuid(), grupoId, 1m);
+            var lab = new Espacio(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 30);
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, lab.Id, Modalidad.Presencial)
+            };
+            var requisitos = new Dictionary<Guid, List<RequisitoEspacio>>
+            {
+                [grupoId] = new() { new RequisitoEspacio(TipoSesion.TeoriaPresencial, null, TipoEspacio.Laboratorio, 1) }
+            };
+            var ctx = Contexto(bloques, espacios: new[] { lab }, requisitosPorGrupo: requisitos);
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Empty(conflictos);
+        }
+
+        [Fact]
+        public void HCS03_RequisitoDeGrupoConTipoDistinto_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var grupoId = Guid.NewGuid();
+            var s = CrearSesionCompleta(Guid.NewGuid(), grupoId, 1m);
+            var salon = new Espacio(Guid.NewGuid(), "Salón", TipoEspacio.Salon, 30);
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, salon.Id, Modalidad.Presencial)
+            };
+            // El grupo exige auditorio para su teoría presencial; se asignó a un salón.
+            var requisitos = new Dictionary<Guid, List<RequisitoEspacio>>
+            {
+                [grupoId] = new() { new RequisitoEspacio(TipoSesion.TeoriaPresencial, null, TipoEspacio.Auditorio, 1) }
+            };
+            var ctx = Contexto(bloques, espacios: new[] { salon }, requisitosPorGrupo: requisitos);
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-S03"));
+        }
+
+        [Fact]
+        public void HCS03_RequisitoDeGrupoConEspacioFijo_AsignadoAOtroEspacio_Detecta()
+        {
+            // Documenta el comportamiento actual (M7 del análisis): un EspacioId fijo declarado
+            // en Grupo.RequisitosEspacio (no en Sesion.EspacioId) se hace cumplir vía CumpleTipo,
+            // así que la violación queda etiquetada HC-S03, no HC-S05.
+            var (bloques, indice) = CrearGrilla(5);
+            var grupoId = Guid.NewGuid();
+            var fijo = new Espacio(Guid.NewGuid(), "Fijo del grupo", TipoEspacio.Salon, 30);
+            var otro = new Espacio(Guid.NewGuid(), "Otro", TipoEspacio.Salon, 30);
+            var s = CrearSesionCompleta(Guid.NewGuid(), grupoId, 1m); // sin EspacioId a nivel de Sesion
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, otro.Id, Modalidad.Presencial)
+            };
+            var requisitos = new Dictionary<Guid, List<RequisitoEspacio>>
+            {
+                [grupoId] = new() { new RequisitoEspacio(TipoSesion.TeoriaPresencial, fijo.Id, TipoEspacio.Salon, 1) }
+            };
+            var ctx = Contexto(bloques, espacios: new[] { fijo, otro }, requisitosPorGrupo: requisitos);
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-S03"));
+        }
+
+        [Fact]
+        public void HCS03_RequisitoDeGrupoConEspacioFijo_MismoEspacio_SinConflicto()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var grupoId = Guid.NewGuid();
+            var fijo = new Espacio(Guid.NewGuid(), "Fijo del grupo", TipoEspacio.Salon, 30);
+            var s = CrearSesionCompleta(Guid.NewGuid(), grupoId, 1m);
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, fijo.Id, Modalidad.Presencial)
+            };
+            var requisitos = new Dictionary<Guid, List<RequisitoEspacio>>
+            {
+                [grupoId] = new() { new RequisitoEspacio(TipoSesion.TeoriaPresencial, fijo.Id, TipoEspacio.Salon, 1) }
+            };
+            var ctx = Contexto(bloques, espacios: new[] { fijo }, requisitosPorGrupo: requisitos);
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Empty(conflictos);
+        }
+
+        // ── HC-ALT: alternancia atómica por espacio — nunca probada en el validador (sólo en
+        // CP-SAT). Dos sesiones que comparten ParejaAlternanciaId deben tener tipos opuestos,
+        // coincidir de bloque por semana, y compartir el mismo espacio entre sus semanas
+        // presenciales.
+
+        private static Sesion CrearSesionAlternancia(Guid patron, Guid pareja, TipoAlternancia alternancia) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, Guid.NewGuid(),
+                alternancia, Modalidad.Presencial, 1m, false, false,
+                tipoFlujo: TipoFlujo.AulaVirtual, patronAlternanciaId: patron, parejaAlternanciaId: pareja);
+
+        [Fact]
+        public void HCALT_TiposNoOpuestos_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(3);
+            var pareja = Guid.NewGuid();
+            // Ambas TipoA: no son opuestas (debería ser TipoA/TipoB).
+            var s1 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoA, pareja, TipoAlternancia.TipoA);
+            var s2 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoA, pareja, TipoAlternancia.TipoA);
+            var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2 };
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+            };
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-ALT") && c.Contains("tipos opuestos"));
+        }
+
+        [Fact]
+        public void HCALT_BloqueDistintoEnSemana_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(3);
+            var pareja = Guid.NewGuid();
+            var s1 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoA, pareja, TipoAlternancia.TipoA);
+            var s2 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoB, pareja, TipoAlternancia.TipoB);
+            var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2 };
+            // Misma semana A, bloques distintos: la pareja debe coincidir de franja.
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.A, bloques[1].Id, null, Modalidad.Virtual),
+            };
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-ALT") && c.Contains("no coincide de bloque"));
+        }
+
+        [Fact]
+        public void HCALT_EspacioDistintoEntreSemanasPresenciales_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(3);
+            var pareja = Guid.NewGuid();
+            var s1 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoA, pareja, TipoAlternancia.TipoA);
+            var s2 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoB, pareja, TipoAlternancia.TipoB);
+            var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2 };
+            var salonA = Guid.NewGuid();
+            var salonB = Guid.NewGuid();
+            var asignaciones = new[]
+            {
+                // s1 presencial en semana A (salonA); s2 virtual en A.
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, salonA, Modalidad.Presencial),
+                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+                // s1 virtual en semana B; s2 presencial en B pero en un salón DISTINTO.
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.B, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.B, bloques[0].Id, salonB, Modalidad.Presencial),
+            };
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-ALT") && c.Contains("mismo espacio"));
+        }
+
+        [Fact]
+        public void HCALT_ParejaValida_SinConflictos()
+        {
+            var (bloques, indice) = CrearGrilla(3);
+            var pareja = Guid.NewGuid();
+            var s1 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoA, pareja, TipoAlternancia.TipoA);
+            var s2 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoB, pareja, TipoAlternancia.TipoB);
+            var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2 };
+            var salon = Guid.NewGuid();
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, salon, Modalidad.Presencial),
+                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.B, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.B, bloques[0].Id, salon, Modalidad.Presencial),
+            };
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice);
+
+            Assert.Empty(conflictos);
+        }
+
+        // ── HC-SEP: separación mínima de días — nunca probada en el validador (sólo en CP-SAT).
+
+        [Fact]
+        public void HCSEP_SesionesSinSeparacionMinima_Detecta()
+        {
+            var (bloques, indice) = CrearGrillaMultiDia(); // lunes..viernes
+            var grupoId = Guid.NewGuid();
+            var asigId = Guid.NewGuid();
+            var s1 = CrearSesionCompleta(asigId, grupoId, 1m);
+            var s2 = CrearSesionCompleta(asigId, grupoId, 1m);
+            var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2 };
+            // Lunes y martes: diferencia de 1 día, por debajo del mínimo de 2.
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.A, bloques[1].Id, null, Modalidad.Virtual),
+            };
+            var ctx = Contexto(bloques);
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-SEP"));
+        }
+
+        [Fact]
+        public void HCSEP_ConSeparacionSuficiente_SinConflictos()
+        {
+            var (bloques, indice) = CrearGrillaMultiDia();
+            var grupoId = Guid.NewGuid();
+            var asigId = Guid.NewGuid();
+            var s1 = CrearSesionCompleta(asigId, grupoId, 1m);
+            var s2 = CrearSesionCompleta(asigId, grupoId, 1m);
+            var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2 };
+            // Lunes y miércoles: diferencia de 2 días, cumple el mínimo.
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.A, bloques[2].Id, null, Modalidad.Virtual),
+            };
+            var ctx = Contexto(bloques);
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice, ctx);
+
+            Assert.Empty(conflictos);
+        }
+
+        // ── HC-BASE (regla 8): una sesión del horario base no puede moverse de su bloque
+        // pre-asignado — nunca probada en el validador (sólo la exención de HC-VH lo era).
+
+        [Fact]
+        public void HCBASE_SesionFijaMovidaDeSuBloque_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var s = CrearSesionCompleta(Guid.NewGuid(), Guid.NewGuid(), 1m);
+            s.AsignarBloqueTiempo(bloques[0].Id); // bloque del horario base
+            var asignaciones = new[]
+            {
+                // Se persistió en el bloque 1, no en el bloque 0 que trae fijado.
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[1].Id, null, Modalidad.Virtual)
+            };
+            var ctx = Contexto(bloques, fijas: new HashSet<Guid> { s.Id });
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-BASE"));
+        }
+
+        [Fact]
+        public void HCBASE_SesionFijaEnSuBloque_SinConflictos()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var s = CrearSesionCompleta(Guid.NewGuid(), Guid.NewGuid(), 1m);
+            s.AsignarBloqueTiempo(bloques[0].Id);
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual)
+            };
+            var ctx = Contexto(bloques, fijas: new HashSet<Guid> { s.Id });
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Empty(conflictos);
         }
 
         [Fact]

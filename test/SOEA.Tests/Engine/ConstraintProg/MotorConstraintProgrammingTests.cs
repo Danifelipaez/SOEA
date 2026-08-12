@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.ValueObjects;
 using SOEA.Engine.ConstraintProg;
 
 namespace SOEA.Tests.Engine.ConstraintProg
@@ -451,6 +452,108 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 new[] { sesion }, bloques, new[] { lab }, Enumerable.Empty<Docente>());
 
             Assert.False(resultado.EsFactible);
+        }
+
+        // ── HC-S01 puro: dos presenciales de la MISMA semana no comparten espacio (sin el caso
+        // ALT, que sí lo permite porque cae en semanas distintas) — M9, cero cobertura previa.
+
+        // Teoría presencial (no CrearSesionPresencial: su default es TipoFlujo.Laboratorio, que
+        // exigiría espacios de tipo Laboratorio y no probaría lo que HC-S01 protege aquí).
+        private static Sesion CrearSesionTeoriaPresencial(Guid grupoId, decimal duracion = 1m) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, duracion, false, false,
+                tipoFlujo: TipoFlujo.AulaVirtual);
+
+        [Fact]
+        public async Task HCS01_DosPresencialesMismaSemana_MismoBloque_NoComparteElUnicoEspacio()
+        {
+            var bloques = CrearBloques(1); // un único bloque: ambas sesiones deben caer ahí
+            var salon = new Espacio(Guid.NewGuid(), "Salón", TipoEspacio.Salon, 30);
+            var s1 = CrearSesionTeoriaPresencial(Guid.NewGuid());
+            var s2 = CrearSesionTeoriaPresencial(Guid.NewGuid());
+
+            // Un solo espacio, un solo bloque, dos sesiones presenciales de grupos distintos
+            // (sin alternancia, así que ambas son presenciales en A y en B): HC-S01 debe impedir
+            // que compartan el espacio en la misma semana → infactible.
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { s1, s2 }, bloques, new[] { salon }, Enumerable.Empty<Docente>());
+
+            Assert.False(resultado.EsFactible);
+        }
+
+        [Fact]
+        public async Task HCS01_DosPresencialesMismaSemana_ConDosEspacios_SeReparten()
+        {
+            var bloques = CrearBloques(1);
+            var salonA = new Espacio(Guid.NewGuid(), "Salón A", TipoEspacio.Salon, 30);
+            var salonB = new Espacio(Guid.NewGuid(), "Salón B", TipoEspacio.Salon, 30);
+            var s1 = CrearSesionTeoriaPresencial(Guid.NewGuid());
+            var s2 = CrearSesionTeoriaPresencial(Guid.NewGuid());
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { s1, s2 }, bloques, new[] { salonA, salonB }, Enumerable.Empty<Docente>());
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            var espacioS1A = resultado.Asignaciones.Single(a => a.SesionId == s1.Id && a.Semana == SemanaAcademica.A).EspacioId;
+            var espacioS2A = resultado.Asignaciones.Single(a => a.SesionId == s2.Id && a.Semana == SemanaAcademica.A).EspacioId;
+            Assert.NotEqual(espacioS1A, espacioS2A);
+        }
+
+        // ── HC-S05 (espacio fijo declarado en Grupo.RequisitosEspacio) en CP-SAT — M9: antes
+        // sólo se probaba el equivalente en el GA (AsignadorEspacios) y en el validador; el
+        // camino directo por CP-SAT (MotorConstraintProgramming.cs:363-386) no tenía ningún test.
+
+        [Fact]
+        public async Task HCS05_RequisitoDeGrupoConEspacioFijo_SeRespetaEnCPSAT()
+        {
+            var bloques = CrearBloques(2);
+            var grupoId = Guid.NewGuid();
+            var fijo = new Espacio(Guid.NewGuid(), "Fijo", TipoEspacio.Salon, 30);
+            var otro = new Espacio(Guid.NewGuid(), "Otro", TipoEspacio.Salon, 30);
+            var grupo = new Grupo(grupoId, "G", Guid.NewGuid(), 20);
+            grupo.ActualizarRequisitosEspacio(new List<RequisitoEspacio>
+            {
+                new(TipoSesion.TeoriaPresencial, fijo.Id, TipoEspacio.Salon, 1)
+            });
+            var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesion }, bloques, new[] { fijo, otro }, Enumerable.Empty<Docente>(),
+                grupos: new[] { grupo });
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            Assert.All(resultado.Asignaciones.Where(a => a.SesionId == sesion.Id),
+                a => Assert.Equal(fijo.Id, a.EspacioId));
+        }
+
+        [Fact]
+        public async Task HCS05_RequisitoDeGrupoConEspacioFijo_SinEseEspacioEnElRun_RetornaInfactible()
+        {
+            // A diferencia de Sesion.EspacioId ausente del run (que sí cae al filtro genérico por
+            // tipo — M8 del análisis, CalculadorEspaciosSesion.cs:61-69), un EspacioId fijo que
+            // viene de Grupo.RequisitosEspacio NO tiene ese fall-through: CumpleTipo (:36) evalúa
+            // "requisito?.EspacioId is Guid fijo" incondicionalmente en ambos pases de Candidatos,
+            // así que ningún espacio del run "cumple" y la sesión queda sin candidatos. Asimetría
+            // real entre las dos fuentes de espacio fijo, documentada aquí (no corregida — Fase 2).
+            var bloques = CrearBloques(2);
+            var grupoId = Guid.NewGuid();
+            var fijo = new Espacio(Guid.NewGuid(), "Fijo (no está en el run)", TipoEspacio.Salon, 30);
+            var otro = new Espacio(Guid.NewGuid(), "Otro", TipoEspacio.Salon, 30);
+            var grupo = new Grupo(grupoId, "G", Guid.NewGuid(), 20);
+            grupo.ActualizarRequisitosEspacio(new List<RequisitoEspacio>
+            {
+                new(TipoSesion.TeoriaPresencial, fijo.Id, TipoEspacio.Salon, 1)
+            });
+            var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesion }, bloques, new[] { otro }, Enumerable.Empty<Docente>(),
+                grupos: new[] { grupo });
+
+            Assert.False(resultado.EsFactible);
+            Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
         }
 
         // ── HC-ALT: alternancia atómica por espacio (A4/VERIFICA) — petición del bloque VERIFICA
