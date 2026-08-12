@@ -10,11 +10,13 @@ import { CatalogoService } from '../../../core/catalogo.service';
 import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { ImportResultadoDialogComponent } from '../../../shared/import-resultado-dialog/import-resultado-dialog.component';
-import { Asignatura, Facultad, Grupo, Programa } from '../../../core/models';
+import { Asignatura, Facultad, Grupo, Programa, RequisitoEspacio, TipoSesionUi } from '../../../core/models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { ImportExcelStatsDto } from '../../../core/persistencia.service';
 import { SearchableSelectComponent, SearchableOption } from '../../../shared/searchable-select/searchable-select.component';
 import { GrupoDialogComponent, GrupoDialogData } from '../grupo-tab/grupo-tab.component';
+import { DisponibilidadEditorComponent } from '../../../shared/disponibilidad-editor/disponibilidad-editor.component';
+import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/requisitos-espacio.component';
 
 @Component({
   selector: 'app-asignaturas-tab',
@@ -270,7 +272,9 @@ export class AsignaturasTabComponent {
           programaId: entidad.programaId,
           nombre: g.nombre ?? 'Grupo',
           estudiantesInscritos: g.estudiantesInscritos ?? 30,
-          docenteId: g.docenteId
+          docenteId: g.docenteId,
+          disponibilidadUiJson: g.disponibilidadUiJson,
+          requisitosEspacio: g.requisitosEspacio
         } as Grupo)));
       })
     ).subscribe({
@@ -320,7 +324,7 @@ type CategoriaSesion = 'presencial' | 'virtual' | 'lab';
 @Component({
   selector: 'app-asignatura-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, MatDialogModule, SearchableSelectComponent],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, MatDialogModule, SearchableSelectComponent, DisponibilidadEditorComponent, RequisitosEspacioComponent],
   template: `
     <div class="pophd">{{ data ? 'Editar asignatura' : 'Nueva asignatura' }} <i (click)="ref.close()">✕</i></div>
     <form class="popbd" [formGroup]="form" style="max-height:74vh;overflow:auto">
@@ -391,7 +395,7 @@ type CategoriaSesion = 'presencial' | 'virtual' | 'lab';
 
       <p class="text-muted" style="font-size:11px;margin:0;border-top:1px dashed var(--color-neutral-300);padding-top:8px">
         El docente se asigna por <b>grupo</b>, no aquí — la misma asignatura la dictan docentes distintos en grupos distintos.
-        El requisito de espacio (p. ej. laboratorio concreto) también se declara por grupo, al desplegarlo abajo.
+        Disponibilidad y requisito de espacio (p. ej. laboratorio concreto) se declaran al agregar cada grupo abajo, o después desde la fila desplegada.
       </p>
 
       <h3 class="sec" style="margin-top:2px">Grupos <span class="text-muted" style="font-size:11px;text-transform:none;letter-spacing:0">(opcional — puedes agregarlos después)</span></h3>
@@ -410,8 +414,21 @@ type CategoriaSesion = 'presencial' | 'virtual' | 'lab';
           <div class="dfield" style="width:110px"><label>Estudiantes</label><input class="input" type="number" min="1" [(ngModel)]="nuevoGrupoEstudiantes" [ngModelOptions]="{standalone:true}"></div>
           <div class="dfield" style="flex:1"><label>Docente</label>
             <app-searchable-select [(ngModel)]="nuevoGrupoDocenteId" [ngModelOptions]="{standalone:true}" [options]="docenteOptions()" placeholder="— Sin asignar —"></app-searchable-select></div>
-          <button type="button" class="btn btn-secondary step-btn" style="align-self:flex-end;height:38px" (click)="confirmarGrupoPendiente()" [disabled]="!nuevoGrupoNombre.trim()">Agregar</button>
-          <button type="button" class="btn btn-secondary step-btn" style="align-self:flex-end;height:38px" (click)="agregandoGrupo.set(false)">✕</button>
+        </div>
+
+        <h3 class="sec" style="margin-top:2px">Disponibilidad del grupo</h3>
+        <app-disponibilidad-editor [defaultNoDisponible]="true"
+          [ngModel]="nuevoGrupoDisponibilidad()" (ngModelChange)="nuevoGrupoDisponibilidad.set($event)" [ngModelOptions]="{standalone:true}"></app-disponibilidad-editor>
+
+        @if (tiposRequisitoPendiente().length > 0) {
+          <h3 class="sec" style="margin-top:2px">Requisito de espacio <span class="text-muted" style="font-size:11px;text-transform:none;letter-spacing:0">(opcional)</span></h3>
+          <app-requisitos-espacio [tipos]="tiposRequisitoPendiente()" [espacios]="state.espacios()"
+            [ngModel]="nuevoGrupoRequisitos()" (ngModelChange)="nuevoGrupoRequisitos.set($event)" [ngModelOptions]="{standalone:true}"></app-requisitos-espacio>
+        }
+
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="btn btn-secondary step-btn" (click)="confirmarGrupoPendiente()" [disabled]="!nuevoGrupoNombre.trim()">Agregar</button>
+          <button type="button" class="btn btn-secondary step-btn" (click)="cancelarGrupoPendiente()">✕</button>
         </div>
       } @else {
         <button type="button" class="btn btn-secondary" (click)="agregandoGrupo.set(true)">＋ nuevo grupo</button>
@@ -439,16 +456,27 @@ export class AsignaturaDialogComponent {
 
   programasFiltrados = signal<Programa[]>([]);
 
-  // ── Petición 2: cápsula "nuevo grupo +" — crea la asignatura y sus grupos en un solo flujo.
-  // Versión ligera (no reutiliza GrupoDialogComponent): en este punto la asignatura todavía no
-  // tiene id real, así que GrupoDialogComponent no podría ofrecerla como opción de asignatura ni
-  // resolver disponibilidad/requisitos de espacio contra ella. Esos detalles se completan después
-  // desde la fila desplegada de asignaturas-tab (petición 1), donde el grupo ya existe de verdad.
+  // ── Petición 2: cápsula "nuevo grupo +" — crea la asignatura y sus grupos en un solo flujo,
+  // incluida disponibilidad y requisito de espacio (mismos componentes que usa GrupoDialogComponent).
+  // Versión ligera (no reutiliza GrupoDialogComponent completo): la cascada Facultad→Programa→Asignatura
+  // no aplica aquí (la asignatura es la que se está creando), así que este es un formulario propio.
+  // tiposRequisitoPendiente() deriva los tipos de sesión del desglose en vivo (sesiones()) en vez de
+  // un Asignatura ya persistido, porque todavía no existe uno.
   gruposPendientes = signal<Partial<Grupo>[]>([]);
   agregandoGrupo = signal(false);
   nuevoGrupoNombre = '';
   nuevoGrupoEstudiantes = 30;
   nuevoGrupoDocenteId = '';
+  nuevoGrupoDisponibilidad = signal<Record<string, any>>({});
+  nuevoGrupoRequisitos = signal<RequisitoEspacio[]>([]);
+
+  tiposRequisitoPendiente = computed<TipoSesionUi[]>(() => {
+    const s = this.sesiones();
+    const tipos: TipoSesionUi[] = [];
+    if (s.presencial > 0) tipos.push('TeoriaPresencial');
+    if (s.lab > 0) tipos.push('Laboratorio');
+    return tipos;
+  });
 
   docenteOptions = computed<SearchableOption[]>(() => [
     { value: '', label: 'Sin asignar' },
@@ -462,11 +490,23 @@ export class AsignaturaDialogComponent {
     this.gruposPendientes.update(v => [...v, {
       nombre: this.nuevoGrupoNombre.trim(),
       estudiantesInscritos: Number(this.nuevoGrupoEstudiantes) || 30,
-      docenteId: this.nuevoGrupoDocenteId || undefined
+      docenteId: this.nuevoGrupoDocenteId || undefined,
+      disponibilidadUiJson: JSON.stringify(this.nuevoGrupoDisponibilidad()),
+      requisitosEspacio: this.nuevoGrupoRequisitos()
     }]);
+    this.resetCapsulaGrupo();
+  }
+
+  cancelarGrupoPendiente() {
+    this.resetCapsulaGrupo();
+  }
+
+  private resetCapsulaGrupo() {
     this.nuevoGrupoNombre = '';
     this.nuevoGrupoEstudiantes = 30;
     this.nuevoGrupoDocenteId = '';
+    this.nuevoGrupoDisponibilidad.set({});
+    this.nuevoGrupoRequisitos.set([]);
     this.agregandoGrupo.set(false);
   }
 
