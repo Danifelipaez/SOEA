@@ -82,6 +82,10 @@ export interface Asignatura {
   // El requisito de espacio tampoco vive aquí: ver Grupo.requisitosEspacio.
   /** Candidata a ceder a alternancia si el algoritmo agota el espacio físico (cesión por saturación de espacio). */
   esCandidataAlternancia?: boolean;
+  /** Ventana horaria HC-VH (hard constraint, la fija Secretaría Académica). Formato "HH:mm".
+   *  Sin UI propia todavía — llega por import de Excel u otra vía; ausente = sin restricción. */
+  horaInicioMin?: string;
+  horaFinMax?: string;
 }
 
 /** Parámetros del algoritmo genético y pesos de soft constraints configurados por el developer. */
@@ -92,12 +96,19 @@ export interface ConfiguracionAlgoritmo {
   maxGen:     number;  // MaxGeneraciones
   pesoErgo:   number;  // SC-01: horario compacto
   pesoTiempos: number; // SC-06: tiempos muertos
-  pesoAlm:    number;  // SC-09: concentración diaria
+  pesoAlm:    number;  // SC-09: concentración diaria (backend: PesoMaxHorasSeguidas)
+  /** SC-BAL: desbalance de carga por día entre Semana A y B. Sin UI propia todavía. */
+  pesoBalanceSemanas?: number;
+  /** SC-PRES informativo: pondera la métrica reportada, no afecta el ranking del GA. Sin UI propia todavía. */
+  pesoPresencialFirst?: number;
+  /** Semilla del RNG. Ausente = aleatoria (producción). Sin UI propia todavía. */
+  semilla?: number;
 }
 
 export const CONFIGURACION_DEFECTO: ConfiguracionAlgoritmo = {
   pobSize: 50, mutRate: 0.05, crossRate: 0.80, maxGen: 200,
   pesoErgo: 3, pesoTiempos: 2, pesoAlm: 1,
+  pesoBalanceSemanas: 2, pesoPresencialFirst: 4,
 };
 
 /** Fila de la lista ordenada/activable de criterios de cesión a alternancia por saturación de

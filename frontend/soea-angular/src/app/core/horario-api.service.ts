@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, HorarioBase, Sesion } from './models';
+import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion } from './models';
 import { environment } from '../../environments/environment';
 
 // ── Tipos del contrato con la API ──────────────────────────────────────────────
@@ -15,7 +15,11 @@ export interface ConfiguracionAlgoritmoApiDto {
   umbralConvergencia:   number;
   pesoErgo:             number;
   pesoTiempos:          number;
-  pesoAlmuerzo:         number;
+  /** Backend: SOEA.Application.../GenerarHorarioRequest.ConfiguracionAlgoritmoDto.PesoMaxHorasSeguidas. */
+  pesoMaxHorasSeguidas: number;
+  pesoBalanceSemanas?:  number;
+  pesoPresencialFirst?: number;
+  semilla?:             number;
 }
 
 export interface SesionFijaApiDto {
@@ -42,6 +46,8 @@ export interface GrupoApiDto {
   estudiantesInscritos: number;
   /** JSON crudo por día (misma forma que Docente.disponibilidad); el backend deriva la ventana HC-G01. */
   disponibilidadUiJson?: string;
+  /** Requisito de espacio por tipo de sesión (HC-S03/HC-S05). */
+  requisitosEspacio?: RequisitoEspacio[];
 }
 
 export interface GenerarHorarioRequest {
@@ -70,6 +76,9 @@ export interface AsignaturaApiDto {
   categoria?: string;
   /** Candidata a ceder a alternancia si el algoritmo agota el espacio físico (cesión por saturación de espacio). */
   esCandidataAlternancia?: boolean;
+  /** Ventana horaria HC-VH, formato "HH:mm". Ausente = sin restricción. */
+  horaInicioMin?: string;
+  horaFinMax?: string;
 }
 
 export interface DocenteApiDto {
@@ -166,6 +175,7 @@ export class HorarioApiService {
       facultadId: g.facultadId,
       estudiantesInscritos: g.estudiantesInscritos,
       disponibilidadUiJson: g.disponibilidadUiJson,
+      requisitosEspacio: g.requisitosEspacio ?? [],
     }));
 
     const body: GenerarHorarioRequest = {
@@ -180,7 +190,10 @@ export class HorarioApiService {
         umbralConvergencia:   30,
         pesoErgo:             config.pesoErgo,
         pesoTiempos:          config.pesoTiempos,
-        pesoAlmuerzo:         config.pesoAlm,
+        pesoMaxHorasSeguidas: config.pesoAlm,
+        pesoBalanceSemanas:   config.pesoBalanceSemanas,
+        pesoPresencialFirst:  config.pesoPresencialFirst,
+        semilla:              config.semilla,
       } : undefined,
       asignaturas: asignaturas.map(a => ({
         id: a.id,
@@ -193,6 +206,8 @@ export class HorarioApiService {
         horasLaboratorio: a.horasLaboratorio,
         programaId: a.programaId,
         alternancia: a.alternancia,
+        horaInicioMin: a.horaInicioMin,
+        horaFinMax: a.horaFinMax,
         categoria: a.categoria,
         esCandidataAlternancia: a.esCandidataAlternancia
       })),
