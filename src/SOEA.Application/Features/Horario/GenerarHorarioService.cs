@@ -61,6 +61,15 @@ namespace SOEA.Application.Features.Horario
             // compartido por todo el run.
             var grupos    = MapearGrupos(request.Grupos);
 
+            // Auditoría de entrada (detector de truncamiento en el contrato Angular↔API): sin esto,
+            // "el usuario no configuró requisito" y "el requisito se perdió en el mapeo del frontend"
+            // son indistinguibles — ambos terminan en RequisitosEspacio vacío y 0 violaciones.
+            int gruposConRequisito = grupos.Count(g => g.RequisitosEspacio.Count > 0);
+            int gruposConDisponibilidad = grupos.Count(g => !string.IsNullOrWhiteSpace(g.DisponibilidadUiJson));
+            logs.Add($"[INFO] Grupos: {grupos.Count} · con requisito de espacio: {gruposConRequisito} · con disponibilidad: {gruposConDisponibilidad}.");
+            if (grupos.Count > 0 && gruposConRequisito == 0)
+                logs.Add("[WARN] Ningún grupo trae requisito de espacio: se aplicará la regla por defecto por tipo de sesión a todas las sesiones presenciales.");
+
             // SC-PRES: mapa de categoría por asignatura (alimenta el criterio "Electiva" de la lista
             // de cesión) y de elegibilidad explícita (criterio "Elegible", marcado por el departamento).
             var categoriaPorAsig = request.Asignaturas
