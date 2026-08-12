@@ -43,12 +43,20 @@ namespace SOEA.Domain.Entities
         public string? DisponibilidadUiJson { get; private set; }
 
         // ── Requisitos de espacio (HC-S03/HC-S05) ────────────────────────────────
+        private List<RequisitoEspacio> _requisitosEspacio = new();
         /// <summary>
         /// Requisito de espacio por tipo de sesión (teoría presencial / teoría virtual / laboratorio).
         /// Reemplaza a <c>Asignatura.EspacioFijoId</c> (un solo uuid por asignatura): ahora vive por
         /// grupo, y cada tipo de sesión puede pedir un espacio concreto o un tipo de espacio.
+        /// Setter con guard explícito: filas de antes de P1_GrupoComoEje quedaron con la columna
+        /// "requisitos_espacio" en NULL, y EF Core no invoca el value converter para NULL — asigna
+        /// null directamente a esta propiedad, saltándose el <c>= new()</c> del inicializador.
         /// </summary>
-        public List<RequisitoEspacio> RequisitosEspacio { get; private set; } = new();
+        public List<RequisitoEspacio> RequisitosEspacio
+        {
+            get => _requisitosEspacio;
+            private set => _requisitosEspacio = value ?? new();
+        }
 
         // ── Constructores ─────────────────────────────────────────────────────────
         private Grupo() : base() { }

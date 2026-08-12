@@ -58,11 +58,18 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .IsRequired(false);
 
             // Requisitos de espacio por tipo de sesión, como JSON (misma estrategia que Disponibilidad).
+            // P1_GrupoComoEje sólo hizo backfill de esta columna para grupos cuya asignatura tenía
+            // espacio_fijo_id — el resto quedó NULL, y Deserialize<T> lanza ArgumentNullException
+            // con input null. Grupo con NULL == "sin requisitos de espacio", igual que lista vacía.
+            // UsePropertyAccessMode(Property) es obligatorio: sin él, EF detecta el backing field
+            // "_requisitosEspacio" por convención de nombres y lo escribe directo, saltándose el
+            // guard "?? new()" del setter de Grupo.RequisitosEspacio.
             builder.Property(g => g.RequisitosEspacio)
                 .HasColumnName("requisitos_espacio")
                 .HasConversion(
                     v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => System.Text.Json.JsonSerializer.Deserialize<List<SOEA.Domain.ValueObjects.RequisitoEspacio>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new())
+                    v => DeserializarRequisitosEspacio(v))
+                .UsePropertyAccessMode(PropertyAccessMode.Property)
                 .IsRequired(false);
 
             // Índices
@@ -83,5 +90,10 @@ namespace SOEA.Infrastructure.Data.Configurations
             builder.HasIndex(g => g.DocenteId)
                 .HasDatabaseName("ix_grupo_docente_id");
         }
+
+        public static List<SOEA.Domain.ValueObjects.RequisitoEspacio> DeserializarRequisitosEspacio(string? json) =>
+            string.IsNullOrEmpty(json)
+                ? new List<SOEA.Domain.ValueObjects.RequisitoEspacio>()
+                : System.Text.Json.JsonSerializer.Deserialize<List<SOEA.Domain.ValueObjects.RequisitoEspacio>>(json, (System.Text.Json.JsonSerializerOptions?)null) ?? new();
     }
 }
