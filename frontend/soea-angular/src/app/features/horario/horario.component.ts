@@ -33,6 +33,21 @@ interface MergedSesion {
   tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
 }
 
+/**
+ * "Cálculo I · G1 (lunes 08:00–10:00)" — identifica una sesión en un mensaje de conflicto por
+ * asignatura/grupo, día y hora, para que "Sesión 1"/"Sesión 2" no queden indistinguibles cuando
+ * ambas son de la misma asignatura (p. ej. dos grupos distintos en el mismo horario).
+ */
+function describirSesionConflicto(
+  s: { asignaturaId: string; grupoId?: string; dia: string; horaInicio: string; horaFin: string },
+  asignaturas: Asignatura[], grupos: Grupo[]
+): string {
+  const asig = asignaturas.find(a => a.id === s.asignaturaId)?.nombre ?? 'asignatura sin nombre';
+  const grupo = s.grupoId ? grupos.find(g => g.id === s.grupoId)?.nombre : undefined;
+  const nombre = grupo ? `${asig} · ${grupo}` : asig;
+  return `${nombre} (${s.dia} ${s.horaInicio}–${s.horaFin})`;
+}
+
 @Component({
   selector: 'app-horario',
   standalone: true,
@@ -658,15 +673,29 @@ export class EditarSesionDialogComponent {
     if (dia === 'sabado' && endIdx > this.horasDisponibles.indexOf('13:00')) {
       chks.push({ ok: false, texto: 'Sábado solo tiene jornada hasta las 13:00' });
     }
+    const horaFinNueva = this.horasDisponibles[endIdx] ?? inicio;
+    const sesion1 = () => describirSesionConflicto(
+      { asignaturaId: this.orig.asignaturaId, grupoId: this.orig.grupoId, dia, horaInicio: inicio, horaFin: horaFinNueva },
+      this.data.asignaturas, this.state.grupos());
+    const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.state.grupos());
+
     if (espacioId && !this.data.sesion.virtual) {
       const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.espacioId === espacioId && s.dia === dia && !s.virtual && this.overlaps(s, startIdx, endIdx));
       const nombre = this.data.espacios.find(e => e.id === espacioId)?.nombre ?? espacioId;
-      chks.push({ ok: !conflicto, texto: conflicto ? `${nombre} ya está ocupado en esa franja` : `${nombre} está libre` });
+      const texto = conflicto
+        ? `${nombre} ya está ocupado en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflicto)}. ` +
+          'Elija otro espacio o cambie el horario de una de las dos sesiones.'
+        : `${nombre} está libre`;
+      chks.push({ ok: !conflicto, texto });
     }
     if (docenteId) {
       const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.docenteId === docenteId && s.dia === dia && this.overlaps(s, startIdx, endIdx));
       const nombre = this.data.docentes.find(d => d.id === docenteId)?.nombre ?? 'El docente';
-      chks.push({ ok: !conflicto, texto: conflicto ? `${nombre} ya tiene otra sesión en esa franja` : `${nombre} está libre en esa franja` });
+      const texto = conflicto
+        ? `${nombre} ya tiene otra sesión en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflicto)}. ` +
+          'Elija otro docente o cambie el horario de una de las dos sesiones.'
+        : `${nombre} está libre en esa franja`;
+      chks.push({ ok: !conflicto, texto });
     }
     return chks;
   });
@@ -926,17 +955,31 @@ export class CrearSesionDialogComponent {
       chks.push({ ok: false, texto: 'Sábado solo tiene jornada hasta las 13:00' });
       ok = false;
     }
+    const horaFinNueva = this.horasDisponibles[endIdx] ?? this.horaInicio;
+    const sesion1 = () => describirSesionConflicto(
+      { asignaturaId: this.asignaturaId, grupoId: this.grupoIdSel(), dia: this.dia, horaInicio: this.horaInicio, horaFin: horaFinNueva },
+      this.data.asignaturas, this.data.grupos);
+    const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.data.grupos);
+
     const docenteId = this.docenteIdDelGrupo();
     if (docenteId) {
       const conflictoDocente = this.data.sesiones.find(s => s.docenteId === docenteId && s.dia === this.dia && this.overlaps(s, startIdx, endIdx));
       if (conflictoDocente) ok = false;
-      chks.push({ ok: !conflictoDocente, texto: conflictoDocente ? 'El docente ya tiene otra sesión en esa franja' : 'El docente está libre en esa franja' });
+      const texto = conflictoDocente
+        ? `El docente ya tiene otra sesión en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflictoDocente)}. ` +
+          'Elija otro docente o cambie el horario de una de las dos sesiones.'
+        : 'El docente está libre en esa franja';
+      chks.push({ ok: !conflictoDocente, texto });
     }
     if (!esVirtual) {
       const conflictoEspacio = this.data.sesiones.find(s => s.espacioId === this.espacioId && s.dia === this.dia && !s.virtual && this.overlaps(s, startIdx, endIdx));
       if (conflictoEspacio) ok = false;
       const espNombre = this.data.espacios.find(e => e.id === this.espacioId)?.nombre ?? this.espacioId;
-      chks.push({ ok: !conflictoEspacio, texto: conflictoEspacio ? `${espNombre} ya está ocupado en esa franja` : `${espNombre} está libre en esa franja` });
+      const texto = conflictoEspacio
+        ? `${espNombre} ya está ocupado en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflictoEspacio)}. ` +
+          'Elija otro espacio o cambie el horario de una de las dos sesiones.'
+        : `${espNombre} está libre en esa franja`;
+      chks.push({ ok: !conflictoEspacio, texto });
     }
     this.checks.set(chks); this.checksOk.set(ok);
   }
