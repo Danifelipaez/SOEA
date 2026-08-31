@@ -172,7 +172,7 @@ función Fitness(cromosoma):
     retornar score   // menor = mejor; 0 = óptimo
 ```
 
-**Soft constraints procesadas en Fase 3:** SC-01, SC-06, SC-09, SC-BAL y la guarda de capacidad de aulas (peso 1000, sin ID de restricción propio, ver `docs/domain.md`) suman al fitness; SC-PRES se reporta aparte, informativo (B2). Después de que el GA converge, `MotorGenetico` verifica que no queden solapes de cohorte residuales (si los hay, hace fallback a Fase 2), llama a `AsignadorEspacios.Asignar` (empaquetado determinista de espacios por intervalos, greedy) para la asignación final de salones, y ejecuta el pase de reversión de cesiones descrito en la nota de Presencial-First al inicio de este documento.
+**Soft constraints procesadas en Fase 3:** SC-01, SC-06, SC-09, SC-BAL y la guarda de capacidad de aulas (peso 1000, sin ID de restricción propio, ver `docs/domain.md`) suman al fitness; SC-PRES se reporta aparte, informativo (B2). Después de que el GA converge, `MotorGenetico` verifica que no queden solapes de cohorte residuales (si los hay, hace fallback a Fase 2), llama a `IAsignadorEspaciosExacto.Asignar` (Fase 3 del plan de saneamiento: sub-modelo CP-SAT diminuto — inicios ya fijos, solo variables `space` + NoOverlap por espacio; implementación `AsignadorEspaciosExactoCpSat` en `Engine.ConstraintProg`, inyectada por DI — reemplaza el empaquetado greedy anterior, que no era óptimo con candidatos no homogéneos por sesión) para la asignación final de salones, y ejecuta el pase de reversión de cesiones descrito en la nota de Presencial-First al inicio de este documento.
 
 ---
 
@@ -183,19 +183,19 @@ función Fitness(cromosoma):
 | Sin solapamiento de docente (HC-I01) | — | fuera de generación (CR-08): lo subsume HC-C01 | — | — |
 | Disponibilidad docente (HC-I02) | — | ~~CP-SAT~~ degradada (CR-08): solo blanda vía SC-06 | — | — |
 | Máx horas docente (HC-I03) | — | fuera de generación (CR-08): docente post-generación | — | — |
-| Sin solapamiento de espacio (HC-S01) | — | CP-SAT ✓ por `(espacio, semana)` | `AsignadorEspacios` ✓ | ✓ |
-| Capacidad espacio / aforo (HC-CAP, ex HC-S02) | — | CP-SAT ✓ | `AsignadorEspacios` ✓ (auditoría A1) | ✓ (auditoría A1) |
-| Lab → espacio lab (HC-S03) | — | CP-SAT ✓ | `AsignadorEspacios` ✓ | ✓ (auditoría A1) |
+| Sin solapamiento de espacio (HC-S01) | — | CP-SAT ✓ por `(espacio, semana)` | `AsignadorEspaciosExactoCpSat` ✓ (CP-SAT, plan Fase 3) | ✓ |
+| Capacidad espacio / aforo (HC-CAP, ex HC-S02) | — | CP-SAT ✓ | `AsignadorEspaciosExactoCpSat` ✓ (auditoría A1) | ✓ (auditoría A1) |
+| Lab → espacio lab (HC-S03) | — | CP-SAT ✓ | `AsignadorEspaciosExactoCpSat` ✓ | ✓ (auditoría A1) |
 | Virtual sin espacio (HC-S04) | — | invariante entidad ✓ | invariante ✓ | — |
-| Espacio fijo de la asignatura (HC-S05) | — | CP-SAT ✓ | `AsignadorEspacios` ✓ (auditoría A1) | ✓ (auditoría A1) |
+| Espacio fijo de la asignatura (HC-S05) | — | CP-SAT ✓ | `AsignadorEspaciosExactoCpSat` ✓ (auditoría A1) | ✓ (auditoría A1) |
 | Franja del grupo (HC-G01) | Dominio ✓ (auditoría A1/B3) | CP-SAT ✓ | dominio de operadores ✓ | ✓ (auditoría A1) |
 | Ventana horaria de asignatura (HC-VH) | Dominio ✓ (auditoría A1/B3) | CP-SAT ✓ | dominio de operadores ✓ (auditoría A1) | ✓ (auditoría A1) |
 | Sesión fija del horario base (regla 8 / HC-BASE) | — | CP-SAT ✓ (igualdad) | gen congelado ✓ (auditoría A1) | ✓ (auditoría A1) |
 | Regla 9 — misma franja A/B (ALT-05) | — | CP-SAT ✓ `start[A]==start[B]` | se restaura tras cruce | — |
 | Sin solapamiento cohorte (HC-C01) | Grafo ✓ | CP-SAT ✓ por semana | reparación | ✓ |
 | Conflicto alternancia (ALT-02/03) | Grafo ✓ | CP-SAT ✓ por semana | reparación | — |
-| Separación mínima de días (HC-SEP) | — | CP-SAT ✓ (`AddElement`) | — | ✓ |
-| Alternancia por parejas (HC-ALT) | — | CP-SAT ✓ | — | ✓ |
+| Separación mínima de días (HC-SEP) | — | CP-SAT ✓ (`AddElement`) | reparación ✓ (plan Fase 3, M4) | ✓ |
+| Alternancia por parejas (HC-ALT) | — | CP-SAT ✓ | reparación ✓ (bloque y espacio; plan Fase 3, M4/M2) | ✓ |
 | Compacidad cohorte (SC-01) | — | — | fitness ✓ (por grupo, CR-08) | — |
 | Uniformidad carga cohorte (SC-06) | — | — | fitness ✓ (por grupo, CR-08) | — |
 | Balance carga entre semanas (SC-BAL) | — | — | fitness ✓ | — |
