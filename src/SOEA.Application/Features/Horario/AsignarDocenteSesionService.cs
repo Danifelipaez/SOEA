@@ -19,17 +19,22 @@ namespace SOEA.Application.Features.Horario
         private readonly IAsignacionSemanalRepositorio _asignaciones;
         private readonly IBloqueTiempoRepositorio _bloques;
         private readonly IDocenteRepositorio _docentes;
+        private readonly IHorarioRepositorio? _horarios;
 
+        // horarios es opcional (default null → sin acotar, comportamiento anterior) para no
+        // romper la firma del constructor en tests existentes que no lo proveen.
         public AsignarDocenteSesionService(
             ISesionRepositorio sesiones,
             IAsignacionSemanalRepositorio asignaciones,
             IBloqueTiempoRepositorio bloques,
-            IDocenteRepositorio docentes)
+            IDocenteRepositorio docentes,
+            IHorarioRepositorio? horarios = null)
         {
             _sesiones     = sesiones;
             _asignaciones = asignaciones;
             _bloques      = bloques;
             _docentes     = docentes;
+            _horarios     = horarios;
         }
 
         /// <exception cref="KeyNotFoundException">Sesión o docente no encontrado → 404.</exception>
@@ -50,12 +55,20 @@ namespace SOEA.Application.Features.Horario
             var docente = await _docentes.GetByIdAsync(req.DocenteId.Value)
                 ?? throw new KeyNotFoundException($"No se encontró el docente con Id '{req.DocenteId}'.");
 
+            // G4 auditoría: cada POST /horario/generar AGREGA sesiones sin borrar las de una
+            // corrida anterior (GenerarHorarioService.AddRangeAsync, sin delete previo). Sin
+            // acotar por horario, el solape y la carga se calculaban contra TODA la historia de
+            // corridas — la carga de un docente crecía sin límite con cada regeneración. Se
+            // excluyen las sesiones de horarios distintos al de esta sesión; las que no
+            // pertenecen a ningún horario (p. ej. una sesión manual) siguen contando.
+            var idsDeOtrosHorarios = await IdsDeOtrosHorariosAsync(sesion.Id);
+
             // HARD: solape de franja del docente en la misma semana.
-            await VerificarSolapeAsync(sesion, req.DocenteId.Value);
+            await VerificarSolapeAsync(sesion, req.DocenteId.Value, idsDeOtrosHorarios);
 
             // SOFT: disponibilidad y carga (advertencias, no rechazo).
             var todasSesionesDocente = (await _sesiones.GetAllAsync())
-                .Where(s => s.DocenteId == req.DocenteId.Value)
+                .Where(s => s.DocenteId == req.DocenteId.Value && !idsDeOtrosHorarios.Contains(s.Id))
                 .ToList();
             var advertencias = VerificarBlandas(sesion, docente, todasSesionesDocente);
 
@@ -70,11 +83,30 @@ namespace SOEA.Application.Features.Horario
             };
         }
 
+        /// <summary>
+        /// Ids de sesiones que pertenecen a un <see cref="Horario"/> distinto del de
+        /// <paramref name="sesionId"/> — corridas de generación superadas por una regeneración
+        /// posterior. Una sesión que no pertenece a ningún horario (p. ej. creada a mano) no
+        /// entra aquí: sigue contando como carga/solape real, no se excluye.
+        /// </summary>
+        private async Task<HashSet<Guid>> IdsDeOtrosHorariosAsync(Guid sesionId)
+        {
+            if (_horarios is null) return new HashSet<Guid>();
+            var horarios = await _horarios.GetAllAsync();
+            var propio = horarios.FirstOrDefault(h => h.SesioneIds.Contains(sesionId));
+            return horarios
+                .Where(h => h.Id != propio?.Id)
+                .SelectMany(h => h.SesioneIds)
+                .ToHashSet();
+        }
+
         // ── Validación hard ──────────────────────────────────────────────────────
 
-        private async Task VerificarSolapeAsync(Sesion sesion, Guid docenteId)
+        private async Task VerificarSolapeAsync(Sesion sesion, Guid docenteId, HashSet<Guid> idsDeOtrosHorarios)
         {
-            var todasSesiones = await _sesiones.GetAllAsync();
+            var todasSesiones = (await _sesiones.GetAllAsync())
+                .Where(s => !idsDeOtrosHorarios.Contains(s.Id))
+                .ToList();
             var otrasDocente  = todasSesiones
                 .Where(s => s.DocenteId == docenteId && s.Id != sesion.Id)
                 .ToDictionary(s => s.Id);

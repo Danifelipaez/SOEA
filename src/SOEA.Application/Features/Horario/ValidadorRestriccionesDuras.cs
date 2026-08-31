@@ -20,7 +20,12 @@ namespace SOEA.Application.Features.Horario
         IReadOnlyDictionary<Guid, int> EstudiantesPorGrupo,
         IReadOnlyDictionary<Guid, Espacio> EspacioPorId,
         IReadOnlySet<Guid>? SesionesFijas = null,
-        IReadOnlyDictionary<Guid, List<RequisitoEspacio>>? RequisitosPorGrupo = null);
+        IReadOnlyDictionary<Guid, List<RequisitoEspacio>>? RequisitosPorGrupo = null,
+        // G2/G7 auditoría: nombre de asignatura/grupo para que los mensajes de conflicto
+        // identifiquen a un coordinador académico, no a un GUID. Ausente = los mensajes
+        // degradan a "sin nombre" — nunca vuelven a mostrar el Id crudo.
+        IReadOnlyDictionary<Guid, string>? NombrePorAsignatura = null,
+        IReadOnlyDictionary<Guid, string>? NombrePorGrupo = null);
 
     /// <summary>
     /// Validador post-generación de restricciones duras (P0.3 auditoría).
@@ -31,11 +36,16 @@ namespace SOEA.Application.Features.Horario
     ///   - HC-S01: un mismo espacio físico con sesiones presenciales solapadas en la misma semana.
     ///   - HC-ALT: pareja de alternancia (A4/VERIFICA) sin tipos opuestos, o sin compartir bloque/espacio.
     /// Y, con <see cref="ContextoValidacion"/>, además:
+    ///   - HC-BASE (regla 8): sesión del horario base movida de su bloque pre-asignado.
     ///   - HC-VH: sesión fuera de la ventana horaria de su asignatura.
     ///   - HC-G01: inicio fuera de la disponibilidad declarada del grupo (mismo criterio que CP-SAT/GA).
+    ///   - HC-S04 (M8): asignación presencial sin espacio asignado (dirección inversa del invariante
+    ///     de entidad, que sólo garantiza virtual ⇒ sin espacio).
+    ///   - DATOS (M8): espacio asignado que no existe en el catálogo de espacios de la corrida —
+    ///     antes se saltaba en silencio, perdiendo también HC-S03/HC-CAP/HC-S05 para esa sesión.
     ///   - HC-CAP: espacio con aforo insuficiente para los estudiantes del grupo.
     ///   - HC-S03: espacio que no cumple el tipo requerido por la sesión (A2/A3).
-    ///   - HC-S05: sesión con espacio fijo asignada a otro espacio.
+    ///   - HC-S05: sesión con espacio fijo (propio o del requisito de grupo) asignada a otro espacio (M7).
     ///   - HC-SEP: sesiones semanales del mismo (grupo, asignatura, tipo) sin separación mínima de días.
     /// La detección es consciente de la duración: cada asignación ocupa <c>ceil(DuracionHoras)</c>
     /// bloques contiguos a partir de su bloque de inicio (redondeo conservador: sobre-reserva,
@@ -44,6 +54,28 @@ namespace SOEA.Application.Features.Horario
     /// </summary>
     public static class ValidadorRestriccionesDuras
     {
+        // ── Nombres, no Ids (G2/G7 auditoría) ───────────────────────────────────────
+        // Único formateador para todos los mensajes de conflicto — antes cada regla
+        // interpolaba el GUID directamente (~20 sitios). Degrada a texto legible cuando falta
+        // el nombre (contexto ausente, p. ej. en tests que solo cubren HC-C01/HC-S01/HC-ALT),
+        // nunca vuelve a mostrar el Id crudo.
+
+        private static string NombreAsignatura(Guid asignaturaId, ContextoValidacion? ctx) =>
+            ctx?.NombrePorAsignatura?.TryGetValue(asignaturaId, out var n) == true ? n : "asignatura sin nombre";
+
+        private static string NombreGrupo(Guid grupoId, ContextoValidacion? ctx) =>
+            ctx?.NombrePorGrupo?.TryGetValue(grupoId, out var n) == true ? n : "grupo sin nombre";
+
+        private static string NombreEspacio(Guid espacioId, ContextoValidacion? ctx) =>
+            ctx?.EspacioPorId?.TryGetValue(espacioId, out var e) == true ? e.Nombre : "espacio sin nombre";
+
+        /// <summary>"Cálculo I · G1" — asignatura y, si la sesión tiene grupo, el grupo.</summary>
+        private static string Describir(Sesion s, ContextoValidacion? ctx)
+        {
+            var asig = NombreAsignatura(s.AsignaturaId, ctx);
+            return s.GrupoId.HasValue ? $"{asig} · {NombreGrupo(s.GrupoId.Value, ctx)}" : asig;
+        }
+
         public static IReadOnlyList<string> Validar(
             IEnumerable<AsignacionSemanal> asignaciones,
             IReadOnlyDictionary<Guid, Sesion> sesionPorId,
@@ -67,13 +99,15 @@ namespace SOEA.Application.Features.Horario
             foreach (var grupo in items
                          .Where(i => i.Sesion.GrupoId.HasValue)
                          .GroupBy(i => (GrupoId: i.Sesion.GrupoId!.Value, i.Asignacion.Semana)))
-                conflictos.AddRange(DetectarSolapes(grupo, "HC-C01", $"grupo {grupo.Key.GrupoId} (semana {grupo.Key.Semana})"));
+                conflictos.AddRange(DetectarSolapes(grupo, "HC-C01",
+                    $"{NombreGrupo(grupo.Key.GrupoId, contexto)} (semana {grupo.Key.Semana})", contexto));
 
             // HC-S01 — conflicto de espacio físico (solo presencial; las virtuales no ocupan espacio).
             foreach (var grupo in items
                          .Where(i => i.Asignacion.Modalidad == Modalidad.Presencial && i.Asignacion.EspacioId.HasValue)
                          .GroupBy(i => (Espacio: i.Asignacion.EspacioId!.Value, i.Asignacion.Semana)))
-                conflictos.AddRange(DetectarSolapes(grupo, "HC-S01", $"espacio {grupo.Key.Espacio} (semana {grupo.Key.Semana})"));
+                conflictos.AddRange(DetectarSolapes(grupo, "HC-S01",
+                    $"espacio '{NombreEspacio(grupo.Key.Espacio, contexto)}' (semana {grupo.Key.Semana})", contexto));
 
             // HC-ALT — alternancia atómica por espacio (A4/VERIFICA): toda sesión con pareja
             // (ParejaAlternanciaId) debe compartir bloque (cada semana) y espacio (semanas
@@ -85,18 +119,20 @@ namespace SOEA.Application.Features.Horario
                 var miembros = parejaGrupo.Select(i => i.Sesion.Id).Distinct().ToList();
                 if (miembros.Count != 2)
                 {
-                    conflictos.Add($"HC-ALT: la pareja de alternancia {parejaGrupo.Key} no tiene exactamente 2 sesiones ({miembros.Count}).");
+                    var descritas = string.Join(", ", parejaGrupo.Select(i => Describir(i.Sesion, contexto)).Distinct());
+                    conflictos.Add($"HC-ALT: la pareja de alternancia ({descritas}) no tiene exactamente 2 sesiones ({miembros.Count}).");
                     continue;
                 }
 
                 var itemsS1 = parejaGrupo.Where(i => i.Sesion.Id == miembros[0]).ToList();
                 var itemsS2 = parejaGrupo.Where(i => i.Sesion.Id == miembros[1]).ToList();
                 var s1 = itemsS1[0].Sesion; var s2 = itemsS2[0].Sesion;
+                var d1 = Describir(s1, contexto); var d2 = Describir(s2, contexto);
 
                 if (s1.Alternancia == TipoAlternancia.SinAlternancia || s2.Alternancia == TipoAlternancia.SinAlternancia ||
                     s1.Alternancia == s2.Alternancia)
-                    conflictos.Add($"HC-ALT: la pareja {parejaGrupo.Key} no tiene tipos opuestos (TipoA/TipoB): " +
-                                   $"{s1.Id}={s1.Alternancia}, {s2.Id}={s2.Alternancia}.");
+                    conflictos.Add($"HC-ALT: la pareja {d1} / {d2} no tiene tipos opuestos (TipoA/TipoB): " +
+                                   $"{d1}={s1.Alternancia}, {d2}={s2.Alternancia}.");
 
                 foreach (var semana in itemsS1.Select(i => i.Asignacion.Semana)
                              .Concat(itemsS2.Select(i => i.Asignacion.Semana)).Distinct())
@@ -104,14 +140,14 @@ namespace SOEA.Application.Features.Horario
                     var b1 = itemsS1.FirstOrDefault(i => i.Asignacion.Semana == semana);
                     var b2 = itemsS2.FirstOrDefault(i => i.Asignacion.Semana == semana);
                     if (b1.Sesion is not null && b2.Sesion is not null && b1.Inicio != b2.Inicio)
-                        conflictos.Add($"HC-ALT: la pareja {parejaGrupo.Key} no coincide de bloque en semana {semana} ({s1.Id} vs {s2.Id}).");
+                        conflictos.Add($"HC-ALT: la pareja {d1} / {d2} no coincide de bloque en semana {semana}.");
                 }
 
                 var presS1 = itemsS1.FirstOrDefault(i => i.Asignacion.Modalidad == Modalidad.Presencial);
                 var presS2 = itemsS2.FirstOrDefault(i => i.Asignacion.Modalidad == Modalidad.Presencial);
                 if (presS1.Sesion is not null && presS2.Sesion is not null &&
                     presS1.Asignacion.EspacioId != presS2.Asignacion.EspacioId)
-                    conflictos.Add($"HC-ALT: la pareja {parejaGrupo.Key} no comparte el mismo espacio entre sus semanas presenciales ({s1.Id} vs {s2.Id}).");
+                    conflictos.Add($"HC-ALT: la pareja {d1} / {d2} no comparte el mismo espacio entre sus semanas presenciales.");
             }
 
             if (contexto is not null)
@@ -134,7 +170,7 @@ namespace SOEA.Application.Features.Horario
                 // que trae pre-asignado — CP-SAT la fija por igualdad y nadie puede moverla.
                 if (esFija && s.BloqueTiempoId != Guid.Empty && a.BloqueTiempoId != s.BloqueTiempoId)
                 {
-                    conflictos.Add($"HC-BASE: la sesión fija {s.Id} fue movida de su bloque del " +
+                    conflictos.Add($"HC-BASE: la sesión fija de {Describir(s, ctx)} fue movida de su bloque del " +
                                    $"horario base (semana {a.Semana}).");
                 }
 
@@ -144,7 +180,7 @@ namespace SOEA.Application.Features.Horario
                     (v.Min.HasValue || v.Max.HasValue) &&
                     !CalculadorDominioSesion.CumpleVentana(horaInicio, dur, v.Min, v.Max))
                 {
-                    conflictos.Add($"HC-VH: sesión {s.Id} asignada a las {horaInicio:HH\\:mm} ({dur}h) " +
+                    conflictos.Add($"HC-VH: {Describir(s, ctx)} asignada a las {horaInicio:HH\\:mm} ({dur}h) " +
                                    $"fuera de la ventana [{v.Min:HH\\:mm}–{v.Max:HH\\:mm}] de su asignatura (semana {a.Semana}).");
                 }
 
@@ -153,14 +189,31 @@ namespace SOEA.Application.Features.Horario
                     ctx.DisponibilidadPorGrupo.TryGetValue(s.GrupoId.Value, out var disp) &&
                     !disp.PermiteBloque(ctx.Bloques[inicio].Dia, horaInicio, ctx.Bloques[inicio].HoraFin))
                 {
-                    conflictos.Add($"HC-G01: sesión {s.Id} inicia el {ctx.Bloques[inicio].Dia} a las " +
-                                   $"{horaInicio:HH\\:mm}, fuera de la disponibilidad declarada del grupo " +
-                                   $"{s.GrupoId} (semana {a.Semana}).");
+                    conflictos.Add($"HC-G01: {Describir(s, ctx)} inicia el {ctx.Bloques[inicio].Dia} a las " +
+                                   $"{horaInicio:HH\\:mm}, fuera de la disponibilidad declarada del grupo (semana {a.Semana}).");
+                }
+
+                // HC-S04 (bidireccional, M8): la entidad ya garantiza virtual ⇒ sin espacio; el
+                // validador no comprobaba la dirección inversa, así que una presencial sin espacio
+                // asignado pasaba limpia — un horario "0 violaciones" con una sesión inagendable.
+                if (a.Modalidad == Modalidad.Presencial && !a.EspacioId.HasValue)
+                {
+                    conflictos.Add($"HC-S04: {Describir(s, ctx)} es presencial pero no tiene espacio asignado (semana {a.Semana}).");
                 }
 
                 // Reglas de espacio: solo asignaciones presenciales con espacio.
                 if (a.Modalidad != Modalidad.Presencial || !a.EspacioId.HasValue) continue;
-                if (!ctx.EspacioPorId.TryGetValue(a.EspacioId.Value, out var espacio)) continue;
+
+                // M8: un espacio desconocido (fuera del catálogo de esta corrida) antes se saltaba
+                // en silencio con `continue` — HC-S03/HC-CAP/HC-S05 se perdían sin dejar rastro.
+                // El espacio en sí no tiene nombre que mostrar — es precisamente un id que no
+                // existe en el catálogo — así que el dato útil es identificarlo como desconocido.
+                if (!ctx.EspacioPorId.TryGetValue(a.EspacioId.Value, out var espacio))
+                {
+                    conflictos.Add($"DATOS: {Describir(s, ctx)} fue asignada a un espacio que no existe " +
+                                   $"en el catálogo de espacios de esta corrida (semana {a.Semana}).");
+                    continue;
+                }
 
                 // HC-S03 — tipo de espacio según TipoSesion (A2/A3), con el requisito del grupo
                 // si existe (misma fuente que CP-SAT/GA: CalculadorEspaciosSesion).
@@ -170,7 +223,7 @@ namespace SOEA.Application.Features.Horario
                     ? reqs!.FirstOrDefault(r => r.TipoSesion == tipoSesion)
                     : null;
                 if (!CalculadorEspaciosSesion.CumpleTipo(espacio, tipoSesion, requisito))
-                    conflictos.Add($"HC-S03: sesión {s.Id} ({tipoSesion}) asignada al espacio " +
+                    conflictos.Add($"HC-S03: {Describir(s, ctx)} ({tipoSesion}) asignada al espacio " +
                                    $"'{espacio.Nombre}' (tipo {espacio.Tipo}), que no cumple su requisito de espacio (semana {a.Semana}).");
 
                 // HC-CAP — aforo suficiente para los estudiantes del grupo.
@@ -178,17 +231,28 @@ namespace SOEA.Application.Features.Horario
                     ctx.EstudiantesPorGrupo.TryGetValue(s.GrupoId.Value, out var estudiantes) &&
                     estudiantes > 0 && espacio.Capacidad < estudiantes)
                 {
-                    conflictos.Add($"HC-CAP: sesión {s.Id} en espacio '{espacio.Nombre}' (aforo {espacio.Capacidad}) " +
+                    conflictos.Add($"HC-CAP: {Describir(s, ctx)} en espacio '{espacio.Nombre}' (aforo {espacio.Capacidad}) " +
                                    $"para un grupo de {estudiantes} estudiantes (semana {a.Semana}).");
                 }
 
-                // HC-S05 — espacio fijo de la asignatura (solo si ese espacio existe en el run,
-                // mismo criterio que CP-SAT).
+                // HC-S05 — espacio fijo (solo si ese espacio existe en el run, mismo criterio que
+                // CP-SAT). Prioriza Sesion.EspacioId (valor materializado en la sesión concreta);
+                // si la sesión no trae uno, cae al requisito de espacio del GRUPO (M7: antes sólo
+                // se comparaba Sesion.EspacioId — para sesiones creadas por vías que no copian el
+                // requisito del grupo a la sesión, la comparación no tenía nada contra qué fallar).
                 if (s.EspacioId.HasValue && ctx.EspacioPorId.ContainsKey(s.EspacioId.Value) &&
                     a.EspacioId.Value != s.EspacioId.Value)
                 {
-                    conflictos.Add($"HC-S05: sesión {s.Id} tiene espacio fijo {s.EspacioId} pero fue " +
-                                   $"asignada a {a.EspacioId} (semana {a.Semana}).");
+                    conflictos.Add($"HC-S05: {Describir(s, ctx)} tiene espacio fijo '{NombreEspacio(s.EspacioId.Value, ctx)}' " +
+                                   $"pero fue asignada a '{NombreEspacio(a.EspacioId.Value, ctx)}' (semana {a.Semana}).");
+                }
+                else if (!s.EspacioId.HasValue && requisito?.EspacioId is Guid espacioFijoGrupo &&
+                         ctx.EspacioPorId.ContainsKey(espacioFijoGrupo) &&
+                         a.EspacioId.Value != espacioFijoGrupo)
+                {
+                    conflictos.Add($"HC-S05: {Describir(s, ctx)} tiene espacio fijo '{NombreEspacio(espacioFijoGrupo, ctx)}' " +
+                                   $"declarado en el requisito de espacio del grupo, pero fue asignada a " +
+                                   $"'{NombreEspacio(a.EspacioId.Value, ctx)}' (semana {a.Semana}).");
                 }
             }
 
@@ -207,7 +271,7 @@ namespace SOEA.Application.Features.Horario
                         var diaX = ctx.Bloques[lista[x].Inicio].Dia;
                         var diaY = ctx.Bloques[lista[y].Inicio].Dia;
                         if (!ReglasSesion.SeparacionDiasOk(diaX, diaY))
-                            conflictos.Add($"HC-SEP: sesiones {lista[x].Sesion.Id} y {lista[y].Sesion.Id} " +
+                            conflictos.Add($"HC-SEP: dos sesiones de {Describir(lista[x].Sesion, ctx)} " +
                                            $"(mismo grupo/asignatura/tipo) caen en días sin separación mínima " +
                                            $"({diaX} / {diaY}, semana {grupo.Key.Semana}).");
                     }
@@ -215,7 +279,7 @@ namespace SOEA.Application.Features.Horario
         }
 
         private static IEnumerable<string> DetectarSolapes(
-            IEnumerable<Intervalo> grupo, string regla, string contexto)
+            IEnumerable<Intervalo> grupo, string regla, string descripcionContexto, ContextoValidacion? ctx)
         {
             var ordenados = grupo.OrderBy(i => i.Inicio).ToList();
             for (int i = 0; i < ordenados.Count; i++)
@@ -224,7 +288,8 @@ namespace SOEA.Application.Features.Horario
                 {
                     // Como están ordenados por inicio, basta comparar contra el fin del primero.
                     if (ordenados[j].Inicio >= ordenados[i].Fin) break;
-                    yield return $"{regla}: solape en {contexto} entre sesiones {ordenados[i].Sesion.Id} y {ordenados[j].Sesion.Id}.";
+                    yield return $"{regla}: solape en {descripcionContexto} entre {Describir(ordenados[i].Sesion, ctx)} " +
+                                 $"y {Describir(ordenados[j].Sesion, ctx)}.";
                 }
             }
         }

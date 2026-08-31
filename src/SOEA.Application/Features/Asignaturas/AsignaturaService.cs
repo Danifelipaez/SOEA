@@ -25,7 +25,9 @@ public class AsignaturaService
             horasLaboratorio: request.HorasLaboratorio,
             sesionesLaboratorioSemestre: request.SesionesLaboratorioSemestre,
             programaId: request.ProgramaId,
-            categoria: request.Categoria ?? Domain.Enums.CategoriaAsignatura.Obligatoria);
+            categoria: request.Categoria ?? Domain.Enums.CategoriaAsignatura.Obligatoria,
+            horaInicioMin: ParseHora(request.HoraInicioMin),
+            horaFinMax: ParseHora(request.HoraFinMax));
 
         if (request.Alternancia.HasValue)
             asignatura.EstablecerAlternancia(request.Alternancia.Value);
@@ -64,11 +66,17 @@ public class AsignaturaService
             sesionesLaboratorioSemestre: request.SesionesLaboratorioSemestre,
             programaId: request.ProgramaId,
             alternanciaExplicita: request.Alternancia,
-            categoria: request.Categoria);
+            categoria: request.Categoria,
+            horaInicioMin: ParseHora(request.HoraInicioMin),
+            horaFinMax: ParseHora(request.HoraFinMax));
 
         await _repository.UpdateAsync(asignatura);
         return AsignaturaResponse.FromEntity(asignatura);
     }
+
+    // Mismo criterio que GenerarHorarioService.ParseHora — TimeOnly.TryParse acepta "HH:mm".
+    private static TimeOnly? ParseHora(string? hhmm) =>
+        !string.IsNullOrWhiteSpace(hhmm) && TimeOnly.TryParse(hhmm, out var t) ? t : null;
 
     public async Task DeleteAsync(Guid id)
     {

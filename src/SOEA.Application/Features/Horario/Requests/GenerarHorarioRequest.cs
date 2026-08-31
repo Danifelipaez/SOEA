@@ -155,6 +155,13 @@ namespace SOEA.Application.Features.Horario.Requests
         public string? FacultadId          { get; set; }
         public int     EstudiantesInscritos { get; set; } = 1;
         /// <summary>
+        /// Docente que dicta la asignatura para este grupo (Fase 2: el docente vive en el grupo,
+        /// no en la asignatura). Semilla de <c>Sesion.DocenteId</c> al generar — no es hard
+        /// constraint: HC-I01/HC-I02/HC-I03 siguen fuera del pipeline (CR-02/CR-08), y
+        /// PATCH /api/sesiones/{id}/docente puede sobrescribirla después.
+        /// </summary>
+        public string? DocenteId { get; set; }
+        /// <summary>
         /// JSON crudo de disponibilidad por día (mismo shape que <see cref="DocenteDto.Disponibilidad"/>).
         /// El backend deriva la ventana HC-G01 de aquí — ver <c>DisponibilidadSemanal</c>.
         /// </summary>

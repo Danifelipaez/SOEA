@@ -29,6 +29,11 @@ namespace SOEA.Application.Features.Horario.Responses
         public string  Id           { get; set; } = string.Empty;
         public string  AsignaturaId { get; set; } = string.Empty;
         public string  DocenteId    { get; set; } = string.Empty;
+        /// <summary>
+        /// Grupo (cohorte) dueño de la sesión. Sin esto el frontend no puede distinguir dos
+        /// grupos de la misma asignatura — se pintaban como una sola fila en el horario.
+        /// </summary>
+        public string  GrupoId      { get; set; } = string.Empty;
         public string? EspacioId    { get; set; }
         /// <summary>
         /// Lab de origen: el espacio donde la sesión es presencial. Se rellena también en las filas

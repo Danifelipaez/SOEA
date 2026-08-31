@@ -52,7 +52,7 @@ namespace SOEA.Application.Features.Horario
         public async Task<ReacomodarHorarioResponse> EjecutarAsync(ReacomodarHorarioRequest req, CancellationToken ct = default)
         {
             var horario = await _horarioRepo.GetByIdAsync(req.HorarioId)
-                ?? throw new KeyNotFoundException($"No se encontró el horario con Id '{req.HorarioId}'.");
+                ?? throw new KeyNotFoundException("No se encontró el horario indicado. Puede haber sido regenerado — recargue la vista de horario.");
 
             var sesiones = new List<Sesion>();
             foreach (var id in horario.SesioneIds)
@@ -62,7 +62,7 @@ namespace SOEA.Application.Features.Horario
             }
 
             var sesionEditada = sesiones.FirstOrDefault(s => s.Id == req.SesionEditadaId)
-                ?? throw new KeyNotFoundException($"La sesión '{req.SesionEditadaId}' no pertenece al horario '{req.HorarioId}'.");
+                ?? throw new KeyNotFoundException("La sesión editada no pertenece al horario actual. Puede haber sido regenerado — recargue la vista de horario.");
 
             var dia = CrearSesionManualService.MapearDia(req.Dia)
                 ?? throw new ArgumentException($"Día no reconocido: '{req.Dia}'.");
@@ -119,7 +119,6 @@ namespace SOEA.Application.Features.Horario
             else
             {
                 var espacios    = await _espacioRepo.GetAllAsync();
-                var docentes    = await _docenteRepo.GetAllAsync();
                 var gruposMotor = await _grupoRepo.GetAllAsync();
                 var asignaturas = await _asignaturaRepo.GetAllAsync();
                 var ventanaPorAsig = asignaturas.ToDictionary(
@@ -130,7 +129,7 @@ namespace SOEA.Application.Features.Horario
                 var sesionesFijasIds = sesiones.Select(s => s.Id).Where(id => !freedIds.Contains(id)).ToHashSet();
 
                 var resultado = await _fase2.ResolverFactibilidadAsync(
-                    sesiones, bloquesGrid, espacios, docentes,
+                    sesiones, bloquesGrid, espacios,
                     grupos: gruposMotor,
                     sesionesFijasIds: sesionesFijasIds,
                     ventanaPorAsignatura: ventanaPorAsig,

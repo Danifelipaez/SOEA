@@ -28,5 +28,12 @@ namespace SOEA.Application.Features.Asignaturas.Requests
         /// Categoría curricular (prioridad de presencialidad, SC-PRES). Null = conservar la actual.
         /// </summary>
         public CategoriaAsignatura? Categoria { get; set; }
+
+        /// <summary>
+        /// Ventana horaria HC-VH (Secretaría Académica), formato "HH:mm". Null = conservar la
+        /// actual (mismo criterio que Categoria — un PUT de campos no relacionados no la borra).
+        /// </summary>
+        public string? HoraInicioMin { get; set; }
+        public string? HoraFinMax { get; set; }
     }
 }

@@ -20,6 +20,10 @@ namespace SOEA.Application.Features.Asignaturas.Responses
         public CategoriaAsignatura Categoria { get; set; }
         public bool EsCandidataAlternancia { get; set; }
 
+        /// <summary>Ventana horaria HC-VH, formato "HH:mm" (mismo formato que GenerarHorarioRequest). Null = sin restricción.</summary>
+        public string? HoraInicioMin { get; set; }
+        public string? HoraFinMax { get; set; }
+
         public static AsignaturaResponse FromEntity(Asignatura a) => new()
         {
             Id = a.Id,
@@ -35,7 +39,9 @@ namespace SOEA.Application.Features.Asignaturas.Responses
             Alternancia = a.Alternancia,
             ProgramaId = a.ProgramaId,
             Categoria = a.Categoria,
-            EsCandidataAlternancia = a.EsCandidataAlternancia
+            EsCandidataAlternancia = a.EsCandidataAlternancia,
+            HoraInicioMin = a.HoraInicioMin?.ToString("HH:mm"),
+            HoraFinMax = a.HoraFinMax?.ToString("HH:mm")
         };
     }
 }

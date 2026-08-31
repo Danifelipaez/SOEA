@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
@@ -32,7 +33,8 @@ namespace SOEA.API.Controllers
         public TipoSesion TipoSesion { get; set; }
         /// <summary>Espacio concreto exigido. Null = cualquier espacio de <see cref="TipoEspacio"/>.</summary>
         public Guid? EspacioId { get; set; }
-        public TipoEspacio TipoEspacio { get; set; }
+        /// <summary>Null = sin preferencia de tipo (M6): usa la regla por defecto según TipoSesion.</summary>
+        public TipoEspacio? TipoEspacio { get; set; }
         public int Sesiones { get; set; }
     }
 
@@ -78,6 +80,11 @@ namespace SOEA.API.Controllers
             // Invariante: todo grupo debe estar atado a una asignatura en creación.
             if (dto.AsignaturaId is null || dto.AsignaturaId == Guid.Empty)
                 return BadRequest("AsignaturaId es obligatorio al crear un grupo.");
+            // G6 auditoría: sin esto, un ProgramaId vacío se persistía sin error — el grupo
+            // quedaba luego con "Guardar" deshabilitado al editarlo (el select de programa, con
+            // Validators.required, nunca aceptaba un valor vacío para volver a habilitarlo).
+            if (dto.ProgramaId == Guid.Empty)
+                return BadRequest("ProgramaId es obligatorio al crear un grupo.");
 
             var asignatura = await _asignaturas.GetByIdAsync(dto.AsignaturaId.Value);
             if (asignatura is null)
@@ -105,6 +112,13 @@ namespace SOEA.API.Controllers
             catch (ArgumentException ex)
             {
                 return BadRequest(ex.Message);
+            }
+            catch (DbUpdateException)
+            {
+                // G6 auditoría: el índice único ix_grupo_codigo (único constraint del Grupo)
+                // lanzaba DbUpdateException sin capturar → 500 genérico. El frontend lo pintaba
+                // como "no se guarda, no crea grupo" sin decir por qué.
+                return Conflict($"Ya existe un grupo con el código '{dto.Codigo}'. Use un código distinto.");
             }
         }
 
@@ -139,6 +153,10 @@ namespace SOEA.API.Controllers
             catch (ArgumentException ex)
             {
                 return BadRequest(ex.Message);
+            }
+            catch (DbUpdateException)
+            {
+                return Conflict($"Ya existe un grupo con el código '{dto.Codigo}'. Use un código distinto.");
             }
         }
 
