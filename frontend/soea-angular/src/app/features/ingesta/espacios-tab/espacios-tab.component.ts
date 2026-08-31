@@ -8,6 +8,7 @@ import { CatalogoService } from '../../../core/catalogo.service';
 import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { Espacio } from '../../../core/models';
+import { nuevoId } from '../../../core/id.util';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
 type TipoEspacio = 'Salón' | 'Laboratorio' | 'Auditorio';
@@ -99,7 +100,7 @@ export class EspaciosTabComponent {
     const dialogRef = this.dialog.open(EspacioDialogComponent, { width: '320px', data: espacio });
     dialogRef.afterClosed().subscribe(result => {
       if (!result) return;
-      const entidad: Espacio = espacio ? { ...espacio, ...result } : { id: crypto.randomUUID(), ...result };
+      const entidad: Espacio = espacio ? { ...espacio, ...result } : { id: nuevoId(), ...result };
       this.catalogo.guardar('espacio', entidad).subscribe({
         next: () => this.snackBar.open(espacio ? 'Espacio actualizado' : 'Espacio agregado', '', { duration: 2500 }),
         error: (err) => this.snackBar.open(`Error al guardar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 4000 })

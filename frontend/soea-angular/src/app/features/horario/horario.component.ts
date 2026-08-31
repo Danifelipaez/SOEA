@@ -10,6 +10,7 @@ import { HorarioApiService } from '../../core/horario-api.service';
 import { PersistenciaService } from '../../core/persistencia.service';
 import { CatalogoService } from '../../core/catalogo.service';
 import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, Sesion, TipoSesionUi, tipoFlujoDesde, esVirtualDesde } from '../../core/models';
+import { nuevoId } from '../../core/id.util';
 import { SearchableSelectComponent, SearchableOption } from '../../shared/searchable-select/searchable-select.component';
 
 /** Representación visual de una sesión atómica multi-slot. */
@@ -24,6 +25,8 @@ interface MergedSesion {
   alternancia: string;
   semana?: 'A' | 'B';
   asignaturaId: string;
+  /** Grupo (cohorte) dueño de la sesión — distingue dos grupos de la misma asignatura. */
+  grupoId?: string;
   docenteId?: string;
   espacioId?: string;
   espacioIdHogar?: string;
@@ -321,7 +324,7 @@ export class HorarioComponent implements OnInit {
       const merged: MergedSesion = {
         key: s.id, sesiones: [s], dia: s.dia, horaInicio: s.horaInicio, horaFin: s.horaFin, duracionSlots: dur,
         virtual: s.virtual, alternancia: s.alternancia, semana: s.semana, asignaturaId: s.asignaturaId,
-        docenteId: s.docenteId, espacioId: s.espacioId, espacioIdHogar: s.espacioIdHogar, tipoFlujo: s.tipoFlujo
+        grupoId: s.grupoId, docenteId: s.docenteId, espacioId: s.espacioId, espacioIdHogar: s.espacioIdHogar, tipoFlujo: s.tipoFlujo
       };
       const cid = this.cellId(s.dia, s.horaInicio);
       if (!map.has(cid)) map.set(cid, []);
@@ -404,8 +407,11 @@ export class HorarioComponent implements OnInit {
     return prog?.nombre ?? '';
   }
   grupoSuffix(merged: MergedSesion): string {
-    const asig = this.state.asignaturaById().get(merged.asignaturaId);
-    return asig?.grupoNumero ? ` · G${asig.grupoNumero}` : '';
+    // G3 (bug reportado "no se muestran todos los grupos"): antes usaba Asignatura.grupoNumero
+    // (campo legado de import, no el grupo real) — dos grupos de la misma asignatura se
+    // pintaban idénticos. Ahora usa el grupo real de la sesión (Sesion.grupoId).
+    const nombre = merged.grupoId && this.state.grupos().find(g => g.id === merged.grupoId)?.nombre;
+    return nombre ? ` · ${nombre}` : '';
   }
 
   abrirEditarSesion(merged: MergedSesion) {
@@ -1043,7 +1049,7 @@ export class SesionFijaDialogComponent {
     const [hh, mm] = this.horaInicio.split(':').map(Number);
     const horaFin = `${String(hh + this.duracion).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
     const sesion: Sesion = {
-      id: crypto.randomUUID(), asignaturaId: this.asignaturaId, docenteId: this.docenteId,
+      id: nuevoId(), asignaturaId: this.asignaturaId, docenteId: this.docenteId,
       dia: this.dia, horaInicio: this.horaInicio, horaFin, duracionHoras: this.duracion,
       espacioId: this.virtual ? undefined : (this.espacioId || undefined), virtual: this.virtual,
       alternancia: this.alternancia, tipoFlujo: this.virtual ? 'AulaVirtual' : 'Laboratorio'

@@ -11,6 +11,7 @@ import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { ImportResultadoDialogComponent } from '../../../shared/import-resultado-dialog/import-resultado-dialog.component';
 import { Asignatura, Facultad, Grupo, Programa, RequisitoEspacio, TipoSesionUi } from '../../../core/models';
+import { nuevoId } from '../../../core/id.util';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { ImportExcelStatsDto } from '../../../core/persistencia.service';
 import { SearchableSelectComponent, SearchableOption } from '../../../shared/searchable-select/searchable-select.component';
@@ -180,7 +181,7 @@ export class AsignaturasTabComponent {
     const ref = this.dialog.open(GrupoDialogComponent, { width: '620px', maxWidth: '95vw', data });
     ref.afterClosed().subscribe(result => {
       if (!result) return;
-      const entidad: Grupo = grupo ? { ...grupo, ...result } : { id: crypto.randomUUID(), ...result };
+      const entidad: Grupo = grupo ? { ...grupo, ...result } : { id: nuevoId(), ...result };
       this.catalogo.guardar('grupo', entidad).subscribe({
         next: () => this.snackBar.open(grupo ? 'Grupo actualizado' : 'Grupo agregado', '', { duration: 2500 }),
         error: (err) => this.snackBar.open(`Error al guardar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 4000 })
@@ -241,7 +242,7 @@ export class AsignaturasTabComponent {
     dialogRef.afterClosed().subscribe(result => {
       if (!result) return;
       const { grupos: gruposPendientes, ...asignaturaFields } = result;
-      const entidad: Asignatura = asignatura ? { ...asignatura, ...asignaturaFields } : { id: crypto.randomUUID(), ...asignaturaFields };
+      const entidad: Asignatura = asignatura ? { ...asignatura, ...asignaturaFields } : { id: nuevoId(), ...asignaturaFields };
       this.guardarConDependencias(entidad, !!asignatura, gruposPendientes ?? []);
     });
   }
@@ -266,11 +267,16 @@ export class AsignaturasTabComponent {
       switchMap((): Observable<Asignatura> => this.catalogo.guardar('asignatura', entidad)),
       switchMap((): Observable<unknown> => {
         if (!gruposPendientes.length) return of(null);
+        // facultadId/codigo se perdían aquí (G6 auditoría): la cápsula no los recogía en el
+        // objeto del grupo aunque el modelo los soporta.
+        const facultadId = this.state.getProgramaById(entidad.programaId)?.facultadId;
         return forkJoin(gruposPendientes.map(g => this.catalogo.guardar('grupo', {
-          id: crypto.randomUUID(),
+          id: nuevoId(),
           asignaturaId: entidad.id,
           programaId: entidad.programaId,
+          facultadId,
           nombre: g.nombre ?? 'Grupo',
+          codigo: g.codigo,
           estudiantesInscritos: g.estudiantesInscritos ?? 30,
           docenteId: g.docenteId,
           disponibilidadUiJson: g.disponibilidadUiJson,
@@ -349,6 +355,12 @@ type CategoriaSesion = 'presencial' | 'virtual' | 'lab';
           <select class="input" formControlName="categoria">
             <option value="">—</option><option value="Obligatoria">Obligatoria</option><option value="Optativa">Optativa</option><option value="Electiva">Electiva</option>
           </select></div>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <div class="dfield" style="width:140px"><label>Ventana desde</label><input class="input" type="time" formControlName="horaInicioMin"></div>
+        <div class="dfield" style="width:140px"><label>Ventana hasta</label><input class="input" type="time" formControlName="horaFinMax"></div>
+        <p class="text-muted" style="font-size:11px;margin:0 0 9px">Opcional — acota el horario en que puede programarse esta asignatura (HC-VH, Secretaría Académica).</p>
       </div>
 
       <div style="display:flex;gap:8px;align-items:flex-end">
@@ -537,6 +549,8 @@ export class AsignaturaDialogComponent {
     codigo: [this.data?.codigo ?? '', Validators.required],
     nombre: [this.data?.nombre ?? '', Validators.required],
     categoria: [this.data?.categoria ?? ''],
+    horaInicioMin: [this.data?.horaInicioMin ?? ''],
+    horaFinMax: [this.data?.horaFinMax ?? ''],
     horasTeoriaPresencial: [this.data?.horasTeoriaPresencial ?? 2, [Validators.required, Validators.min(1)]],
     horasTeoriaVirtual: [this.data?.horasTeoriaVirtual ?? 2, [Validators.required, Validators.min(1)]],
     horasLaboratorio: [this.data?.horasLaboratorio ?? 2, [Validators.required, Validators.min(1)]]
@@ -626,17 +640,24 @@ export class AsignaturaDialogComponent {
 
   save() {
     if (!this.canSave()) return;
+    // G6 (bug reportado "no se guarda, no crea grupo"): si el usuario llenó la cápsula "＋ nuevo
+    // grupo" pero pulsó "Guardar" sin pulsar antes "Agregar", su contenido se descartaba en
+    // silencio — confirmarGrupoPendiente() es un no-op si el nombre está vacío, así que es
+    // seguro llamarla siempre aquí.
+    this.confirmarGrupoPendiente();
     const v = this.form.value;
     let facultadId = v.facultadId!;
-    if (facultadId === '__nueva__') { const fac: Facultad = { id: crypto.randomUUID(), nombre: v.nuevaFacultad! }; this.state.addFacultad(fac); facultadId = fac.id; }
+    if (facultadId === '__nueva__') { const fac: Facultad = { id: nuevoId(), nombre: v.nuevaFacultad! }; this.state.addFacultad(fac); facultadId = fac.id; }
     let programaId = v.programaId!;
-    if (programaId === '__nuevo__') { const prog: Programa = { id: crypto.randomUUID(), nombre: v.nuevoPrograma!, facultadId }; this.state.addPrograma(prog); programaId = prog.id; }
+    if (programaId === '__nuevo__') { const prog: Programa = { id: nuevoId(), nombre: v.nuevoPrograma!, facultadId }; this.state.addPrograma(prog); programaId = prog.id; }
 
     const s = this.sesiones();
 
     this.ref.close({
       codigo: v.codigo!, nombre: v.nombre!,
       categoria: (v.categoria as 'Obligatoria' | 'Optativa' | 'Electiva') || undefined,
+      horaInicioMin: v.horaInicioMin || undefined,
+      horaFinMax: v.horaFinMax || undefined,
       sesionesTeoriaPresencialSemana: s.presencial,
       horasTeoriaPresencial: Number(v.horasTeoriaPresencial) || 2,
       sesionesTeoriaVirtualSemana: s.virtual,

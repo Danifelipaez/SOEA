@@ -8,6 +8,7 @@ import { CatalogoService } from '../../../core/catalogo.service';
 import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { Docente } from '../../../core/models';
+import { nuevoId } from '../../../core/id.util';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { DisponibilidadEditorComponent, FranjaOption } from '../../../shared/disponibilidad-editor/disponibilidad-editor.component';
 
@@ -109,7 +110,7 @@ export class DocentesTabComponent {
     const dialogRef = this.dialog.open(DocenteDialogComponent, { width: '620px', maxWidth: '95vw', data: docente });
     dialogRef.afterClosed().subscribe(result => {
       if (!result) return;
-      const entidad: Docente = docente ? { ...docente, ...result } : { id: crypto.randomUUID(), ...result };
+      const entidad: Docente = docente ? { ...docente, ...result } : { id: nuevoId(), ...result };
       this.catalogo.guardar('docente', entidad).subscribe({
         next: () => this.snackBar.open(docente ? 'Docente actualizado' : 'Docente agregado', '', { duration: 2500 }),
         error: (err) => this.snackBar.open(`Error al guardar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 4000 })
