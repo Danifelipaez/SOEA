@@ -43,6 +43,8 @@ export interface GrupoApiDto {
   codigo?: string;
   asignaturaId?: string;
   facultadId?: string;
+  /** Docente que dicta la asignatura para este grupo — semilla de Sesion.docenteId al generar. */
+  docenteId?: string;
   estudiantesInscritos: number;
   /** JSON crudo por día (misma forma que Docente.disponibilidad); el backend deriva la ventana HC-G01. */
   disponibilidadUiJson?: string;
@@ -173,6 +175,7 @@ export class HorarioApiService {
       codigo: g.codigo,
       asignaturaId: g.asignaturaId,
       facultadId: g.facultadId,
+      docenteId: g.docenteId,
       estudiantesInscritos: g.estudiantesInscritos,
       disponibilidadUiJson: g.disponibilidadUiJson,
       requisitosEspacio: g.requisitosEspacio ?? [],

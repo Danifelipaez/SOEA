@@ -83,7 +83,7 @@ export interface Asignatura {
   /** Candidata a ceder a alternancia si el algoritmo agota el espacio físico (cesión por saturación de espacio). */
   esCandidataAlternancia?: boolean;
   /** Ventana horaria HC-VH (hard constraint, la fija Secretaría Académica). Formato "HH:mm".
-   *  Sin UI propia todavía — llega por import de Excel u otra vía; ausente = sin restricción. */
+   *  Editable en el diálogo de asignatura de /catalogo; ausente = sin restricción. */
   horaInicioMin?: string;
   horaFinMax?: string;
 }
@@ -134,6 +134,8 @@ export interface HorarioBase {
 export interface Sesion {
   id: string;
   asignaturaId: string;
+  /** Grupo (cohorte) dueño de la sesión. Distingue dos grupos de la misma asignatura en el horario. */
+  grupoId?: string;
   docenteId?: string;
   dia: string;           // 'lunes' | 'martes' | ...
   horaInicio: string;    // "07:00"

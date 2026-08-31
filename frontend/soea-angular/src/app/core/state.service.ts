@@ -1,5 +1,6 @@
 import { Injectable, signal, computed } from '@angular/core';
 import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, ConfiguracionAlgoritmo, CONFIGURACION_DEFECTO, HorarioBase } from './models';
+import { nuevoId } from './id.util';
 
 @Injectable({
   providedIn: 'root'
@@ -140,7 +141,7 @@ export class StateService {
 
   guardarHorarioBase(nombre: string): HorarioBase {
     const base: HorarioBase = {
-      id: crypto.randomUUID(),
+      id: nuevoId(),
       nombre: nombre.trim(),
       creadoEn: new Date().toISOString(),
       sesiones: this.sesiones(),

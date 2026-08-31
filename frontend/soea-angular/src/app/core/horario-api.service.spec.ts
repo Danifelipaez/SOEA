@@ -38,6 +38,7 @@ describe('HorarioApiService — contrato con /horario/generar', () => {
     const espacios: Espacio[] = [{ id: 'e1', nombre: 'Lab Química', capacidad: 30, tipo: 'Laboratorio' }];
     const grupos: Grupo[] = [{
       id: 'g1', asignaturaId: 'a1', nombre: 'Grupo 1', estudiantesInscritos: 20, programaId: 'p1',
+      docenteId: 'd1',
       requisitosEspacio: [
         { tipoSesion: 'TeoriaPresencial', espacioId: 'e1', tipoEspacio: 'Laboratorio', sesiones: 1 },
       ],
@@ -57,6 +58,10 @@ describe('HorarioApiService — contrato con /horario/generar', () => {
     // El bug reportado: sin esto, RequisitosEspacio siempre llega vacío al backend y toda
     // sesión presencial cae en el primer espacio disponible del run.
     expect(body.grupos?.[0].requisitosEspacio).toEqual(grupos[0].requisitosEspacio);
+
+    // G1 (bug reportado "docente no se importa"): sin esto, toda sesión generada nace con
+    // docenteId null aunque el grupo tenga docente en BD.
+    expect(body.grupos?.[0].docenteId).toBe('d1');
 
     // HC-VH: sin esto, la ventana horaria de la asignatura es una restricción dura muerta.
     expect(body.asignaturas[0].horaInicioMin).toBe('08:00');

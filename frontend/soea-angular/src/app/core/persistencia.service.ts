@@ -168,7 +168,9 @@ export class PersistenciaService {
       sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
       programaId: a.programaId,
       alternancia: a.alternancia,
-      categoria: a.categoria ?? null
+      categoria: a.categoria ?? null,
+      horaInicioMin: a.horaInicioMin ?? null,
+      horaFinMax: a.horaFinMax ?? null
     };
     return this.http.post<any>(`${this.base}/asignaturas`, body);
   }
@@ -186,7 +188,9 @@ export class PersistenciaService {
       sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
       programaId: a.programaId,
       alternancia: a.alternancia,
-      categoria: a.categoria ?? null
+      categoria: a.categoria ?? null,
+      horaInicioMin: a.horaInicioMin ?? null,
+      horaFinMax: a.horaFinMax ?? null
     };
     return this.http.put<any>(`${this.base}/asignaturas/${a.id}`, body);
   }

@@ -1,5 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { Observable, forkJoin, of } from 'rxjs';
+import { Observable, forkJoin, of, throwError } from 'rxjs';
 import { map, catchError, tap } from 'rxjs/operators';
 import { PersistenciaService } from './persistencia.service';
 import { StateService } from './state.service';
@@ -73,8 +73,9 @@ export class CatalogoService {
    * dispara POST (si la entidad no está en BD) o PUT (si ya lo está) contra el backend. Al
    * resolver con éxito, re-sincroniza el state con la respuesta del servidor (que puede traer
    * un id distinto, p. ej. si el cliente no pudo o no quiso fijar uno) y marca la entidad como
-   * persistida. En error, el state queda con el cambio optimista (igual que `alternancia-tab`)
-   * y el caller es quien decide cómo mostrar el fallo (snackbar, estado por fila, etc.).
+   * persistida. En error, revierte el cambio optimista (G6 auditoría: antes quedaba en el
+   * state como si existiera — "se creó… y luego no está" al recargar desde BD) y el caller
+   * sigue siendo quien decide cómo mostrar el fallo (snackbar, estado por fila, etc.).
    */
   guardar(tipo: 'asignatura', entidad: Asignatura): Observable<Asignatura>;
   guardar(tipo: 'docente', entidad: Docente): Observable<Docente>;
@@ -83,6 +84,7 @@ export class CatalogoService {
   guardar(tipo: 'facultad', entidad: Facultad): Observable<Facultad>;
   guardar(tipo: 'programa', entidad: Programa): Observable<Programa>;
   guardar(tipo: EntidadCatalogo, entidad: any): Observable<any> {
+    const anterior = this.buscarEnState(tipo, entidad.id);
     this.actualizarEnState(tipo, entidad);
     const esNueva = !this.estaEnBd(tipo, entidad.id);
     return this.peticionGuardar(tipo, entidad, esNueva).pipe(
@@ -90,8 +92,24 @@ export class CatalogoService {
       tap(guardada => {
         this.marcarEnBd(tipo, guardada.id);
         this.actualizarEnState(tipo, guardada);
+      }),
+      catchError(err => {
+        if (esNueva) this.eliminarDeState(tipo, entidad.id);
+        else if (anterior) this.actualizarEnState(tipo, anterior);
+        return throwError(() => err);
       })
     );
+  }
+
+  private buscarEnState(tipo: EntidadCatalogo, id: string): any {
+    switch (tipo) {
+      case 'asignatura': return this.state.asignaturas().find(x => x.id === id);
+      case 'docente':    return this.state.docentes().find(x => x.id === id);
+      case 'espacio':    return this.state.espacios().find(x => x.id === id);
+      case 'grupo':      return this.state.grupos().find(x => x.id === id);
+      case 'facultad':   return this.state.facultades().find(x => x.id === id);
+      case 'programa':   return this.state.programas().find(x => x.id === id);
+    }
   }
 
   /** Elimina en backend y, si tiene éxito, en el `StateService` y en `*EnBd`. */
@@ -247,7 +265,11 @@ export class CatalogoService {
       categoria: a.categoria ?? undefined,
       programaId: a.programaId,
       grupoNumero: a.grupoNumero ?? undefined,
-      esCandidataAlternancia: a.esCandidataAlternancia ?? false
+      esCandidataAlternancia: a.esCandidataAlternancia ?? false,
+      // Sin esto la ventana HC-VH se pierde al recargar desde BD: la UI la edita y el backend
+      // la guarda, pero el mapeo de vuelta la tiraba (mismo patrón de mapeo silencioso).
+      horaInicioMin: a.horaInicioMin ?? undefined,
+      horaFinMax: a.horaFinMax ?? undefined
     };
   }
 
