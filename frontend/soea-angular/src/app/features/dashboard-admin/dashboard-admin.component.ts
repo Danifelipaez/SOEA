@@ -115,7 +115,9 @@ export class DashboardAdminComponent implements OnInit {
     return t ? Math.round((this.totalPresenciales() / t) * 100) : 0;
   });
 
-  private totalSlots = computed(() => this.state.espacios().length * 13 * 6);
+  // 16 franjas (06:00-21:00) × 6 días — misma grilla que horario.component.ts (antes 13, KPI
+  // desalineado con lo que la grilla realmente pinta).
+  private totalSlots = computed(() => this.state.espacios().length * 16 * 6);
   ocupacionPct = computed(() => { const s = this.totalSlots(); return s ? Math.round((this.totalPresenciales() / s) * 100) : 0; });
   franjasOciosas = computed(() => Math.max(0, this.totalSlots() - this.totalPresenciales()));
 
@@ -123,13 +125,17 @@ export class DashboardAdminComponent implements OnInit {
     const sesiones = this.state.sesiones();
     return this.state.docentes()
       .map(d => {
-        const sesDoc = sesiones.filter(s => s.docenteId === d.id);
+        // G4 (bug reportado "error en el conteo de horas"): las filas de semana A y B de una
+        // misma sesión comparten id y tienen la misma duración — sin deduplicar, cada sesión
+        // se contaba dos veces.
+        const vistos = new Set<string>();
+        const sesDoc = sesiones.filter(s => s.docenteId === d.id && (vistos.has(s.id) ? false : (vistos.add(s.id), true)));
         const horas = sesDoc.reduce((acc, s) => {
           const [hI, mI] = s.horaInicio.split(':').map(Number);
           const [hF, mF] = s.horaFin.split(':').map(Number);
           return acc + ((hF * 60 + mF) - (hI * 60 + mI)) / 60;
         }, 0);
-        const maxHoras = d.maxHoras || 28;
+        const maxHoras = d.maxHoras || 40; // mismo default que catalogo.service.ts mapDocente
         const porcentaje = maxHoras > 0 ? Math.round((horas / maxHoras) * 100) : 0;
         const estado = porcentaje >= 100 ? 'Límite' : porcentaje >= 85 ? 'Alerta' : 'Normal';
         const pill = porcentaje >= 100 ? 'err' : porcentaje >= 85 ? 'warn' : 'ok';
