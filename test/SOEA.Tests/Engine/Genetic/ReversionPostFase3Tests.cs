@@ -7,6 +7,7 @@ using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.Services;
+using SOEA.Engine.ConstraintProg;
 using SOEA.Engine.Genetic;
 using Xunit;
 
@@ -15,12 +16,13 @@ namespace SOEA.Tests.Engine.Genetic
     /// <summary>
     /// Pase de reversión post-Fase 3: tras el GA y la asignación real de aulas, intenta recuperar
     /// a presencial cada sesión marcada <c>CedidaPorSaturacion</c> (en orden inverso de cesión),
-    /// validando contra el empaque REAL de <see cref="AsignadorEspacios"/> — más preciso que el
-    /// pre-check agregado de Fase 2.
+    /// validando contra el empaque REAL de <see cref="IAsignadorEspaciosExacto"/> — más preciso
+    /// que el pre-check agregado de Fase 2.
     /// </summary>
     public class ReversionPostFase3Tests
     {
-        private static readonly MotorGenetico Motor = new(NullLogger<MotorGenetico>.Instance);
+        private static readonly MotorGenetico Motor = new(NullLogger<MotorGenetico>.Instance,
+            new AsignadorEspaciosExactoCpSat(NullLogger<AsignadorEspaciosExactoCpSat>.Instance));
 
         private static List<BloqueTiempo> Grilla(int n) =>
             Enumerable.Range(0, n)

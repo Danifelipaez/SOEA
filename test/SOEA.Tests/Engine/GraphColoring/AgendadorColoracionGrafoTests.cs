@@ -51,7 +51,12 @@ namespace SOEA.Tests.Engine.GraphColoring
                 sesiones, bloques, new List<Grupo> { grupo })).ToList();
 
             var bloquePorId = bloques.ToDictionary(b => b.Id);
-            Assert.All(resultado.Where(s => s.BloqueTiempoId != Guid.Empty && bloquePorId.ContainsKey(s.BloqueTiempoId)),
+            var asignadas = resultado.Where(s => s.BloqueTiempoId != Guid.Empty && bloquePorId.ContainsKey(s.BloqueTiempoId)).ToList();
+            // T3 (auditoria de suavizado): sin esto, si el agendador falla del todo y devuelve
+            // todo con BloqueTiempoId=Guid.Empty, la coleccion filtrada queda vacia y el
+            // Assert.All de abajo pasa en vacio — el unico test de HC-G01 en Fase 1 daba falso verde.
+            Assert.NotEmpty(asignadas);
+            Assert.All(asignadas,
                 s => Assert.True(bloquePorId[s.BloqueTiempoId].HoraInicio.Hour < 12,
                     $"Sesión {s.Id} cayó en {bloquePorId[s.BloqueTiempoId].HoraInicio}, fuera de la franja Matutino."));
         }
@@ -74,7 +79,11 @@ namespace SOEA.Tests.Engine.GraphColoring
                 sesiones, bloques, ventanaPorAsignatura: ventanas)).ToList();
 
             var bloquePorId = bloques.ToDictionary(b => b.Id);
-            Assert.All(resultado.Where(s => s.BloqueTiempoId != Guid.Empty && bloquePorId.ContainsKey(s.BloqueTiempoId)),
+            var asignadas = resultado.Where(s => s.BloqueTiempoId != Guid.Empty && bloquePorId.ContainsKey(s.BloqueTiempoId)).ToList();
+            // T3 (auditoria de suavizado): mismo caso que HC-G01 — sin este NotEmpty, un
+            // agendador roto que no asigna nada hace pasar el Assert.All en vacio.
+            Assert.NotEmpty(asignadas);
+            Assert.All(asignadas,
                 s =>
                 {
                     var inicio = bloquePorId[s.BloqueTiempoId].HoraInicio;

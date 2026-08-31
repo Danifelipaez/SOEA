@@ -4,6 +4,7 @@ using System.Linq;
 using SOEA.Application.Features.Horario;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
+using SOEA.Domain.ValueObjects;
 using Xunit;
 
 namespace SOEA.Tests.Application.Horario
@@ -53,9 +54,11 @@ namespace SOEA.Tests.Application.Horario
             var asigObl    = Guid.NewGuid(); // Obligatoria, 1 sesión: no matchea ningún criterio, no cede
             var asigBlk    = Guid.NewGuid(); // Electiva, 2 sesiones bloqueadas: nunca se tocan
 
-            // 1 espacio → umbral de saturación = 1*5*8 = 40h. Demanda (41h) 1h por encima del umbral:
-            // el exceso alcanza para exactamente UNA pareja (2h de huella ⇒ 1h heurística) y nada más.
-            var espacios = new List<Espacio> { new(Guid.NewGuid(), "E", TipoEspacio.Laboratorio, 30) };
+            // 1 espacio NO-laboratorio (M1: la heurística sólo cuenta salones/auditorios, porque este
+            // método sólo cede teoría) → umbral de saturación = 1*5*8 = 40h. Demanda (41h) 1h por
+            // encima del umbral: el exceso alcanza para exactamente UNA pareja (2h de huella ⇒ 1h
+            // heurística) y nada más.
+            var espacios = new List<Espacio> { new(Guid.NewGuid(), "E", TipoEspacio.Salon, 30) };
 
             var filler = new[] { 8m, 8m, 8m, 8m, 2m }.Select(h => Pres(asigFiller, grupo, h)).ToList(); // 34h
             var eleA   = new List<Sesion> { Pres(asigEleA, grupo, 1m), Pres(asigEleA, grupo, 1m) };
@@ -138,7 +141,7 @@ namespace SOEA.Tests.Application.Horario
         {
             var grupo = Guid.NewGuid();
             var asig = Guid.NewGuid();
-            var espacios = new List<Espacio> { new(Guid.NewGuid(), "E", TipoEspacio.Laboratorio, 30) };
+            var espacios = new List<Espacio> { new(Guid.NewGuid(), "E", TipoEspacio.Salon, 30) };
             var sesiones = new List<Sesion> { Pres(asig, grupo, 2m) }; // 2h << 40h umbral
             var categoria = new Dictionary<Guid, CategoriaAsignatura> { [asig] = CategoriaAsignatura.Electiva };
             var predicados = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)> { CriterioElectiva(categoria) };
@@ -156,7 +159,7 @@ namespace SOEA.Tests.Application.Horario
             var asigEle = Guid.NewGuid(); // Electiva, sesión única
             var asigElg = Guid.NewGuid(); // Marcada "Elegible" (no Electiva), sesión única
 
-            var espacios = new List<Espacio> { new(Guid.NewGuid(), "E", TipoEspacio.Laboratorio, 30) };
+            var espacios = new List<Espacio> { new(Guid.NewGuid(), "E", TipoEspacio.Salon, 30) };
             // Filler sin criterio (nunca candidata) + ele/elg de 1h cada una ⇒ demanda = 41h,
             // 1h por encima del umbral (40h): el exceso alcanza para ceder EXACTAMENTE una de las dos.
             var filler = new[] { 8m, 8m, 8m, 8m, 7m }.Select(h => Pres(Guid.NewGuid(), grupo, h)).ToList(); // 39h
@@ -251,7 +254,7 @@ namespace SOEA.Tests.Application.Horario
             var asigMulti  = Guid.NewGuid(); // Elegible + 2 sesiones/sem
             var asigUnica  = Guid.NewGuid(); // Electiva + sesión única
 
-            var espacios = new List<Espacio> { new(Guid.NewGuid(), "E", TipoEspacio.Laboratorio, 30) };
+            var espacios = new List<Espacio> { new(Guid.NewGuid(), "E", TipoEspacio.Salon, 30) };
             // Filler sin criterio + multi/unica de 1h cada sesión ⇒ demanda = 41h, 1h sobre el umbral
             // (40h): el exceso alcanza para ceder EXACTAMENTE una sesión.
             var filler = new[] { 8m, 8m, 8m, 8m, 7m }.Select(h => Pres(Guid.NewGuid(), grupo, h)).ToList(); // 39h
@@ -283,5 +286,95 @@ namespace SOEA.Tests.Application.Horario
             new(Guid.NewGuid(), s.AsignaturaId, null, Guid.NewGuid(), null, s.GrupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, s.DuracionHoras, false, false,
                 tipoFlujo: s.TipoFlujo);
+
+        // ── SonParejaCompatible (M8) — con RequisitosEspacio siempre vacío (antes de Fase 0), esta
+        // comprobación era vacuamente cierta: dos sesiones de igual duración SIEMPRE "compatibles",
+        // aunque necesitaran tipos de aula distintos. Ahora que el requisito llega poblado, debe
+        // negar la pareja cuando los requisitos de espacio de sus grupos no coinciden.
+
+        private static Grupo GrupoConRequisito(TipoEspacio? tipoEspacio, Guid? espacioId = null) =>
+            CrearGrupoConRequisito(new RequisitoEspacio(TipoSesion.TeoriaPresencial, espacioId, tipoEspacio, 1));
+
+        private static Grupo CrearGrupoConRequisito(RequisitoEspacio requisito)
+        {
+            var grupo = new Grupo(Guid.NewGuid(), "G", Guid.NewGuid(), 20);
+            grupo.ActualizarRequisitosEspacio(new List<RequisitoEspacio> { requisito });
+            return grupo;
+        }
+
+        [Fact]
+        public void SonParejaCompatible_AmbasSinRequisito_SonCompatibles()
+        {
+            var grupoA = new Grupo(Guid.NewGuid(), "A", Guid.NewGuid(), 20);
+            var grupoB = new Grupo(Guid.NewGuid(), "B", Guid.NewGuid(), 20);
+            var a = Pres(Guid.NewGuid(), grupoA.Id, 1m);
+            var b = Pres(Guid.NewGuid(), grupoB.Id, 1m);
+            var grupoPorId = new[] { grupoA, grupoB }.ToDictionary(g => g.Id);
+
+            Assert.True(GenerarHorarioService.SonParejaCompatible(a, b, grupoPorId));
+        }
+
+        [Fact]
+        public void SonParejaCompatible_DuracionesDistintas_NoSonCompatibles()
+        {
+            var grupoA = new Grupo(Guid.NewGuid(), "A", Guid.NewGuid(), 20);
+            var grupoB = new Grupo(Guid.NewGuid(), "B", Guid.NewGuid(), 20);
+            var a = Pres(Guid.NewGuid(), grupoA.Id, 1m);
+            var b = Pres(Guid.NewGuid(), grupoB.Id, 2m);
+            var grupoPorId = new[] { grupoA, grupoB }.ToDictionary(g => g.Id);
+
+            Assert.False(GenerarHorarioService.SonParejaCompatible(a, b, grupoPorId));
+        }
+
+        [Fact]
+        public void SonParejaCompatible_UnaConRequisitoYOtraSin_NoSonCompatibles()
+        {
+            var grupoA = GrupoConRequisito(TipoEspacio.Auditorio);
+            var grupoB = new Grupo(Guid.NewGuid(), "B", Guid.NewGuid(), 20); // sin requisito
+            var a = Pres(Guid.NewGuid(), grupoA.Id, 1m);
+            var b = Pres(Guid.NewGuid(), grupoB.Id, 1m);
+            var grupoPorId = new[] { grupoA, grupoB }.ToDictionary(g => g.Id);
+
+            Assert.False(GenerarHorarioService.SonParejaCompatible(a, b, grupoPorId));
+        }
+
+        // El hallazgo central de M8: antes de que RequisitosEspacio llegara poblado, este caso
+        // (Auditorio vs Salon) se emparejaba igual — la pareja alternaría compartiendo un único
+        // espacio físico que ninguno de los dos tipos podría usar simultáneamente para ambos.
+        [Fact]
+        public void SonParejaCompatible_TiposDeAulaDistintos_NoSonCompatibles()
+        {
+            var grupoAuditorio = GrupoConRequisito(TipoEspacio.Auditorio);
+            var grupoSalon = GrupoConRequisito(TipoEspacio.Salon);
+            var a = Pres(Guid.NewGuid(), grupoAuditorio.Id, 1m);
+            var b = Pres(Guid.NewGuid(), grupoSalon.Id, 1m);
+            var grupoPorId = new[] { grupoAuditorio, grupoSalon }.ToDictionary(g => g.Id);
+
+            Assert.False(GenerarHorarioService.SonParejaCompatible(a, b, grupoPorId));
+        }
+
+        [Fact]
+        public void SonParejaCompatible_MismoTipoDeAula_SonCompatibles()
+        {
+            var grupoA = GrupoConRequisito(TipoEspacio.Auditorio);
+            var grupoB = GrupoConRequisito(TipoEspacio.Auditorio);
+            var a = Pres(Guid.NewGuid(), grupoA.Id, 1m);
+            var b = Pres(Guid.NewGuid(), grupoB.Id, 1m);
+            var grupoPorId = new[] { grupoA, grupoB }.ToDictionary(g => g.Id);
+
+            Assert.True(GenerarHorarioService.SonParejaCompatible(a, b, grupoPorId));
+        }
+
+        [Fact]
+        public void SonParejaCompatible_EspacioIdDistinto_NoSonCompatibles()
+        {
+            var grupoA = GrupoConRequisito(tipoEspacio: null, espacioId: Guid.NewGuid());
+            var grupoB = GrupoConRequisito(tipoEspacio: null, espacioId: Guid.NewGuid());
+            var a = Pres(Guid.NewGuid(), grupoA.Id, 1m);
+            var b = Pres(Guid.NewGuid(), grupoB.Id, 1m);
+            var grupoPorId = new[] { grupoA, grupoB }.ToDictionary(g => g.Id);
+
+            Assert.False(GenerarHorarioService.SonParejaCompatible(a, b, grupoPorId));
+        }
     }
 }

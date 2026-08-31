@@ -34,6 +34,7 @@ namespace SOEA.Tests.Application.Horario
                 Task.FromResult(Items.FirstOrDefault(h => h.Id == id));
             public Task<SOEA.Domain.Entities.Horario?> GetBySemestreAsync(string semestre) =>
                 Task.FromResult(Items.FirstOrDefault(h => h.Semestre == semestre));
+            public Task<List<SOEA.Domain.Entities.Horario>> GetAllAsync() => Task.FromResult(Items.ToList());
             public Task AddAsync(SOEA.Domain.Entities.Horario horario) { Items.Add(horario); return Task.CompletedTask; }
             public Task UpdateAsync(SOEA.Domain.Entities.Horario horario) => Task.CompletedTask;
         }
@@ -139,7 +140,8 @@ namespace SOEA.Tests.Application.Horario
             var fase1 = new AgendadorColoracionGrafo(
                 new ConstructorGrafoConflictos(), NullLogger<AgendadorColoracionGrafo>.Instance);
             var fase2 = new MotorConstraintProgramming(NullLogger<MotorConstraintProgramming>.Instance, cpSatOptions);
-            fase3 ??= new MotorGenetico(NullLogger<MotorGenetico>.Instance);
+            fase3 ??= new MotorGenetico(NullLogger<MotorGenetico>.Instance,
+                new AsignadorEspaciosExactoCpSat(NullLogger<AsignadorEspaciosExactoCpSat>.Instance));
             return new GenerarHorarioService(fase1, fase2, fase3, horarioRepo, sesionRepo, asigRepo, new FakeCriterioCesionRepo(), uow);
         }
 
@@ -419,6 +421,43 @@ namespace SOEA.Tests.Application.Horario
             Assert.All(r.Sesiones, s => Assert.Equal(salonPreferido, s.EspacioId));
         }
 
+        // M8: EspaciosController usa "Salón" con tilde como literal canónico del tipo de espacio
+        // (distinto del "Salon" sin tilde que usa RequisitoEspacioDto); un espacio real con ese
+        // tipo NO debe generar una advertencia — sólo lo genuinamente no reconocido debe hacerlo.
+        [Fact]
+        public async Task EspacioConTipoSalonConTilde_NoGeneraAdvertencia()
+        {
+            var (_, _, request) = RequestMinimaTeoriaPresencial(
+                espacios: new List<EspacioDto>
+                {
+                    new() { Id = Guid.NewGuid().ToString(), Nombre = "Salón 101", Tipo = "Salón", Capacidad = 30 }
+                },
+                requisitosEspacio: new List<RequisitoEspacioDto>());
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.DoesNotContain(r.Logs, l => l.Contains("no reconocido"));
+        }
+
+        [Fact]
+        public async Task EspacioConTipoNoReconocido_GeneraAdvertenciaYUsaSalonPorDefecto()
+        {
+            var (_, _, request) = RequestMinimaTeoriaPresencial(
+                espacios: new List<EspacioDto>
+                {
+                    new() { Id = Guid.NewGuid().ToString(), Nombre = "Aula rara", Tipo = "AulaXYZ", Capacidad = 30 }
+                },
+                requisitosEspacio: new List<RequisitoEspacioDto>());
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.Contains(r.Logs, l => l.Contains("[WARN]") && l.Contains("Aula rara") && l.Contains("AulaXYZ"));
+        }
+
         [Fact]
         public async Task RequisitoSoloLaboratorio_ExcluyeSalones()
         {
@@ -472,6 +511,57 @@ namespace SOEA.Tests.Application.Horario
             Assert.False(string.IsNullOrEmpty(r.MensajeError));
             Assert.Contains("espacio", r.MensajeError, StringComparison.OrdinalIgnoreCase);
             Assert.Empty(r.Sesiones);
+        }
+
+        [Fact]
+        public async Task RequisitoDeGrupoConTipoEspacioAusente_CaeALaReglaPorDefecto_NoASalon()
+        {
+            // M6, de punta a punta: una entrada de requisito con EspacioId y TipoEspacio ambos
+            // ausentes del JSON (p. ej. sólo declara Sesiones). Antes del fix, RequisitoEspacio
+            // .TipoEspacio no era nullable y el parseo de "ausente" caía a Salon — una sesión de
+            // LABORATORIO con ese requisito quedaba sin ningún candidato en un run que sólo tiene
+            // un laboratorio, aunque el usuario nunca pidió "sólo salón". Con el fix, cae a la
+            // regla por defecto (Laboratorio exige Laboratorio) y encuentra el candidato correcto.
+            var labId = Guid.NewGuid().ToString();
+            var asigId = Guid.NewGuid().ToString();
+            var grupoId = Guid.NewGuid().ToString();
+            var request = new GenerarHorarioRequest
+            {
+                Semestre = "2026-1",
+                Asignaturas = new List<AsignaturaDto>
+                {
+                    new()
+                    {
+                        Id = asigId, Nombre = "Laboratorio de prueba",
+                        SesionesLaboratorioSemana = 1, HorasLaboratorio = 2,
+                        Alternancia = "SinAlternancia", Categoria = "Obligatoria"
+                    }
+                },
+                Espacios = new List<EspacioDto>
+                {
+                    new() { Id = labId, Nombre = "Único laboratorio", Tipo = "laboratorio", Capacidad = 30 }
+                },
+                Grupos = new List<GrupoDto>
+                {
+                    new()
+                    {
+                        Id = grupoId, Nombre = "Grupo de prueba",
+                        AsignaturaId = asigId, EstudiantesInscritos = 20,
+                        DisponibilidadUiJson = DisponibilidadUiJsonMatutino,
+                        RequisitosEspacio = new List<RequisitoEspacioDto>
+                        {
+                            new() { TipoSesion = "Laboratorio", EspacioId = null, TipoEspacio = null, Sesiones = 1 }
+                        }
+                    }
+                }
+            };
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.NotEmpty(r.Sesiones);
+            Assert.All(r.Sesiones.Where(s => !s.Virtual), s => Assert.Equal(labId, s.EspacioId));
         }
 
         // B4: la Semilla del DTO ahora llega al GA (antes se descartaba en MapearConfiguracion),

@@ -66,7 +66,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var sesion = CrearSesion(docente.Id);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, Enumerable.Empty<Espacio>(), new[] { docente });
+                new[] { sesion }, bloques, Enumerable.Empty<Espacio>());
 
             Assert.True(resultado.EsFactible);
         }
@@ -82,22 +82,29 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var sesiones = Enumerable.Range(0, 3).Select(_ => CrearSesion(cohorte, 2m)).ToList();
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                sesiones, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>());
+                sesiones, bloques, Enumerable.Empty<Espacio>());
 
             Assert.False(resultado.EsFactible);
-            Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
+            // M3 (auditoría): esto es HC-C01 puro (0 espacios en el run) — antes del fix caía en el
+            // catch-all genérico del solver, que SIEMPRE reportaba Espacio sin importar la causa real.
+            Assert.Equal(MotivoInfactibilidad.Otro, resultado.Motivo);
         }
 
-        // HC-I02 + HC-I03: docente with sufficient blocks and 1 session must yield a feasible assignment
+        // T2 (auditoria de suavizado): este test se llamaba
+        // "Docente_ConBloquesSuficientes_SesionVirtual_RetornaFactible" y su comentario
+        // reclamaba cobertura de HC-I02+HC-I03, pero ResolverFactibilidadAsync ya no recibe
+        // docentes (CR-08/CR-02: la disponibilidad y la carga del docente salieron del
+        // pipeline, ver AsignarDocenteSesionService) — el Docente que construia el test nunca
+        // llegaba al solver. Lo que de verdad verifica: una sesion virtual con bloques
+        // suficientes en la grilla resuelve factible.
         [Fact]
-        public async Task Docente_ConBloquesSuficientes_SesionVirtual_RetornaFactible()
+        public async Task SesionVirtualConBloquesSuficientes_RetornaFactible()
         {
             var bloques = CrearBloques(3);
-            var docente = CrearDocente(maxHoras: 20m, bloquesDisponibles: bloques);
-            var sesion = CrearSesion(docente.Id, 2m);
+            var sesion = CrearSesion(Guid.NewGuid(), 2m);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, Enumerable.Empty<Espacio>(), new[] { docente });
+                new[] { sesion }, bloques, Enumerable.Empty<Espacio>());
 
             Assert.True(resultado.EsFactible);
         }
@@ -112,10 +119,11 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var sesiones = Enumerable.Range(0, 3).Select(_ => CrearSesion(cohorte, 1m)).ToList(); // 3 sessions
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                sesiones, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>());
+                sesiones, bloques, Enumerable.Empty<Espacio>());
 
             Assert.False(resultado.EsFactible);
-            Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
+            // M3: mismo caso — HC-C01 puro, sin espacios en el run, ya no se etiqueta Espacio.
+            Assert.Equal(MotivoInfactibilidad.Otro, resultado.Motivo);
         }
 
         // Sesión de 2h en una grilla de un solo bloque → infactible por estructura: no hay dos
@@ -129,7 +137,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var sesion = CrearSesion(docente.Id, 2m);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, Enumerable.Empty<Espacio>(), new[] { docente });
+                new[] { sesion }, bloques, Enumerable.Empty<Espacio>());
 
             Assert.False(resultado.EsFactible);
             Assert.Equal(MotivoInfactibilidad.Otro, resultado.Motivo);
@@ -146,7 +154,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var b = CrearSesion(cohorte, 1m);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { a, b }, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>());
+                new[] { a, b }, bloques, Enumerable.Empty<Espacio>());
 
             Assert.True(resultado.EsFactible);
             // Cada sesión produce dos AsignacionSemanal (A/B). El no-solapamiento se verifica
@@ -173,7 +181,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var sesion = CrearSesion(docente.Id, 2m);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, Enumerable.Empty<Espacio>(), new[] { docente });
+                new[] { sesion }, bloques, Enumerable.Empty<Espacio>());
 
             Assert.True(resultado.EsFactible);
             var delaSesion = resultado.Asignaciones.Where(a => a.SesionId == sesion.Id).ToList();
@@ -193,7 +201,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var sesion = CrearSesionPresencial(docente.Id, TipoAlternancia.TipoA, 1m, lab.Id);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, new[] { lab }, new[] { docente });
+                new[] { sesion }, bloques, new[] { lab });
 
             Assert.True(resultado.EsFactible);
             var a = resultado.Asignaciones.Single(x => x.SesionId == sesion.Id && x.Semana == SemanaAcademica.A);
@@ -225,7 +233,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var sesionB = CrearSesionPresencial(docenteB.Id, TipoAlternancia.TipoB, 1m, lab.Id);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesionA, sesionB }, bloques, new[] { lab }, new[] { docenteA, docenteB });
+                new[] { sesionA, sesionB }, bloques, new[] { lab });
 
             Assert.True(resultado.EsFactible);
 
@@ -253,7 +261,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var sesion = CrearSesion(docente.Id, 2m); // Modalidad.Virtual en ambas semanas
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, new[] { CrearLaboratorio() }, new[] { docente });
+                new[] { sesion }, bloques, new[] { CrearLaboratorio() });
 
             Assert.True(resultado.EsFactible);
             Assert.All(resultado.Asignaciones, a =>
@@ -276,7 +284,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var labPequeno = new Espacio(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 30);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, new[] { labPequeno }, Enumerable.Empty<Docente>(),
+                new[] { sesion }, bloques, new[] { labPequeno },
                 grupos: new[] { grupo });
 
             Assert.False(resultado.EsFactible);
@@ -295,10 +303,51 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var labGrande = new Espacio(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 50);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, new[] { labGrande }, Enumerable.Empty<Docente>(),
+                new[] { sesion }, bloques, new[] { labGrande },
                 grupos: new[] { grupo });
 
             Assert.True(resultado.EsFactible);
+        }
+
+        // ── M1 (auditoría): el pre-check de capacidad debe particionar por clase de espacio, no
+        // sumar todo el inventario en una sola bolsa — el bug reportado ("todo cae en Salon 201")
+        // es justo lo simétrico de esto: un run con salones de sobra y 0 laboratorios debía fallar
+        // por falta de LABORATORIOS, no colarse porque los salones inflan la capacidad total.
+
+        [Fact]
+        public async Task M1_DemandaDeLaboratorioConSalonesDeSobra_InfactibleNombrandoLaboratorios()
+        {
+            // Pooled (bug anterior): 3 salones × 4 bloques = 12h de capacidad total vs 2h de demanda
+            // total → "factible" por error. Particionado (fix): 0h de capacidad de laboratorio vs 2h
+            // de demanda de laboratorio → infactible, y el mensaje nombra la clase que falta.
+            var bloques = CrearBloques(4);
+            var salones = Enumerable.Range(0, 3)
+                .Select(i => new Espacio(Guid.NewGuid(), $"Salón {i}", TipoEspacio.Salon, 30))
+                .ToList();
+            var sesionLab = CrearSesionPresencial(Guid.NewGuid(), TipoAlternancia.SinAlternancia, 2m); // tipoFlujo default = Laboratorio
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesionLab }, bloques, salones);
+
+            Assert.False(resultado.EsFactible);
+            Assert.Contains("laboratorios", resultado.MensajeError);
+            Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
+        }
+
+        [Fact]
+        public async Task M1_DemandaDeTeoriaConLaboratoriosDeSobra_InfactibleNombrandoSalonesAuditorios()
+        {
+            var bloques = CrearBloques(4);
+            var labs = Enumerable.Range(0, 3).Select(_ => CrearLaboratorio()).ToList();
+            var sesionTeoria = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, Guid.NewGuid(),
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesionTeoria }, bloques, labs);
+
+            Assert.False(resultado.EsFactible);
+            Assert.Contains("salones/auditorios", resultado.MensajeError);
+            Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
         }
 
         // ── HC-G01: disponibilidad declarada por grupo (P1 — antes no había ni un test que le
@@ -328,7 +377,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var sesionVespertina = CrearSesion(cohorteVespertina, duracion: 1m);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesionMatutina, sesionVespertina }, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>(),
+                new[] { sesionMatutina, sesionVespertina }, bloques, Enumerable.Empty<Espacio>(),
                 grupos: new[] { grupoMatutino, grupoVespertino });
 
             Assert.True(resultado.EsFactible, resultado.MensajeError);
@@ -358,7 +407,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             };
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>(),
+                new[] { sesion }, bloques, Enumerable.Empty<Espacio>(),
                 ventanaPorAsignatura: ventana);
 
             Assert.True(resultado.EsFactible);
@@ -385,7 +434,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             };
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>(),
+                new[] { sesion }, bloques, Enumerable.Empty<Espacio>(),
                 ventanaPorAsignatura: ventana);
 
             Assert.False(resultado.EsFactible);
@@ -408,12 +457,79 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { s1, s2 }, bloques, Enumerable.Empty<Espacio>(), Enumerable.Empty<Docente>());
+                new[] { s1, s2 }, bloques, Enumerable.Empty<Espacio>());
 
             Assert.True(resultado.EsFactible, resultado.MensajeError);
             var b1 = bloques.First(b => b.Id == resultado.Asignaciones.First(a => a.SesionId == s1.Id).BloqueTiempoId);
             var b2 = bloques.First(b => b.Id == resultado.Asignaciones.First(a => a.SesionId == s2.Id).BloqueTiempoId);
             Assert.True(Math.Abs((int)b1.Dia - (int)b2.Dia) >= 2, $"Días sin separación mínima: {b1.Dia} / {b2.Dia}");
+        }
+
+        // M5 (auditoría): con separación mínima de 2 días en un rango de 6 (lunes..sábado), el
+        // mayor conjunto pairwise-separado posible es 3 (lunes/miércoles/viernes) — 3 sesiones
+        // semanales del mismo (grupo, asignatura, tipo) siguen siendo factibles.
+        [Fact]
+        public async Task HCSEP_TresSesionesSemanalesMismaAsignaturaYTipo_SonFactibles()
+        {
+            var bloques = CrearBloquesMultiDia(5);
+            var grupoId = Guid.NewGuid();
+            var asigId = Guid.NewGuid();
+            var sesiones = Enumerable.Range(0, 3).Select(_ =>
+                new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, grupoId,
+                    TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual)
+            ).ToList();
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                sesiones, bloques, Enumerable.Empty<Espacio>());
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+        }
+
+        // M5 (auditoría): un cluster de 4+ sesiones semanales del mismo (grupo, asignatura, tipo)
+        // es estructuralmente infactible por HC-SEP — antes caía en el catch-all genérico del
+        // solver, que el fix de M3 dejó de etiquetar como Espacio; ahora se detecta ANTES de
+        // construir el modelo, con mensaje propio, y sin disparar el bucle de cesión de labs.
+        [Fact]
+        public async Task HCSEP_ClusterDeCuatroSesiones_RetornaInfactibleConMensajeDedicado()
+        {
+            var bloques = CrearBloquesMultiDia(5);
+            var grupoId = Guid.NewGuid();
+            var asigId = Guid.NewGuid();
+            var sesiones = Enumerable.Range(0, 4).Select(_ =>
+                new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, grupoId,
+                    TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual)
+            ).ToList();
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                sesiones, bloques, Enumerable.Empty<Espacio>());
+
+            Assert.False(resultado.EsFactible);
+            Assert.Contains("HC-SEP", resultado.MensajeError);
+            Assert.Equal(MotivoInfactibilidad.Otro, resultado.Motivo);
+        }
+
+        [Fact]
+        public async Task HCSEP_ClusterDeCuatroSesiones_SesionesFijasNoCuentanParaElCluster()
+        {
+            // Las sesiones fijas del horario base quedan fuera de HC-SEP (mismo criterio que el
+            // dominio normal — ya están fijadas por igualdad). 3 libres + 1 fija = no dispara el
+            // pre-check, aunque haya 4 sesiones en total del mismo (grupo, asignatura, tipo).
+            var bloques = CrearBloquesMultiDia(5);
+            var grupoId = Guid.NewGuid();
+            var asigId = Guid.NewGuid();
+            var libres = Enumerable.Range(0, 3).Select(_ =>
+                new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, grupoId,
+                    TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual)
+            ).ToList();
+            var fija = new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
+            var sesiones = libres.Append(fija).ToList();
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                sesiones, bloques, Enumerable.Empty<Espacio>(),
+                sesionesFijasIds: new[] { fija.Id });
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
         }
 
         // ── HC-S03: tipo de espacio según TipoSesion (A2/A3) — petición 7 (P2.2). Antes solo se
@@ -431,7 +547,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, new[] { lab, salon }, Enumerable.Empty<Docente>());
+                new[] { sesion }, bloques, new[] { lab, salon });
 
             Assert.True(resultado.EsFactible, resultado.MensajeError);
             // SinAlternancia: presencial en ambas semanas — deben coincidir en el mismo salón.
@@ -449,7 +565,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, new[] { lab }, Enumerable.Empty<Docente>());
+                new[] { sesion }, bloques, new[] { lab });
 
             Assert.False(resultado.EsFactible);
         }
@@ -476,7 +592,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             // (sin alternancia, así que ambas son presenciales en A y en B): HC-S01 debe impedir
             // que compartan el espacio en la misma semana → infactible.
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { s1, s2 }, bloques, new[] { salon }, Enumerable.Empty<Docente>());
+                new[] { s1, s2 }, bloques, new[] { salon });
 
             Assert.False(resultado.EsFactible);
         }
@@ -491,7 +607,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var s2 = CrearSesionTeoriaPresencial(Guid.NewGuid());
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { s1, s2 }, bloques, new[] { salonA, salonB }, Enumerable.Empty<Docente>());
+                new[] { s1, s2 }, bloques, new[] { salonA, salonB });
 
             Assert.True(resultado.EsFactible, resultado.MensajeError);
             var espacioS1A = resultado.Asignaciones.Single(a => a.SesionId == s1.Id && a.Semana == SemanaAcademica.A).EspacioId;
@@ -519,7 +635,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, new[] { fijo, otro }, Enumerable.Empty<Docente>(),
+                new[] { sesion }, bloques, new[] { fijo, otro },
                 grupos: new[] { grupo });
 
             Assert.True(resultado.EsFactible, resultado.MensajeError);
@@ -549,7 +665,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, new[] { otro }, Enumerable.Empty<Docente>(),
+                new[] { sesion }, bloques, new[] { otro },
                 grupos: new[] { grupo });
 
             Assert.False(resultado.EsFactible);
@@ -577,7 +693,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 parejaAlternanciaId: patron);
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { s1, s2 }, bloques, new[] { salon }, Enumerable.Empty<Docente>());
+                new[] { s1, s2 }, bloques, new[] { salon });
 
             Assert.True(resultado.EsFactible, resultado.MensajeError);
 

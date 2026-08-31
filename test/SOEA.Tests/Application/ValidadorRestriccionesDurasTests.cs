@@ -224,6 +224,47 @@ namespace SOEA.Tests.Application
             Assert.Contains(conflictos, c => c.StartsWith("HC-G01"));
         }
 
+        // ── M8: reglas que antes eran degradaciones silenciosas ──────────────────────
+
+        [Fact]
+        public void HCS04_PresencialSinEspacio_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var s = CrearSesionCompleta(Guid.NewGuid(), Guid.NewGuid(), 1m);
+            var asignaciones = new[]
+            {
+                // Presencial pero sin EspacioId: antes pasaba el validador limpia.
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Presencial)
+            };
+            var ctx = Contexto(bloques);
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-S04"));
+        }
+
+        [Fact]
+        public void Datos_EspacioDesconocido_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var s = CrearSesionCompleta(Guid.NewGuid(), Guid.NewGuid(), 1m);
+            var espacioDesconocido = Guid.NewGuid(); // no está en ctx.EspacioPorId
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, espacioDesconocido, Modalidad.Presencial)
+            };
+            var ctx = Contexto(bloques); // sin espacios registrados
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("DATOS"));
+            // El continue tras reportar DATOS evita ruido: no debe además fallar HC-S03/HC-CAP/HC-S05
+            // por un espacio del que no tenemos datos.
+            Assert.DoesNotContain(conflictos, c => c.StartsWith("HC-S03") || c.StartsWith("HC-CAP") || c.StartsWith("HC-S05"));
+        }
+
         [Fact]
         public void HCCAP_AforoInsuficiente_Detecta()
         {
@@ -336,9 +377,10 @@ namespace SOEA.Tests.Application
         [Fact]
         public void HCS03_RequisitoDeGrupoConEspacioFijo_AsignadoAOtroEspacio_Detecta()
         {
-            // Documenta el comportamiento actual (M7 del análisis): un EspacioId fijo declarado
-            // en Grupo.RequisitosEspacio (no en Sesion.EspacioId) se hace cumplir vía CumpleTipo,
-            // así que la violación queda etiquetada HC-S03, no HC-S05.
+            // Un EspacioId fijo declarado en Grupo.RequisitosEspacio (no en Sesion.EspacioId) se
+            // hace cumplir vía CumpleTipo (HC-S03) — y desde M7, TAMBIÉN vía el chequeo dedicado de
+            // HC-S05 sobre el requisito del grupo (ver HCS05_RequisitoDeGrupo_SinEspacioIdEnSesion_Detecta).
+            // Ambas etiquetas describen la misma violación real desde ángulos distintos.
             var (bloques, indice) = CrearGrilla(5);
             var grupoId = Guid.NewGuid();
             var fijo = new Espacio(Guid.NewGuid(), "Fijo del grupo", TipoEspacio.Salon, 30);
@@ -358,6 +400,56 @@ namespace SOEA.Tests.Application
                 asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
 
             Assert.Contains(conflictos, c => c.StartsWith("HC-S03"));
+            Assert.Contains(conflictos, c => c.StartsWith("HC-S05")); // M7
+        }
+
+        // M7: el chequeo de HC-S05 ahora también consulta el requisito de espacio del GRUPO, no
+        // sólo Sesion.EspacioId — cubre sesiones cuyo EspacioId nunca se copió del requisito
+        // (p. ej. creadas por una vía distinta a MapearSesionesIniciales).
+        [Fact]
+        public void HCS05_RequisitoDeGrupo_SinEspacioIdEnSesion_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var grupoId = Guid.NewGuid();
+            var fijo = new Espacio(Guid.NewGuid(), "Fijo del grupo", TipoEspacio.Salon, 30);
+            var otro = new Espacio(Guid.NewGuid(), "Otro", TipoEspacio.Salon, 30);
+            var s = CrearSesionCompleta(Guid.NewGuid(), grupoId, 1m); // sin EspacioId a nivel de Sesion
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, otro.Id, Modalidad.Presencial)
+            };
+            var requisitos = new Dictionary<Guid, List<RequisitoEspacio>>
+            {
+                [grupoId] = new() { new RequisitoEspacio(TipoSesion.TeoriaPresencial, fijo.Id, null, 1) }
+            };
+            var ctx = Contexto(bloques, espacios: new[] { fijo, otro }, requisitosPorGrupo: requisitos);
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-S05"));
+        }
+
+        [Fact]
+        public void HCS05_ConEspacioIdPropioYaCorrecto_NoDuplicaViaRequisitoDelGrupo()
+        {
+            // Cuando Sesion.EspacioId ya está presente y la asignación lo respeta, el chequeo por
+            // requisito de grupo no debe disparar un HC-S05 adicional/redundante (el grupo de este
+            // test no declara EspacioId en su requisito, así que tampoco interactúa con HC-S03).
+            var (bloques, indice) = CrearGrilla(5);
+            var grupoId = Guid.NewGuid();
+            var espacioDeLaSesion = new Espacio(Guid.NewGuid(), "De la sesión", TipoEspacio.Salon, 30);
+            var s = CrearSesionCompleta(Guid.NewGuid(), grupoId, 1m, espacioFijo: espacioDeLaSesion.Id);
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[0].Id, espacioDeLaSesion.Id, Modalidad.Presencial)
+            };
+            var ctx = Contexto(bloques, espacios: new[] { espacioDeLaSesion });
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignaciones, new Dictionary<Guid, Sesion> { [s.Id] = s }, indice, ctx);
+
+            Assert.Empty(conflictos);
         }
 
         [Fact]

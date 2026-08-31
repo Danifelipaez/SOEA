@@ -7,6 +7,7 @@ using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.Services;
+using SOEA.Engine.ConstraintProg;
 using SOEA.Engine.Genetic;
 using Xunit;
 
@@ -21,7 +22,8 @@ namespace SOEA.Tests.Engine.Genetic
     /// </summary>
     public class MotorGeneticoTests
     {
-        private static readonly MotorGenetico Motor = new(NullLogger<MotorGenetico>.Instance);
+        private static readonly MotorGenetico Motor = new(NullLogger<MotorGenetico>.Instance,
+            new AsignadorEspaciosExactoCpSat(NullLogger<AsignadorEspaciosExactoCpSat>.Instance));
 
         private static List<BloqueTiempo> Grilla(int n, params DiaDeSemana[] dias)
         {
@@ -294,8 +296,107 @@ namespace SOEA.Tests.Engine.Genetic
             var masGen = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
                 grupos: null, config: Cfg(50));
 
-            Assert.True(masGen.PuntajeFitness <= pocasGen.PuntajeFitness,
-                $"50 generaciones dio fitness {masGen.PuntajeFitness}, peor que 1 generación ({pocasGen.PuntajeFitness}).");
+            // T4 (auditoria de suavizado): era <= — dejaba pasar un GA completamente inerte
+            // (0 generaciones de mejora real). El mensaje ya decia "peor que", confirmando que
+            // la intencion siempre fue <.
+            Assert.True(masGen.PuntajeFitness < pocasGen.PuntajeFitness,
+                $"50 generaciones dio fitness {masGen.PuntajeFitness}, no mejor que 1 generación ({pocasGen.PuntajeFitness}).");
+        }
+
+        // ── Fase 3 (M4), test de regresión end-to-end ──────────────────────────────────
+        // Antes de M4, OperadoresGeneticos no reparaba HC-SEP ni HC-ALT: un run con una pareja de
+        // alternancia y con 2 sesiones semanales del mismo (grupo, asignatura, tipo) violaba
+        // alguna de las dos en casi cualquier generación real, y el post-chequeo forzaba
+        // UsoFallback en casi todas las corridas — el GA no aportaba nada. Tras M4, el mismo run
+        // debe converger SIN fallback, mejorando estrictamente el fitness de la semilla de Fase 2,
+        // y preservando ambas reglas en la salida final.
+        [Fact]
+        public async Task ConParejaDeAlternanciaYSeparacionDeDias_NoHaceFallback_YMejoraFitness()
+        {
+            var grupoY  = Guid.NewGuid();
+            var grupoP1 = Guid.NewGuid();
+            var grupoP2 = Guid.NewGuid();
+            var asigY   = Guid.NewGuid();
+            var patron  = Guid.NewGuid();
+
+            static Sesion Crear(Guid grupoId, Guid asignaturaId, TipoAlternancia alt, Guid? pareja = null) =>
+                new(Guid.NewGuid(), asignaturaId, null, Guid.NewGuid(), null, grupoId,
+                    alt, Modalidad.Presencial, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual,
+                    parejaAlternanciaId: pareja);
+
+            // HC-SEP: 2 sesiones semanales del mismo (grupo, asignatura, tipo).
+            var y1 = Crear(grupoY, asigY, TipoAlternancia.SinAlternancia);
+            var y2 = Crear(grupoY, asigY, TipoAlternancia.SinAlternancia);
+            // HC-ALT: pareja de alternancia entre dos grupos/asignaturas distintos.
+            var p1 = Crear(grupoP1, Guid.NewGuid(), TipoAlternancia.TipoA, patron);
+            var p2 = Crear(grupoP2, Guid.NewGuid(), TipoAlternancia.TipoB, patron);
+            // Relleno sin pareja/HC-SEP: mismo grupo que p1, sembrado con un hueco grande el mismo
+            // día — sin esto, con solo 1-2 sesiones por grupo el problema es simétrico ante
+            // cualquier elección de día (SC-06 no varía) y no hay SC-01 que reducir; el GA no
+            // tendría ningún margen real de mejora frente a la semilla.
+            var relleno = Crear(grupoP1, Guid.NewGuid(), TipoAlternancia.SinAlternancia);
+            var sesiones = new List<Sesion> { y1, y2, p1, p2, relleno };
+
+            // Grilla amplia (5 días × 8 bloques): margen real para que el GA mejore huecos/balance.
+            var bloques = Grilla(8, DiaDeSemana.Lunes, DiaDeSemana.Martes, DiaDeSemana.Miercoles,
+                DiaDeSemana.Jueves, DiaDeSemana.Viernes);
+            var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
+
+            // Semilla (Fase 2) ya compatible con HC-SEP/HC-ALT — son hard constraints de CP-SAT,
+            // un run real nunca la entregaría rota — pero recargada en Lunes: deja margen de
+            // mejora de SC-01/SC-06 para el GA.
+            var inicio = new Dictionary<Guid, int>
+            {
+                [y1.Id] = 0,  // Lunes, bloque 0
+                [y2.Id] = 16, // Miércoles, bloque 0 (separada ≥2 días de y1 desde la semilla)
+                [p1.Id] = 2,  // Lunes, bloque 2
+                [p2.Id] = 2,  // mismo bloque que p1: HC-ALT ya compatible en la semilla
+                [relleno.Id] = 7, // Lunes, bloque 7: hueco de 4h frente a p1 — el GA puede cerrarlo
+            };
+            var fase2 = new List<AsignacionSemanal>();
+            foreach (var s in sesiones)
+                foreach (var w in new[] { SemanaAcademica.A, SemanaAcademica.B })
+                {
+                    var modalidad = ModalidadSemanal.Derivar(s, w);
+                    fase2.Add(new AsignacionSemanal(Guid.NewGuid(), s.Id, w, bloques[inicio[s.Id]].Id, null, modalidad));
+                }
+
+            var espacios = new List<Espacio> { new(Guid.NewGuid(), "Salón", TipoEspacio.Salon, 100) };
+            var grupos = new List<Grupo>
+            {
+                new(grupoY, "Grupo Y", Guid.Empty, 30, asignaturaId: asigY),
+                new(grupoP1, "Grupo P1", Guid.Empty, 30, asignaturaId: p1.AsignaturaId),
+                new(grupoP2, "Grupo P2", Guid.Empty, 30, asignaturaId: p2.AsignaturaId),
+            };
+
+            var cfg = new ConfiguracionOptimizacion(TamañoPoblacion: 30, MaxGeneraciones: 100, Semilla: 7);
+            var evaluador = new EvaluadorFitness(sesiones, bloques, new List<Docente>(), espacios, cfg);
+            var semilla = new CromosomaHorario(
+                sesiones.Select(s => s.Id).ToArray(), sesiones.Select(s => inicio[s.Id]).ToArray());
+            var fitnessSemilla = evaluador.Evaluar(semilla);
+
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+                grupos: grupos, config: cfg);
+
+            Assert.False(r.UsoFallback);
+            Assert.True(r.PuntajeFitness < fitnessSemilla,
+                $"Fitness del GA ({r.PuntajeFitness}) no mejoró la semilla de Fase 2 ({fitnessSemilla}).");
+
+            // HC-ALT: p1 (presencial en A) y p2 (presencial en B) deben compartir el MISMO bloque.
+            var bloqueP1A = r.AsignacionesOptimizadas.Single(a => a.SesionId == p1.Id && a.Semana == SemanaAcademica.A).BloqueTiempoId;
+            var bloqueP2B = r.AsignacionesOptimizadas.Single(a => a.SesionId == p2.Id && a.Semana == SemanaAcademica.B).BloqueTiempoId;
+            Assert.Equal(bloqueP1A, bloqueP2B);
+
+            // HC-SEP: y1 y y2 deben caer en días separados ≥2, en cada semana.
+            foreach (var w in new[] { SemanaAcademica.A, SemanaAcademica.B })
+            {
+                var bloqueY1 = bloques.FindIndex(b => b.Id ==
+                    r.AsignacionesOptimizadas.Single(a => a.SesionId == y1.Id && a.Semana == w).BloqueTiempoId);
+                var bloqueY2 = bloques.FindIndex(b => b.Id ==
+                    r.AsignacionesOptimizadas.Single(a => a.SesionId == y2.Id && a.Semana == w).BloqueTiempoId);
+                Assert.True(ReglasSesion.SeparacionDiasOk(diaPorIdx[bloqueY1], diaPorIdx[bloqueY2]),
+                    $"HC-SEP: y1 y y2 no están separadas ≥2 días en semana {w} ({diaPorIdx[bloqueY1]} / {diaPorIdx[bloqueY2]}).");
+            }
         }
     }
 }

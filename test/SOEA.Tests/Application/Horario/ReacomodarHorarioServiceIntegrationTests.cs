@@ -33,6 +33,7 @@ namespace SOEA.Tests.Application.Horario
                 Task.FromResult(Items.FirstOrDefault(h => h.Id == id));
             public Task<SOEA.Domain.Entities.Horario?> GetBySemestreAsync(string semestre) =>
                 Task.FromResult(Items.FirstOrDefault(h => h.Semestre == semestre));
+            public Task<List<SOEA.Domain.Entities.Horario>> GetAllAsync() => Task.FromResult(Items.ToList());
             public Task AddAsync(SOEA.Domain.Entities.Horario horario) { Items.Add(horario); return Task.CompletedTask; }
             public Task UpdateAsync(SOEA.Domain.Entities.Horario horario) => Task.CompletedTask;
         }
@@ -179,7 +180,8 @@ namespace SOEA.Tests.Application.Horario
         {
             var fase1 = new AgendadorColoracionGrafo(new ConstructorGrafoConflictos(), NullLogger<AgendadorColoracionGrafo>.Instance);
             var fase2 = new MotorConstraintProgramming(NullLogger<MotorConstraintProgramming>.Instance, new CpSatOptions { NumWorkers = 1 });
-            var fase3 = new MotorGenetico(NullLogger<MotorGenetico>.Instance);
+            var fase3 = new MotorGenetico(NullLogger<MotorGenetico>.Instance,
+                new AsignadorEspaciosExactoCpSat(NullLogger<AsignadorEspaciosExactoCpSat>.Instance));
             return new GenerarHorarioService(fase1, fase2, fase3, horarioRepo, sesionRepo, asigRepo, new FakeCriterioCesionRepo(), uow);
         }
 

@@ -137,6 +137,34 @@ namespace SOEA.Tests.Engine.Genetic
             Assert.True(evalAlta.PenalizacionPresencial > evalBaja.PenalizacionPresencial);
         }
 
+        // M1 (auditoría): la guarda de aulas debe separar Laboratorio de Salón/Auditorio — antes
+        // comparaba la concurrencia contra TODOS los espacios pooled, así que una sesión de
+        // laboratorio con 0 laboratorios disponibles (pero salones de sobra) NO penalizaba, porque
+        // el conteo total (salones incluidos) parecía suficiente. La sesión no puede usar esos
+        // salones (HC-S03), así que la guarda debía dispararse igual.
+        [Fact]
+        public void GuardaDeAulas_SeparaLaboratorioDeSalon_PenalizaAunqueHayaSalonesLibres()
+        {
+            var grupo = Guid.NewGuid();
+            var sesionLab = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupo,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false,
+                tipoFlujo: TipoFlujo.Laboratorio);
+            var bloques = Grilla(4);
+            var espacios = new List<Espacio>
+            {
+                new(Guid.NewGuid(), "Salón 1", TipoEspacio.Salon, 30),
+                new(Guid.NewGuid(), "Salón 2", TipoEspacio.Salon, 30),
+            }; // 2 salones, 0 laboratorios
+            var cfg = new ConfiguracionOptimizacion(PesoErgo: 0, PesoTiempos: 0, PesoMaxHorasSeguidas: 0);
+            var eval = new EvaluadorFitness(new List<Sesion> { sesionLab }, bloques, new List<Docente>(), espacios, cfg);
+
+            var c = new CromosomaHorario(new[] { sesionLab.Id }, new[] { 0 }, new[] { 0 });
+
+            // 0 laboratorios para 1 sesión de laboratorio ⇒ la guarda (peso fijo 1000) debe disparar
+            // en ambas semanas, aunque haya 2 salones libres que esa sesión no puede usar.
+            Assert.True(eval.Evaluar(c) >= 1000m);
+        }
+
         // B2: SC-PRES es constante por cromosoma — dos cromosomas distintos del MISMO conjunto de
         // sesiones deben reportar exactamente la misma PenalizacionPresencial, y Evaluar() ya no
         // la incluye (solo los términos que sí varían con el cromosoma).
