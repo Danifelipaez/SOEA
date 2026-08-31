@@ -17,8 +17,9 @@ namespace SOEA.Engine.ConstraintProg
     /// <summary>
     /// Fase 2 — Constraint Programming con OR-Tools CP-SAT.
     /// Modela cada sesión como DOS intervalos de longitud fija = DuracionHoras, uno por
-    /// <see cref="SemanaAcademica"/> (A / B), e impone NoOverlap por (docente, semana) y por
-    /// (espacio, semana). La modalidad por semana se DERIVA de la alternancia (dato fijo):
+    /// <see cref="SemanaAcademica"/> (A / B), e impone NoOverlap por (grupo, semana) — HC-C01,
+    /// CR-08: el docente sale del pipeline — y por (espacio, semana) — HC-S01. La modalidad por
+    /// semana se DERIVA de la alternancia (dato fijo):
     /// TipoA → presencial en A / virtual en B; TipoB → virtual en A / presencial en B;
     /// SinAlternancia → presencial en ambas. Para TipoA/TipoB la franja virtual se enlaza a la
     /// presencial (regla 9: misma franja). La duración es inmutable (CLAUDE.md regla 6).
@@ -47,7 +48,6 @@ namespace SOEA.Engine.ConstraintProg
             IEnumerable<Sesion> sesiones,
             IEnumerable<BloqueTiempo> bloques,
             IEnumerable<Espacio> espacios,
-            IEnumerable<Docente> docentes,
             IEnumerable<Grupo>? grupos = null,
             IEnumerable<Guid>? sesionesFijasIds = null,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
@@ -56,13 +56,12 @@ namespace SOEA.Engine.ConstraintProg
             var s     = sesiones.ToList();
             var b     = bloques.ToList();
             var e     = espacios.ToList();
-            var d     = docentes.ToList();
             var g     = grupos?.ToList() ?? new List<Grupo>();
             var fijas = sesionesFijasIds != null
                 ? new HashSet<Guid>(sesionesFijasIds)
                 : new HashSet<Guid>();
             var ventanas = ventanaPorAsignatura ?? new Dictionary<Guid, (TimeOnly?, TimeOnly?)>();
-            return Task.Run(() => ResolverSincrono(s, b, e, d, g, fijas, ventanas, ct), ct);
+            return Task.Run(() => ResolverSincrono(s, b, e, g, fijas, ventanas, ct), ct);
         }
 
         /// <summary>
@@ -79,7 +78,6 @@ namespace SOEA.Engine.ConstraintProg
             List<Sesion> sesiones,
             List<BloqueTiempo> bloques,
             List<Espacio> espacios,
-            List<Docente> docentes,
             List<Grupo> grupos,
             HashSet<Guid> sesionesFijasIds,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)> ventanaPorAsignatura,
@@ -91,34 +89,82 @@ namespace SOEA.Engine.ConstraintProg
                 return new ResultadoFactibilidad(false, SinAsignaciones, "No hay datos suficientes.", MotivoInfactibilidad.Datos);
             }
 
-            // ── Capacidad de espacios vs demanda presencial POR SEMANA (virtuales no ocupan espacio) ──
-            int capacidadBloquesHora = espacios.Count * bloques.Count;
+            // G2/G7 auditoría: los mensajes de infactibilidad interpolaban GUIDs (GrupoId,
+            // AsignaturaId, SesionId) directamente — el frontend los pinta tal cual en el panel
+            // de logs. Degrada a "grupo sin nombre" si el grupo no vino en la lista, nunca vuelve
+            // a exponer el Id crudo.
+            var nombrePorGrupo = grupos.ToDictionary(gr => gr.Id, gr => gr.Nombre);
+            string NombreGrupo(Guid? grupoId) =>
+                grupoId.HasValue && nombrePorGrupo.TryGetValue(grupoId.Value, out var n) ? n : "grupo sin nombre";
+
+            // ── HC-SEP (pre-check estructural): un cluster de ≥4 sesiones semanales del mismo
+            // (grupo, asignatura, tipo de sesión) es infactible SIEMPRE, sin importar la grilla —
+            // con separación mínima de 2 días en un rango de 6 (Lunes..Sábado), el mayor conjunto
+            // pairwise-separado posible es 3 (p. ej. lunes/miércoles/viernes; añadir un 4º día
+            // rompe la separación con alguno de los tres). Antes esto caía en INFEASIBLE genérico,
+            // que el catch-all final etiquetaba como MotivoInfactibilidad.Espacio — disparando en
+            // falso el bucle de cesión de laboratorios (M5 del análisis).
+            foreach (var cluster in sesiones
+                         .Where(s => !sesionesFijasIds.Contains(s.Id) && s.GrupoId.HasValue)
+                         .GroupBy(s => (Grupo: s.GrupoId!.Value, Asignatura: s.AsignaturaId, Tipo: CalculadorEspaciosSesion.TipoSesionDe(s)))
+                         .Where(g => g.Count() >= 4))
+            {
+                var msg = $"HC-SEP infactible: el grupo '{NombreGrupo(cluster.Key.Grupo)}' tiene {cluster.Count()} sesiones " +
+                          $"semanales de tipo {cluster.Key.Tipo} para esa asignatura, pero la separación " +
+                          "mínima de 2 días entre sesiones del mismo tipo sólo admite 3 por semana sin solaparse " +
+                          "(p. ej. lunes/miércoles/viernes). Reduzca las sesiones semanales de este tipo o repártalas " +
+                          "en más de un grupo.";
+                _logger.LogError(msg);
+                return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Otro);
+            }
+
+            // ── Capacidad de espacios vs demanda presencial POR SEMANA Y POR CLASE ──────────
+            // M1 (auditoría): antes sumaba TODOS los espacios en una sola bolsa — un run con 20
+            // salones y 0 laboratorios pasaba este chequeo aunque toda sesión de laboratorio
+            // estuviera condenada a fallar más abajo, y el mensaje de error hablaba de "espacios"
+            // en general en vez de nombrar el tipo que realmente falta. Partición barata (no
+            // sustituye el filtrado exacto de CalculadorEspaciosSesion.Candidatos, que sí respeta
+            // el espacio fijo/tipo del requisito de grupo): Laboratorio vs el resto — las dos clases
+            // que gobierna la regla por defecto de TipoSesion. Virtuales no ocupan espacio.
+            int espaciosLab   = espacios.Count(e => e.Tipo == TipoEspacio.Laboratorio);
+            int espaciosNoLab = espacios.Count - espaciosLab;
             foreach (var semana in Semanas)
             {
-                decimal demandaPresencial = sesiones
-                    .Where(s => ModalidadDe(s, semana) == Modalidad.Presencial)
-                    .Sum(s => s.DuracionHoras);
-
-                _logger.LogInformation(
-                    "Fase 2 (CP-SAT) Semana {W}: demanda presencial={Dem}h vs capacidad={Cap}h ({E} espacios × {B} bloques).",
-                    semana, demandaPresencial, capacidadBloquesHora, espacios.Count, bloques.Count);
-
-                if (capacidadBloquesHora > 0 && demandaPresencial / capacidadBloquesHora >= UmbralSaturacion)
+                var presencialesSemana = sesiones.Where(s => ModalidadDe(s, semana) == Modalidad.Presencial).ToList();
+                foreach (var (esLab, nombreClase, capacidadEspacios) in new[]
+                         {
+                             (true,  "laboratorios", espaciosLab),
+                             (false, "salones/auditorios", espaciosNoLab)
+                         })
                 {
-                    _logger.LogWarning(
-                        "Fase 2 (CP-SAT) Semana {W}: demanda al {Pct:P0} de la capacidad de espacios — " +
-                        "el modelo es factible en teoría pero puede saturarse y agotar el timeout. " +
-                        "Considere más espacios o revisar la distribución de alternancia.",
-                        semana, demandaPresencial / capacidadBloquesHora);
-                }
+                    decimal demanda = presencialesSemana
+                        .Where(s => (CalculadorEspaciosSesion.TipoSesionDe(s) == TipoSesion.Laboratorio) == esLab)
+                        .Sum(s => s.DuracionHoras);
+                    if (demanda == 0) continue;
 
-                if (demandaPresencial > capacidadBloquesHora)
-                {
-                    var msg = $"Infactible (Semana {semana}): la demanda presencial ({demandaPresencial}h) supera la capacidad de espacios " +
-                              $"({capacidadBloquesHora}h = {espacios.Count} espacio(s) × {bloques.Count} bloques). " +
-                              "Añada más espacios o ajuste la alternancia.";
-                    _logger.LogError(msg);
-                    return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio);
+                    int capacidadHoras = capacidadEspacios * bloques.Count;
+
+                    _logger.LogInformation(
+                        "Fase 2 (CP-SAT) Semana {W} [{Clase}]: demanda presencial={Dem}h vs capacidad={Cap}h ({E} espacios × {B} bloques).",
+                        semana, nombreClase, demanda, capacidadHoras, capacidadEspacios, bloques.Count);
+
+                    if (capacidadHoras > 0 && demanda / capacidadHoras >= UmbralSaturacion)
+                    {
+                        _logger.LogWarning(
+                            "Fase 2 (CP-SAT) Semana {W} [{Clase}]: demanda al {Pct:P0} de la capacidad — el modelo es " +
+                            "factible en teoría pero puede saturarse y agotar el timeout. Considere más {Clase} o " +
+                            "revisar la distribución de alternancia.",
+                            semana, nombreClase, demanda / capacidadHoras, nombreClase);
+                    }
+
+                    if (demanda > capacidadHoras)
+                    {
+                        var msg = $"Infactible (Semana {semana}): la demanda de {nombreClase} ({demanda}h) supera la " +
+                                  $"capacidad disponible ({capacidadHoras}h = {capacidadEspacios} espacio(s) de ese tipo " +
+                                  $"× {bloques.Count} bloques). Añada más {nombreClase} o ajuste la alternancia.";
+                        _logger.LogError(msg);
+                        return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio);
+                    }
                 }
             }
 
@@ -275,7 +321,7 @@ namespace SOEA.Engine.ConstraintProg
                 if (startsGrupo.Length == 0)
                 {
                     var msg = permitidosPorGrupo is not null
-                        ? $"HC-G01: no hay bloques válidos para la sesión de {dur}h dentro de la disponibilidad declarada del grupo (GrupoId={sesion.GrupoId})."
+                        ? $"HC-G01: no hay bloques válidos para la sesión de {dur}h del grupo '{NombreGrupo(sesion.GrupoId)}' dentro de su disponibilidad declarada."
                         : $"No hay bloques válidos para una sesión de {dur}h (no cabe sin cruzar día en la grilla canónica).";
                     _logger.LogError(msg);
                     var motivo = permitidosPorGrupo is not null ? MotivoInfactibilidad.FranjaGrupo : MotivoInfactibilidad.Otro;
@@ -295,7 +341,7 @@ namespace SOEA.Engine.ConstraintProg
 
                     if (startsFiltrados.Length == 0)
                     {
-                        var msg = $"HC-VH infactible: la sesión de {dur}h de la asignatura {sesion.AsignaturaId} no " +
+                        var msg = $"HC-VH infactible: la sesión de {dur}h del grupo '{NombreGrupo(sesion.GrupoId)}' no " +
                                   $"cabe dentro de su ventana horaria [{ventana.min:HH\\:mm}–{ventana.max:HH\\:mm}] " +
                                   "en ningún día de la grilla. Amplíe la ventana o reduzca la duración.";
                         _logger.LogError(msg);
@@ -370,6 +416,17 @@ namespace SOEA.Engine.ConstraintProg
                     bool tienePresencial = Semanas.Any(w => spaceVars.ContainsKey((sesion.Id, w)));
                     if (!tienePresencial) continue;
 
+                    // M8: EspacioId fijo de la sesión que no está entre los espacios de esta corrida
+                    // (p. ej. borrado del catálogo) hace que CalculadorEspaciosSesion.Candidatos caiga
+                    // al filtro genérico por tipo/requisito de grupo en vez de fallar — antes, en
+                    // silencio. Advertirlo aquí en vez de en el Domain (SOEA.Domain no puede depender
+                    // de ILogger — regla 2 de arquitectura).
+                    if (sesion.EspacioId is Guid espacioSesionFijo && !espacioIndex.ContainsKey(espacioSesionFijo))
+                        _logger.LogWarning(
+                            "Sesión {SesionId}: el espacio fijo {EspacioId} no está entre los espacios de esta " +
+                            "corrida; se usará el filtro por tipo/requisito de grupo en su lugar.",
+                            sesion.Id, espacioSesionFijo);
+
                     // HC-S05 (espacio fijo, de la sesión o del requisito del grupo) ∩ HC-S03
                     // (tipo de espacio según TipoSesion — A2/A3, fuente única).
                     RequisitoEspacio? requisito = sesion.GrupoId.HasValue &&
@@ -380,7 +437,8 @@ namespace SOEA.Engine.ConstraintProg
 
                     if (lista.Count == 0)
                     {
-                        var msg = $"Sesión {sesion.Id} ({CalculadorEspaciosSesion.TipoSesionDe(sesion)}) no tiene ningún espacio candidato del tipo requerido entre los espacios configurados.";
+                        var msg = $"La sesión de {CalculadorEspaciosSesion.TipoSesionDe(sesion)} del grupo '{NombreGrupo(sesion.GrupoId)}' " +
+                                  "no tiene ningún espacio candidato del tipo requerido entre los espacios configurados.";
                         _logger.LogError(msg);
                         return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio);
                     }
@@ -394,7 +452,7 @@ namespace SOEA.Engine.ConstraintProg
                         if (conAforo.Count == 0)
                         {
                             int aforoMax = lista.Max(e => espacios[e].Capacidad);
-                            var msg = $"HC-CAP infactible: la sesión {sesion.Id} necesita un espacio para {estudiantes} " +
+                            var msg = $"HC-CAP infactible: la sesión del grupo '{NombreGrupo(sesion.GrupoId)}' necesita un espacio para {estudiantes} " +
                                       $"estudiantes, pero el aforo máximo disponible entre sus candidatos es {aforoMax}. " +
                                       "Añada un espacio con mayor capacidad o reduzca el grupo.";
                             _logger.LogError(msg);
@@ -508,9 +566,27 @@ namespace SOEA.Engine.ConstraintProg
             }
 
             _logger.LogWarning("CP-SAT no encontró solución factible. Status: {Status}", status);
+
+            // M3 (auditoría): antes CUALQUIER fallo del solver que llegara hasta aquí (timeout,
+            // HC-SEP/HC-ALT contradictorios, modelo mal formado) se reportaba como MotivoInfactibilidad
+            // .Espacio — el mismo motivo que dispara el bucle de cesión de laboratorios en
+            // GenerarHorarioService. Un timeout hacía que el sistema virtualizara labs por una causa
+            // que no tenía nada que ver con el espacio físico. Unknown (timeout) y Infeasible/otro
+            // (contradicción real de restricciones) ahora se diagnostican por separado.
+            if (status == CpSolverStatus.Unknown)
+            {
+                return new ResultadoFactibilidad(false, SinAsignaciones,
+                    $"El solver agotó el tiempo límite ({_options.TimeoutSegundos}s) sin determinar si existe una " +
+                    "solución factible. Puede haber una solución que no se encontró a tiempo — aumente el timeout " +
+                    "o reduzca el número de sesiones del run.",
+                    MotivoInfactibilidad.Timeout);
+            }
+
             return new ResultadoFactibilidad(false, SinAsignaciones,
-                $"No se encontró solución factible. Status del solver: {status}. Revise restricciones de docente, espacio y disponibilidad.",
-                MotivoInfactibilidad.Espacio);
+                $"El modelo no tiene solución factible (status del solver: {status}). Ninguna combinación de horario " +
+                "satisface todas las restricciones duras configuradas — revise separación mínima de días (HC-SEP), " +
+                "parejas de alternancia (HC-ALT), o la combinación de disponibilidad de grupo y ventana horaria.",
+                MotivoInfactibilidad.Otro);
         }
     }
 }

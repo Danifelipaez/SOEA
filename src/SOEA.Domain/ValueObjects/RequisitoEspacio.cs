@@ -9,9 +9,15 @@ namespace SOEA.Domain.ValueObjects
     /// (<see cref="TipoEspacio"/>). Reemplaza a <c>Asignatura.EspacioFijoId</c> (un solo uuid por
     /// asignatura, sólo pensado para laboratorio): ahora vive por grupo y por tipo de sesión.
     /// </summary>
+    /// <param name="TipoEspacio">
+    /// Null = sin preferencia de tipo — <see cref="Services.CalculadorEspaciosSesion.CumpleTipo"/>
+    /// usa la regla por defecto según <see cref="TipoSesion"/> (M6: antes este campo no era
+    /// nullable y <c>TipoEspacio.Salon == 0</c> hacía indistinguibles "sin preferencia" de "sólo
+    /// salón", así que un requisito con el tipo ausente en el JSON forzaba silenciosamente Salon).
+    /// </param>
     public sealed record RequisitoEspacio(
         TipoSesion TipoSesion,
         Guid? EspacioId,
-        TipoEspacio TipoEspacio,
+        TipoEspacio? TipoEspacio,
         int Sesiones);
 }

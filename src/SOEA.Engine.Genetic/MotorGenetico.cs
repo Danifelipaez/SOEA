@@ -27,9 +27,14 @@ namespace SOEA.Engine.Genetic
     public class MotorGenetico : IMotorGenetico
     {
         private readonly ILogger<MotorGenetico> _logger;
+        private readonly IAsignadorEspaciosExacto _asignadorEspacios;
         private const int TamañoTorneo = 5;
 
-        public MotorGenetico(ILogger<MotorGenetico> logger) => _logger = logger;
+        public MotorGenetico(ILogger<MotorGenetico> logger, IAsignadorEspaciosExacto asignadorEspacios)
+        {
+            _logger = logger;
+            _asignadorEspacios = asignadorEspacios;
+        }
 
         public Task<ResultadoOptimizacion> OptimizarAsync(
             IEnumerable<Sesion>            sesiones,
@@ -181,11 +186,13 @@ namespace SOEA.Engine.Genetic
                 .GroupBy(gr => gr.Id)
                 .ToDictionary(gr => gr.Key, gr => gr.First().RequisitosEspacio);
 
-            var aulas = AsignadorEspacios.Asignar(
+            var aulas = _asignadorEspacios.Asignar(
                 sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx, estudiantesPorGrupo, requisitosPorGrupo);
             if (aulas is null)
             {
-                _logger.LogWarning("Fase 3: no hay asignación de aulas factible para el mejor cromosoma; fallback a Fase 2.");
+                _logger.LogWarning(
+                    "Fase 3: no hay asignación de aulas factible (M2: asignación exacta CP-SAT, no greedy) " +
+                    "para el mejor cromosoma; fallback a Fase 2.");
                 return new ResultadoOptimizacion(asignacionesFase2, mejorFitness, generacionFinal, UsoFallback: true, penalizacionPresencial);
             }
 
@@ -235,7 +242,7 @@ namespace SOEA.Engine.Genetic
                         continue;
                     }
 
-                    var aulasTentativas = AsignadorEspacios.Asignar(
+                    var aulasTentativas = _asignadorEspacios.Asignar(
                         sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx, estudiantesPorGrupo, requisitosPorGrupo);
 
                     if (aulasTentativas is not null)

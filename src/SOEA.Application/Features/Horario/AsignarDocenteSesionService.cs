@@ -20,21 +20,28 @@ namespace SOEA.Application.Features.Horario
         private readonly IBloqueTiempoRepositorio _bloques;
         private readonly IDocenteRepositorio _docentes;
         private readonly IHorarioRepositorio? _horarios;
+        private readonly IGrupoRepositorio? _grupos;
+        private readonly IAsignaturaRepositorio? _asignaturas;
 
-        // horarios es opcional (default null → sin acotar, comportamiento anterior) para no
-        // romper la firma del constructor en tests existentes que no lo proveen.
+        // horarios/grupos/asignaturas son opcionales (default null → mensaje degradado sin
+        // nombre, comportamiento anterior) para no romper la firma del constructor en tests
+        // existentes que no los proveen.
         public AsignarDocenteSesionService(
             ISesionRepositorio sesiones,
             IAsignacionSemanalRepositorio asignaciones,
             IBloqueTiempoRepositorio bloques,
             IDocenteRepositorio docentes,
-            IHorarioRepositorio? horarios = null)
+            IHorarioRepositorio? horarios = null,
+            IGrupoRepositorio? grupos = null,
+            IAsignaturaRepositorio? asignaturas = null)
         {
             _sesiones     = sesiones;
             _asignaciones = asignaciones;
             _bloques      = bloques;
             _docentes     = docentes;
             _horarios     = horarios;
+            _grupos       = grupos;
+            _asignaturas  = asignaturas;
         }
 
         /// <exception cref="KeyNotFoundException">Sesión o docente no encontrado → 404.</exception>
@@ -144,11 +151,36 @@ namespace SOEA.Application.Features.Horario
                     var oEnd    = oStart.AddHours((double)oSesion.DuracionHoras);
 
                     if (tStart < oEnd && oStart < tEnd)
+                    {
+                        var d1 = await DescribirSesionAsync(sesion, tBloque.Dia, tStart, tEnd);
+                        var d2 = await DescribirSesionAsync(oSesion, oBloque.Dia, oStart, oEnd);
                         throw new InvalidOperationException(
-                            $"HC-I01 (edición): El docente ya tiene otra sesión que se solapa en esa franja " +
-                            $"(semana {semana}: {tBloque.Dia} {tStart:HH\\:mm}–{tEnd:HH\\:mm}).");
+                            $"HC-I01 (edición): el docente ya tiene otra sesión en esa franja (semana {semana}). " +
+                            $"Sesión 1: {d1}. Sesión 2: {d2}. " +
+                            "Elija otro docente para una de las dos sesiones, o cambie el horario de una de ellas.");
+                    }
                 }
             }
+        }
+
+        /// <summary>"Cálculo I · G1 (lunes 08:00–10:00)" — degrada a "sesión sin nombre" si los
+        /// repositorios de grupo/asignatura no fueron provistos o el Id no resuelve.</summary>
+        private async Task<string> DescribirSesionAsync(Sesion s, DiaDeSemana dia, TimeOnly inicio, TimeOnly fin)
+        {
+            var asignatura = _asignaturas is not null
+                ? (await _asignaturas.GetByIdAsync(s.AsignaturaId))?.Nombre
+                : null;
+            var grupo = _grupos is not null && s.GrupoId.HasValue
+                ? (await _grupos.GetByIdAsync(s.GrupoId.Value))?.Nombre
+                : null;
+
+            var nombre = (asignatura, grupo) switch
+            {
+                (not null, not null) => $"{asignatura} · {grupo}",
+                (not null, null)      => asignatura,
+                _                      => "sesión sin nombre"
+            };
+            return $"{nombre} ({dia} {inicio:HH\\:mm}–{fin:HH\\:mm})";
         }
 
         // ── Validaciones blandas ─────────────────────────────────────────────────

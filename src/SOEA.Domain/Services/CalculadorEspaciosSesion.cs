@@ -26,15 +26,16 @@ namespace SOEA.Domain.Services
 
         /// <summary>
         /// HC-S03: true si <paramref name="espacio"/> es válido para <paramref name="tipoSesion"/>,
-        /// dado el requisito de espacio declarado por el grupo (si lo hay). Sin requisito: Laboratorio
-        /// exige laboratorio; TeoriaPresencial EXCLUYE laboratorio (petición 7 — antes una teoría
-        /// presencial podía caer en un laboratorio porque solo se protegían los labs); TeoriaVirtual
-        /// no consume espacio (no debería llegar aquí).
+        /// dado el requisito de espacio declarado por el grupo (si lo hay). Sin requisito, o con
+        /// requisito sin tipo explícito (M6: <see cref="RequisitoEspacio.TipoEspacio"/> nullable):
+        /// Laboratorio exige laboratorio; TeoriaPresencial EXCLUYE laboratorio (petición 7 — antes
+        /// una teoría presencial podía caer en un laboratorio porque solo se protegían los labs);
+        /// TeoriaVirtual no consume espacio (no debería llegar aquí).
         /// </summary>
         public static bool CumpleTipo(Espacio espacio, TipoSesion tipoSesion, RequisitoEspacio? requisito)
         {
             if (requisito?.EspacioId is Guid fijo) return espacio.Id == fijo;
-            if (requisito is not null) return espacio.Tipo == requisito.TipoEspacio;
+            if (requisito?.TipoEspacio is TipoEspacio tipoExplicito) return espacio.Tipo == tipoExplicito;
             return tipoSesion switch
             {
                 TipoSesion.Laboratorio => espacio.Tipo == TipoEspacio.Laboratorio,

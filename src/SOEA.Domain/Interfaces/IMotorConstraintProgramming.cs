@@ -16,6 +16,12 @@ namespace SOEA.Domain.Interfaces
         VentanaHoraria,
         FranjaGrupo,
         Datos,
+        /// <summary>
+        /// El solver agotó el timeout sin determinar factibilidad (status Unknown) — puede existir
+        /// solución, no se encontró a tiempo. Distinto de una infactibilidad probada: ceder sesiones
+        /// de laboratorio no ayuda contra esto, lo que ayuda es más tiempo o un run más pequeño.
+        /// </summary>
+        Timeout,
         Otro
     }
 
@@ -52,7 +58,6 @@ namespace SOEA.Domain.Interfaces
             IEnumerable<Sesion> sesiones,
             IEnumerable<BloqueTiempo> bloques,
             IEnumerable<Espacio> espacios,
-            IEnumerable<Docente> docentes,
             IEnumerable<Grupo>? grupos = null,
             IEnumerable<Guid>? sesionesFijasIds = null,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,

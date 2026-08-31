@@ -17,16 +17,24 @@ namespace SOEA.Application.Features.Horario
         private readonly IBloqueTiempoRepositorio     _bloques;
         private readonly ISesionRepositorio            _sesiones;
         private readonly IAsignacionSemanalRepositorio _asignaciones;
+        private readonly IAsignaturaRepositorio?       _asignaturas;
 
+        // asignaturas es opcional (default null → mensaje degradado sin nombre de asignatura)
+        // para no romper la firma del constructor en tests existentes que no la proveen.
         public CrearSesionManualService(
             IBloqueTiempoRepositorio     bloques,
             ISesionRepositorio            sesiones,
-            IAsignacionSemanalRepositorio asignaciones)
+            IAsignacionSemanalRepositorio asignaciones,
+            IAsignaturaRepositorio?       asignaturas = null)
         {
             _bloques      = bloques;
             _sesiones     = sesiones;
             _asignaciones = asignaciones;
+            _asignaturas  = asignaturas;
         }
+
+        private async Task<string> NombreAsignaturaAsync(Guid asignaturaId) =>
+            _asignaturas is not null ? (await _asignaturas.GetByIdAsync(asignaturaId))?.Nombre ?? "asignatura sin nombre" : "asignatura sin nombre";
 
         /// <returns>
         /// Las 1 o 2 filas (<see cref="SesionGeneradaDto"/>) creadas, listas para el frontend.
@@ -74,15 +82,20 @@ namespace SOEA.Application.Features.Horario
                 .ToList();
 
             // Las asignaciones de esas sesiones en el mismo bloque de inicio
-            if (sesionesDocente.Any(s => s.BloqueTiempoId == bloque.Id))
+            var choqueDocente = sesionesDocente.FirstOrDefault(s => s.BloqueTiempoId == bloque.Id);
+            if (choqueDocente is not null)
+            {
+                var nombreOtra = await NombreAsignaturaAsync(choqueDocente.AsignaturaId);
                 throw new InvalidOperationException(
-                    "HC-I01: El docente ya tiene otra sesión que comienza en esa misma franja horaria. " +
-                    "Elija una hora diferente o cambie el docente.");
+                    $"HC-I01: el docente ya tiene otra sesión que comienza en esa misma franja horaria " +
+                    $"({req.Dia} {req.HoraInicio}). Sesión 1: {await NombreAsignaturaAsync(req.AsignaturaId)} " +
+                    $"({req.Dia} {req.HoraInicio}). Sesión 2: {nombreOtra} ({req.Dia} {req.HoraInicio}). " +
+                    "Elija una hora diferente o cambie el docente de una de las dos sesiones.");
+            }
 
             // ── HC-S01: conflicto de espacio (solo filas presenciales) ────────────
             if (espacioFinal.HasValue)
             {
-                var idsEnBloque = sesionesDocente.Select(s => s.Id).ToHashSet();
                 var todas = await _sesiones.GetAllAsync();
                 var sesionesEnBloque = todas
                     .Where(s => s.BloqueTiempoId == bloque.Id)
@@ -94,14 +107,20 @@ namespace SOEA.Application.Features.Horario
                     var asignacionesBD = await _asignaciones.GetBySesionIdsAsync(
                         sesionesEnBloque.Select(s => s.Id));
 
-                    bool ocupado = asignacionesBD.Any(a =>
+                    var ocupadaPor = asignacionesBD.FirstOrDefault(a =>
                         a.EspacioId == espacioFinal &&
                         a.Modalidad == Modalidad.Presencial);
 
-                    if (ocupado)
+                    if (ocupadaPor is not null)
+                    {
+                        var sesionOcupante = sesionesEnBloque.First(s => s.Id == ocupadaPor.SesionId);
+                        var nombreOcupante = await NombreAsignaturaAsync(sesionOcupante.AsignaturaId);
                         throw new InvalidOperationException(
-                            "HC-S01: El laboratorio ya está ocupado por otra sesión presencial en esa franja horaria. " +
-                            "Elija otro laboratorio u otra hora.");
+                            $"HC-S01: el espacio ya está ocupado por otra sesión presencial en esa franja horaria. " +
+                            $"Sesión 1: {await NombreAsignaturaAsync(req.AsignaturaId)} ({req.Dia} {req.HoraInicio}). " +
+                            $"Sesión 2: {nombreOcupante} ({req.Dia} {req.HoraInicio}). " +
+                            "Elija otro espacio u otra hora.");
+                    }
                 }
             }
 

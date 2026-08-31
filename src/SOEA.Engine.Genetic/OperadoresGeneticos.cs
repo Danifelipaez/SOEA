@@ -31,6 +31,7 @@ namespace SOEA.Engine.Genetic
         private readonly int[] _duraciones;
         private readonly int[][] _startsValidos;
         private readonly bool[] _esIndependiente; // true = SinAlternancia (ALT-06: StartB libre)
+        private readonly int[] _parejaIdx; // M4: índice de la sesión pareada por HC-ALT, o -1
 
         public OperadoresGeneticos(
             List<Sesion> sesiones,
@@ -89,6 +90,24 @@ namespace SOEA.Engine.Genetic
                     _duraciones[i], bloques, rangos, _diaPorIdx,
                     permGrupo, ventana.min, ventana.max);
             }
+
+            // M4: HC-ALT — índice de la sesión pareada por ParejaAlternanciaId (o -1 si no tiene,
+            // o si el dato está corrupto: una "pareja" con != 2 miembros no es responsabilidad del
+            // GA repararla, el validador post-generación ya la reporta como conflicto de datos).
+            _parejaIdx = Enumerable.Repeat(-1, sesiones.Count).ToArray();
+            var indicesPorPareja = new Dictionary<Guid, List<int>>();
+            for (int i = 0; i < sesiones.Count; i++)
+            {
+                if (sesiones[i].ParejaAlternanciaId is not Guid pid) continue;
+                if (!indicesPorPareja.TryGetValue(pid, out var lista)) { lista = new(); indicesPorPareja[pid] = lista; }
+                lista.Add(i);
+            }
+            foreach (var lista in indicesPorPareja.Values)
+                if (lista.Count == 2)
+                {
+                    _parejaIdx[lista[0]] = lista[1];
+                    _parejaIdx[lista[1]] = lista[0];
+                }
         }
 
         public IReadOnlyList<int> StartsValidosDe(int sesionIdx) => _startsValidos[sesionIdx];
@@ -174,7 +193,8 @@ namespace SOEA.Engine.Genetic
             return clon;
         }
 
-        // ── Reparación HC-I01: sin solapes de docente, en dos pasadas ─────────────────
+        // ── Reparación HC-C01: sin solapes de cohorte, en dos pasadas (CR-08: HC-I01, el ──
+        // solape de docente, salió del pipeline y quedó subsumido por HC-C01) ────────────
         // Pasada A: idéntica al comportamiento de Incremento 1, sobre Start[]. El resultado se
         // refleja incondicionalmente a StartB para TipoA/TipoB (regla 9: misma franja en ambas
         // semanas). Pasada B: solo repara StartB de SinAlternancia; TipoA/TipoB entran ya
@@ -186,12 +206,14 @@ namespace SOEA.Engine.Genetic
             // Un gen con dominio vacío (sesión fija del horario base o dominio infactible) es un
             // obstáculo: se registra primero y los demás se reparan alrededor de él.
             RepararSemana(cromosoma.Start, movible: i => _startsValidos[i].Length > 0);
+            RepararSeparacionDias(cromosoma.Start, movible: i => _startsValidos[i].Length > 0);
 
             for (int i = 0; i < cromosoma.CantidadGenes; i++)
                 if (!_esIndependiente[i])
                     cromosoma.StartB[i] = cromosoma.Start[i];
 
             RepararSemana(cromosoma.StartB, movible: i => _esIndependiente[i] && _startsValidos[i].Length > 0);
+            RepararSeparacionDias(cromosoma.StartB, movible: i => _esIndependiente[i] && _startsValidos[i].Length > 0);
         }
 
         private void RepararSemana(int[] starts, Func<int, bool> movible)
@@ -210,30 +232,175 @@ namespace SOEA.Engine.Genetic
                 ObtenerLista(colocadosPorGrupo, grupo).Add((starts[i], _duraciones[i]));
             }
 
-            // 2) Genes movibles, en orden: se reparan contra todo lo ya colocado (fijos + movibles
-            //    previos de esta misma pasada).
+            // 2) Genes movibles, en orden. HC-ALT (M4): una pareja de alternancia
+            //    (ParejaAlternanciaId) se coloca como una sola unidad, en el MISMO start — si se
+            //    procesaran por separado, el segundo miembro podría desincronizarse del primero al
+            //    resolver su propio HC-C01 (los dos miembros suelen ser de grupos distintos, cada
+            //    uno con su propia ocupación).
+            var procesado = new bool[starts.Length];
             for (int i = 0; i < starts.Length; i++)
             {
-                if (!movible(i)) continue;
+                if (procesado[i] || !movible(i)) continue;
+                procesado[i] = true;
+                if (!_sesiones[i].GrupoId.HasValue) continue;
+
+                int j = _parejaIdx[i];
+                if (j >= 0 && !procesado[j] && movible(j) && _sesiones[j].GrupoId.HasValue)
+                {
+                    procesado[j] = true;
+                    ColocarPar(i, j, starts, colocadosPorGrupo);
+                }
+                else
+                {
+                    ColocarIndividual(i, starts, colocadosPorGrupo);
+                }
+            }
+        }
+
+        // Coloca un gen movible individual: si su start actual choca con lo ya ocupado de su
+        // grupo, busca uno libre en su propio dominio; si no hay ninguno libre, lo deja tal cual
+        // (mejor esfuerzo — el post-chequeo del orquestador (HC-C01) lo detecta y hace fallback a
+        // Fase 2, nunca se publica un horario inválido).
+        private void ColocarIndividual(
+            int i, int[] starts, Dictionary<Guid, List<(int start, int dur)>> colocadosPorGrupo)
+        {
+            var grupo = _sesiones[i].GrupoId!.Value;
+            int start = starts[i];
+            int dur   = _duraciones[i];
+            var lista = ObtenerLista(colocadosPorGrupo, grupo);
+
+            bool solapa = lista.Any(p => BloquesPlanner.Solapan(p.start, p.dur, start, dur, _diaPorIdx));
+            if (solapa)
+            {
+                var nuevo = BuscarStartLibre(i, lista);
+                if (nuevo.HasValue) start = nuevo.Value;
+            }
+
+            starts[i] = start;
+            lista.Add((start, dur));
+        }
+
+        // HC-ALT: coloca ambos miembros de una pareja de alternancia en el MISMO start, libre en
+        // la ocupación de LOS DOS grupos a la vez (SonParejaCompatible ya garantiza duraciones
+        // iguales entre pareja). Preferencia: conservar el start actual de i si sigue sirviendo
+        // para ambos; si no, buscar en el dominio común (∩ de _startsValidos); si ninguno sirve,
+        // deja los starts tal cual — mismo criterio "mejor esfuerzo" que ColocarIndividual, el
+        // post-chequeo HC-ALT lo detecta.
+        private void ColocarPar(
+            int i, int j, int[] starts, Dictionary<Guid, List<(int start, int dur)>> colocadosPorGrupo)
+        {
+            var grupoI = _sesiones[i].GrupoId!.Value;
+            var grupoJ = _sesiones[j].GrupoId!.Value;
+            var listaI = ObtenerLista(colocadosPorGrupo, grupoI);
+            var listaJ = grupoJ == grupoI ? listaI : ObtenerLista(colocadosPorGrupo, grupoJ);
+            int dur = _duraciones[i];
+
+            bool Libre(int cand) =>
+                !listaI.Any(p => BloquesPlanner.Solapan(p.start, p.dur, cand, dur, _diaPorIdx)) &&
+                (grupoJ == grupoI || !listaJ.Any(p => BloquesPlanner.Solapan(p.start, p.dur, cand, dur, _diaPorIdx)));
+
+            int start;
+            if (starts[i] == starts[j] && Libre(starts[i]))
+            {
+                start = starts[i];
+            }
+            else
+            {
+                var comunes = Array.FindAll(_startsValidos[i], s => Array.IndexOf(_startsValidos[j], s) >= 0);
+                start = -1;
+                foreach (var cand in comunes)
+                    if (Libre(cand)) { start = cand; break; }
+
+                if (start == -1)
+                    start = comunes.Length > 0 ? comunes[_rng.Next(comunes.Length)] : starts[i];
+            }
+
+            starts[i] = start;
+            starts[j] = start;
+            listaI.Add((start, dur));
+            if (grupoJ != grupoI) listaJ.Add((start, dur));
+        }
+
+        // HC-SEP: separación mínima de 2 días entre sesiones semanales del mismo (grupo,
+        // asignatura, tipo de sesión) — misma regla que CP-SAT/validador
+        // (ReglasSesion.SeparacionDiasOk). Procesa cada sesión de la clase en orden y, si su día
+        // actual choca con alguna ya colocada, busca en su propio dominio un start que separe de
+        // TODAS las anteriores Y siga libre en la ocupación de su grupo (reconstruida tras
+        // RepararSemana) — mismo patrón "solo mira hacia atrás" que RepararSemana, sin necesidad
+        // de reprocesar en varias pasadas. Las sesiones pareadas (HC-ALT) nunca se reubican aquí
+        // — moverlas rompería el bloque compartido que ColocarPar ya fijó — pero sí cuentan como
+        // "día ocupado" para sus compañeras de clase sin pareja.
+        private void RepararSeparacionDias(int[] starts, Func<int, bool> movible)
+        {
+            var porClase = new Dictionary<(Guid grupo, Guid asig, TipoSesion tipo), List<int>>();
+            for (int i = 0; i < starts.Length; i++)
+            {
+                if (!_sesiones[i].GrupoId.HasValue) continue;
+                var clave = (_sesiones[i].GrupoId!.Value, _sesiones[i].AsignaturaId,
+                    CalculadorEspaciosSesion.TipoSesionDe(_sesiones[i]));
+                if (!porClase.TryGetValue(clave, out var lista)) { lista = new(); porClase[clave] = lista; }
+                lista.Add(i);
+            }
+
+            var colocadosPorGrupo = new Dictionary<Guid, List<(int idx, int start, int dur)>>();
+            for (int i = 0; i < starts.Length; i++)
+            {
                 if (!_sesiones[i].GrupoId.HasValue) continue;
                 var grupo = _sesiones[i].GrupoId.Value;
-
-                int start = starts[i];
-                int dur   = _duraciones[i];
-                var lista = ObtenerLista(colocadosPorGrupo, grupo);
-
-                bool solapa = lista.Any(p => BloquesPlanner.Solapan(p.start, p.dur, start, dur, _diaPorIdx));
-                if (solapa)
-                {
-                    var nuevo = BuscarStartLibre(i, lista);
-                    if (nuevo.HasValue) start = nuevo.Value;
-                    // Si no hay libre, fallback: queda tal cual. El post-chequeo del orquestador
-                    // (HC-C01) lo detecta y hace fallback a Fase 2 — nunca se publica un horario inválido.
-                }
-
-                starts[i] = start;
-                lista.Add((start, dur));
+                if (!colocadosPorGrupo.TryGetValue(grupo, out var l)) { l = new(); colocadosPorGrupo[grupo] = l; }
+                l.Add((i, starts[i], _duraciones[i]));
             }
+
+            foreach (var indices in porClase.Values)
+            {
+                if (indices.Count < 2) continue;
+                var diasColocados = new List<DiaDeSemana>();
+
+                foreach (var i in indices)
+                {
+                    var dia = _diaPorIdx[starts[i]];
+                    if (diasColocados.All(d => ReglasSesion.SeparacionDiasOk(dia, d)))
+                    {
+                        diasColocados.Add(dia);
+                        continue;
+                    }
+
+                    if (movible(i) && _parejaIdx[i] < 0)
+                    {
+                        var ocupados = colocadosPorGrupo[_sesiones[i].GrupoId!.Value];
+                        ocupados.RemoveAll(p => p.idx == i);
+
+                        var nuevo = BuscarStartSeparado(i, ocupados, diasColocados);
+                        if (nuevo.HasValue)
+                        {
+                            starts[i] = nuevo.Value;
+                            dia = _diaPorIdx[nuevo.Value];
+                        }
+                        ocupados.Add((i, starts[i], _duraciones[i]));
+                    }
+                    // Sin movible o pareada: se deja tal cual (mejor esfuerzo). El post-chequeo
+                    // HC-SEP lo detecta y el orquestador hace fallback a Fase 2.
+
+                    diasColocados.Add(dia);
+                }
+            }
+        }
+
+        private int? BuscarStartSeparado(
+            int gen, List<(int idx, int start, int dur)> ocupados, List<DiaDeSemana> diasAEvitar)
+        {
+            var validos = _startsValidos[gen];
+            if (validos.Length == 0) return null;
+            int dur = _duraciones[gen];
+
+            foreach (var cand in validos)
+            {
+                var dia = _diaPorIdx[cand];
+                if (!diasAEvitar.All(d => ReglasSesion.SeparacionDiasOk(dia, d))) continue;
+                if (ocupados.Any(o => BloquesPlanner.Solapan(o.start, o.dur, cand, dur, _diaPorIdx))) continue;
+                return cand;
+            }
+            return null;
         }
 
         private static List<(int start, int dur)> ObtenerLista(

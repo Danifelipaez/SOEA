@@ -76,6 +76,21 @@ namespace SOEA.Application.Features.Horario
             return s.GrupoId.HasValue ? $"{asig} · {NombreGrupo(s.GrupoId.Value, ctx)}" : asig;
         }
 
+        /// <summary>
+        /// "Cálculo I · G1 (lunes 08:00–10:00)" — como <see cref="Describir"/>, con día y hora si
+        /// hay contexto con bloques. Dos sesiones de la misma asignatura/grupo describen igual con
+        /// <see cref="Describir"/> a secas (indistinguibles para el coordinador); el horario es lo
+        /// que las diferencia en un mensaje de conflicto "Sesión 1 / Sesión 2".
+        /// </summary>
+        private static string DescribirConHorario(Intervalo item, ContextoValidacion? ctx)
+        {
+            var desc = Describir(item.Sesion, ctx);
+            if (ctx is null || item.Inicio >= ctx.Bloques.Count) return desc;
+            var bloque = ctx.Bloques[item.Inicio];
+            var fin = bloque.HoraInicio.AddHours((double)item.Sesion.DuracionHoras);
+            return $"{desc} ({bloque.Dia} {bloque.HoraInicio:HH\\:mm}–{fin:HH\\:mm})";
+        }
+
         public static IReadOnlyList<string> Validar(
             IEnumerable<AsignacionSemanal> asignaciones,
             IReadOnlyDictionary<Guid, Sesion> sesionPorId,
@@ -271,9 +286,10 @@ namespace SOEA.Application.Features.Horario
                         var diaX = ctx.Bloques[lista[x].Inicio].Dia;
                         var diaY = ctx.Bloques[lista[y].Inicio].Dia;
                         if (!ReglasSesion.SeparacionDiasOk(diaX, diaY))
-                            conflictos.Add($"HC-SEP: dos sesiones de {Describir(lista[x].Sesion, ctx)} " +
-                                           $"(mismo grupo/asignatura/tipo) caen en días sin separación mínima " +
-                                           $"({diaX} / {diaY}, semana {grupo.Key.Semana}).");
+                            conflictos.Add($"HC-SEP: mismo grupo/asignatura/tipo sin separación mínima de 2 días " +
+                                           $"(semana {grupo.Key.Semana}) — Sesión 1: {DescribirConHorario(lista[x], ctx)}; " +
+                                           $"Sesión 2: {DescribirConHorario(lista[y], ctx)}. " +
+                                           "Sepárelas al menos 2 días o reduzca las sesiones semanales de este tipo.");
                     }
             }
         }
@@ -281,6 +297,13 @@ namespace SOEA.Application.Features.Horario
         private static IEnumerable<string> DetectarSolapes(
             IEnumerable<Intervalo> grupo, string regla, string descripcionContexto, ContextoValidacion? ctx)
         {
+            var sugerencia = regla switch
+            {
+                "HC-C01" => "Mueva una de las dos sesiones a otro día u hora, o revise que pertenezcan al grupo correcto.",
+                "HC-S01" => "Asigne un espacio distinto a una de las dos sesiones, o cámbiela a otro horario.",
+                _        => "Ajuste el horario de una de las dos sesiones para que no se solapen."
+            };
+
             var ordenados = grupo.OrderBy(i => i.Inicio).ToList();
             for (int i = 0; i < ordenados.Count; i++)
             {
@@ -288,8 +311,9 @@ namespace SOEA.Application.Features.Horario
                 {
                     // Como están ordenados por inicio, basta comparar contra el fin del primero.
                     if (ordenados[j].Inicio >= ordenados[i].Fin) break;
-                    yield return $"{regla}: solape en {descripcionContexto} entre {Describir(ordenados[i].Sesion, ctx)} " +
-                                 $"y {Describir(ordenados[j].Sesion, ctx)}.";
+                    yield return $"{regla}: solape en {descripcionContexto} — " +
+                                 $"Sesión 1: {DescribirConHorario(ordenados[i], ctx)}; " +
+                                 $"Sesión 2: {DescribirConHorario(ordenados[j], ctx)}. {sugerencia}";
                 }
             }
         }

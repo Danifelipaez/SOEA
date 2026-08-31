@@ -15,6 +15,7 @@ namespace SOEA.Engine.ConstraintProg
 
             services.AddSingleton(options);
             services.AddSingleton<IMotorConstraintProgramming, MotorConstraintProgramming>();
+            services.AddSingleton<IAsignadorEspaciosExacto, AsignadorEspaciosExactoCpSat>();
             return services;
         }
     }
