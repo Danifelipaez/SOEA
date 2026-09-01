@@ -144,7 +144,7 @@ namespace SOEA.Application.Features.Horario
             // de elegibilidad (Electiva / Optativa / Elegible), nunca lo que el usuario marcó virtual
             // desde el principio. Se acumulan en sesionesCedidasEnOrden para el pase de reversión
             // post-Fase 3.
-            var sesionesCedidasEnOrden = AplicarPrioridadPresencial(sesiones, espacios, predicadosCesion, grupos);
+            var sesionesCedidasEnOrden = AplicarPrioridadPresencial(sesiones, espacios, predicadosCesion, grupos, bloques, sesionesFijasIds);
             if (sesionesCedidasEnOrden.Count > 0)
                 logs.Add($"[INFO] Etapa 1: {sesionesCedidasEnOrden.Count} sesión(es) cedieron presencialidad por saturación de espacios. " +
                          $"Orden de cesión — criterios activos en orden configurado: {string.Join(" → ", criteriosActivos.Select(c => c.Criterio))}. " +
@@ -197,13 +197,14 @@ namespace SOEA.Application.Features.Horario
 
             if (!resultadoFactibilidad.EsFactible)
             {
-                logs.Add($"[ERROR] Fase 2 falló en {swFase2.ElapsedMilliseconds}ms: {resultadoFactibilidad.MensajeError}");
+                logs.Add($"[ERROR] Fase 2 falló en {swFase2.ElapsedMilliseconds}ms [{resultadoFactibilidad.Motivo}]: {resultadoFactibilidad.MensajeError}");
                 return new GenerarHorarioResponse
                 {
                     HorarioId     = Guid.NewGuid(),
                     Semestre      = request.Semestre,
                     EsFactible    = false,
                     MensajeError  = resultadoFactibilidad.MensajeError,
+                    MotivoInfactibilidad = resultadoFactibilidad.Motivo.ToString(),
                     Logs          = logs,
                     Sesiones      = new List<SesionGeneradaDto>()
                 };
@@ -825,26 +826,35 @@ namespace SOEA.Application.Features.Horario
         /// Pase 2 (virtualización). Devuelve los IDs de las sesiones cedidas, EN ORDEN de cesión.
         /// </summary>
         // internal (no private) para verificación directa de la prioridad de cesión en SOEA.Tests.
+        // Fallback cuando no se pasa la grilla real de bloques (compat de la firma de 3 argumentos
+        // usada por PresencialFirstTests.cs) — NO representa la grilla institucional actual.
+        private const int BloquesPorSemanaLegacy = 5 * 8;
+
         internal static List<Guid> AplicarPrioridadPresencial(
             List<Sesion> sesiones,
             List<Espacio> espacios,
             IReadOnlyList<(CriterioElegibilidadAlternancia Criterio, Func<Sesion, bool> Predicado)> criterios,
-            List<Grupo>? grupos = null)
+            List<Grupo>? grupos = null,
+            List<BloqueTiempo>? bloques = null,
+            HashSet<Guid>? sesionesFijasIds = null)
         {
             var cedidasIds = new List<Guid>();
             if (espacios.Count == 0 || criterios.Count == 0) return cedidasIds;
 
             var grupoPorId = (grupos ?? new List<Grupo>()).ToDictionary(g => g.Id);
+            var fijasIds = sesionesFijasIds ?? new HashSet<Guid>();
 
-            // Capacidad máxima estimada: nro_espacios × días × horas_útiles. Heurística de pre-pase;
-            // el gate duro real es CP-SAT (HC-CAP / demanda-vs-capacidad por semana).
+            // Capacidad máxima estimada: nro_espacios × bloques/semana de la grilla real (misma
+            // fórmula que MotorConstraintProgramming.cs — demanda-vs-capacidad por semana). Heurística
+            // de pre-pase; el gate duro real sigue siendo CP-SAT (HC-CAP).
             // M1 (auditoría): sólo cuenta espacios NO-laboratorio y demanda NO-laboratorio — este
             // método únicamente cede sesiones de teoría (TipoFlujo != Laboratorio, ver Pase 1/2 abajo;
             // los laboratorios los cede Etapa 2 de forma reactiva, contra CP-SAT). Contar laboratorios
             // aquí infla la capacidad estimada sin que puedan absorber ni una hora de teoría,
             // enmascarando saturación real de salones/auditorios (M1 del análisis).
             int espaciosNoLab = espacios.Count(e => e.Tipo != TipoEspacio.Laboratorio);
-            int capacidadMaxEstimada = espaciosNoLab * 5 * 8;
+            int bloquesPorSemana = bloques?.Count ?? BloquesPorSemanaLegacy;
+            int capacidadMaxEstimada = espaciosNoLab * bloquesPorSemana;
             int Horas(Sesion s) => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
 
             int demandaHoras = sesiones
@@ -888,6 +898,7 @@ namespace SOEA.Application.Features.Horario
                 s.TipoFlujo != TipoFlujo.Laboratorio &&
                 s.Alternancia == TipoAlternancia.SinAlternancia &&
                 !s.Bloqueada &&
+                !fijasIds.Contains(s.Id) &&
                 EsCandidata(s)));
 
             bool PuedeCeder(Sesion s) =>
@@ -934,6 +945,7 @@ namespace SOEA.Application.Features.Horario
                          s.TipoFlujo != TipoFlujo.Laboratorio &&
                          s.Alternancia == TipoAlternancia.SinAlternancia &&
                          !s.Bloqueada &&
+                         !fijasIds.Contains(s.Id) &&
                          EsCandidata(s))))
             {
                 if (excesohoras <= 0) break;
@@ -951,9 +963,14 @@ namespace SOEA.Application.Features.Horario
         /// Candidata: presencial, sin alternancia, no bloqueada, no fija, y que matchea AL MENOS UN
         /// criterio de elegibilidad activo (Electiva/Optativa/Elegible — mismo orden que Etapa 1;
         /// MultiplesSesiones se ignora aquí, no otorga elegibilidad). La pareja exige espacio
-        /// compatible (<see cref="SonParejaCompatible"/>). Devuelve false si no hay pareja candidata.
+        /// compatible (<see cref="SonParejaCompatible"/>), asignatura y grupo DISTINTOS (emparejar la
+        /// misma asignatura o el mismo grupo es estructuralmente infactible para CP-SAT: HC-ALT fuerza
+        /// la pareja al mismo bloque y HC-C01 exige NoOverlap por (grupo, semana), así que dos sesiones
+        /// del mismo grupo en el mismo bloque siempre chocan), y conserva ≥1 sesión presencial por
+        /// (asignatura, grupo). Devuelve false si no hay pareja candidata.
         /// </summary>
-        private static bool CederSiguienteCandidatoLab(
+        // internal (no private) para verificación directa en SOEA.Tests.
+        internal static bool CederSiguienteCandidatoLab(
             List<Sesion> sesiones,
             IReadOnlyList<(CriterioElegibilidadAlternancia Criterio, Func<Sesion, bool> Predicado)> criterios,
             HashSet<Guid> sesionesFijasIds,
@@ -969,6 +986,13 @@ namespace SOEA.Application.Features.Horario
                 !sesionesFijasIds.Contains(s.Id)).ToList();
             if (candidatos.Count < 2) return false;
 
+            // Sesiones de laboratorio por (asignatura, grupo) — para nunca ceder la última que le
+            // queda a un grupo de una asignatura (espejo de PuedeCeder en AplicarPrioridadPresencial).
+            var porAsigYGrupo = candidatos
+                .GroupBy(s => (s.AsignaturaId, s.GrupoId))
+                .ToDictionary(g => g.Key, g => g.Count());
+            bool PuedeCederLab(Sesion s) => porAsigYGrupo[(s.AsignaturaId, s.GrupoId)] > 1;
+
             bool EsElegible(Sesion s) => criterios.Any(c =>
                 c.Criterio != CriterioElegibilidadAlternancia.MultiplesSesiones && c.Predicado(s));
 
@@ -976,11 +1000,13 @@ namespace SOEA.Application.Features.Horario
             foreach (var (criterio, predicado) in criterios)
             {
                 if (criterio == CriterioElegibilidadAlternancia.MultiplesSesiones) continue;
-                var s1 = candidatos.FirstOrDefault(predicado);
+                var s1 = candidatos.FirstOrDefault(c => predicado(c) && PuedeCederLab(c));
                 if (s1 is null) continue;
 
                 var s2 = candidatos.FirstOrDefault(c =>
-                    c.Id != s1.Id && EsElegible(c) && SonParejaCompatible(s1, c, grupoPorId));
+                    c.Id != s1.Id &&
+                    c.AsignaturaId != s1.AsignaturaId && c.GrupoId != s1.GrupoId &&
+                    EsElegible(c) && PuedeCederLab(c) && SonParejaCompatible(s1, c, grupoPorId));
                 if (s2 is null) continue; // sin pareja compatible: no cede (VERIFICA)
 
                 var patron = Guid.NewGuid();

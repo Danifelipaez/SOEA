@@ -16,6 +16,8 @@ namespace SOEA.Application.Features.Horario.Responses
         /// <summary>Sesiones fijas del horario base cuyo día/hora no coincidió con la grilla y se omitieron. Ver Logs para el detalle.</summary>
         public int    SesionesFijasOmitidas { get; set; }
         public string? MensajeError  { get; set; }
+        /// <summary>Causa de infactibilidad de Fase 2 (ver MotivoInfactibilidad), solo cuando EsFactible es false.</summary>
+        public string? MotivoInfactibilidad { get; set; }
         public List<string> Logs     { get; set; } = new();
         public List<SesionGeneradaDto> Sesiones { get; set; } = new();
     }
