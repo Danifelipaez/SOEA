@@ -666,6 +666,7 @@ export class EditarSesionDialogComponent {
 
   validaciones = computed<Check[]>(() => {
     const dia = this.dia(), inicio = this.horaInicio(), espacioId = this.espacioId(), docenteId = this.docenteId();
+    const semanaActual = this.semana();
     const sesionId = this.data.sesion.id, dur = this.data.sesion.duracionHoras ?? 2;
     const chks: Check[] = [];
     if (!dia || !inicio) return chks;
@@ -680,7 +681,7 @@ export class EditarSesionDialogComponent {
     const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.state.grupos());
 
     if (espacioId && !this.data.sesion.virtual) {
-      const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.espacioId === espacioId && s.dia === dia && !s.virtual && this.overlaps(s, startIdx, endIdx));
+      const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.espacioId === espacioId && s.dia === dia && !s.virtual && !this.nuncaCoexiste(s.semana, semanaActual) && this.overlaps(s, startIdx, endIdx));
       const nombre = this.data.espacios.find(e => e.id === espacioId)?.nombre ?? espacioId;
       const texto = conflicto
         ? `${nombre} ya está ocupado en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflicto)}. ` +
@@ -689,7 +690,7 @@ export class EditarSesionDialogComponent {
       chks.push({ ok: !conflicto, texto });
     }
     if (docenteId) {
-      const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.docenteId === docenteId && s.dia === dia && this.overlaps(s, startIdx, endIdx));
+      const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.docenteId === docenteId && s.dia === dia && !this.nuncaCoexiste(s.semana, semanaActual) && this.overlaps(s, startIdx, endIdx));
       const nombre = this.data.docentes.find(d => d.id === docenteId)?.nombre ?? 'El docente';
       const texto = conflicto
         ? `${nombre} ya tiene otra sesión en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflicto)}. ` +
@@ -773,6 +774,11 @@ export class EditarSesionDialogComponent {
     if (sStart < 0) return false;
     const sDur = Math.max(1, Math.round(s.duracionHoras ?? this.diffH(s.horaInicio, s.horaFin)));
     return newStart < sStart + sDur && sStart < newEnd;
+  }
+  /** Dos sesiones de semanas opuestas de un mismo ciclo de alternancia nunca coexisten en la
+   * misma semana real, así que no son un conflicto físico aunque compartan día/franja/espacio. */
+  private nuncaCoexiste(semanaA: Sesion['semana'], semanaB: Sesion['semana']): boolean {
+    return semanaA !== undefined && semanaB !== undefined && semanaA !== semanaB;
   }
   private addH(hora: string, h: number): string { const [hh, mm] = hora.split(':').map(Number); return `${String(hh + h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`; }
   private diffH(i: string, f: string): number { const [hi, mi] = i.split(':').map(Number); const [hf, mf] = f.split(':').map(Number); return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60); }
