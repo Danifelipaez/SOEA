@@ -61,7 +61,7 @@ namespace SOEA.Engine.ConstraintProg
                 ? new HashSet<Guid>(sesionesFijasIds)
                 : new HashSet<Guid>();
             var ventanas = ventanaPorAsignatura ?? new Dictionary<Guid, (TimeOnly?, TimeOnly?)>();
-            return Task.Run(() => ResolverSincrono(s, b, e, g, fijas, ventanas, ct), ct);
+            return Task.Run(() => ResolverSincrono(s, b, e, g, fijas, ventanas, ct, permitirSweep: true), ct);
         }
 
         /// <summary>
@@ -81,7 +81,8 @@ namespace SOEA.Engine.ConstraintProg
             List<Grupo> grupos,
             HashSet<Guid> sesionesFijasIds,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)> ventanaPorAsignatura,
-            CancellationToken ct)
+            CancellationToken ct,
+            bool permitirSweep)
         {
             if (!sesiones.Any() || !bloques.Any())
             {
@@ -192,6 +193,34 @@ namespace SOEA.Engine.ConstraintProg
                 var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.ObtenerDisponibilidadSemanal());
                 if (permitidos is not null)
                     bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
+            }
+
+            // ── HC-G01 agregada: carga propia del grupo vs. su ventana declarada ──────
+            // HC-C01 (NoOverlap por grupo) implica que si la suma de bloques que las sesiones
+            // no fijas de un grupo necesitan supera los bloques que su disponibilidad
+            // declarada permite, el modelo es infactible con certeza — sin necesidad de
+            // resolver CP-SAT para probarlo, y sin dejar el mensaje genérico de siempre.
+            var gruposSobrecargados = sesiones
+                .Where(s => !sesionesFijasIds.Contains(s.Id) && s.GrupoId.HasValue
+                            && bloquesPermitidosPorGrupo.ContainsKey(s.GrupoId.Value))
+                .GroupBy(s => s.GrupoId!.Value)
+                .Select(g => new
+                {
+                    GrupoId = g.Key,
+                    Requeridos = g.Sum(s => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras))),
+                    Permitidos = bloquesPermitidosPorGrupo[g.Key].Count
+                })
+                .Where(x => x.Requeridos > x.Permitidos)
+                .ToList();
+
+            if (gruposSobrecargados.Count > 0)
+            {
+                var detalle = string.Join("; ", gruposSobrecargados.Select(x =>
+                    $"'{NombreGrupo(x.GrupoId)}' necesita {x.Requeridos} bloque(s) y su disponibilidad solo permite {x.Permitidos}"));
+                var msg = $"HC-G01 agregada infactible: {detalle}. Amplíe la disponibilidad declarada de ese/esos grupo(s) " +
+                          "o reduzca/redistribuya sus sesiones semanales.";
+                _logger.LogError(msg);
+                return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.FranjaGrupo);
             }
 
             // HC-CAP: estudiantes por grupo. Un espacio solo es candidato si su aforo alcanza
@@ -520,7 +549,7 @@ namespace SOEA.Engine.ConstraintProg
 
             var solver = new CpSolver();
             solver.StringParameters =
-                $"max_time_in_seconds:{_options.TimeoutSegundos},log_search_progress:true" +
+                $"max_time_in_seconds:{_options.TimeoutSegundos}" +
                 (_options.NumWorkers > 0 ? $",num_search_workers:{_options.NumWorkers}" : "");
 
             _logger.LogInformation("Resolviendo modelo CP-SAT (timeout: {T}s)...", _options.TimeoutSegundos);
@@ -582,11 +611,78 @@ namespace SOEA.Engine.ConstraintProg
                     MotivoInfactibilidad.Timeout);
             }
 
-            return new ResultadoFactibilidad(false, SinAsignaciones,
-                $"El modelo no tiene solución factible (status del solver: {status}). Ninguna combinación de horario " +
-                "satisface todas las restricciones duras configuradas — revise separación mínima de días (HC-SEP), " +
-                "parejas de alternancia (HC-ALT), o la combinación de disponibilidad de grupo y ventana horaria.",
-                MotivoInfactibilidad.Otro);
+            var mensaje = "El modelo no tiene solución factible (status del solver: " + status + "). Ninguna combinación " +
+                "de horario satisface todas las restricciones duras configuradas — revise separación mínima de días " +
+                "(HC-SEP), parejas de alternancia (HC-ALT), o la combinación de disponibilidad de grupo y ventana horaria.";
+
+            // Causa real no explicada por ningún pre-check estructural: si está habilitado, el
+            // barrido reintenta el solve una vez por grupo excluyéndolo para nombrar culpables.
+            if (permitirSweep)
+            {
+                var gruposResponsables = EjecutarSweepDiagnostico(
+                    sesiones, bloques, espacios, grupos, sesionesFijasIds, ventanaPorAsignatura, ct);
+                if (gruposResponsables is not null)
+                {
+                    mensaje += gruposResponsables.Count > 0
+                        ? $" Diagnóstico adicional: al excluir el grupo '{string.Join("' o '", gruposResponsables)}' " +
+                          "el modelo pasa a ser factible; revise conflictos entre esos grupos (espacio compartido, " +
+                          "pareja de alternancia, u otra restricción cruzada)."
+                        : " Diagnóstico adicional: ningún grupo individual es responsable — revise capacidad global " +
+                          "o HC-SEP/HC-ALT.";
+                }
+            }
+
+            return new ResultadoFactibilidad(false, SinAsignaciones, mensaje, MotivoInfactibilidad.Otro);
+        }
+
+        /// <summary>
+        /// Reintenta el solve una vez por cada grupo con sesiones propias, excluyéndolo, para
+        /// identificar cuáles son responsables de una infactibilidad que ningún pre-check
+        /// estructural explicó. Solo se invoca desde el catch-all final, con permitirSweep=false
+        /// en las resoluciones recursivas (nunca dispara un segundo barrido). Devuelve null si el
+        /// barrido no corrió (deshabilitado o demasiados grupos candidatos).
+        /// </summary>
+        private List<string>? EjecutarSweepDiagnostico(
+            List<Sesion> sesiones, List<BloqueTiempo> bloques, List<Espacio> espacios,
+            List<Grupo> grupos, HashSet<Guid> sesionesFijasIds,
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)> ventanaPorAsignatura,
+            CancellationToken ct)
+        {
+            if (!_options.SweepGrupos) return null;
+
+            var candidatos = grupos
+                .Where(gr => sesiones.Any(s => s.GrupoId == gr.Id && !sesionesFijasIds.Contains(s.Id)))
+                .ToList();
+            if (candidatos.Count == 0) return null;
+
+            if (candidatos.Count > _options.SweepGruposMaximo)
+            {
+                _logger.LogWarning(
+                    "Barrido de diagnóstico omitido: {N} grupos candidatos superan el tope configurado ({Max}).",
+                    candidatos.Count, _options.SweepGruposMaximo);
+                return null;
+            }
+
+            var responsables = new List<string>();
+            try
+            {
+                foreach (var candidato in candidatos)
+                {
+                    var sesionesReducidas = sesiones.Where(s => s.GrupoId != candidato.Id).ToList();
+                    var gruposReducidos = grupos.Where(gr => gr.Id != candidato.Id).ToList();
+                    var resultadoReducido = ResolverSincrono(
+                        sesionesReducidas, bloques, espacios, gruposReducidos, sesionesFijasIds,
+                        ventanaPorAsignatura, ct, permitirSweep: false);
+                    if (resultadoReducido.EsFactible)
+                        responsables.Add(candidato.Nombre);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "El barrido de diagnóstico por grupo falló; se omite el diagnóstico adicional.");
+                return null;
+            }
+            return responsables;
         }
     }
 }
