@@ -62,10 +62,7 @@ namespace SOEA.Domain.Services
             TimeOnly? ventanaMax = null)
         {
             IEnumerable<int> starts = BloquesPlanner.StartsValidos(
-                duracion, bloques.Count, rangos, diaPorIdx, bloquesDisponibles: null);
-
-            if (bloquesPermitidosGrupo is not null)
-                starts = starts.Where(bloquesPermitidosGrupo.Contains);
+                duracion, bloques.Count, rangos, diaPorIdx, bloquesDisponibles: bloquesPermitidosGrupo);
 
             if (ventanaMin.HasValue || ventanaMax.HasValue)
                 starts = starts.Where(s => CumpleVentana(bloques[s].HoraInicio, duracion, ventanaMin, ventanaMax));
