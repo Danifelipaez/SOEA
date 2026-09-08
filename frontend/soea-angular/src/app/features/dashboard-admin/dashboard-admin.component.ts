@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { StateService } from '../../core/state.service';
 import { CatalogoService } from '../../core/catalogo.service';
 import { RouterModule } from '@angular/router';
+import { mensajeInfactibilidadAmigable } from '../horario/horario.component';
 
 /** Paso 4 del journey (HF-4) — KPIs de solo lectura sobre el horario generado. */
 @Component({
@@ -15,6 +16,16 @@ import { RouterModule } from '@angular/router';
       <h1 class="rev-title">Revisar</h1>
       <span class="text-muted rev-sub">Solo lectura, tras generar/ajustar el horario.</span>
     </div>
+
+    <!-- M6 auditoría: antes este aviso solo vivía en /horario y se perdía al navegar. -->
+    @if (mensajeConflicto()) {
+      <div class="blueprint elev-md conflict-banner">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <b>⚠ El último intento de generar el horario no fue factible.</b>
+        <p>{{ mensajeConflicto() }}</p>
+        <a class="btn btn-secondary" routerLink="/horario">Ir a Horario para ajustar y reintentar</a>
+      </div>
+    }
 
     @if (state.sesiones().length === 0) {
       <div class="blueprint elev-md empty">
@@ -76,6 +87,11 @@ import { RouterModule } from '@angular/router';
     .rev-title { margin: 0; font-size: 26px; } .rev-sub { font-size: 13px; }
     .empty { padding: 40px; text-align: center; }
 
+    .conflict-banner { padding: 16px 18px; margin-bottom: 18px; display: flex; flex-direction: column;
+      gap: 8px; align-items: flex-start; border-color: var(--warn-bd, #b45309); }
+    .conflict-banner b { color: var(--warn-bd, #b45309); }
+    .conflict-banner p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--color-neutral-700); }
+
     .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 18px; }
     .kpi { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
     .klabel { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--color-neutral-600); }
@@ -108,6 +124,17 @@ export class DashboardAdminComponent implements OnInit {
     if (this.state.espacios().length === 0) this.catalogo.cargarTodo().subscribe({ error: () => {} });
   }
 
+  /** M6 auditoría: mismo texto accionable que el banner de /horario, pero leído de StateService
+   *  (sobrevive a la navegación) en vez del signal local que HorarioComponent destruye al salir. */
+  mensajeConflicto = computed(() => {
+    const motivo = this.state.motivoInfactibilidad();
+    const gruposEnConflicto = this.state.gruposEnConflicto();
+    if (!motivo && gruposEnConflicto.length === 0) return '';
+    return mensajeInfactibilidadAmigable(
+      motivo, gruposEnConflicto, this.state.grupos(),
+      this.state.asignaturas().length, this.state.espacios().length);
+  });
+
   totalPresenciales = computed(() => this.state.sesiones().filter(s => !s.virtual).length);
   totalVirtuales = computed(() => this.state.sesiones().filter(s => s.virtual).length);
   presencialPct = computed(() => {
@@ -115,7 +142,9 @@ export class DashboardAdminComponent implements OnInit {
     return t ? Math.round((this.totalPresenciales() / t) * 100) : 0;
   });
 
-  private totalSlots = computed(() => this.state.espacios().length * 13 * 6);
+  // 16 franjas (06:00-21:00) × 6 días — misma grilla que horario.component.ts (antes 13, KPI
+  // desalineado con lo que la grilla realmente pinta).
+  private totalSlots = computed(() => this.state.espacios().length * 16 * 6);
   ocupacionPct = computed(() => { const s = this.totalSlots(); return s ? Math.round((this.totalPresenciales() / s) * 100) : 0; });
   franjasOciosas = computed(() => Math.max(0, this.totalSlots() - this.totalPresenciales()));
 
@@ -123,13 +152,17 @@ export class DashboardAdminComponent implements OnInit {
     const sesiones = this.state.sesiones();
     return this.state.docentes()
       .map(d => {
-        const sesDoc = sesiones.filter(s => s.docenteId === d.id);
+        // G4 (bug reportado "error en el conteo de horas"): las filas de semana A y B de una
+        // misma sesión comparten id y tienen la misma duración — sin deduplicar, cada sesión
+        // se contaba dos veces.
+        const vistos = new Set<string>();
+        const sesDoc = sesiones.filter(s => s.docenteId === d.id && (vistos.has(s.id) ? false : (vistos.add(s.id), true)));
         const horas = sesDoc.reduce((acc, s) => {
           const [hI, mI] = s.horaInicio.split(':').map(Number);
           const [hF, mF] = s.horaFin.split(':').map(Number);
           return acc + ((hF * 60 + mF) - (hI * 60 + mI)) / 60;
         }, 0);
-        const maxHoras = d.maxHoras || 28;
+        const maxHoras = d.maxHoras || 40; // mismo default que catalogo.service.ts mapDocente
         const porcentaje = maxHoras > 0 ? Math.round((horas / maxHoras) * 100) : 0;
         const estado = porcentaje >= 100 ? 'Límite' : porcentaje >= 85 ? 'Alerta' : 'Normal';
         const pill = porcentaje >= 100 ? 'err' : porcentaje >= 85 ? 'warn' : 'ok';

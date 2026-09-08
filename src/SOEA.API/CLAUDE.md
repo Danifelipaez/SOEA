@@ -81,6 +81,6 @@ PostgreSQL at `localhost:5432`, database `SOEAdb`. Connection string is in `apps
 ### Excel import
 
 `ILectorExcel` (implemented by `LectorExcel`) has three methods:
-- `LeerCurriculumAsync` — full horario Excel (cols A–J: Facultad, Programa, Asignatura, Código, TipoEspacio, Espacio, Duración, Día, Hora, Docente).
+- `LeerCurriculumAsync` — full horario Excel; columns detected by header text, not fixed position (Facultad, Programa, Asignatura, Código optional, TipoEspacio optional, Espacio/Curso/Salón/Aula, Duración/Horas/Reales [h], Día, Hora, Docente, Grupo optional real section number, Final optional explicit end time). Accepts both the legacy A–J layout and Rosa's real format (Facultad, Programa, Asignatura, Grupo, Docente, Reales [h], Espacio, Dia, Hora, Final).
 - `LeerAsignaturasModo2Async` — asignaturas-only Excel (cols A–H, no Día/Hora).
 - `LeerDisponibilidadDocentesAsync` — teacher availability Excel (cols: Docente, Correo, MaxHoras, Días, Franjas).

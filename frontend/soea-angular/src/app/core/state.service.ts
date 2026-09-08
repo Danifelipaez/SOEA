@@ -1,5 +1,6 @@
 import { Injectable, signal, computed } from '@angular/core';
 import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, ConfiguracionAlgoritmo, CONFIGURACION_DEFECTO, HorarioBase } from './models';
+import { nuevoId } from './id.util';
 
 @Injectable({
   providedIn: 'root'
@@ -39,6 +40,38 @@ export class StateService {
     return m;
   });
 
+  readonly gruposByAsignatura = computed(() => {
+    const m = new Map<string, Grupo[]>();
+    for (const g of this.grupos()) {
+      const list = m.get(g.asignaturaId);
+      if (list) list.push(g); else m.set(g.asignaturaId, [g]);
+    }
+    return m;
+  });
+
+  getGruposByAsignatura(asignaturaId: string): Grupo[] {
+    return this.gruposByAsignatura().get(asignaturaId) ?? [];
+  }
+
+  /** Grupos cuyo asignaturaId no resuelve a ninguna Asignatura del catálogo (p. ej. la asignatura
+   *  fue eliminada mientras el grupo seguía existiendo). Un asignaturaId vacío es "sin asignar a
+   *  propósito", no huérfano. */
+  readonly gruposHuerfanos = computed(() =>
+    this.grupos().filter(g => g.asignaturaId && !this.asignaturaById().has(g.asignaturaId)));
+
+  // ── Color por asignatura (petición 12) ──────────────────────────────────────
+  // Rampa fija coherente con --alt-a/--alt-b/--alt-lab de styles.css. Hash determinístico
+  // del id: misma asignatura → mismo color en toda la sesión, sin persistir nada nuevo.
+  private static readonly PALETA_ASIGNATURA = [
+    '#5980a6', '#a8825a', '#6f8f6a', '#8a6fa0', '#a0645f', '#5fa0a0', '#a0955f', '#6f7fa0'
+  ];
+
+  colorDeAsignatura(id: string): string {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+    return StateService.PALETA_ASIGNATURA[hash % StateService.PALETA_ASIGNATURA.length];
+  }
+
   // ── Facultades ───────────────────────────────────────────────────────────────
   addFacultad(f: Facultad)      { this.facultades.update(v => [...v, f]); }
   updateFacultad(f: Facultad)   { this.facultades.update(v => v.map(x => x.id === f.id ? f : x)); }
@@ -77,6 +110,8 @@ export class StateService {
 
   // ── Sesiones y Logs (resultado del algoritmo) ──────────────────────────────
   executionLogs = signal<string[]>([]);
+  /** Id del Horario persistido por la última generación exitosa (P5: lo necesita /reacomodar). */
+  horarioId = signal<string | null>(null);
 
   setSesiones(s: Sesion[])       { this.sesiones.set(s); }
   /**
@@ -106,13 +141,31 @@ export class StateService {
   }
   setExecutionLogs(logs: string[]) { this.executionLogs.set(logs); }
 
+  /**
+   * Ids de grupo que el backend señaló como responsables de una infactibilidad (diagnóstico
+   * opcional de Fase 2, ver GenerarHorarioResponse.GruposEnConflicto). Vacío mientras no haya
+   * fallado ninguna generación, o tras una generación exitosa (ver horario.component.ts).
+   */
+  gruposEnConflicto = signal<string[]>([]);
+  readonly gruposEnConflictoSet = computed(() => new Set(this.gruposEnConflicto()));
+  setGruposEnConflicto(ids: string[]) { this.gruposEnConflicto.set(ids); }
+
+  /**
+   * M6 auditoría: causa de infactibilidad (GenerarHorarioResponse.MotivoInfactibilidad) del último
+   * intento — junto con gruposEnConflicto, persiste fuera de /horario para que /revisar y /publicar
+   * puedan mostrar la misma guía accionable sin que se pierda al navegar (antes solo vivía en un
+   * signal local de HorarioComponent, que se destruye al salir de la ruta).
+   */
+  motivoInfactibilidad = signal<string | undefined>(undefined);
+  setMotivoInfactibilidad(motivo: string | undefined) { this.motivoInfactibilidad.set(motivo); }
+
   // ── Horarios base ────────────────────────────────────────────────────────────
   horariosBases       = signal<HorarioBase[]>(this.cargarBasesLocalStorage());
   baseSeleccionadaId  = signal<string | null>(null);
 
   guardarHorarioBase(nombre: string): HorarioBase {
     const base: HorarioBase = {
-      id: crypto.randomUUID(),
+      id: nuevoId(),
       nombre: nombre.trim(),
       creadoEn: new Date().toISOString(),
       sesiones: this.sesiones(),

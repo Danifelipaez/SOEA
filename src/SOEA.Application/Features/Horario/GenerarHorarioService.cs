@@ -4,6 +4,7 @@ using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.Services;
+using SOEA.Domain.ValueObjects;
 
 namespace SOEA.Application.Features.Horario
 {
@@ -21,6 +22,7 @@ namespace SOEA.Application.Features.Horario
         private readonly IHorarioRepositorio         _horarioRepo;
         private readonly ISesionRepositorio          _sesionRepo;
         private readonly IAsignacionSemanalRepositorio _asignacionRepo;
+        private readonly IGrupoRepositorio           _grupoRepo;
         private readonly ICriterioCesionAlternanciaRepositorio _criterioCesionRepo;
         private readonly IUnitOfWork                 _uow;
 
@@ -31,6 +33,7 @@ namespace SOEA.Application.Features.Horario
             IHorarioRepositorio         horarioRepo,
             ISesionRepositorio          sesionRepo,
             IAsignacionSemanalRepositorio asignacionRepo,
+            IGrupoRepositorio           grupoRepo,
             ICriterioCesionAlternanciaRepositorio criterioCesionRepo,
             IUnitOfWork                 uow)
         {
@@ -40,8 +43,40 @@ namespace SOEA.Application.Features.Horario
             _horarioRepo = horarioRepo;
             _sesionRepo  = sesionRepo;
             _asignacionRepo = asignacionRepo;
+            _grupoRepo   = grupoRepo;
             _criterioCesionRepo = criterioCesionRepo;
             _uow         = uow;
+        }
+
+        /// <summary>
+        /// Recupera el horario vigente ya persistido para un semestre (última corrida generada),
+        /// reconstruyendo el mismo DTO que devuelve POST /generar. Antes no existía ningún GET —
+        /// el horario generado solo vivía en memoria del navegador y un simple reload de la página
+        /// lo perdía por completo aunque siguiera intacto en BD (P6 auditoría).
+        /// </summary>
+        public async Task<GenerarHorarioResponse?> ObtenerActualAsync(string semestre)
+        {
+            var horario = await _horarioRepo.GetBySemestreAsync(semestre);
+            if (horario == null) return null;
+
+            var sesionIds = horario.SesioneIds.ToHashSet();
+            var sesiones = (await _sesionRepo.GetAllAsync())
+                .Where(s => sesionIds.Contains(s.Id))
+                .ToList();
+            if (sesiones.Count == 0) return null;
+
+            var asignaciones = await _asignacionRepo.GetBySesionIdsAsync(sesionIds);
+            var grupos = await _grupoRepo.GetAllAsync();
+            var bloques = GenerarBloquesTiempo();
+
+            return new GenerarHorarioResponse
+            {
+                HorarioId      = horario.Id,
+                Semestre       = horario.Semestre,
+                EsFactible     = true,
+                PuntajeFitness = horario.PuntajeFitness,
+                Sesiones       = ConstruirSesionesDto(sesiones, asignaciones, grupos, bloques)
+            };
         }
 
         public async Task<GenerarHorarioResponse> EjecutarAsync(GenerarHorarioRequest request, CancellationToken ct = default)
@@ -52,17 +87,24 @@ namespace SOEA.Application.Features.Horario
             logs.Add($"[INFO] Iniciando pipeline de optimización con {request.Asignaturas.Count} asignaturas, {request.Docentes.Count} docentes y {request.Espacios.Count} espacios.");
 
             // ── 1. Convertir DTOs del frontend a entidades de dominio ───────────
-            var espacios  = MapearEspacios(request.Espacios);
+            var (espacios, advertenciasEspacios) = MapearEspacios(request.Espacios);
+            logs.AddRange(advertenciasEspacios);
             var bloques   = GenerarBloquesTiempo();
             var docentes  = MapearDocentes(request.Docentes, bloques);
+            // Multi-grupo real: cada grupo lleva su propio Id como GrupoId de sus sesiones, así que
+            // HC-C01 (solape) y HC-G01 (franja) se aplican por grupo, no sobre un id sintético
+            // compartido por todo el run.
+            var (grupos, advertenciasGrupos) = MapearGrupos(request.Grupos);
+            logs.AddRange(advertenciasGrupos);
 
-            // "Un run = un grupo": todas las sesiones de este run son mutuamente excluyentes en el
-            // tiempo (un grupo no puede estar en dos sesiones a la vez). Si el request trae un grupo,
-            // usamos SU Id como GrupoId para que sus sesiones crucen con la disponibilidad declarada
-            // (HC-G01). Sin grupo → id sintético (mismo efecto de exclusión mutua, sin franja).
-            var grupoIdRun = request.Grupos
-                .Select(g => Guid.TryParse(g.Id, out var gid) ? gid : (Guid?)null)
-                .FirstOrDefault(g => g.HasValue) ?? Guid.NewGuid();
+            // Auditoría de entrada (detector de truncamiento en el contrato Angular↔API): sin esto,
+            // "el usuario no configuró requisito" y "el requisito se perdió en el mapeo del frontend"
+            // son indistinguibles — ambos terminan en RequisitosEspacio vacío y 0 violaciones.
+            int gruposConRequisito = grupos.Count(g => g.RequisitosEspacio.Count > 0);
+            int gruposConDisponibilidad = grupos.Count(g => !string.IsNullOrWhiteSpace(g.DisponibilidadUiJson));
+            logs.Add($"[INFO] Grupos: {grupos.Count} · con requisito de espacio: {gruposConRequisito} · con disponibilidad: {gruposConDisponibilidad}.");
+            if (grupos.Count > 0 && gruposConRequisito == 0)
+                logs.Add("[WARN] Ningún grupo trae requisito de espacio: se aplicará la regla por defecto por tipo de sesión a todas las sesiones presenciales.");
 
             // SC-PRES: mapa de categoría por asignatura (alimenta el criterio "Electiva" de la lista
             // de cesión) y de elegibilidad explícita (criterio "Elegible", marcado por el departamento).
@@ -82,15 +124,19 @@ namespace SOEA.Application.Features.Horario
                     dto => Guid.TryParse(dto.Id, out var aid) ? aid : Guid.Empty,
                     dto => (ParseHora(dto.HoraInicioMin), ParseHora(dto.HoraFinMax)));
 
-            var sesiones = MapearSesionesIniciales(request.Asignaturas, grupoIdRun);
-            logs.Add($"[INFO] Sesiones creadas a partir de asignaturas: {sesiones.Count}.");
+            var (sesiones, advertenciasSesiones) = MapearSesionesIniciales(grupos, request.Asignaturas);
+            logs.AddRange(advertenciasSesiones);
+            logs.Add($"[INFO] Sesiones creadas a partir de grupos: {sesiones.Count}.");
 
             // ── 1b. Sesiones fijas (horario base) — se añaden con bloque pre-asignado ──
+            // Sin grupo propio (SesionFijaDto no lo trae): comparten un id sintético entre sí,
+            // suficiente para la exclusión mutua de horario que necesitan (no participan de HC-G01).
+            var sesionesFijasGrupoId = Guid.NewGuid();
             var sesionesFijasIds = new HashSet<Guid>();
             int sesionesFijasOmitidas = 0;
             if (request.SesionesFijas is { Count: > 0 })
             {
-                var (fijas, omitidas) = MapearSesionesFijas(request.SesionesFijas, bloques, grupoIdRun);
+                var (fijas, omitidas) = MapearSesionesFijas(request.SesionesFijas, bloques, sesionesFijasGrupoId);
                 sesionesFijasIds = fijas.Select(s => s.Id).ToHashSet();
                 sesionesFijasOmitidas = omitidas.Count;
                 sesiones.AddRange(fijas);
@@ -132,7 +178,7 @@ namespace SOEA.Application.Features.Horario
             // de elegibilidad (Electiva / Optativa / Elegible), nunca lo que el usuario marcó virtual
             // desde el principio. Se acumulan en sesionesCedidasEnOrden para el pase de reversión
             // post-Fase 3.
-            var sesionesCedidasEnOrden = AplicarPrioridadPresencial(sesiones, espacios, predicadosCesion);
+            var sesionesCedidasEnOrden = AplicarPrioridadPresencial(sesiones, espacios, predicadosCesion, grupos, bloques, sesionesFijasIds);
             if (sesionesCedidasEnOrden.Count > 0)
                 logs.Add($"[INFO] Etapa 1: {sesionesCedidasEnOrden.Count} sesión(es) cedieron presencialidad por saturación de espacios. " +
                          $"Orden de cesión — criterios activos en orden configurado: {string.Join(" → ", criteriosActivos.Select(c => c.Criterio))}. " +
@@ -142,7 +188,6 @@ namespace SOEA.Application.Features.Horario
             // HC-G01/HC-VH: se pasan grupos y ventanas para que el warm-start caiga siempre dentro
             // del dominio que CP-SAT va a exigir (misma fuente: CalculadorDominioSesion).
             logs.Add("[INFO] Fase 1: Pre-procesamiento (Coloración de grafos) iniciada.");
-            var grupos = MapearGrupos(request.Grupos);
             var swFase1 = System.Diagnostics.Stopwatch.StartNew();
             var sesionesColoreadas = (await _fase1.AsignarBloquesDeTiempoAsync(
                 sesiones, bloques, grupos, ventanaPorAsig, ct)).ToList();
@@ -156,7 +201,7 @@ namespace SOEA.Application.Features.Horario
             logs.Add("[INFO] Fase 2: Viabilidad (CP-SAT) iniciada.");
             var swFase2 = System.Diagnostics.Stopwatch.StartNew();
             var resultadoFactibilidad = await _fase2.ResolverFactibilidadAsync(
-                sesionesColoreadas, bloques, espacios, docentes,
+                sesionesColoreadas, bloques, espacios,
                 grupos: grupos,
                 sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null,
                 ventanaPorAsignatura: ventanaPorAsig,
@@ -169,12 +214,12 @@ namespace SOEA.Application.Features.Horario
             // grupo, datos), ceder no ayuda — no entra al loop.
             while (!resultadoFactibilidad.EsFactible
                    && resultadoFactibilidad.Motivo == MotivoInfactibilidad.Espacio
-                   && CederSiguienteCandidatoLab(sesiones, predicadosCesion, sesionesFijasIds, sesionesCedidasEnOrden))
+                   && CederSiguienteCandidatoLab(sesiones, predicadosCesion, sesionesFijasIds, sesionesCedidasEnOrden, grupos))
             {
                 sesionesColoreadas = (await _fase1.AsignarBloquesDeTiempoAsync(
                     sesiones, bloques, grupos, ventanaPorAsig, ct)).ToList();
                 resultadoFactibilidad = await _fase2.ResolverFactibilidadAsync(
-                    sesionesColoreadas, bloques, espacios, docentes,
+                    sesionesColoreadas, bloques, espacios,
                     grupos: grupos,
                     sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null,
                     ventanaPorAsignatura: ventanaPorAsig,
@@ -186,13 +231,15 @@ namespace SOEA.Application.Features.Horario
 
             if (!resultadoFactibilidad.EsFactible)
             {
-                logs.Add($"[ERROR] Fase 2 falló en {swFase2.ElapsedMilliseconds}ms: {resultadoFactibilidad.MensajeError}");
+                logs.Add($"[ERROR] Fase 2 falló en {swFase2.ElapsedMilliseconds}ms [{resultadoFactibilidad.Motivo}]: {resultadoFactibilidad.MensajeError}");
                 return new GenerarHorarioResponse
                 {
                     HorarioId     = Guid.NewGuid(),
                     Semestre      = request.Semestre,
                     EsFactible    = false,
                     MensajeError  = resultadoFactibilidad.MensajeError,
+                    MotivoInfactibilidad = resultadoFactibilidad.Motivo.ToString(),
+                    GruposEnConflicto = resultadoFactibilidad.GruposResponsablesIds?.Select(id => id.ToString()).ToList() ?? new(),
                     Logs          = logs,
                     Sesiones      = new List<SesionGeneradaDto>()
                 };
@@ -235,27 +282,47 @@ namespace SOEA.Application.Features.Horario
             var puntajeFitness = resultadoGA.PuntajeFitness;
 
             // ── 4b. Post-chequeo de restricciones duras (P0.3 + P1.8 auditoría) ─────────
-            // Verificamos las asignaciones FINALES contra las MISMAS 7 reglas que CP-SAT impuso
-            // en Fase 2: HC-C01/HC-S01 (solapes) + HC-VH/HC-G01/HC-CAP/HC-S03/HC-S05 (contexto).
+            // Verificamos las asignaciones FINALES contra las 10 reglas duras que CP-SAT impuso
+            // en Fase 2: HC-C01/HC-S01 (solapes) + HC-VH/HC-G01/HC-CAP/HC-S03/HC-S05 (contexto) +
+            // HC-ALT/HC-SEP/HC-BASE (alternancia y horario base — Fase 1/Fase 3 del plan de saneamiento).
             // Si el GA introdujo cualquier violación, fallback a las asignaciones de Fase 2.
             var sesionPorIdValidacion = sesionesColoreadas.ToDictionary(s => s.Id);
             var bloqueIndex = Enumerable.Range(0, bloques.Count).ToDictionary(i => bloques[i].Id, i => i);
             var contextoValidacion = new ContextoValidacion(
                 Bloques: bloques,
                 VentanaPorAsignatura: ventanaPorAsig,   // los nombres de tupla no afectan la conversión
-                FranjasPorGrupo: grupos
+                DisponibilidadPorGrupo: grupos
                     .GroupBy(g => g.Id)
-                    .ToDictionary(g => g.Key, g => (IReadOnlyList<FranjaHoraria>)g.First().Disponibilidad.ToList()),
+                    .ToDictionary(g => g.Key, g => g.First().ObtenerDisponibilidadSemanal()),
                 EstudiantesPorGrupo: grupos
                     .GroupBy(g => g.Id)
                     .ToDictionary(g => g.Key, g => g.First().EstudiantesInscritos),
                 EspacioPorId: espacios.ToDictionary(e => e.Id),
-                SesionesFijas: sesionesFijasIds);
+                SesionesFijas: sesionesFijasIds,
+                RequisitosPorGrupo: grupos
+                    .GroupBy(g => g.Id)
+                    .ToDictionary(g => g.Key, g => g.First().RequisitosEspacio),
+                // G2/G7 auditoría: sin esto, los mensajes de conflicto degradan a "sin nombre" —
+                // la fuente ya existe (AsignaturaDto.Nombre / Grupo.Nombre), es gratis pasarla.
+                NombrePorAsignatura: request.Asignaturas
+                    .Where(dto => Guid.TryParse(dto.Id, out _))
+                    .ToDictionary(dto => Guid.Parse(dto.Id), dto => dto.Nombre),
+                NombrePorGrupo: grupos
+                    .GroupBy(g => g.Id)
+                    .ToDictionary(g => g.Key, g => g.First().Nombre));
 
             var conflictos = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, contextoValidacion);
             if (conflictos.Count > 0)
             {
-                logs.Add($"[WARN] Post-chequeo detectó {conflictos.Count} violación(es) en la salida del GA; usando la solución de Fase 2.");
+                // Fase 3 (M4, instrumentación): antes de M4 esta rama se disparaba en casi
+                // cualquier corrida con parejas de alternancia (HC-ALT) o ≥2 sesiones semanales
+                // del mismo tipo (HC-SEP) — MotorGenetico reportaba UsoFallback=false (sus propios
+                // chequeos internos, HC-C01 + aulas, pasaban) pero el post-chequeo aquí sí las
+                // detectaba. La razón exacta (regla + detalle) queda en el log en vez de solo el
+                // conteo, para distinguir esa causa de un fallback interno de MotorGenetico.
+                logs.Add($"[WARN] Post-chequeo detectó {conflictos.Count} violación(es) en la salida del GA " +
+                         $"(MotorGenetico.UsoFallback={resultadoGA.UsoFallback}); usando la solución de Fase 2.");
+                foreach (var c in conflictos.Take(20)) logs.Add($"[WARN] {c}");
                 asignaciones   = resultadoFactibilidad.Asignaciones;
                 puntajeFitness = 0m;
                 conflictos     = Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, contextoValidacion);
@@ -293,6 +360,27 @@ namespace SOEA.Application.Features.Horario
             await _uow.BeginTransactionAsync();
             try
             {
+                // M2 auditoría: cada corrida ANTES solo agregaba (AddRangeAsync sin delete previo),
+                // dejando las sesiones/asignaciones de corridas superadas huérfanas en la BD —
+                // crecimiento ilimitado y cada consumidor (AsignarDocenteSesionService,
+                // ReacomodarHorarioService) tuvo que aprender a filtrarlas por su cuenta (ver
+                // comentario "G4 auditoría" en AsignarDocenteSesionService). El registro Horario en
+                // sí NO se borra (auditoría de corridas — IHorarioRepositorio.GetAllAsync), pero sus
+                // sesiones y asignaciones son datos regenerables (regla 8, CLAUDE.md) y sí se limpian
+                // antes de escribir la corrida nueva. Las sesiones manuales (CrearSesionManualService)
+                // nunca pertenecen a un Horario.SesioneIds, así que sobreviven intactas.
+                var horariosAnteriores = await _horarioRepo.GetAllAsync();
+                var sesionIdsAnteriores = horariosAnteriores.SelectMany(h => h.SesioneIds).ToHashSet();
+                if (sesionIdsAnteriores.Count > 0)
+                {
+                    var asignacionesAnteriores = await _asignacionRepo.GetBySesionIdsAsync(sesionIdsAnteriores);
+                    foreach (var a in asignacionesAnteriores)
+                        await _asignacionRepo.DeleteAsync(a.Id);
+                    foreach (var sesionId in sesionIdsAnteriores)
+                        await _sesionRepo.DeleteAsync(sesionId);
+                    logs.Add($"[INFO] Limpiadas {sesionIdsAnteriores.Count} sesión(es) de corridas anteriores antes de persistir la nueva.");
+                }
+
                 await _sesionRepo.AddRangeAsync(sesionesColoreadas);
                 await _horarioRepo.AddAsync(horario);
                 await _asignacionRepo.AddRangeAsync(asignaciones);
@@ -308,20 +396,7 @@ namespace SOEA.Application.Features.Horario
             logs.Add($"[INFO] Pipeline total ejecutado en {stopwatch.ElapsedMilliseconds}ms.");
 
             // ── 6. Mapear asignaciones al DTO de respuesta (una DTO por semana) ─
-            var sesionPorId = sesionesColoreadas.ToDictionary(s => s.Id);
-            // Lab de origen por sesión = espacio de su asignación presencial. Permite al frontend
-            // ubicar la fila virtual (EspacioId=null) en el laboratorio donde la sesión es presencial.
-            var espacioHogarPorSesion = asignaciones
-                .Where(a => a.Modalidad == Modalidad.Presencial && a.EspacioId.HasValue)
-                .GroupBy(a => a.SesionId)
-                .ToDictionary(g => g.Key, g => g.First().EspacioId!.Value.ToString());
-            var bloquePorId = bloques.ToDictionary(b => b.Id);
-            var sesionesDto = asignaciones
-                .Where(a => sesionPorId.ContainsKey(a.SesionId))
-                .Select(a => MapearSesionDto(
-                    a, sesionPorId[a.SesionId], bloquePorId,
-                    espacioHogarPorSesion.GetValueOrDefault(a.SesionId)))
-                .ToList();
+            var sesionesDto = ConstruirSesionesDto(sesionesColoreadas, asignaciones, grupos, bloques);
 
             return new GenerarHorarioResponse
             {
@@ -338,10 +413,10 @@ namespace SOEA.Application.Features.Horario
         }
 
         /// <summary>
-        /// Post-chequeo de restricciones duras sobre las asignaciones finales: las mismas 7 reglas
-        /// que CP-SAT impone en Fase 2 — HC-C01, HC-S01 y (vía contexto) HC-VH, HC-G01, HC-CAP,
-        /// HC-S03, HC-S05. El docente está fuera del pipeline (CR-08), así que no se valida carga
-        /// semanal de docente (HC-I03).
+        /// Post-chequeo de restricciones duras sobre las asignaciones finales: las 10 reglas que
+        /// CP-SAT impone en Fase 2 — HC-C01, HC-S01, HC-ALT, HC-SEP y (vía contexto) HC-VH, HC-G01,
+        /// HC-CAP, HC-S03, HC-S05, HC-BASE. El docente está fuera del pipeline (CR-08), así que no
+        /// se valida carga semanal de docente (HC-I03).
         /// </summary>
         private static IReadOnlyList<string> Validar(
             IReadOnlyList<AsignacionSemanal> asignaciones,
@@ -363,7 +438,7 @@ namespace SOEA.Application.Features.Horario
         private static (List<Sesion> fijas, List<string> omitidas) MapearSesionesFijas(
             List<SesionFijaDto> dtos,
             List<BloqueTiempo> bloques,
-            Guid grupoIdRun)
+            Guid sesionesFijasGrupoId)
         {
             // Índice rápido: (dia, horaInicio) → BloqueTiempo
             var bloqueDict = bloques.ToDictionary(
@@ -390,13 +465,14 @@ namespace SOEA.Application.Features.Horario
                     _                => TipoAlternancia.SinAlternancia
                 };
 
+                var id = Guid.TryParse(dto.Id, out var sid) ? sid : Guid.NewGuid();
                 var sesion = new Sesion(
-                    id: Guid.NewGuid(),
+                    id: id,
                     asignaturaId: asigId,
                     docenteId: null,
                     bloqueId: bloque.Id,
                     espacioId: espId,
-                    grupoId: grupoIdRun,
+                    grupoId: sesionesFijasGrupoId,
                     alternancia: alternancia,
                     modalidad: dto.Virtual ? Modalidad.Virtual : Modalidad.Presencial,
                     duracionHoras: dto.DuracionHoras > 0 ? dto.DuracionHoras : 2m,
@@ -415,13 +491,29 @@ namespace SOEA.Application.Features.Horario
             return (resultado, omitidas);
         }
 
-        private static List<Espacio> MapearEspacios(List<EspacioDto> dtos) =>
-            dtos.Select(dto => new Espacio(
-                id: Guid.TryParse(dto.Id, out var eid) ? eid : Guid.NewGuid(),
-                nombre: dto.Nombre,
-                tipo: ParseTipoEspacio(dto.Tipo),
-                capacidad: dto.Capacidad > 0 ? dto.Capacidad : 30
-            )).ToList();
+        // M8: literales reconocidos para el tipo de un ESPACIO real — coincide con el contrato de
+        // EspaciosController (que envía "Salón" con tilde, distinto del "Salon" sin tilde que usa
+        // RequisitoEspacioDto.TipoEspacio, ver ParseTipoEspacioRequisito). Cualquier otro valor cae
+        // al default conservador (Salon) de ParseTipoEspacio, pero ahora se advierte en los logs en
+        // vez de mezclarse en silencio con los salones legítimos.
+        private static readonly HashSet<string> LiteralesTipoEspacioReconocidos =
+            new(StringComparer.OrdinalIgnoreCase) { "laboratorio", "auditorio", "salon", "salón" };
+
+        private static (List<Espacio> espacios, List<string> advertencias) MapearEspacios(List<EspacioDto> dtos)
+        {
+            var advertencias = new List<string>();
+            var espacios = dtos.Select(dto =>
+            {
+                if (!string.IsNullOrWhiteSpace(dto.Tipo) && !LiteralesTipoEspacioReconocidos.Contains(dto.Tipo))
+                    advertencias.Add($"[WARN] Espacio '{dto.Nombre}': tipo '{dto.Tipo}' no reconocido, se usó Salón por defecto.");
+                return new Espacio(
+                    id: Guid.TryParse(dto.Id, out var eid) ? eid : Guid.NewGuid(),
+                    nombre: dto.Nombre,
+                    tipo: ParseTipoEspacio(dto.Tipo),
+                    capacidad: dto.Capacidad > 0 ? dto.Capacidad : 30);
+            }).ToList();
+            return (espacios, advertencias);
+        }
 
         private static List<Docente> MapearDocentes(List<DocenteDto> dtos, List<BloqueTiempo> bloques)
         {
@@ -430,80 +522,20 @@ namespace SOEA.Application.Features.Horario
                 var id = Guid.TryParse(dto.Id, out var did) ? did : Guid.NewGuid();
                 var maxHoras = dto.MaxHoras.HasValue && dto.MaxHoras > 0 ? dto.MaxHoras.Value : 20m;
 
-                var franjas = new HashSet<FranjaHoraria>();
-                var bloquesDisponibles = new List<BloqueTiempo>();
+                // Fuente única del parseo por día (A1): sin información → sin restricción (todos los
+                // bloques); día explícitamente no-disponible → cerrado; el resto respeta su ventana.
+                // M1: "disponibilidad": null explícito en el JSON pisa el default del DTO (los
+                // property initializers de System.Text.Json no protegen contra null explícito).
+                var disponibilidad = DisponibilidadSemanal.Desde(MapearEntradasCrudas(dto.Disponibilidad ?? new()));
+                var bloquesDisponibles = bloques
+                    .Where(b => disponibilidad.PermiteBloque(b.Dia, b.HoraInicio, b.HoraFin))
+                    .ToList();
 
-                foreach (var (diaNombre, dispDia) in dto.Disponibilidad)
-                {
-                    if (dispDia.NoDisponible) continue;
-
-                    var dia = ParseDiaSemana(diaNombre);
-                    if (dia == null) continue;
-
-                    TimeOnly? desde = null;
-                    TimeOnly? hasta = null;
-
-                    if (!string.IsNullOrWhiteSpace(dispDia.Desde) && TimeOnly.TryParse(dispDia.Desde, out var d))
-                        desde = d;
-                    if (!string.IsNullOrWhiteSpace(dispDia.Hasta) && TimeOnly.TryParse(dispDia.Hasta, out var h))
-                        hasta = h;
-
-                    if (desde == null && hasta == null && !string.IsNullOrWhiteSpace(dispDia.FranjaGeneral))
-                    {
-                        // Frontend sends the full label, e.g. "Matutino (6:00–12:00)".
-                        // Use StartsWith so both the short key and the full label match.
-                        if (dispDia.FranjaGeneral.StartsWith("Matutino", StringComparison.OrdinalIgnoreCase))
-                        {
-                            desde = new TimeOnly(6, 0);
-                            hasta = new TimeOnly(13, 0);
-                            franjas.Add(FranjaHoraria.Matutino);
-                        }
-                        else if (dispDia.FranjaGeneral.StartsWith("Vespertino", StringComparison.OrdinalIgnoreCase))
-                        {
-                            desde = new TimeOnly(13, 0);
-                            hasta = new TimeOnly(20, 0);
-                            franjas.Add(FranjaHoraria.Vespertino);
-                        }
-                        else if (dispDia.FranjaGeneral.StartsWith("Nocturno", StringComparison.OrdinalIgnoreCase))
-                        {
-                            desde = new TimeOnly(18, 0);
-                            hasta = new TimeOnly(22, 0);
-                            franjas.Add(FranjaHoraria.Vespertino);
-                        }
-                        else
-                        {
-                            franjas.Add(FranjaHoraria.Matutino);
-                            franjas.Add(FranjaHoraria.Vespertino);
-                        }
-                    }
-                    else
-                    {
-                        franjas.Add(FranjaHoraria.Matutino);
-                        franjas.Add(FranjaHoraria.Vespertino);
-                    }
-
-                    var bloquesDia = bloques.Where(b => b.Dia == dia.Value);
-                    if (desde.HasValue) bloquesDia = bloquesDia.Where(b => b.HoraInicio >= desde.Value);
-                    if (hasta.HasValue) bloquesDia = bloquesDia.Where(b => b.HoraFin <= hasta.Value);
-
-                    foreach (var bloque in bloquesDia)
-                        bloquesDisponibles.Add(bloque);
-                }
-
-                // If the DTO sends no availability data, fall back to unrestricted (both franjas).
-                var disponibilidadFinal = franjas.Count > 0
-                    ? franjas.ToList()
-                    : new List<FranjaHoraria> { FranjaHoraria.Matutino, FranjaHoraria.Vespertino };
-
-                // P1.3 auditoría: distinguir "sin información" de "explícitamente no disponible".
-                // Solo aplicamos el fallback "todos los bloques" cuando el DTO NO trae ninguna
-                // información de disponibilidad. Si el usuario configuró días (todos NoDisponible
-                // o con horarios que no calzan con la grilla), respetamos esa restricción: la
-                // lista queda vacía y la Fase 2 (HC-I02) reportará infactible con un mensaje claro,
-                // en vez de agendar silenciosamente a un docente marcado como no disponible.
-                bool sinInformacionDisponibilidad = dto.Disponibilidad.Count == 0;
-                if (bloquesDisponibles.Count == 0 && sinInformacionDisponibilidad)
-                    bloquesDisponibles.AddRange(bloques);
+                // Docente exige una lista no vacía (validación de dominio); sin restricción real
+                // equivale a "ambas franjas".
+                var disponibilidadFinal = disponibilidad.ComoFranjasCoarse();
+                if (disponibilidadFinal.Count == 0)
+                    disponibilidadFinal = new List<FranjaHoraria> { FranjaHoraria.Matutino, FranjaHoraria.Vespertino };
 
                 var docente = new Docente(
                     id: id,
@@ -520,34 +552,45 @@ namespace SOEA.Application.Features.Horario
             }).ToList();
         }
 
-        private static DiaDeSemana? ParseDiaSemana(string dia) => dia.Trim().ToLowerInvariant() switch
-        {
-            "lunes"      => DiaDeSemana.Lunes,
-            "martes"     => DiaDeSemana.Martes,
-            "miercoles"  => DiaDeSemana.Miercoles,
-            "miércoles"  => DiaDeSemana.Miercoles,
-            "jueves"     => DiaDeSemana.Jueves,
-            "viernes"    => DiaDeSemana.Viernes,
-            "sabado"     => DiaDeSemana.Sábado,
-            "sábado"     => DiaDeSemana.Sábado,
-            _            => null
-        };
+        private static Dictionary<string, DisponibilidadSemanal.DiaEntradaCruda> MapearEntradasCrudas(
+            Dictionary<string, DisponibilidadDiaDto> disponibilidad) =>
+            disponibilidad.ToDictionary(
+                kv => kv.Key,
+                kv => new DisponibilidadSemanal.DiaEntradaCruda(
+                    kv.Value.NoDisponible, kv.Value.Tipo, kv.Value.FranjaGeneral, kv.Value.Desde, kv.Value.Hasta));
 
-        private static List<Sesion> MapearSesionesIniciales(
-            List<AsignaturaDto> asignaturasDtos,
-            Guid grupoIdRun)
+        /// <summary>
+        /// Multi-grupo real (P1): itera grupos, no asignaturas — cada grupo expande los 3 tracks
+        /// de SU asignatura con SU GrupoId. Antes todas las sesiones del run compartían un
+        /// GrupoId sintético (<c>grupoIdRun</c>), lo que serializaba el run entero contra HC-C01.
+        /// internal (no private) para verificación directa del mapeo en SOEA.Tests. Un grupo cuya
+        /// asignatura no resuelve se descartaba en silencio (G3 auditoría) — ahora queda una
+        /// advertencia nombrada.
+        /// </summary>
+        internal static (List<Sesion> sesiones, List<string> advertencias) MapearSesionesIniciales(
+            List<Grupo> grupos,
+            List<AsignaturaDto> asignaturasDtos)
         {
             var sesiones = new List<Sesion>();
+            var advertencias = new List<string>();
             // Bloque placeholder — Fase 1 lo reemplazará
             var bloqueTemp = Guid.NewGuid();
+            var asignaturaPorId = asignaturasDtos
+                .Where(dto => Guid.TryParse(dto.Id, out _))
+                .ToDictionary(dto => Guid.Parse(dto.Id));
 
-            foreach (var dto in asignaturasDtos)
+            foreach (var grupo in grupos)
             {
-                var asigId = Guid.TryParse(dto.Id, out var aid) ? aid : Guid.NewGuid();
+                if (grupo.AsignaturaId is not { } asigId || !asignaturaPorId.TryGetValue(asigId, out var dto))
+                {
+                    advertencias.Add($"[WARN] Grupo '{grupo.Nombre}' (Id {grupo.Id}) no tiene una asignatura válida y no se incluyó en el horario.");
+                    continue;
+                }
 
-                // CR-08 / presencial-first: el docente sale del pipeline (se asigna DESPUÉS de
-                // generar el horario). Las sesiones se generan sin docente; el eje de conflicto
-                // y de optimización es la cohorte (GrupoId), no el docente.
+                // CR-02/CR-08 (presencial-first): el docente del grupo es solo SEMILLA de la
+                // sesión generada, no restricción — HC-I01/HC-I02/HC-I03 siguen fuera del
+                // pipeline. El eje de conflicto y de optimización sigue siendo la cohorte
+                // (GrupoId). PATCH /api/sesiones/{id}/docente puede sobrescribirla después.
 
                 // Fix #5: case-insensitive alternancia matching. Solo aplica al track de
                 // laboratorio — teoría (presencial o virtual) siempre es SinAlternancia.
@@ -559,23 +602,25 @@ namespace SOEA.Application.Features.Horario
                     _                => TipoAlternancia.SinAlternancia
                 };
 
-                // HC-S05: si la asignatura tiene espacio fijo, se lo pasamos a la sesión
-                // para que CP-SAT lo respete como hard constraint (solo ese espacio).
-                Guid? espacioFijo = !string.IsNullOrWhiteSpace(dto.EspacioFijoId) &&
-                                    Guid.TryParse(dto.EspacioFijoId, out var efid) ? efid : null;
+                // HC-S05: espacio concreto exigido por el grupo para este tipo de sesión, si lo hay
+                // (reemplaza a Asignatura.EspacioFijoId — ver Grupo.RequisitosEspacio).
+                Guid? EspacioFijoDe(TipoSesion tipo) =>
+                    grupo.RequisitosEspacio.FirstOrDefault(r => r.TipoSesion == tipo)?.EspacioId;
 
-                void Agregar(int cantidad, int duracionHoras, TipoFlujo tipoFlujo, Modalidad modalidad, TipoAlternancia alternancia)
+                void Agregar(int cantidad, int duracionHoras, TipoFlujo tipoFlujo, Modalidad modalidad,
+                    TipoAlternancia alternancia, TipoSesion tipoSesion)
                 {
+                    // Teoría virtual nunca tiene espacio (regla 9 CLAUDE.md): es sincrónica online.
+                    Guid? espacioFijo = modalidad == Modalidad.Virtual ? null : EspacioFijoDe(tipoSesion);
                     for (int i = 0; i < cantidad; i++)
                     {
                         sesiones.Add(new Sesion(
                             id: Guid.NewGuid(),
                             asignaturaId: asigId,
-                            docenteId: null,
+                            docenteId: grupo.DocenteId,
                             bloqueId: bloqueTemp,
-                            // Teoría virtual nunca tiene espacio (regla 9 CLAUDE.md): es sincrónica online.
-                            espacioId: modalidad == Modalidad.Virtual ? null : espacioFijo,
-                            grupoId: grupoIdRun,
+                            espacioId: espacioFijo,
+                            grupoId: grupo.Id,
                             alternancia: alternancia,
                             modalidad: modalidad,
                             duracionHoras: duracionHoras,
@@ -586,13 +631,13 @@ namespace SOEA.Application.Features.Horario
                 }
 
                 Agregar(dto.SesionesTeoriaPresencialSemana, dto.HorasTeoriaPresencial,
-                    TipoFlujo.AulaVirtual, Modalidad.Presencial, TipoAlternancia.SinAlternancia);
+                    TipoFlujo.AulaVirtual, Modalidad.Presencial, TipoAlternancia.SinAlternancia, TipoSesion.TeoriaPresencial);
                 Agregar(dto.SesionesTeoriaVirtualSemana, dto.HorasTeoriaVirtual,
-                    TipoFlujo.AulaVirtual, Modalidad.Virtual, TipoAlternancia.SinAlternancia);
+                    TipoFlujo.AulaVirtual, Modalidad.Virtual, TipoAlternancia.SinAlternancia, TipoSesion.TeoriaVirtual);
                 Agregar(dto.SesionesLaboratorioSemana, dto.HorasLaboratorio,
-                    TipoFlujo.Laboratorio, Modalidad.Presencial, alternanciaLab);
+                    TipoFlujo.Laboratorio, Modalidad.Presencial, alternanciaLab, TipoSesion.Laboratorio);
             }
-            return sesiones;
+            return (sesiones, advertencias);
         }
 
         /// <summary>
@@ -601,7 +646,49 @@ namespace SOEA.Application.Features.Horario
         /// </summary>
         private static List<BloqueTiempo> GenerarBloquesTiempo() => GrillaInstitucional.GenerarBloques();
 
-        private static SesionGeneradaDto MapearSesionDto(
+        /// <summary>
+        /// Mapea sesiones + asignaciones al DTO de respuesta, con el hogar de espacio de la
+        /// petición 8 (teoría virtual sin espacio propio hereda el requisito de espacio del grupo).
+        /// internal (no private): reutilizado por <see cref="ReacomodarHorarioService"/> para
+        /// devolver el horario refrescado tras un movimiento parcial (P5).
+        /// </summary>
+        internal static List<SesionGeneradaDto> ConstruirSesionesDto(
+            IReadOnlyList<Sesion> sesiones,
+            IReadOnlyList<AsignacionSemanal> asignaciones,
+            IReadOnlyList<Grupo> grupos,
+            IReadOnlyList<BloqueTiempo> bloques)
+        {
+            var sesionPorId = sesiones.ToDictionary(s => s.Id);
+            // Lab de origen por sesión = espacio de su asignación presencial. Permite al frontend
+            // ubicar la fila virtual (EspacioId=null) en el laboratorio donde la sesión es presencial.
+            var espacioHogarPorSesion = asignaciones
+                .Where(a => a.Modalidad == Modalidad.Presencial && a.EspacioId.HasValue)
+                .GroupBy(a => a.SesionId)
+                .ToDictionary(g => g.Key, g => g.First().EspacioId!.Value.ToString());
+
+            // Petición 8: una teoría virtual nunca tiene asignación presencial (nunca alterna) — sin
+            // este fallback su fila queda sin hogar y desaparece de una grilla orientada a espacios.
+            // Se rellena desde el requisito de espacio del grupo (A2), si declaró uno concreto.
+            var requisitosPorGrupoDto = grupos.GroupBy(g => g.Id).ToDictionary(g => g.Key, g => g.First().RequisitosEspacio);
+            foreach (var sesion in sesiones)
+            {
+                if (espacioHogarPorSesion.ContainsKey(sesion.Id)) continue;
+                if (!sesion.GrupoId.HasValue || !requisitosPorGrupoDto.TryGetValue(sesion.GrupoId.Value, out var reqs)) continue;
+                var requisito = reqs.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion));
+                if (requisito?.EspacioId is Guid espacioHogar)
+                    espacioHogarPorSesion[sesion.Id] = espacioHogar.ToString();
+            }
+
+            var bloquePorId = bloques.ToDictionary(b => b.Id);
+            return asignaciones
+                .Where(a => sesionPorId.ContainsKey(a.SesionId))
+                .Select(a => MapearSesionDto(
+                    a, sesionPorId[a.SesionId], bloquePorId,
+                    espacioHogarPorSesion.GetValueOrDefault(a.SesionId)))
+                .ToList();
+        }
+
+        internal static SesionGeneradaDto MapearSesionDto(
             AsignacionSemanal a, Sesion s, IReadOnlyDictionary<Guid, BloqueTiempo> bloquePorId, string? espacioIdHogar)
         {
             bloquePorId.TryGetValue(a.BloqueTiempoId, out var bloque);
@@ -623,6 +710,7 @@ namespace SOEA.Application.Features.Horario
                 Id            = s.Id.ToString(),
                 AsignaturaId  = s.AsignaturaId.ToString(),
                 DocenteId     = s.DocenteId?.ToString() ?? string.Empty,
+                GrupoId       = s.GrupoId?.ToString() ?? string.Empty,
                 EspacioId     = a.EspacioId?.ToString(),
                 EspacioIdHogar = espacioIdHogar ?? a.EspacioId?.ToString(),
                 Dia           = dia,
@@ -632,7 +720,8 @@ namespace SOEA.Application.Features.Horario
                 Alternancia   = s.Alternancia.ToString(),
                 Virtual       = a.Modalidad == Modalidad.Virtual,
                 Semana        = a.Semana.ToString(),
-                TipoFlujo     = s.TipoFlujo.ToString()
+                TipoFlujo     = s.TipoFlujo.ToString(),
+                MotivoConflicto = s.MotivoConflicto
             };
         }
 
@@ -654,49 +743,63 @@ namespace SOEA.Application.Features.Horario
                     Semilla:              dto.Semilla);
 
         /// <summary>
-        /// Convierte los GrupoDtos del request a entidades de dominio Grupo con su disponibilidad.
-        /// Los grupos informan HC-G01 en CP-SAT: si Disponibilidad no está vacía, el solver
-        /// solo asignará sus sesiones en bloques dentro de esa franja.
+        /// Convierte los GrupoDtos del request a entidades de dominio Grupo. La disponibilidad
+        /// (HC-G01) y los requisitos de espacio (HC-S03/HC-S05) quedan derivables bajo demanda
+        /// desde <see cref="Grupo.ObtenerDisponibilidadSemanal"/> y <see cref="Grupo.RequisitosEspacio"/>.
+        /// internal (no private) para verificación directa del mapeo en SOEA.Tests, y porque un
+        /// grupo con Id inválido antes se descartaba en silencio (G3 auditoría) — ahora queda
+        /// una advertencia nombrada, no oculta detrás de un identificador que el usuario no lee.
         /// </summary>
-        private static List<Grupo> MapearGrupos(List<GrupoDto> dtos)
+        internal static (List<Grupo> grupos, List<string> advertencias) MapearGrupos(List<GrupoDto> dtos)
         {
             var grupos = new List<Grupo>();
+            var advertencias = new List<string>();
             foreach (var dto in dtos)
             {
-                if (!Guid.TryParse(dto.Id, out var id)) continue;
-
-                var disponibilidad = dto.Disponibilidad
-                    .Select(s => s.Trim().ToLowerInvariant() switch
-                    {
-                        "matutino"   => (FranjaHoraria?)FranjaHoraria.Matutino,
-                        "vespertino" => (FranjaHoraria?)FranjaHoraria.Vespertino,
-                        _            => null
-                    })
-                    .Where(f => f.HasValue)
-                    .Select(f => f!.Value)
-                    .Distinct()
-                    .ToList();
+                if (!Guid.TryParse(dto.Id, out var id))
+                {
+                    advertencias.Add($"[WARN] Grupo '{dto.Nombre}' tiene un Id inválido y no se incluyó en el horario.");
+                    continue;
+                }
 
                 Guid? asigId    = Guid.TryParse(dto.AsignaturaId, out var aid) ? aid : null;
                 Guid? facId     = Guid.TryParse(dto.FacultadId,   out var fid) ? fid : null;
+                Guid? docenteId = Guid.TryParse(dto.DocenteId,    out var did) ? did : null;
 
                 var grupo = new Grupo(
-                    id:                  id,
-                    nombre:              dto.Nombre,
-                    programaId:          Guid.Empty,   // no requerido para el pipeline
+                    id:                   id,
+                    nombre:               dto.Nombre,
+                    programaId:           Guid.Empty,   // no requerido para el pipeline
                     estudiantesInscritos: Math.Max(1, dto.EstudiantesInscritos),
-                    disponibilidad:      disponibilidad,
-                    codigo:              dto.Codigo,
-                    asignaturaId:        asigId,
-                    facultadId:          facId);
+                    codigo:               dto.Codigo,
+                    asignaturaId:         asigId,
+                    facultadId:           facId,
+                    docenteId:            docenteId);
 
                 grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
+                grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
                 grupos.Add(grupo);
             }
-            return grupos;
+            return (grupos, advertencias);
         }
 
-        private static string DiaToString(DiaDeSemana dia) => dia switch
+        private static List<RequisitoEspacio> MapearRequisitosEspacio(List<RequisitoEspacioDto> dtos) =>
+            dtos.Select(d => new RequisitoEspacio(
+                TipoSesion:  ParseTipoSesion(d.TipoSesion),
+                EspacioId:   Guid.TryParse(d.EspacioId, out var eid) ? eid : null,
+                TipoEspacio: ParseTipoEspacioRequisito(d.TipoEspacio),
+                Sesiones:    d.Sesiones))
+            .ToList();
+
+        private static TipoSesion ParseTipoSesion(string? tipo) => tipo?.Trim().ToLowerInvariant() switch
+        {
+            "teoriapresencial" => TipoSesion.TeoriaPresencial,
+            "teoriavirtual"    => TipoSesion.TeoriaVirtual,
+            "laboratorio"      => TipoSesion.Laboratorio,
+            _                  => TipoSesion.TeoriaPresencial
+        };
+
+        internal static string DiaToString(DiaDeSemana dia) => dia switch
         {
             DiaDeSemana.Lunes     => "lunes",
             DiaDeSemana.Martes    => "martes",
@@ -712,6 +815,19 @@ namespace SOEA.Application.Features.Horario
             "laboratorio" => TipoEspacio.Laboratorio,
             "auditorio"   => TipoEspacio.Auditorio,
             _             => TipoEspacio.Salon
+        };
+
+        /// <summary>
+        /// M6: distinto de <see cref="ParseTipoEspacio"/> — ese parsea el tipo de un ESPACIO real
+        /// (siempre tiene uno, default conservador Salon). Este parsea el tipo de un REQUISITO de
+        /// grupo, donde ausente/no reconocido significa "sin preferencia de tipo" (null), no Salon.
+        /// </summary>
+        private static TipoEspacio? ParseTipoEspacioRequisito(string? tipo) => tipo?.Trim().ToLowerInvariant() switch
+        {
+            "laboratorio" => TipoEspacio.Laboratorio,
+            "auditorio"   => TipoEspacio.Auditorio,
+            "salon"       => TipoEspacio.Salon,
+            _             => null
         };
 
         private static TimeOnly? ParseHora(string? hhmm) =>
@@ -733,34 +849,87 @@ namespace SOEA.Application.Features.Horario
             };
 
         /// <summary>
+        /// A2/A4 (VERIFICA punto 3 — atomicidad por espacio): dos sesiones son pareja válida de
+        /// alternancia solo si un mismo espacio físico les sirve a ambas: misma duración y, si
+        /// alguna declara un requisito de espacio concreto (grupo.RequisitosEspacio), el mismo
+        /// requisito en las dos (o ninguna lo declara, y comparten el default por TipoSesion).
+        /// </summary>
+        // internal (no private) para verificación directa en SOEA.Tests (M8: antes vacuamente
+        // cierto con RequisitosEspacio siempre vacío — ver el análisis de la Fase 0 del plan).
+        internal static bool SonParejaCompatible(
+            Sesion a, Sesion b, IReadOnlyDictionary<Guid, Grupo> grupoPorId)
+        {
+            if (a.DuracionHoras != b.DuracionHoras) return false;
+
+            RequisitoEspacio? RequisitoDe(Sesion s) =>
+                s.GrupoId.HasValue && grupoPorId.TryGetValue(s.GrupoId.Value, out var g)
+                    ? g.RequisitosEspacio.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(s))
+                    : null;
+
+            var ra = RequisitoDe(a);
+            var rb = RequisitoDe(b);
+            if (ra is null && rb is null) return true;
+            if (ra is null || rb is null) return false; // una declara requisito, la otra no ⇒ no garantizado
+            return ra.EspacioId == rb.EspacioId && ra.TipoEspacio == rb.TipoEspacio;
+        }
+
+        /// <summary>
         /// Etapa 1 (teoría, heurística pre-Fase 1): cuando la demanda presencial supera la
         /// capacidad estimada de espacios, cede sesiones candidatas — aquellas que matchean AL MENOS
         /// UN criterio activo de <paramref name="predicadosCesion"/>, en el orden de esa lista.
         /// Una sesión que no matchea ningún criterio activo NUNCA es candidata (no hay regla
         /// implícita por categoría). Nunca toca lo que el usuario marcó virtual desde el principio.
-        /// Devuelve los IDs de las sesiones cedidas, EN ORDEN de cesión.
+        /// VERIFICA: la alternancia se aplica EN PAREJAS (dos sesiones, normalmente de asignaturas
+        /// distintas, con espacio compatible — <see cref="SonParejaCompatible"/>) que comparten un
+        /// <see cref="Sesion.ParejaAlternanciaId"/> (A4); un candidato sin pareja no alterna, cae al
+        /// Pase 2 (virtualización). Devuelve los IDs de las sesiones cedidas, EN ORDEN de cesión.
         /// </summary>
         // internal (no private) para verificación directa de la prioridad de cesión en SOEA.Tests.
+        // Fallback cuando no se pasa la grilla real de bloques (compat de la firma de 3 argumentos
+        // usada por PresencialFirstTests.cs) — NO representa la grilla institucional actual.
+        private const int BloquesPorSemanaLegacy = 5 * 8;
+
         internal static List<Guid> AplicarPrioridadPresencial(
             List<Sesion> sesiones,
             List<Espacio> espacios,
-            IReadOnlyList<(CriterioElegibilidadAlternancia Criterio, Func<Sesion, bool> Predicado)> criterios)
+            IReadOnlyList<(CriterioElegibilidadAlternancia Criterio, Func<Sesion, bool> Predicado)> criterios,
+            List<Grupo>? grupos = null,
+            List<BloqueTiempo>? bloques = null,
+            HashSet<Guid>? sesionesFijasIds = null)
         {
             var cedidasIds = new List<Guid>();
             if (espacios.Count == 0 || criterios.Count == 0) return cedidasIds;
 
-            // Capacidad máxima estimada: nro_espacios × días × horas_útiles. Heurística de pre-pase;
-            // el gate duro real es CP-SAT (HC-CAP / demanda-vs-capacidad por semana).
-            int capacidadMaxEstimada = espacios.Count * 5 * 8;
+            var grupoPorId = (grupos ?? new List<Grupo>()).ToDictionary(g => g.Id);
+            var fijasIds = sesionesFijasIds ?? new HashSet<Guid>();
+
+            // Capacidad máxima estimada: nro_espacios × bloques/semana de la grilla real (misma
+            // fórmula que MotorConstraintProgramming.cs — demanda-vs-capacidad por semana). Heurística
+            // de pre-pase; el gate duro real sigue siendo CP-SAT (HC-CAP).
+            // M1 (auditoría): sólo cuenta espacios NO-laboratorio y demanda NO-laboratorio — este
+            // método únicamente cede sesiones de teoría (TipoFlujo != Laboratorio, ver Pase 1/2 abajo;
+            // los laboratorios los cede Etapa 2 de forma reactiva, contra CP-SAT). Contar laboratorios
+            // aquí infla la capacidad estimada sin que puedan absorber ni una hora de teoría,
+            // enmascarando saturación real de salones/auditorios (M1 del análisis).
+            int espaciosNoLab = espacios.Count(e => e.Tipo != TipoEspacio.Laboratorio);
+            int bloquesPorSemana = bloques?.Count ?? BloquesPorSemanaLegacy;
+            int capacidadMaxEstimada = espaciosNoLab * bloquesPorSemana;
             int Horas(Sesion s) => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
 
-            int demandaHoras = sesiones.Where(s => s.Modalidad == Modalidad.Presencial).Sum(Horas);
+            int demandaHoras = sesiones
+                .Where(s => s.Modalidad == Modalidad.Presencial && s.TipoFlujo != TipoFlujo.Laboratorio)
+                .Sum(Horas);
             int excesohoras  = demandaHoras - capacidadMaxEstimada;
-            if (excesohoras <= 0) return cedidasIds; // sin saturación → no tocar nada
+            if (excesohoras <= 0) return cedidasIds; // sin saturación de teoría → no tocar nada
 
-            // Sesiones por asignatura (un run = un grupo ⇒ = sesiones/semana).
-            var totalPorAsig = sesiones
-                .GroupBy(s => s.AsignaturaId)
+            // Sesiones por (asignatura, grupo) — espejo de PuedeCederLab en CederSiguienteCandidatoLab.
+            // Indexar solo por AsignaturaId mezclaba grupos distintos que comparten la misma
+            // asignatura: un grupo con una única sesión de esa materia podía calificar como
+            // candidato a cesión solo porque OTRO grupo tenía varias sesiones de ella, dejándolo
+            // sin ninguna sesión presencial de esa asignatura (bug confirmado por
+            // AplicarPrioridadPresencialPorGrupoTests).
+            var totalPorAsigYGrupo = sesiones
+                .GroupBy(s => (s.AsignaturaId, s.GrupoId))
                 .ToDictionary(g => g.Key, g => g.Count());
 
             // MultiplesSesiones no otorga elegibilidad por sí solo (evita que CUALQUIER asignatura con
@@ -783,44 +952,64 @@ namespace SOEA.Application.Features.Horario
 
             List<Sesion> OrdenarCesion(IEnumerable<Sesion> ss) => ss.OrderBy(CriterioRank).ToList();
 
-            var tiposAB = new[] { TipoAlternancia.TipoA, TipoAlternancia.TipoB };
-            var patronDeTipo = new Dictionary<TipoAlternancia, Guid>
-            {
-                [TipoAlternancia.TipoA] = TipoAlternanciaConfig.IdTipoA,
-                [TipoAlternancia.TipoB] = TipoAlternanciaConfig.IdTipoB
-            };
+            // ── Pase 1 — "Tipo C" dinámico: alternar EN PAREJAS (presencial 1 semana cada una, en
+            // semanas opuestas) en vez de virtualizar. Solo asignaturas con ≥2 sesiones y conservando
+            // SIEMPRE ≥1 sesión presencial pura por asignatura. Respeta Bloqueada. Excluye
+            // TipoFlujo.Laboratorio: la Etapa 2 (reactiva) se encarga de los labs.
+            var presencialesPurasPorAsigYGrupo = new Dictionary<(Guid AsignaturaId, Guid? GrupoId), int>(totalPorAsigYGrupo);
+            var candidatasPase1 = OrdenarCesion(sesiones.Where(s =>
+                s.Modalidad == Modalidad.Presencial &&
+                s.TipoFlujo != TipoFlujo.Laboratorio &&
+                s.Alternancia == TipoAlternancia.SinAlternancia &&
+                !s.Bloqueada &&
+                !fijasIds.Contains(s.Id) &&
+                EsCandidata(s)));
 
-            // ── Pase 1 — "Tipo C" dinámico: alternar (presencial 1 semana) en vez de virtualizar.
-            // Solo asignaturas con ≥2 sesiones y conservando SIEMPRE ≥1 sesión presencial pura por
-            // asignatura. Respeta Bloqueada. Alterna A/B en zigzag para repartir la huella entre semanas.
-            // Excluye TipoFlujo.Laboratorio: la Etapa 2 (reactiva) se encarga de los labs.
-            var presencialesPurasPorAsig = new Dictionary<Guid, int>(totalPorAsig);
-            int ab = 0;
+            bool PuedeCeder(Sesion s) =>
+                totalPorAsigYGrupo.TryGetValue((s.AsignaturaId, s.GrupoId), out var n) && n >= 2 &&
+                presencialesPurasPorAsigYGrupo[(s.AsignaturaId, s.GrupoId)] > 1;
+
+            var usadasPase1 = new HashSet<Guid>();
+            for (int i = 0; i < candidatasPase1.Count && excesohoras > 0; i++)
+            {
+                var s1 = candidatasPase1[i];
+                if (usadasPase1.Contains(s1.Id) || !PuedeCeder(s1)) continue;
+
+                // Pareja: otra candidata SIN pareja aún, de OTRA asignatura (alternar tiene sentido
+                // cuando dos asignaturas se turnan el mismo espacio), con espacio compatible.
+                Sesion? s2 = null;
+                for (int j = i + 1; j < candidatasPase1.Count; j++)
+                {
+                    var cand = candidatasPase1[j];
+                    if (usadasPase1.Contains(cand.Id) || cand.AsignaturaId == s1.AsignaturaId) continue;
+                    if (!PuedeCeder(cand) || !SonParejaCompatible(s1, cand, grupoPorId)) continue;
+                    s2 = cand;
+                    break;
+                }
+                if (s2 is null) continue; // sin pareja: no alterna (VERIFICA) — cae al Pase 2
+
+                var patron = Guid.NewGuid();
+                s1.AplicarAlternancia(TipoAlternancia.TipoA, TipoAlternanciaConfig.IdTipoA, cedidaPorSaturacion: true, parejaAlternanciaId: patron);
+                s2.AplicarAlternancia(TipoAlternancia.TipoB, TipoAlternanciaConfig.IdTipoB, cedidaPorSaturacion: true, parejaAlternanciaId: patron);
+                usadasPase1.Add(s1.Id); usadasPase1.Add(s2.Id);
+                presencialesPurasPorAsigYGrupo[(s1.AsignaturaId, s1.GrupoId)]--;
+                presencialesPurasPorAsigYGrupo[(s2.AsignaturaId, s2.GrupoId)]--;
+                excesohoras -= (Horas(s1) + 1) / 2 + (Horas(s2) + 1) / 2; // cada una alterna ⇒ ~mitad de huella
+                cedidasIds.Add(s1.Id); cedidasIds.Add(s2.Id);
+            }
+
+            // ── Pase 2 — último recurso: virtualización total, mismo orden de prioridad.
+            // Aquí sí pueden caer las sesiones únicas (single-session) y las que no encontraron
+            // pareja en el Pase 1. Excluye Laboratorio por la misma razón que el Pase 1, y excluye
+            // lo que el Pase 1 ya alternó — sin este filtro, VirtualizarSesion() podría re-tocar la
+            // mitad de una pareja ya formada (Modalidad→Virtual sin limpiar Alternancia/
+            // ParejaAlternanciaId) y corromperla, violando HC-ALT.
             foreach (var s in OrdenarCesion(sesiones.Where(s =>
                          s.Modalidad == Modalidad.Presencial &&
                          s.TipoFlujo != TipoFlujo.Laboratorio &&
                          s.Alternancia == TipoAlternancia.SinAlternancia &&
                          !s.Bloqueada &&
-                         EsCandidata(s))))
-            {
-                if (excesohoras <= 0) break;
-                if (!totalPorAsig.TryGetValue(s.AsignaturaId, out var n) || n < 2) continue; // single → pase 2
-                if (presencialesPurasPorAsig[s.AsignaturaId] <= 1) continue;                  // conserva ≥1 presencial
-
-                var tipo = tiposAB[ab++ % 2];
-                s.AplicarAlternancia(tipo, patronDeTipo[tipo], cedidaPorSaturacion: true);
-                presencialesPurasPorAsig[s.AsignaturaId]--;
-                excesohoras -= (Horas(s) + 1) / 2; // alterna ⇒ ~la mitad de huella presencial (heurística)
-                cedidasIds.Add(s.Id);
-            }
-
-            // ── Pase 2 — último recurso: virtualización total, mismo orden de prioridad.
-            // Aquí sí pueden caer las sesiones únicas (single-session), solo si alternar no bastó.
-            // Excluye Laboratorio por la misma razón que el Pase 1.
-            foreach (var s in OrdenarCesion(sesiones.Where(s =>
-                         s.Modalidad == Modalidad.Presencial &&
-                         s.TipoFlujo != TipoFlujo.Laboratorio &&
-                         !s.Bloqueada &&
+                         !fijasIds.Contains(s.Id) &&
                          EsCandidata(s))))
             {
                 if (excesohoras <= 0) break;
@@ -833,40 +1022,62 @@ namespace SOEA.Application.Features.Horario
         }
 
         /// <summary>
-        /// Etapa 2 (labs, reactiva): cede UNA sesión de laboratorio candidata cuando Fase 2 reporta
-        /// infactibilidad real de espacio. Candidata: presencial, sin alternancia, no bloqueada, no
-        /// fija, y que matchea AL MENOS UN criterio de elegibilidad activo (Electiva/Optativa/Elegible
-        /// — mismo orden que Etapa 1, se prueba el primer criterio de la lista completo antes de pasar
-        /// al siguiente; MultiplesSesiones se ignora aquí, no otorga elegibilidad). Alterna TipoA/TipoB
-        /// en zigzag entre las sesiones de laboratorio ya cedidas. Devuelve false si no quedan candidatas.
+        /// Etapa 2 (labs, reactiva): cede UNA PAREJA de sesiones de laboratorio candidatas cuando
+        /// Fase 2 reporta infactibilidad real de espacio (VERIFICA: nunca una sesión suelta).
+        /// Candidata: presencial, sin alternancia, no bloqueada, no fija, y que matchea AL MENOS UN
+        /// criterio de elegibilidad activo (Electiva/Optativa/Elegible — mismo orden que Etapa 1;
+        /// MultiplesSesiones se ignora aquí, no otorga elegibilidad). La pareja exige espacio
+        /// compatible (<see cref="SonParejaCompatible"/>), asignatura y grupo DISTINTOS (emparejar la
+        /// misma asignatura o el mismo grupo es estructuralmente infactible para CP-SAT: HC-ALT fuerza
+        /// la pareja al mismo bloque y HC-C01 exige NoOverlap por (grupo, semana), así que dos sesiones
+        /// del mismo grupo en el mismo bloque siempre chocan), y conserva ≥1 sesión presencial por
+        /// (asignatura, grupo). Devuelve false si no hay pareja candidata.
         /// </summary>
-        private static bool CederSiguienteCandidatoLab(
+        // internal (no private) para verificación directa en SOEA.Tests.
+        internal static bool CederSiguienteCandidatoLab(
             List<Sesion> sesiones,
             IReadOnlyList<(CriterioElegibilidadAlternancia Criterio, Func<Sesion, bool> Predicado)> criterios,
             HashSet<Guid> sesionesFijasIds,
-            List<Guid> sesionesCedidasEnOrden)
+            List<Guid> sesionesCedidasEnOrden,
+            List<Grupo>? grupos = null)
         {
+            var grupoPorId = (grupos ?? new List<Grupo>()).ToDictionary(g => g.Id);
             var candidatos = sesiones.Where(s =>
                 s.TipoFlujo == TipoFlujo.Laboratorio &&
                 s.Modalidad == Modalidad.Presencial &&
                 s.Alternancia == TipoAlternancia.SinAlternancia &&
                 !s.Bloqueada &&
                 !sesionesFijasIds.Contains(s.Id)).ToList();
-            if (candidatos.Count == 0) return false;
+            if (candidatos.Count < 2) return false;
+
+            // Sesiones de laboratorio por (asignatura, grupo) — para nunca ceder la última que le
+            // queda a un grupo de una asignatura (espejo de PuedeCeder en AplicarPrioridadPresencial).
+            var porAsigYGrupo = candidatos
+                .GroupBy(s => (s.AsignaturaId, s.GrupoId))
+                .ToDictionary(g => g.Key, g => g.Count());
+            bool PuedeCederLab(Sesion s) => porAsigYGrupo[(s.AsignaturaId, s.GrupoId)] > 1;
+
+            bool EsElegible(Sesion s) => criterios.Any(c =>
+                c.Criterio != CriterioElegibilidadAlternancia.MultiplesSesiones && c.Predicado(s));
 
             // MultiplesSesiones no otorga elegibilidad — ver AplicarPrioridadPresencial.
             foreach (var (criterio, predicado) in criterios)
             {
                 if (criterio == CriterioElegibilidadAlternancia.MultiplesSesiones) continue;
-                var candidato = candidatos.FirstOrDefault(predicado);
-                if (candidato is null) continue;
+                var s1 = candidatos.FirstOrDefault(c => predicado(c) && PuedeCederLab(c));
+                if (s1 is null) continue;
 
-                int labsCedidos = sesiones.Count(s => s.TipoFlujo == TipoFlujo.Laboratorio && s.CedidaPorSaturacion);
-                var tipo = labsCedidos % 2 == 0 ? TipoAlternancia.TipoA : TipoAlternancia.TipoB;
-                var patron = tipo == TipoAlternancia.TipoA ? TipoAlternanciaConfig.IdTipoA : TipoAlternanciaConfig.IdTipoB;
+                var s2 = candidatos.FirstOrDefault(c =>
+                    c.Id != s1.Id &&
+                    c.AsignaturaId != s1.AsignaturaId && c.GrupoId != s1.GrupoId &&
+                    EsElegible(c) && PuedeCederLab(c) && SonParejaCompatible(s1, c, grupoPorId));
+                if (s2 is null) continue; // sin pareja compatible: no cede (VERIFICA)
 
-                candidato.AplicarAlternancia(tipo, patron, cedidaPorSaturacion: true);
-                sesionesCedidasEnOrden.Add(candidato.Id);
+                var patron = Guid.NewGuid();
+                s1.AplicarAlternancia(TipoAlternancia.TipoA, TipoAlternanciaConfig.IdTipoA, cedidaPorSaturacion: true, parejaAlternanciaId: patron);
+                s2.AplicarAlternancia(TipoAlternancia.TipoB, TipoAlternanciaConfig.IdTipoB, cedidaPorSaturacion: true, parejaAlternanciaId: patron);
+                sesionesCedidasEnOrden.Add(s1.Id);
+                sesionesCedidasEnOrden.Add(s2.Id);
                 return true;
             }
             return false;

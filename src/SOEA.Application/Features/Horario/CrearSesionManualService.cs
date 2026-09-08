@@ -15,21 +15,26 @@ namespace SOEA.Application.Features.Horario
     public class CrearSesionManualService
     {
         private readonly IBloqueTiempoRepositorio     _bloques;
-        private readonly IAsignaturaRepositorio        _asignaturas;
         private readonly ISesionRepositorio            _sesiones;
         private readonly IAsignacionSemanalRepositorio _asignaciones;
+        private readonly IAsignaturaRepositorio?       _asignaturas;
 
+        // asignaturas es opcional (default null → mensaje degradado sin nombre de asignatura)
+        // para no romper la firma del constructor en tests existentes que no la proveen.
         public CrearSesionManualService(
             IBloqueTiempoRepositorio     bloques,
-            IAsignaturaRepositorio        asignaturas,
             ISesionRepositorio            sesiones,
-            IAsignacionSemanalRepositorio asignaciones)
+            IAsignacionSemanalRepositorio asignaciones,
+            IAsignaturaRepositorio?       asignaturas = null)
         {
             _bloques      = bloques;
-            _asignaturas  = asignaturas;
             _sesiones     = sesiones;
             _asignaciones = asignaciones;
+            _asignaturas  = asignaturas;
         }
+
+        private async Task<string> NombreAsignaturaAsync(Guid asignaturaId) =>
+            _asignaturas is not null ? (await _asignaturas.GetByIdAsync(asignaturaId))?.Nombre ?? "asignatura sin nombre" : "asignatura sin nombre";
 
         /// <returns>
         /// Las 1 o 2 filas (<see cref="SesionGeneradaDto"/>) creadas, listas para el frontend.
@@ -65,16 +70,9 @@ namespace SOEA.Application.Features.Horario
 
             Guid? espacioFinal = modalidad == Modalidad.Virtual ? null : req.EspacioId;
 
-            // ── HC-S05: espacio fijo ──────────────────────────────────────────────
-            var asignatura = await _asignaturas.GetByIdAsync(req.AsignaturaId);
-            if (asignatura?.EspacioFijoId is Guid espacioFijo &&
-                espacioFinal.HasValue &&
-                espacioFinal.Value != espacioFijo)
-            {
-                throw new InvalidOperationException(
-                    "HC-S05: Esta asignatura tiene un laboratorio fijo asignado en el currículum. " +
-                    "La sesión debe crearse en ese mismo laboratorio.");
-            }
+            // ponytail: HC-S05 (espacio fijo) se validaba aquí contra Asignatura.EspacioFijoId,
+            // eliminado — el requisito ahora vive por grupo (Grupo.RequisitosEspacio). Recuperar
+            // esta validación cuando CrearSesionManualRequest reciba GrupoId (P2/P4).
 
             // ── HC-I01: conflicto de docente ──────────────────────────────────────
             // Verificamos a nivel de BloqueTiempoId (slot de inicio). El frontend ya validó
@@ -84,15 +82,20 @@ namespace SOEA.Application.Features.Horario
                 .ToList();
 
             // Las asignaciones de esas sesiones en el mismo bloque de inicio
-            if (sesionesDocente.Any(s => s.BloqueTiempoId == bloque.Id))
+            var choqueDocente = sesionesDocente.FirstOrDefault(s => s.BloqueTiempoId == bloque.Id);
+            if (choqueDocente is not null)
+            {
+                var nombreOtra = await NombreAsignaturaAsync(choqueDocente.AsignaturaId);
                 throw new InvalidOperationException(
-                    "HC-I01: El docente ya tiene otra sesión que comienza en esa misma franja horaria. " +
-                    "Elija una hora diferente o cambie el docente.");
+                    $"HC-I01: el docente ya tiene otra sesión que comienza en esa misma franja horaria " +
+                    $"({req.Dia} {req.HoraInicio}). Sesión 1: {await NombreAsignaturaAsync(req.AsignaturaId)} " +
+                    $"({req.Dia} {req.HoraInicio}). Sesión 2: {nombreOtra} ({req.Dia} {req.HoraInicio}). " +
+                    "Elija una hora diferente o cambie el docente de una de las dos sesiones.");
+            }
 
             // ── HC-S01: conflicto de espacio (solo filas presenciales) ────────────
             if (espacioFinal.HasValue)
             {
-                var idsEnBloque = sesionesDocente.Select(s => s.Id).ToHashSet();
                 var todas = await _sesiones.GetAllAsync();
                 var sesionesEnBloque = todas
                     .Where(s => s.BloqueTiempoId == bloque.Id)
@@ -104,14 +107,20 @@ namespace SOEA.Application.Features.Horario
                     var asignacionesBD = await _asignaciones.GetBySesionIdsAsync(
                         sesionesEnBloque.Select(s => s.Id));
 
-                    bool ocupado = asignacionesBD.Any(a =>
+                    var ocupadaPor = asignacionesBD.FirstOrDefault(a =>
                         a.EspacioId == espacioFinal &&
                         a.Modalidad == Modalidad.Presencial);
 
-                    if (ocupado)
+                    if (ocupadaPor is not null)
+                    {
+                        var sesionOcupante = sesionesEnBloque.First(s => s.Id == ocupadaPor.SesionId);
+                        var nombreOcupante = await NombreAsignaturaAsync(sesionOcupante.AsignaturaId);
                         throw new InvalidOperationException(
-                            "HC-S01: El laboratorio ya está ocupado por otra sesión presencial en esa franja horaria. " +
-                            "Elija otro laboratorio u otra hora.");
+                            $"HC-S01: el espacio ya está ocupado por otra sesión presencial en esa franja horaria. " +
+                            $"Sesión 1: {await NombreAsignaturaAsync(req.AsignaturaId)} ({req.Dia} {req.HoraInicio}). " +
+                            $"Sesión 2: {nombreOcupante} ({req.Dia} {req.HoraInicio}). " +
+                            "Elija otro espacio u otra hora.");
+                    }
                 }
             }
 
@@ -129,6 +138,27 @@ namespace SOEA.Application.Features.Horario
                 esBloque:     false,
                 estaDividida: false,
                 tipoFlujo:    tipoFlujo);
+
+            // ── HC-SEP: separación mínima de días entre sesiones semanales (petición 11) ──
+            // ponytail: agrupa por (asignatura, tipo de sesión) — CrearSesionManualRequest no
+            // trae GrupoId todavía (mismo gap que el comentario HC-S05 de arriba). Subir a
+            // (grupo, asignatura, tipo) cuando el request lo incluya (P2/P4).
+            var tipoSesionNueva = CalculadorEspaciosSesion.TipoSesionDe(sesion);
+            var mismaAsignaturaYTipo = (await _sesiones.GetAllAsync())
+                .Where(s => s.AsignaturaId == req.AsignaturaId && CalculadorEspaciosSesion.TipoSesionDe(s) == tipoSesionNueva)
+                .ToList();
+            if (mismaAsignaturaYTipo.Count > 0)
+            {
+                var bloquePorId = (await _bloques.GetAllAsync()).ToDictionary(b => b.Id);
+                foreach (var otra in mismaAsignaturaYTipo)
+                {
+                    if (!bloquePorId.TryGetValue(otra.BloqueTiempoId, out var otroBloque)) continue;
+                    if (!ReglasSesion.SeparacionDiasOk(dia, otroBloque.Dia))
+                        throw new InvalidOperationException(
+                            $"HC-SEP: ya existe otra sesión de esta asignatura/tipo el {otroBloque.Dia}. " +
+                            "Las sesiones semanales repetidas necesitan al menos un día de separación.");
+                }
+            }
 
             await _sesiones.AddAsync(sesion);
 
@@ -155,7 +185,8 @@ namespace SOEA.Application.Features.Horario
                 Alternancia  = alternanciaFinal.ToString(),
                 Virtual      = a.Modalidad == Modalidad.Virtual,
                 Semana       = a.Semana.ToString(),
-                TipoFlujo    = sesion.TipoFlujo.ToString()
+                TipoFlujo    = sesion.TipoFlujo.ToString(),
+                MotivoConflicto = sesion.MotivoConflicto
             }).ToList();
         }
 
@@ -168,7 +199,8 @@ namespace SOEA.Application.Features.Horario
                 _             => TipoFlujo.AulaVirtual   // default: teoría
             };
 
-        private static List<AsignacionSemanal> CrearAsignaciones(Sesion sesion, Guid bloqueId)
+        /// <summary>internal (no private): reutilizado por <see cref="ReacomodarHorarioService"/> (P5) para reconstruir las 2 filas A/B tras mover una sesión.</summary>
+        internal static List<AsignacionSemanal> CrearAsignaciones(Sesion sesion, Guid bloqueId)
         {
             Modalidad ModalidadParaSemana(SemanaAcademica s) => ModalidadSemanal.Derivar(sesion, s);
 
@@ -184,7 +216,8 @@ namespace SOEA.Application.Features.Horario
             };
         }
 
-        private static DiaDeSemana? MapearDia(string dia) =>
+        /// <summary>internal (no private): reutilizado por <see cref="ReacomodarHorarioService"/> (P5).</summary>
+        internal static DiaDeSemana? MapearDia(string dia) =>
             dia.ToLowerInvariant().Trim() switch
             {
                 "lunes"     => DiaDeSemana.Lunes,

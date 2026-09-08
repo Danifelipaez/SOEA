@@ -75,7 +75,9 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasDatabaseName("ux_asignacion_semanal_sesion_semana");
 
                     b.HasIndex("EspacioId", "Semana", "BloqueTiempoId")
-                        .HasDatabaseName("ix_asignacion_semanal_espacio_conflicto");
+                        .IsUnique()
+                        .HasDatabaseName("ux_asignacion_semanal_espacio_conflicto")
+                        .HasFilter("espacio_id IS NOT NULL");
 
                     b.ToTable("AsignacionesSemanales", (string)null);
                 });
@@ -109,10 +111,6 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("es_candidata_alternancia");
-
-                    b.Property<Guid?>("EspacioFijoId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("espacio_fijo_id");
 
                     b.Property<TimeOnly?>("HoraFinMax")
                         .HasColumnType("time without time zone")
@@ -383,10 +381,6 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("codigo");
 
-                    b.Property<string>("Disponibilidad")
-                        .HasColumnType("text")
-                        .HasColumnName("disponibilidad");
-
                     b.Property<string>("DisponibilidadUiJson")
                         .HasColumnType("text")
                         .HasColumnName("disponibilidad_ui_json");
@@ -412,6 +406,10 @@ namespace SOEA.Infrastructure.Data.Migrations
                     b.Property<Guid>("ProgramaId")
                         .HasColumnType("uuid")
                         .HasColumnName("programa_id");
+
+                    b.Property<string>("RequisitosEspacio")
+                        .HasColumnType("text")
+                        .HasColumnName("requisitos_espacio");
 
                     b.HasKey("Id");
 
@@ -579,7 +577,12 @@ namespace SOEA.Infrastructure.Data.Migrations
 
                     b.Property<string>("MotivoConflicto")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasColumnType("text")
+                        .HasColumnName("motivo_conflicto");
+
+                    b.Property<Guid?>("ParejaAlternanciaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pareja_alternancia_id");
 
                     b.Property<Guid?>("PatronAlternanciaId")
                         .HasColumnType("uuid")
@@ -605,6 +608,9 @@ namespace SOEA.Infrastructure.Data.Migrations
 
                     b.HasIndex("EspacioId")
                         .HasDatabaseName("ix_sesion_espacio_id");
+
+                    b.HasIndex("ParejaAlternanciaId")
+                        .HasDatabaseName("ix_sesion_pareja_alternancia_id");
 
                     b.HasIndex("PatronAlternanciaId")
                         .HasDatabaseName("ix_sesion_patron_alternancia_id");

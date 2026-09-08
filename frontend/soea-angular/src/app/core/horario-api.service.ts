@@ -1,8 +1,8 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Observable, throwError } from 'rxjs';
+import { Observable, of, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, HorarioBase, Sesion } from './models';
+import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion } from './models';
 import { environment } from '../../environments/environment';
 
 // ── Tipos del contrato con la API ──────────────────────────────────────────────
@@ -15,10 +15,15 @@ export interface ConfiguracionAlgoritmoApiDto {
   umbralConvergencia:   number;
   pesoErgo:             number;
   pesoTiempos:          number;
-  pesoAlmuerzo:         number;
+  /** Backend: SOEA.Application.../GenerarHorarioRequest.ConfiguracionAlgoritmoDto.PesoMaxHorasSeguidas. */
+  pesoMaxHorasSeguidas: number;
+  pesoBalanceSemanas?:  number;
+  pesoPresencialFirst?: number;
+  semilla?:             number;
 }
 
 export interface SesionFijaApiDto {
+  id?: string;
   asignaturaId: string;
   docenteId?: string;
   espacioId?: string;
@@ -38,10 +43,13 @@ export interface GrupoApiDto {
   codigo?: string;
   asignaturaId?: string;
   facultadId?: string;
+  /** Docente que dicta la asignatura para este grupo — semilla de Sesion.docenteId al generar. */
+  docenteId?: string;
   estudiantesInscritos: number;
-  /** Franjas válidas para el grupo: "Matutino" | "Vespertino". Vacío = sin restricción (HC-G01). */
-  disponibilidad: string[];
+  /** JSON crudo por día (misma forma que Docente.disponibilidad); el backend deriva la ventana HC-G01. */
   disponibilidadUiJson?: string;
+  /** Requisito de espacio por tipo de sesión (HC-S03/HC-S05). */
+  requisitosEspacio?: RequisitoEspacio[];
 }
 
 export interface GenerarHorarioRequest {
@@ -66,11 +74,13 @@ export interface AsignaturaApiDto {
   programaId?: string;
   /** TipoA | TipoB | SinAlternancia — solo aplica al track de laboratorio. */
   alternancia?: string;
-  espacioFijoId?: string;
   /** Prioridad de presencialidad (SC-PRES): 'Obligatoria' | 'Optativa' | 'Electiva'. */
   categoria?: string;
   /** Candidata a ceder a alternancia si el algoritmo agota el espacio físico (cesión por saturación de espacio). */
   esCandidataAlternancia?: boolean;
+  /** Ventana horaria HC-VH, formato "HH:mm". Ausente = sin restricción. */
+  horaInicioMin?: string;
+  horaFinMax?: string;
 }
 
 export interface DocenteApiDto {
@@ -102,8 +112,27 @@ export interface GenerarHorarioResponse {
   puntajeFitness: number;
   generaciones: number;
   mensajeError?: string;
+  motivoInfactibilidad?: string;
+  /** Ids de grupo señalados por el diagnóstico opcional de Fase 2 como responsables de la
+   *  infactibilidad — ver GenerarHorarioResponse.GruposEnConflicto en el backend. */
+  gruposEnConflicto?: string[];
   logs?: string[];
   // alternancia y semana llegan como string desde JSON; mapearSesiones() los castea
+  sesiones: (Omit<Sesion, 'alternancia' | 'semana'> & { alternancia: string; semana?: string })[];
+}
+
+export interface ReacomodarHorarioRequest {
+  horarioId: string;
+  sesionEditadaId: string;
+  dia: string;
+  horaInicio: string;
+  espacioId?: string;
+}
+
+export interface ReacomodarHorarioResponse {
+  esFactible: boolean;
+  mensajeError?: string;
+  advertencias: string[];
   sesiones: (Omit<Sesion, 'alternancia' | 'semana'> & { alternancia: string; semana?: string })[];
 }
 
@@ -131,6 +160,7 @@ export class HorarioApiService {
     grupos?: Grupo[]
   ): Observable<GenerarHorarioResponse> {
     const sesionesFijas: SesionFijaApiDto[] | undefined = base?.sesiones.map(s => ({
+      id:           s.id,
       asignaturaId: s.asignaturaId,
       docenteId:    s.docenteId,
       espacioId:    s.espacioId,
@@ -149,9 +179,10 @@ export class HorarioApiService {
       codigo: g.codigo,
       asignaturaId: g.asignaturaId,
       facultadId: g.facultadId,
+      docenteId: g.docenteId,
       estudiantesInscritos: g.estudiantesInscritos,
-      disponibilidad: this.franjasDeGrupo(g.disponibilidadUiJson),
       disponibilidadUiJson: g.disponibilidadUiJson,
+      requisitosEspacio: g.requisitosEspacio ?? [],
     }));
 
     const body: GenerarHorarioRequest = {
@@ -166,7 +197,10 @@ export class HorarioApiService {
         umbralConvergencia:   30,
         pesoErgo:             config.pesoErgo,
         pesoTiempos:          config.pesoTiempos,
-        pesoAlmuerzo:         config.pesoAlm,
+        pesoMaxHorasSeguidas: config.pesoAlm,
+        pesoBalanceSemanas:   config.pesoBalanceSemanas,
+        pesoPresencialFirst:  config.pesoPresencialFirst,
+        semilla:              config.semilla,
       } : undefined,
       asignaturas: asignaturas.map(a => ({
         id: a.id,
@@ -179,7 +213,8 @@ export class HorarioApiService {
         horasLaboratorio: a.horasLaboratorio,
         programaId: a.programaId,
         alternancia: a.alternancia,
-        espacioFijoId: a.espacioFijoId,
+        horaInicioMin: a.horaInicioMin,
+        horaFinMax: a.horaFinMax,
         categoria: a.categoria,
         esCandidataAlternancia: a.esCandidataAlternancia
       })),
@@ -202,6 +237,28 @@ export class HorarioApiService {
       .pipe(catchError(this.manejarError));
   }
 
+  /**
+   * P6: recupera el horario ya persistido para un semestre (última corrida generada), para
+   * rehidratar la grilla tras un reload de página — antes esto no existía y el horario generado
+   * solo vivía en memoria del navegador, así que un simple F5 lo vaciaba aunque siguiera intacto
+   * en BD. null si aún no se ha generado ningún horario para ese semestre (404, no es un error).
+   */
+  obtenerActual(semestre = '2026-1'): Observable<GenerarHorarioResponse | null> {
+    return this.http
+      .get<GenerarHorarioResponse>(`${this.apiBase}/horario/actual`, { params: { semestre } })
+      .pipe(catchError((err: HttpErrorResponse) => err.status === 404 ? of(null) : this.manejarError(err)));
+  }
+
+  /**
+   * Petición 13: mueve una sesión ya generada a un nuevo (día, hora, espacio) sin regenerar el
+   * horario completo. El backend recalcula solo la sesión editada y las que ahora chocan con ella.
+   */
+  reacomodar(request: ReacomodarHorarioRequest): Observable<ReacomodarHorarioResponse> {
+    return this.http
+      .post<ReacomodarHorarioResponse>(`${this.apiBase}/horario/reacomodar`, request)
+      .pipe(catchError(this.manejarError));
+  }
+
   /** Castea alternancia y semana de string a los tipos unión tipados. */
   mapearSesiones(sesiones: GenerarHorarioResponse['sesiones']): Sesion[] {
     return sesiones.map(s => ({
@@ -213,38 +270,6 @@ export class HorarioApiService {
     }));
   }
 
-  /**
-   * Reduce la disponibilidad por día del grupo (JSON de la UI) a las franjas que entiende
-   * HC-G01 en el backend: "Matutino" (06–13) y/o "Vespertino" (13–20).
-   * Une las franjas de todos los días configurados. Si cubre ambas → devuelve [] (sin
-   * restricción, evita un filtro inútil). Sin JSON → [] (grupo sin restricción de franja).
-   */
-  private franjasDeGrupo(json?: string): string[] {
-    if (!json) return [];
-    let disp: Record<string, any>;
-    try { disp = JSON.parse(json); } catch { return []; }
-
-    const set = new Set<string>();
-    for (const dia of Object.keys(disp)) {
-      const d = disp[dia];
-      if (!d || d.noDisponible) continue;
-      const tipo   = String(d.tipo ?? '').toLowerCase();
-      const franja = String(d.franjaGeneral ?? '').toLowerCase();
-      const tiene  = (s: string) => tipo.includes(s) || franja.includes(s);
-
-      if (tiene('todo')) { set.add('Matutino'); set.add('Vespertino'); }
-      else if (tiene('matutino')) set.add('Matutino');
-      else if (tiene('vespertino') || tiene('nocturno')) set.add('Vespertino');
-      else if (tiene('especific')) {
-        const desde = d.desde ?? '06:00';
-        const hasta = d.hasta ?? '22:00';
-        if (desde < '13:00') set.add('Matutino');
-        if (hasta > '13:00') set.add('Vespertino');
-      } else { set.add('Matutino'); set.add('Vespertino'); }
-    }
-    return set.size >= 2 ? [] : [...set];
-  }
-
   private diffHoras(horaInicio: string, horaFin: string): number {
     const [hi, mi] = horaInicio.split(':').map(Number);
     const [hf, mf] = horaFin.split(':').map(Number);
@@ -252,6 +277,13 @@ export class HorarioApiService {
   }
 
   private manejarError(err: HttpErrorResponse): Observable<never> {
+    // Fallo de red real (backend caído, CORS, sin conexión): Angular reporta status 0 y
+    // err.error es un ProgressEvent — también `typeof === 'object'`, así que sin este chequeo
+    // primero caía en la rama de abajo y se reenviaba el ProgressEvent crudo como si fuera el
+    // payload 422 real, indistinguible en el componente de un 422 mal formado.
+    if (err.status === 0) {
+      return throwError(() => new Error('No se pudo conectar con el servidor. Verifique su conexión o que el backend esté disponible.'));
+    }
     if (err.status === 400) {
       const errors = err.error?.errors;
       if (errors && typeof errors === 'object') {

@@ -26,29 +26,31 @@ SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanale
 - [x] Interfaces de motor: `IMotorColoracionGrafo`, `IMotorConstraintProgramming`, `IMotorGenetico`, `IMotorOptimizacion`
 - [x] Enums: `TipoAlternancia`, `TipoEspacio`, `Modalidad`, `DiaDeSemana`, `EstadoHorario`, `EstadoSesion`, `FranjaHoraria`, `TipoRestriccion`, `SemanaAcademica`, `PatronBaseAlternancia`, `TipoFlujo`, `CategoriaAsignatura`
 - [x] Value Objects: `CodigoCohorte`, `CodigoEspacio`, `IntervaloTiempo`
-- [x] Andamiaje Presencial-First (Etapa 1, solo datos): `Sesion.TipoFlujo`/`PatronAlternanciaId?`/`Bloqueada`, `Asignatura.Categoria`/`HoraInicioMin?`/`HoraFinMax?` + migración `EtapaInicialPresencialFirst`. Lógica de motor pendiente — ver `docs/PLAN_MAESTRO_PresencialFirst.md`
+- [x] Presencial-First Etapa 1 (datos) + lógica de motor (completada, ya no pendiente): `Sesion.TipoFlujo`/`PatronAlternanciaId?`/`Bloqueada`, `Asignatura.Categoria`/`HoraInicioMin?`/`HoraFinMax?` + migración `EtapaInicialPresencialFirst`. La lógica que los consume (`GenerarHorarioService.AplicarPrioridadPresencial`/`CederSiguienteCandidatoLab`, reversión post-Fase 3) está implementada — ver `docs/algorithms.md` sección Presencial-First
 - [x] Presencial-First Etapa 2 (CR-02): `Sesion.DocenteId` nullable (docente opcional) + null-guards en motores/validador + migración `Etapa2DocenteOpcional`. **HC-I02 degradada**: la disponibilidad docente ya no es hard constraint de generación (Fase 2/Fase 3); solo preferencia blanda (SC-06)
 - [x] Presencial-First Etapa 3 (CR-08 cerrado): **grupo/cohorte como eje** de conflicto y optimización. Cohorte implícita (un run = un grupo; `GrupoId` sintético por run). Fase 1 arista por `GrupoId`; Fase 2 **HC-C01** NoOverlap por `(grupo, semana)`; Fase 3 ergonomía por cohorte. HC-I01/HC-I03 fuera de generación; **docente fuera del pipeline** (se asigna después de generar). Sin migración (`grupo_id` ya existía). HU-04 (editar sesión) y multi-cohorte → etapas posteriores
 - [x] Presencial-First Etapa 4 (CR-02 2º rol): **docente post-generación**. Mutador `Sesion.AsignarDocente(Guid?)` + `AsignarDocenteSesionService` (solape duro → 409; disponibilidad/carga → advertencias) + `PATCH /api/sesiones/{id}/docente` (nuevo `SesionesController`). Sin migración. 224/224 verde.
 - [x] `SOEA.Engine.GraphColoring`: `AgendadorColoracionGrafo`, `ConstructorGrafoConflictos`
 - [x] `SOEA.Engine.ConstraintProg`: `MotorConstraintProgramming` (OR-Tools CP-SAT, 120 s timeout)
 - [x] `SOEA.Engine.Genetic`: `CromosomaHorario`, `EvaluadorFitness`, `MotorGenetico`, `OperadoresGeneticos` (200 gen, pop 50, convergencia 30)
-- [x] `SOEA.Infrastructure.Data`: `SOEABdContext`, 9 configuraciones EF, 7 repositorios, 5 migraciones aplicadas
+- [x] `SOEA.Infrastructure.Data`: `SOEABdContext`, 9 configuraciones EF, 7 repositorios, **19 migraciones aplicadas** (`InitialCreate` → `FixMotivoConflictoColumnMapping`, 2026-08-07)
 - [x] `SOEA.Infrastructure.Excel`: `LectorExcel` (3 modos: curriculum, modo2, disponibilidad)
-- [x] `SOEA.Application`: `GenerarHorarioService`, CRUD completo de asignaturas
-- [x] `SOEA.API`: 8 controllers (`AsignaturaController`, `DocentesController`, `EspaciosController`, `GruposController`, `HorarioController`, `ImportController`, `SesionesController`, `TiposAlternanciaController`)
-- [x] Tests: arquitectura (NetArchTest), entidades de dominio, motores, value objects
-- [x] Validador post-generación de hard constraints (`ValidadorRestriccionesDuras` en Application, wired en `GenerarHorarioService` paso 4b — fallback a Fase 2 si el GA viola alguna HC)
+- [x] `SOEA.Application`: `AsignaturaService` (CRUD completo, un solo servicio), `CrearSesionManualService`, `DocenteService`, `FusionDocentesService`, `CriterioCesionAlternanciaService`, `GenerarHorarioService`, `ImportarCurriculumService`, `AsignarDocenteSesionService`, `ReacomodarHorarioService`
+- [x] `SOEA.API`: **9 controllers** (`AsignaturaController`, `CriteriosCesionAlternanciaController`, `DocentesController`, `EspaciosController`, `FacultadesController`, `GruposController`, `HorarioController`, `ImportController`, `ProgramasController`, `SesionesController`) — corrección: no existe `TiposAlternanciaController`; `TipoAlternanciaConfig` no tiene endpoint REST propio
+- [x] Tests: arquitectura (NetArchTest), entidades de dominio, motores, value objects (~257 métodos de prueba en 30 archivos)
+- [x] Validador post-generación de hard constraints (`ValidadorRestriccionesDuras` en Application, wired en `GenerarHorarioService` paso 4b — fallback a Fase 2 si el GA viola alguna de las **10 reglas** verificadas: HC-C01, HC-S01, HC-ALT, HC-BASE, HC-VH, HC-G01, HC-S03, HC-CAP, HC-S05, HC-SEP)
+- [x] "Grupo como eje" completado a nivel de datos (migración `P1_GrupoComoEje`, 2026-08-06): `Grupo` absorbió `DocenteId` (desde `Fase2DocenteEnGrupo`) y `RequisitosEspacio` (reemplaza `Asignatura.EspacioFijoId`, ya eliminado)
+- [x] Alternancia por parejas / "Tipo C" dinámico (migración `P2_ParejaAlternancia`, 2026-08-07): `Sesion.ParejaAlternanciaId` + hard constraint HC-ALT en CP-SAT y en el validador
 - [ ] `PublicarHorarioService` — impide publicar con violaciones > 0
-- [ ] Autenticación JWT y control de acceso por rol (Admin / Coordinador / Docente / Estudiante)
+- [ ] Autenticación JWT y control de acceso por rol — sigue sin implementarse; la aplicación real (backend y frontend) es de un solo operador sin login, no de 4 roles
 
 **Frontend** (`frontend/soea-angular`)
-- [x] Rutas: `/ingesta`, `/horario`, `/dashboard-admin`, `/dashboard-developer`, `/horario-docente`, `/tipos-alternancia`, `/configuracion-alternancia`
-- [x] `StateService` (estado global en memoria), `HorarioApiService`, `PersistenciaService`
-- [x] Tabs en `/ingesta`: Asignaturas, Docentes, Espacios, Grupos
-- [ ] Carga de Excel en pestaña Ingesta
+- [x] Rutas actuales, organizadas por journey (rediseño completo, ver `docs/DESIGN_BRIEF.md`): `/catalogo` (paso 1: preparar catálogo), `/horario` (pasos 2–3: generar y ajustar), `/revisar` (paso 4: KPIs), `/publicar` (paso 5, bloqueado). **Las rutas antiguas (`/ingesta`, `/dashboard-admin`, `/dashboard-developer`, `/horario-docente`, `/tipos-alternancia`, `/configuracion-alternancia`) ya no existen** — este archivo las listaba desactualizadas.
+- [x] `StateService` (signals reactivos), `PersistenciaService`, `CatalogoService` (hidratación inicial), `HorarioApiService`
+- [x] Tabs en `/catalogo`: Asignaturas (con Grupos como fila expandible, no pestaña propia), Docentes, Espacios, Alternancia
+- [x] Carga de Excel en `/catalogo`
 - [ ] Vista de reporte de conflictos
-- [ ] Control de acceso por rol en UI
+- [ ] Control de acceso por rol en UI — no aplica: no hay roles ni login en el diseño actual (un solo operador)
 
 ## 4 — Datos bloqueantes
 
@@ -101,7 +103,7 @@ PostgreSQL `localhost:5432`, DB `SOEAdb`. Configuraciones EF en `SOEA.Infrastruc
 **Motor CP-SAT:** la sección `CpSat` de configuración controla `ExportarModelo` (volcado de `cp_model_debug.txt`, default `false`) y `TimeoutSegundos` (default 120).
 
 `ILectorExcel` expone tres métodos:
-- `LeerCurriculumAsync` — cols A–J: Facultad, Programa, Asignatura, Código, TipoEspacio, Espacio, Duración, Día, Hora, Docente.
+- `LeerCurriculumAsync` — columnas detectadas por cabecera (no por posición): Facultad, Programa, Asignatura, Código (opcional), TipoEspacio (opcional), Espacio/Curso/Salón/Aula, Duración/Horas/Reales [h], Día, Hora, Docente, Grupo (opcional, número real de grupo/sección), Final (opcional, hora de fin explícita — si no viene, se deriva de Hora+Duración). Acepta tanto el formato legado (A–J fijo) como el formato real de Rosa (Facultad, Programa, Asignatura, Grupo, Docente, Reales [h], Espacio, Dia, Hora, Final).
 - `LeerAsignaturasModo2Async` — cols A–H (sin Día/Hora).
 - `LeerDisponibilidadDocentesAsync` — cols: Docente, Correo, MaxHoras, Días, Franjas.
 

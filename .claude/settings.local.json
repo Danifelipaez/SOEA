@@ -1,4 +1,7 @@
 {
+  "env": {
+  "SOEA_TESTS_UNLOCK": "1"
+},
   "permissions": {
     "allow": [
       "Bash(dotnet build *)",
@@ -41,7 +44,7 @@
   "skillOverrides": {
     "add-entity": "name-only",
     "debug-issue": "user-invocable-only",
-    "explore-codebase": "off",
+    "explore-codebase": "on",
     "find-skills": "off",
     "graphify": "name-only",
     "refactor-safely": "name-only",

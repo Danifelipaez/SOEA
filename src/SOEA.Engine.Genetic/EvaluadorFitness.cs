@@ -21,7 +21,7 @@ namespace SOEA.Engine.Genetic
     /// suman. Para TipoA/TipoB las dos semanas son idénticas en timing (StartB==Start por
     /// construcción), así que su aporte se duplica sin distorsionar el balance entre sesiones; solo
     /// SinAlternancia puede hacer que el aporte de A y B difiera.
-    ///   ④ SC-BAL (nuevo, Incremento 2): por docente y día, penaliza la diferencia de carga horaria
+    ///   ④ SC-BAL (nuevo, Incremento 2): por cohorte y día, penaliza la diferencia de carga horaria
     ///      total entre Semana A y Semana B. Los genes TipoA/TipoB nunca contribuyen a esta
     ///      diferencia (StartB==Start ⇒ mismo día, mismas horas en ambas semanas); solo
     ///      SinAlternancia puede introducir o resolver desbalance, aprovechando la libertad de ALT-06.
@@ -45,7 +45,8 @@ namespace SOEA.Engine.Genetic
         private readonly DiaDeSemana[] _diaPorIdx;
         private readonly HashSet<DiaDeSemana> _diasGrilla; // días operativos de la grilla (buckets SC-06)
         private readonly int[] _duraciones;
-        private readonly int _nEspacios;
+        private readonly int _nEspaciosLab;
+        private readonly int _nEspaciosNoLab;
 
         private readonly int _pesoSC01;  // huecos
         private readonly int _pesoSC06;  // balance entre días
@@ -65,7 +66,8 @@ namespace SOEA.Engine.Genetic
         {
             _sesiones  = sesiones;
             _bloques   = bloques;
-            _nEspacios = espacios.Count;
+            _nEspaciosLab   = espacios.Count(e => e.Tipo == TipoEspacio.Laboratorio);
+            _nEspaciosNoLab = espacios.Count - _nEspaciosLab;
             _diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
             _diasGrilla = _diaPorIdx.Distinct().ToHashSet();
 
@@ -154,10 +156,10 @@ namespace SOEA.Engine.Genetic
         }
 
         // ① SC-01: suma de huecos (en horas) entre sesiones consecutivas de la cohorte por día.
-        private int SC01_HuecosOciosos(Dictionary<Guid, Dictionary<DiaDeSemana, List<(int start, int dur)>>> spansPorDocenteDia)
+        private int SC01_HuecosOciosos(Dictionary<Guid, Dictionary<DiaDeSemana, List<(int start, int dur)>>> spansPorGrupoDia)
         {
             int huecos = 0;
-            foreach (var porDia in spansPorDocenteDia.Values)
+            foreach (var porDia in spansPorGrupoDia.Values)
                 foreach (var spans in porDia.Values)
                 {
                     var ord = spans.OrderBy(s => s.start).ToList();
@@ -172,10 +174,10 @@ namespace SOEA.Engine.Genetic
         }
 
         // ② SC-09: por cada racha contigua de sesiones, penaliza las horas que excedan _umbralSC09.
-        private int SC09_HorasSeguidas(Dictionary<Guid, Dictionary<DiaDeSemana, List<(int start, int dur)>>> spansPorDocenteDia)
+        private int SC09_HorasSeguidas(Dictionary<Guid, Dictionary<DiaDeSemana, List<(int start, int dur)>>> spansPorGrupoDia)
         {
             int penalizacion = 0;
-            foreach (var porDia in spansPorDocenteDia.Values)
+            foreach (var porDia in spansPorGrupoDia.Values)
                 foreach (var spans in porDia.Values)
                 {
                     var ord = spans.OrderBy(s => s.start).ToList();
@@ -267,6 +269,11 @@ namespace SOEA.Engine.Genetic
         }
 
         // Guarda de aulas: máx. sesiones presenciales simultáneas por (semana, día) vs nº de aulas.
+        // M1 (auditoría): antes comparaba la concurrencia TOTAL contra TODAS las aulas sin distinguir
+        // tipo — un run con muchos salones y ningún laboratorio nunca penalizaba la sobre-reserva de
+        // laboratorios (los salones "tapaban" el exceso en el conteo agregado). Ahora separa la
+        // concurrencia por clase (Laboratorio vs el resto), misma partición que gobierna la regla
+        // por defecto de HC-S03 en CalculadorEspaciosSesion.
         private int GuardaCapacidadAulas(CromosomaHorario c)
         {
             int exceso = 0;
@@ -274,23 +281,32 @@ namespace SOEA.Engine.Genetic
             {
                 var starts = semana == SemanaAcademica.A ? c.Start : c.StartB;
 
-                // Spans presenciales en esta semana, agrupados por día.
-                var porDia = new Dictionary<DiaDeSemana, List<(int start, int dur)>>();
+                // Spans presenciales en esta semana, agrupados por día y por clase de espacio.
+                var porDiaLab = new Dictionary<DiaDeSemana, List<(int start, int dur)>>();
+                var porDiaNoLab = new Dictionary<DiaDeSemana, List<(int start, int dur)>>();
                 for (int i = 0; i < c.CantidadGenes; i++)
                 {
                     if (ModalidadSemanal.Derivar(_sesiones[i], semana) != Modalidad.Presencial) continue;
                     int start = starts[i];
                     if (start < 0 || start >= _bloques.Count) continue;
                     var dia = _diaPorIdx[start];
+                    var porDia = CalculadorEspaciosSesion.TipoSesionDe(_sesiones[i]) == TipoSesion.Laboratorio
+                        ? porDiaLab : porDiaNoLab;
                     if (!porDia.TryGetValue(dia, out var lista)) { lista = new(); porDia[dia] = lista; }
                     lista.Add((start, _duraciones[i]));
                 }
 
-                foreach (var spans in porDia.Values)
+                foreach (var spans in porDiaLab.Values)
                 {
                     int maxConcurrentes = MaxConcurrencia(spans);
-                    if (maxConcurrentes > _nEspacios)
-                        exceso += maxConcurrentes - _nEspacios;
+                    if (maxConcurrentes > _nEspaciosLab)
+                        exceso += maxConcurrentes - _nEspaciosLab;
+                }
+                foreach (var spans in porDiaNoLab.Values)
+                {
+                    int maxConcurrentes = MaxConcurrencia(spans);
+                    if (maxConcurrentes > _nEspaciosNoLab)
+                        exceso += maxConcurrentes - _nEspaciosNoLab;
                 }
             }
             return exceso;

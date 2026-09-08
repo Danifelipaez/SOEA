@@ -34,6 +34,7 @@ namespace SOEA.Tests.Application.Horario
                 Task.FromResult(Items.FirstOrDefault(h => h.Id == id));
             public Task<SOEA.Domain.Entities.Horario?> GetBySemestreAsync(string semestre) =>
                 Task.FromResult(Items.FirstOrDefault(h => h.Semestre == semestre));
+            public Task<List<SOEA.Domain.Entities.Horario>> GetAllAsync() => Task.FromResult(Items.ToList());
             public Task AddAsync(SOEA.Domain.Entities.Horario horario) { Items.Add(horario); return Task.CompletedTask; }
             public Task UpdateAsync(SOEA.Domain.Entities.Horario horario) => Task.CompletedTask;
         }
@@ -64,6 +65,22 @@ namespace SOEA.Tests.Application.Horario
                 var set = sesionIds.ToHashSet();
                 return Task.FromResult(Items.Where(a => set.Contains(a.SesionId)).ToList());
             }
+        }
+
+        private sealed class FakeGrupoRepo : IGrupoRepositorio
+        {
+            public readonly List<Grupo> Items = new();
+            public Task AddAsync(Grupo entity) { Items.Add(entity); return Task.CompletedTask; }
+            public Task<Grupo?> GetByIdAsync(Guid id) => Task.FromResult(Items.FirstOrDefault(g => g.Id == id));
+            public Task<List<Grupo>> GetAllAsync() => Task.FromResult(Items.ToList());
+            public Task UpdateAsync(Grupo entity) => Task.CompletedTask;
+            public Task DeleteAsync(Guid id) => Task.CompletedTask;
+            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) => Task.FromResult<Grupo?>(null);
+            public Task<Grupo?> GetByCodigoAsync(string codigo) => Task.FromResult<Grupo?>(null);
+            public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) =>
+                Task.FromResult(Items.Where(g => g.AsignaturaId == asignaturaId));
+            public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) =>
+                Task.FromResult(Items.Where(g => g.DocenteId == docenteId));
         }
 
         /// <summary>Repo fake con los 4 criterios de sistema (MultiplesSesiones orden 1, Electiva orden 2,
@@ -139,13 +156,20 @@ namespace SOEA.Tests.Application.Horario
             var fase1 = new AgendadorColoracionGrafo(
                 new ConstructorGrafoConflictos(), NullLogger<AgendadorColoracionGrafo>.Instance);
             var fase2 = new MotorConstraintProgramming(NullLogger<MotorConstraintProgramming>.Instance, cpSatOptions);
-            fase3 ??= new MotorGenetico(NullLogger<MotorGenetico>.Instance);
-            return new GenerarHorarioService(fase1, fase2, fase3, horarioRepo, sesionRepo, asigRepo, new FakeCriterioCesionRepo(), uow);
+            fase3 ??= new MotorGenetico(NullLogger<MotorGenetico>.Instance,
+                new AsignadorEspaciosExactoCpSat(NullLogger<AsignadorEspaciosExactoCpSat>.Instance));
+            return new GenerarHorarioService(fase1, fase2, fase3, horarioRepo, sesionRepo, asigRepo, new FakeGrupoRepo(), new FakeCriterioCesionRepo(), uow);
         }
 
-        private static readonly Guid GrupoId = Guid.NewGuid();
         private static readonly string LabId = Guid.NewGuid().ToString();
         private static readonly string SalonId = Guid.NewGuid().ToString();
+        private static readonly string QuimicaId = Guid.NewGuid().ToString();
+        private static readonly string CalculoId = Guid.NewGuid().ToString();
+        private static readonly string EticaId = Guid.NewGuid().ToString();
+
+        // JSON crudo (mismo shape que produce la UI) con toda la semana restringida a Matutino/Vespertino.
+        private const string DisponibilidadUiJsonMatutino =
+            """{"lunes":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"martes":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"miercoles":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"jueves":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"viernes":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"},"sabado":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Matutino (06:00–12:00)"}}""";
 
         private static GenerarHorarioRequest RequestBase() => new()
         {
@@ -154,13 +178,13 @@ namespace SOEA.Tests.Application.Horario
             {
                 new()
                 {
-                    Id = Guid.NewGuid().ToString(), Nombre = "Química Orgánica",
+                    Id = QuimicaId, Nombre = "Química Orgánica",
                     SesionesLaboratorioSemana = 1, HorasLaboratorio = 2,
                     Alternancia = "TipoA", Categoria = "Obligatoria"
                 },
                 new()
                 {
-                    Id = Guid.NewGuid().ToString(), Nombre = "Cálculo I",
+                    Id = CalculoId, Nombre = "Cálculo I",
                     SesionesTeoriaPresencialSemana = 2, HorasTeoriaPresencial = 2,
                     Categoria = "Obligatoria",
                     // HC-VH: toda sesión de esta asignatura debe caer en [08:00, 12:00].
@@ -168,7 +192,7 @@ namespace SOEA.Tests.Application.Horario
                 },
                 new()
                 {
-                    Id = Guid.NewGuid().ToString(), Nombre = "Ética",
+                    Id = EticaId, Nombre = "Ética",
                     SesionesTeoriaVirtualSemana = 1, HorasTeoriaVirtual = 2,
                     Categoria = "Electiva"
                 }
@@ -178,24 +202,40 @@ namespace SOEA.Tests.Application.Horario
                 new() { Id = LabId,   Nombre = "Lab Química", Tipo = "laboratorio", Capacidad = 30 },
                 new() { Id = SalonId, Nombre = "Salón 101",   Tipo = "salon",       Capacidad = 30 }
             },
+            // Multi-grupo real (P1): un grupo por asignatura — las sesiones se expanden desde el
+            // grupo, no desde la asignatura. Los 3 comparten disponibilidad Matutino (HC-G01).
             Grupos = new List<GrupoDto>
             {
                 new()
                 {
-                    Id = GrupoId.ToString(), Nombre = "Cohorte 2026-1",
-                    EstudiantesInscritos = 20,
-                    Disponibilidad = new List<string> { "Matutino" }
+                    Id = Guid.NewGuid().ToString(), Nombre = "Cohorte Química",
+                    AsignaturaId = QuimicaId, EstudiantesInscritos = 20,
+                    DisponibilidadUiJson = DisponibilidadUiJsonMatutino
+                },
+                new()
+                {
+                    Id = Guid.NewGuid().ToString(), Nombre = "Cohorte Cálculo",
+                    AsignaturaId = CalculoId, EstudiantesInscritos = 20,
+                    DisponibilidadUiJson = DisponibilidadUiJsonMatutino
+                },
+                new()
+                {
+                    Id = Guid.NewGuid().ToString(), Nombre = "Cohorte Ética",
+                    AsignaturaId = EticaId, EstudiantesInscritos = 20,
+                    DisponibilidadUiJson = DisponibilidadUiJsonMatutino
                 }
             }
         };
 
         private static int Hora(string hhmm) => int.Parse(hhmm.Split(':')[0]);
 
-        /// <summary>Aserción post-hoc de HC-C01: dentro de cada semana, ninguna pareja de
-        /// sesiones de la cohorte se solapa (todas las filas del run son de la misma cohorte).</summary>
+        /// <summary>Aserción post-hoc de HC-C01: dentro de cada semana, ninguna pareja de sesiones
+        /// del MISMO grupo se solapa. Multi-grupo real (P1): grupos distintos son cohortes de
+        /// estudiantes distintas y sí pueden solaparse; en este fixture cada grupo tiene exactamente
+        /// una asignatura, así que agrupar por AsignaturaId identifica al grupo.</summary>
         private static void AssertSinSolapesDeCohorte(IEnumerable<SesionGeneradaDto> sesiones)
         {
-            foreach (var grupoSemanaDia in sesiones.GroupBy(s => (s.Semana, s.Dia)))
+            foreach (var grupoSemanaDia in sesiones.GroupBy(s => (s.Semana, s.Dia, s.AsignaturaId)))
             {
                 var spans = grupoSemanaDia
                     .Select(s => (ini: Hora(s.HoraInicio), fin: Hora(s.HoraInicio) + (int)Math.Ceiling(s.DuracionHoras), s.Id))
@@ -269,6 +309,89 @@ namespace SOEA.Tests.Application.Horario
             Assert.Equal(0, horarioRepo.Items[0].ViolacionesRestriccionesDuras);
         }
 
+        /// <summary>
+        /// P6 auditoría: antes no existía ningún GET para el horario ya persistido — el frontend
+        /// solo tenía las sesiones en memoria hasta la próxima generación, así que un simple reload
+        /// de /horario dejaba la grilla vacía aunque el horario siguiera intacto en BD. Confirma que
+        /// ObtenerActualAsync reconstruye el mismo resultado que devolvió la generación original.
+        /// </summary>
+        [Fact]
+        public async Task ObtenerActualAsync_TrasGenerar_DevuelveElMismoHorarioPersistido()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+            var svc = CrearServicio(horarioRepo, sesionRepo, asigRepo, uow);
+
+            var request = RequestBase();
+            var generado = await svc.EjecutarAsync(request);
+            Assert.True(generado.EsFactible, generado.MensajeError ?? string.Join("\n", generado.Logs));
+
+            var actual = await svc.ObtenerActualAsync(request.Semestre);
+
+            Assert.NotNull(actual);
+            Assert.True(actual!.EsFactible);
+            Assert.Equal(generado.HorarioId, actual.HorarioId);
+            Assert.Equal(generado.PuntajeFitness, actual.PuntajeFitness);
+            Assert.Equal(generado.Sesiones.Count, actual.Sesiones.Count);
+            Assert.Equal(
+                generado.Sesiones.Select(s => s.Id).OrderBy(id => id),
+                actual.Sesiones.Select(s => s.Id).OrderBy(id => id));
+        }
+
+        [Fact]
+        public async Task ObtenerActualAsync_SinNingunaGeneracionPrevia_DevuelveNull()
+        {
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+
+            var actual = await svc.ObtenerActualAsync("2026-1");
+
+            Assert.Null(actual);
+        }
+
+        /// <summary>
+        /// M2 (auditoría): antes, cada POST /horario/generar solo AGREGABA sesiones/asignaciones
+        /// (AddRangeAsync sin delete previo) — las de la corrida anterior quedaban huérfanas en la
+        /// BD para siempre (crecimiento ilimitado + contaminación de cualquier query que no
+        /// filtrara por horario activo, el mismo problema que "G4 auditoría" documenta en
+        /// AsignarDocenteSesionService). Verifica que regenerar limpia la corrida anterior, sin
+        /// tocar sesiones manuales (que no pertenecen a ningún Horario.SesioneIds) ni los registros
+        /// Horario en sí (auditoría de corridas — IHorarioRepositorio.GetAllAsync).
+        /// </summary>
+        [Fact]
+        public async Task Regenerar_BorraSesionesYAsignacionesDeLaCorridaAnterior_PeroConservaSesionesManualesYHorarios()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+            var svc = CrearServicio(horarioRepo, sesionRepo, asigRepo, uow);
+
+            var request = RequestBase();
+
+            // Sesión manual (CrearSesionManualService): nunca entra en Horario.SesioneIds.
+            var manual = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, Guid.NewGuid(),
+                TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m, false, false);
+            sesionRepo.Items.Add(manual);
+
+            var r1 = await svc.EjecutarAsync(request);
+            Assert.True(r1.EsFactible, r1.MensajeError ?? string.Join("\n", r1.Logs));
+
+            var idsPrimeraCorrida = sesionRepo.Items.Select(s => s.Id).Where(id => id != manual.Id).ToList();
+            Assert.NotEmpty(idsPrimeraCorrida);
+            var horarioPrimeraCorridaId = horarioRepo.Items.Single().Id;
+
+            var r2 = await svc.EjecutarAsync(request);
+            Assert.True(r2.EsFactible, r2.MensajeError ?? string.Join("\n", r2.Logs));
+
+            Assert.DoesNotContain(sesionRepo.Items, s => idsPrimeraCorrida.Contains(s.Id));
+            Assert.DoesNotContain(asigRepo.Items, a => idsPrimeraCorrida.Contains(a.SesionId));
+            Assert.Contains(sesionRepo.Items, s => s.Id == manual.Id);
+            Assert.Contains(horarioRepo.Items, h => h.Id == horarioPrimeraCorridaId);
+            Assert.Equal(2, horarioRepo.Items.Count);
+        }
+
         [Fact]
         public async Task GaInvalido_HaceFallbackAFase2_YPublicaHorarioValido()
         {
@@ -336,6 +459,208 @@ namespace SOEA.Tests.Application.Horario
             Assert.Contains(r.Logs, l => l.Contains("[WARN]") && l.Contains("Sesión fija omitida"));
             // La sesión omitida no se coló en el horario publicado ni en la persistencia.
             AssertSinSolapesDeCohorte(r.Sesiones);
+        }
+
+        // ── RequisitosEspacio de grupo, de punta a punta (M9: RequestBase() nunca los poblaba,
+        // así que ningún test de integración probaba el camino completo DTO → dominio → motores).
+
+        private static (string asigId, string grupoId, GenerarHorarioRequest request) RequestMinimaTeoriaPresencial(
+            List<EspacioDto> espacios, List<RequisitoEspacioDto> requisitosEspacio)
+        {
+            var asigId = Guid.NewGuid().ToString();
+            var grupoId = Guid.NewGuid().ToString();
+            var request = new GenerarHorarioRequest
+            {
+                Semestre = "2026-1",
+                Asignaturas = new List<AsignaturaDto>
+                {
+                    new()
+                    {
+                        Id = asigId, Nombre = "Asignatura de prueba",
+                        SesionesTeoriaPresencialSemana = 1, HorasTeoriaPresencial = 2,
+                        Categoria = "Obligatoria"
+                    }
+                },
+                Espacios = espacios,
+                Grupos = new List<GrupoDto>
+                {
+                    new()
+                    {
+                        Id = grupoId, Nombre = "Grupo de prueba",
+                        AsignaturaId = asigId, EstudiantesInscritos = 20,
+                        DisponibilidadUiJson = DisponibilidadUiJsonMatutino,
+                        RequisitosEspacio = requisitosEspacio
+                    }
+                }
+            };
+            return (asigId, grupoId, request);
+        }
+
+        [Fact]
+        public async Task RequisitoDeAulaConcreta_SeRespeta()
+        {
+            var salonPreferido = Guid.NewGuid().ToString();
+            var salonOtro = Guid.NewGuid().ToString();
+            var (_, _, request) = RequestMinimaTeoriaPresencial(
+                espacios: new List<EspacioDto>
+                {
+                    new() { Id = salonPreferido, Nombre = "Salón preferido", Tipo = "salon", Capacidad = 30 },
+                    new() { Id = salonOtro, Nombre = "Salón otro", Tipo = "salon", Capacidad = 30 }
+                },
+                requisitosEspacio: new List<RequisitoEspacioDto>
+                {
+                    new() { TipoSesion = "TeoriaPresencial", EspacioId = salonPreferido, TipoEspacio = "Salon", Sesiones = 1 }
+                });
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.NotEmpty(r.Sesiones);
+            Assert.All(r.Sesiones, s => Assert.Equal(salonPreferido, s.EspacioId));
+        }
+
+        // M8: EspaciosController usa "Salón" con tilde como literal canónico del tipo de espacio
+        // (distinto del "Salon" sin tilde que usa RequisitoEspacioDto); un espacio real con ese
+        // tipo NO debe generar una advertencia — sólo lo genuinamente no reconocido debe hacerlo.
+        [Fact]
+        public async Task EspacioConTipoSalonConTilde_NoGeneraAdvertencia()
+        {
+            var (_, _, request) = RequestMinimaTeoriaPresencial(
+                espacios: new List<EspacioDto>
+                {
+                    new() { Id = Guid.NewGuid().ToString(), Nombre = "Salón 101", Tipo = "Salón", Capacidad = 30 }
+                },
+                requisitosEspacio: new List<RequisitoEspacioDto>());
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.DoesNotContain(r.Logs, l => l.Contains("no reconocido"));
+        }
+
+        [Fact]
+        public async Task EspacioConTipoNoReconocido_GeneraAdvertenciaYUsaSalonPorDefecto()
+        {
+            var (_, _, request) = RequestMinimaTeoriaPresencial(
+                espacios: new List<EspacioDto>
+                {
+                    new() { Id = Guid.NewGuid().ToString(), Nombre = "Aula rara", Tipo = "AulaXYZ", Capacidad = 30 }
+                },
+                requisitosEspacio: new List<RequisitoEspacioDto>());
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.Contains(r.Logs, l => l.Contains("[WARN]") && l.Contains("Aula rara") && l.Contains("AulaXYZ"));
+        }
+
+        [Fact]
+        public async Task RequisitoSoloLaboratorio_ExcluyeSalones()
+        {
+            var lab = Guid.NewGuid().ToString();
+            var salon = Guid.NewGuid().ToString();
+            // Sesión de teoría presencial: la regla por defecto EXCLUYE laboratorio (petición 7).
+            // El requisito del grupo la reautoriza explícitamente para un laboratorio.
+            var (_, _, request) = RequestMinimaTeoriaPresencial(
+                espacios: new List<EspacioDto>
+                {
+                    new() { Id = lab, Nombre = "Laboratorio", Tipo = "laboratorio", Capacidad = 30 },
+                    new() { Id = salon, Nombre = "Salón", Tipo = "salon", Capacidad = 30 }
+                },
+                requisitosEspacio: new List<RequisitoEspacioDto>
+                {
+                    new() { TipoSesion = "TeoriaPresencial", TipoEspacio = "Laboratorio", Sesiones = 1 }
+                });
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.NotEmpty(r.Sesiones);
+            Assert.All(r.Sesiones, s => Assert.Equal(lab, s.EspacioId));
+        }
+
+        [Fact]
+        public async Task RequisitoImposible_RetornaInfactibleConMensajeDeEspacio()
+        {
+            // El requisito del grupo exige un espacio concreto que no existe entre los espacios
+            // del run (p. ej. borrado del catálogo tras configurar el requisito). M10: a diferencia
+            // de un Sesion.EspacioId ausente, esto NO cae al filtro genérico por tipo — la sesión
+            // queda sin ningún candidato y el pipeline debe fallar de forma explícita, nunca
+            // devolver un horario que ignore el requisito en silencio.
+            var espacioInexistente = Guid.NewGuid().ToString();
+            var salonReal = Guid.NewGuid().ToString();
+            var (_, _, request) = RequestMinimaTeoriaPresencial(
+                espacios: new List<EspacioDto>
+                {
+                    new() { Id = salonReal, Nombre = "Salón real", Tipo = "salon", Capacidad = 30 }
+                },
+                requisitosEspacio: new List<RequisitoEspacioDto>
+                {
+                    new() { TipoSesion = "TeoriaPresencial", EspacioId = espacioInexistente, TipoEspacio = "Salon", Sesiones = 1 }
+                });
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.False(r.EsFactible);
+            Assert.False(string.IsNullOrEmpty(r.MensajeError));
+            Assert.Contains("espacio", r.MensajeError, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(r.Sesiones);
+        }
+
+        [Fact]
+        public async Task RequisitoDeGrupoConTipoEspacioAusente_CaeALaReglaPorDefecto_NoASalon()
+        {
+            // M6, de punta a punta: una entrada de requisito con EspacioId y TipoEspacio ambos
+            // ausentes del JSON (p. ej. sólo declara Sesiones). Antes del fix, RequisitoEspacio
+            // .TipoEspacio no era nullable y el parseo de "ausente" caía a Salon — una sesión de
+            // LABORATORIO con ese requisito quedaba sin ningún candidato en un run que sólo tiene
+            // un laboratorio, aunque el usuario nunca pidió "sólo salón". Con el fix, cae a la
+            // regla por defecto (Laboratorio exige Laboratorio) y encuentra el candidato correcto.
+            var labId = Guid.NewGuid().ToString();
+            var asigId = Guid.NewGuid().ToString();
+            var grupoId = Guid.NewGuid().ToString();
+            var request = new GenerarHorarioRequest
+            {
+                Semestre = "2026-1",
+                Asignaturas = new List<AsignaturaDto>
+                {
+                    new()
+                    {
+                        Id = asigId, Nombre = "Laboratorio de prueba",
+                        SesionesLaboratorioSemana = 1, HorasLaboratorio = 2,
+                        Alternancia = "SinAlternancia", Categoria = "Obligatoria"
+                    }
+                },
+                Espacios = new List<EspacioDto>
+                {
+                    new() { Id = labId, Nombre = "Único laboratorio", Tipo = "laboratorio", Capacidad = 30 }
+                },
+                Grupos = new List<GrupoDto>
+                {
+                    new()
+                    {
+                        Id = grupoId, Nombre = "Grupo de prueba",
+                        AsignaturaId = asigId, EstudiantesInscritos = 20,
+                        DisponibilidadUiJson = DisponibilidadUiJsonMatutino,
+                        RequisitosEspacio = new List<RequisitoEspacioDto>
+                        {
+                            new() { TipoSesion = "Laboratorio", EspacioId = null, TipoEspacio = null, Sesiones = 1 }
+                        }
+                    }
+                }
+            };
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.NotEmpty(r.Sesiones);
+            Assert.All(r.Sesiones.Where(s => !s.Virtual), s => Assert.Equal(labId, s.EspacioId));
         }
 
         // B4: la Semilla del DTO ahora llega al GA (antes se descartaba en MapearConfiguracion),

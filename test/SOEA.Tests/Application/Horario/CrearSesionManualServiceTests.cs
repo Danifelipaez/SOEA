@@ -20,15 +20,15 @@ namespace SOEA.Tests.Application.Horario
     /// </summary>
     public class CrearSesionManualServiceTests
     {
-        private static CrearSesionManualService Crear(Guid asignaturaId, Guid? espacioFijo = null) =>
-            new(new FakeBloques(), new FakeAsignaturas(asignaturaId, espacioFijo), new FakeSesiones(), new FakeAsignaciones());
+        private static CrearSesionManualService Crear() =>
+            new(new FakeBloques(), new FakeSesiones(), new FakeAsignaciones());
 
         [Fact]
         public async Task Laboratorio_ConAlternanciaTipoA_GeneraPresencialEnAYVirtualEnB()
         {
             var asigId = Guid.NewGuid();
             var espacioId = Guid.NewGuid();
-            var svc = Crear(asigId);
+            var svc = Crear();
 
             var resultado = await svc.EjecutarAsync(new CrearSesionManualRequest
             {
@@ -55,7 +55,7 @@ namespace SOEA.Tests.Application.Horario
         public async Task TeoriaVirtual_AmbasSemanasVirtualesSinEspacio()
         {
             var asigId = Guid.NewGuid();
-            var svc = Crear(asigId);
+            var svc = Crear();
 
             var resultado = await svc.EjecutarAsync(new CrearSesionManualRequest
             {
@@ -82,7 +82,7 @@ namespace SOEA.Tests.Application.Horario
         {
             var asigId = Guid.NewGuid();
             var espacioId = Guid.NewGuid();
-            var svc = Crear(asigId);
+            var svc = Crear();
 
             var resultado = await svc.EjecutarAsync(new CrearSesionManualRequest
             {
@@ -117,30 +117,6 @@ namespace SOEA.Tests.Application.Horario
             public Task<BloqueTiempo?> GetByIdAsync(Guid id) => Task.FromResult<BloqueTiempo?>(null);
             public Task<List<BloqueTiempo>> GetAllAsync() => Task.FromResult(new List<BloqueTiempo>());
             public Task UpdateAsync(BloqueTiempo entity) => Task.CompletedTask;
-            public Task DeleteAsync(Guid id) => Task.CompletedTask;
-        }
-
-        private sealed class FakeAsignaturas : IAsignaturaRepositorio
-        {
-            private readonly Asignatura _asig;
-
-            public FakeAsignaturas(Guid id, Guid? espacioFijo)
-            {
-                _asig = new Asignatura(id, "Test", "T-1",
-                    sesionesTeoriaPresencialSemana: 2, horasTeoriaPresencial: 2,
-                    sesionesTeoriaVirtualSemana: 0, horasTeoriaVirtual: 2,
-                    sesionesLaboratorioSemana: 0, horasLaboratorio: 2,
-                    sesionesLaboratorioSemestre: 0, programaId: Guid.NewGuid());
-                if (espacioFijo.HasValue) _asig.AsignarEspacioFijo(espacioFijo);
-            }
-
-            public Task<Asignatura?> GetByIdAsync(Guid id) => Task.FromResult(id == _asig.Id ? _asig : null);
-            public Task<Asignatura?> GetByCodigoAsync(string codigo) => Task.FromResult<Asignatura?>(null);
-            public Task<Asignatura?> GetByCodigoYProgramaAsync(string codigo, Guid programaId) => Task.FromResult<Asignatura?>(null);
-            public Task<Asignatura?> GetByNombreYProgramaAsync(string nombre, Guid programaId) => Task.FromResult<Asignatura?>(null);
-            public Task<List<Asignatura>> GetAllAsync() => Task.FromResult(new List<Asignatura> { _asig });
-            public Task AddAsync(Asignatura e) => Task.CompletedTask;
-            public Task UpdateAsync(Asignatura e) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
         }
 

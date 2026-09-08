@@ -37,8 +37,32 @@ export class PersistenciaService {
     return this.http.get<Facultad[]>(`${this.base}/facultades`);
   }
 
+  guardarFacultad(f: Facultad): Observable<Facultad> {
+    return this.http.post<Facultad>(`${this.base}/facultades`, { id: f.id, nombre: f.nombre });
+  }
+
+  actualizarFacultad(f: Facultad): Observable<Facultad> {
+    return this.http.put<Facultad>(`${this.base}/facultades/${f.id}`, { id: f.id, nombre: f.nombre });
+  }
+
+  eliminarFacultadBD(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/facultades/${id}`);
+  }
+
   cargarProgramas(): Observable<Programa[]> {
     return this.http.get<Programa[]>(`${this.base}/programas`);
+  }
+
+  guardarPrograma(p: Programa): Observable<Programa> {
+    return this.http.post<Programa>(`${this.base}/programas`, { id: p.id, nombre: p.nombre, facultadId: p.facultadId });
+  }
+
+  actualizarPrograma(p: Programa): Observable<Programa> {
+    return this.http.put<Programa>(`${this.base}/programas/${p.id}`, { id: p.id, nombre: p.nombre, facultadId: p.facultadId });
+  }
+
+  eliminarProgramaBD(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/programas/${id}`);
   }
 
   // ── Docentes ───────────────────────────────────────────────────────────────────
@@ -104,7 +128,8 @@ export class PersistenciaService {
       estudiantesInscritos: g.estudiantesInscritos,
       programaId: g.programaId, facultadId: g.facultadId ?? null,
       docenteId: g.docenteId ?? null,
-      codigo: g.codigo ?? null, disponibilidadUiJson: g.disponibilidadUiJson ?? null
+      codigo: g.codigo ?? null, disponibilidadUiJson: g.disponibilidadUiJson ?? null,
+      requisitosEspacio: g.requisitosEspacio ?? []
     });
   }
 
@@ -114,7 +139,8 @@ export class PersistenciaService {
       estudiantesInscritos: g.estudiantesInscritos,
       programaId: g.programaId, facultadId: g.facultadId ?? null,
       docenteId: g.docenteId ?? null,
-      codigo: g.codigo ?? null, disponibilidadUiJson: g.disponibilidadUiJson ?? null
+      codigo: g.codigo ?? null, disponibilidadUiJson: g.disponibilidadUiJson ?? null,
+      requisitosEspacio: g.requisitosEspacio ?? []
     });
   }
 
@@ -126,6 +152,27 @@ export class PersistenciaService {
 
   cargarAsignaturas(): Observable<any[]> {
     return this.http.get<any[]>(`${this.base}/asignaturas`);
+  }
+
+  crearAsignatura(a: Asignatura): Observable<any> {
+    const body = {
+      id: a.id,
+      nombre: a.nombre,
+      codigo: a.codigo,
+      sesionesTeoriaPresencialSemana: a.sesionesTeoriaPresencialSemana,
+      horasTeoriaPresencial: a.horasTeoriaPresencial,
+      sesionesTeoriaVirtualSemana: a.sesionesTeoriaVirtualSemana,
+      horasTeoriaVirtual: a.horasTeoriaVirtual,
+      sesionesLaboratorioSemana: a.sesionesLaboratorioSemana,
+      horasLaboratorio: a.horasLaboratorio,
+      sesionesLaboratorioSemestre: a.sesionesLaboratorioSemestre,
+      programaId: a.programaId,
+      alternancia: a.alternancia,
+      categoria: a.categoria ?? null,
+      horaInicioMin: a.horaInicioMin ?? null,
+      horaFinMax: a.horaFinMax ?? null
+    };
+    return this.http.post<any>(`${this.base}/asignaturas`, body);
   }
 
   actualizarAsignatura(a: Asignatura): Observable<any> {
@@ -142,7 +189,8 @@ export class PersistenciaService {
       programaId: a.programaId,
       alternancia: a.alternancia,
       categoria: a.categoria ?? null,
-      espacioFijoId: a.espacioFijoId ?? null
+      horaInicioMin: a.horaInicioMin ?? null,
+      horaFinMax: a.horaFinMax ?? null
     };
     return this.http.put<any>(`${this.base}/asignaturas/${a.id}`, body);
   }

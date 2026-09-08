@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using SOEA.Application.Features.Espacios;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
@@ -24,8 +25,13 @@ namespace SOEA.API.Controllers
     public class EspaciosController : ControllerBase
     {
         private readonly IEspacioRepositorio _repo;
+        private readonly EspacioService _service;
 
-        public EspaciosController(IEspacioRepositorio repo) => _repo = repo;
+        public EspaciosController(IEspacioRepositorio repo, EspacioService service)
+        {
+            _repo = repo;
+            _service = service;
+        }
 
         [HttpGet]
         public async Task<ActionResult<List<EspacioDto>>> GetAll()
@@ -71,10 +77,19 @@ namespace SOEA.API.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            var existing = await _repo.GetByIdAsync(id);
-            if (existing is null) return NotFound($"Espacio con ID {id} no encontrado.");
-            await _repo.DeleteAsync(id);
-            return NoContent();
+            try
+            {
+                await _service.DeleteAsync(id);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(ex.Message);
+            }
         }
 
         private static TipoEspacio ParseTipo(string tipo) => tipo switch

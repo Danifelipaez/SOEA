@@ -89,7 +89,11 @@ export class SearchableSelectComponent implements ControlValueAccessor {
 
   writeValue(value: string): void {
     this.lastValid = value ?? '';
-    this.ctrl.setValue(this.lastValid, { emitEvent: false });
+    // Sin emitEvent:false a propósito: `raw` (toSignal de valueChanges) necesita ver este
+    // cambio para que `filtered()` no quede con el término de búsqueda de la selección
+    // anterior tras un reset en cascada (p. ej. Facultad → Programa → "Sin resultados").
+    // Es un control interno, no reconectado al form padre — no hay riesgo de loop.
+    this.ctrl.setValue(this.lastValid);
   }
   registerOnChange(fn: any): void { this.onChangeFn = fn; }
   registerOnTouched(fn: any): void { this.onTouchedFn = fn; }
@@ -102,9 +106,21 @@ export class SearchableSelectComponent implements ControlValueAccessor {
   }
 
   onBlur() {
-    const current = this.ctrl.value ?? '';
-    if (current !== this.lastValid) {
-      // Texto libre sin coincidencia exacta con una opción → revertir (no se acepta texto libre).
+    // G5 (bug reportado "no deja guardar"): comparaba el texto tecleado (una etiqueta) contra
+    // lastValid (un id) — nunca podían coincidir, así que cualquier texto tecleado se revertía,
+    // incluso el que correspondía exactamente a una opción real. Ahora resuelve contra las
+    // opciones por id o por etiqueta antes de decidir si revertir.
+    const current = (this.ctrl.value ?? '').trim();
+    const opciones = this.options();
+    const match = opciones.find(o => o.value === current)
+      ?? opciones.find(o => o.label.trim().toLowerCase() === current.toLowerCase());
+
+    if (match) {
+      this.lastValid = match.value;
+      this.ctrl.setValue(match.value, { emitEvent: false });
+      this.onChangeFn(match.value);
+    } else if (current !== this.lastValid) {
+      // Texto libre sin coincidencia con ninguna opción → revertir (no se acepta texto libre).
       this.ctrl.setValue(this.lastValid, { emitEvent: false });
     }
     this.onTouchedFn();

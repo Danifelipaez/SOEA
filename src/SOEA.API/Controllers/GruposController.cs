@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.ValueObjects;
 
 namespace SOEA.API.Controllers
 {
@@ -21,6 +23,19 @@ namespace SOEA.API.Controllers
         public int EstudiantesInscritos { get; set; }
         /// <summary>JSON de disponibilidad tal como viene de la UI (por día: {lunes:{...}, ...}).</summary>
         public string? DisponibilidadUiJson { get; set; }
+        /// <summary>Requisito de espacio por tipo de sesión (HC-S03/HC-S05).</summary>
+        public List<RequisitoEspacioDto> RequisitosEspacio { get; set; } = new();
+    }
+
+    public class RequisitoEspacioDto
+    {
+        /// <summary>TeoriaPresencial | TeoriaVirtual | Laboratorio.</summary>
+        public TipoSesion TipoSesion { get; set; }
+        /// <summary>Espacio concreto exigido. Null = cualquier espacio de <see cref="TipoEspacio"/>.</summary>
+        public Guid? EspacioId { get; set; }
+        /// <summary>Null = sin preferencia de tipo (M6): usa la regla por defecto según TipoSesion.</summary>
+        public TipoEspacio? TipoEspacio { get; set; }
+        public int Sesiones { get; set; }
     }
 
     // ── Controller ────────────────────────────────────────────────────────────────
@@ -65,6 +80,11 @@ namespace SOEA.API.Controllers
             // Invariante: todo grupo debe estar atado a una asignatura en creación.
             if (dto.AsignaturaId is null || dto.AsignaturaId == Guid.Empty)
                 return BadRequest("AsignaturaId es obligatorio al crear un grupo.");
+            // G6 auditoría: sin esto, un ProgramaId vacío se persistía sin error — el grupo
+            // quedaba luego con "Guardar" deshabilitado al editarlo (el select de programa, con
+            // Validators.required, nunca aceptaba un valor vacío para volver a habilitarlo).
+            if (dto.ProgramaId == Guid.Empty)
+                return BadRequest("ProgramaId es obligatorio al crear un grupo.");
 
             var asignatura = await _asignaturas.GetByIdAsync(dto.AsignaturaId.Value);
             if (asignatura is null)
@@ -84,6 +104,7 @@ namespace SOEA.API.Controllers
                     codigo: dto.Codigo);
 
                 grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
+                grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
 
                 await _repo.AddAsync(grupo);
                 return StatusCode(StatusCodes.Status201Created, MapToDto(grupo));
@@ -91,6 +112,13 @@ namespace SOEA.API.Controllers
             catch (ArgumentException ex)
             {
                 return BadRequest(ex.Message);
+            }
+            catch (DbUpdateException)
+            {
+                // G6 auditoría: el índice único ix_grupo_codigo (único constraint del Grupo)
+                // lanzaba DbUpdateException sin capturar → 500 genérico. El frontend lo pintaba
+                // como "no se guarda, no crea grupo" sin decir por qué.
+                return Conflict($"Ya existe un grupo con el código '{dto.Codigo}'. Use un código distinto.");
             }
         }
 
@@ -117,6 +145,7 @@ namespace SOEA.API.Controllers
                 grupo.ActualizarAsignatura(dto.AsignaturaId, dto.FacultadId ?? grupo.FacultadId);
                 grupo.AsignarDocente(dto.DocenteId);
                 grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
+                grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
 
                 await _repo.UpdateAsync(grupo);
                 return Ok(MapToDto(grupo));
@@ -124,6 +153,10 @@ namespace SOEA.API.Controllers
             catch (ArgumentException ex)
             {
                 return BadRequest(ex.Message);
+            }
+            catch (DbUpdateException)
+            {
+                return Conflict($"Ya existe un grupo con el código '{dto.Codigo}'. Use un código distinto.");
             }
         }
 
@@ -146,7 +179,19 @@ namespace SOEA.API.Controllers
             Nombre = g.Nombre,
             Codigo = g.Codigo,
             EstudiantesInscritos = g.EstudiantesInscritos,
-            DisponibilidadUiJson = g.DisponibilidadUiJson
+            DisponibilidadUiJson = g.DisponibilidadUiJson,
+            RequisitosEspacio = g.RequisitosEspacio
+                .Select(r => new RequisitoEspacioDto
+                {
+                    TipoSesion = r.TipoSesion,
+                    EspacioId = r.EspacioId,
+                    TipoEspacio = r.TipoEspacio,
+                    Sesiones = r.Sesiones
+                })
+                .ToList()
         };
+
+        private static List<RequisitoEspacio> MapearRequisitosEspacio(List<RequisitoEspacioDto> dtos) =>
+            dtos.Select(d => new RequisitoEspacio(d.TipoSesion, d.EspacioId, d.TipoEspacio, d.Sesiones)).ToList();
     }
 }

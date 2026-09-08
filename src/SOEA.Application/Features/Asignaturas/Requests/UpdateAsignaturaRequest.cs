@@ -22,11 +22,18 @@ namespace SOEA.Application.Features.Asignaturas.Requests
         public TipoAlternancia? Alternancia { get; set; }
 
         // DocenteId se removió: el docente vive en el Grupo, no en la asignatura (ver Grupo.DocenteId).
-        public Guid? EspacioFijoId { get; set; }
+        // EspacioFijoId se removió: el requisito de espacio vive en Grupo.RequisitosEspacio.
 
         /// <summary>
         /// Categoría curricular (prioridad de presencialidad, SC-PRES). Null = conservar la actual.
         /// </summary>
         public CategoriaAsignatura? Categoria { get; set; }
+
+        /// <summary>
+        /// Ventana horaria HC-VH (Secretaría Académica), formato "HH:mm". Null = conservar la
+        /// actual (mismo criterio que Categoria — un PUT de campos no relacionados no la borra).
+        /// </summary>
+        public string? HoraInicioMin { get; set; }
+        public string? HoraFinMax { get; set; }
     }
 }

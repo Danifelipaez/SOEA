@@ -30,7 +30,7 @@ namespace SOEA.Tests.Application
 
         private static FusionDocentesService Crear(
             FakeDocenteRepo docenteRepo, FakeGrupoRepo grupoRepo) =>
-            new(docenteRepo, grupoRepo, new DocenteService(docenteRepo));
+            new(docenteRepo, grupoRepo, new DocenteService(docenteRepo, grupoRepo));
 
         [Fact]
         public async Task Fusionar_ReasignaGrupos_YEliminaDuplicados()
@@ -125,6 +125,8 @@ namespace SOEA.Tests.Application
                 Task.FromResult(_store.Values.FirstOrDefault(g => g.Codigo == codigo));
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) =>
                 Task.FromResult(_store.Values.Where(g => g.AsignaturaId == asignaturaId).AsEnumerable());
+            public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) =>
+                Task.FromResult(_store.Values.Where(g => g.DocenteId == docenteId).AsEnumerable());
         }
     }
 }

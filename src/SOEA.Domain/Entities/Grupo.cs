@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using SOEA.Domain.Enums;
+using SOEA.Domain.ValueObjects;
 
 namespace SOEA.Domain.Entities
 {
@@ -37,15 +38,25 @@ namespace SOEA.Domain.Entities
         public TipoAlternancia Alternancia { get; private set; }
 
         // ── Disponibilidad (eje de optimización, HC-G01) ─────────────────────────
-        /// <summary>
-        /// Franjas en las que el grupo puede recibir clases (Matutino / Vespertino).
-        /// Lista vacía = sin restricción de franja (equivalente a "cualquier hora").
-        /// HC-G01 (hard): CP-SAT rechaza slots fuera de esta disponibilidad.
-        /// </summary>
-        public List<FranjaHoraria> Disponibilidad { get; private set; } = new();
-
-        /// <summary>JSON crudo con la disponibilidad por día ingresada desde la UI.</summary>
+        /// <summary>JSON crudo con la disponibilidad por día ingresada desde la UI.
+        /// Fuente única: <see cref="ObtenerDisponibilidadSemanal"/> la deriva de aquí bajo demanda.</summary>
         public string? DisponibilidadUiJson { get; private set; }
+
+        // ── Requisitos de espacio (HC-S03/HC-S05) ────────────────────────────────
+        private List<RequisitoEspacio> _requisitosEspacio = new();
+        /// <summary>
+        /// Requisito de espacio por tipo de sesión (teoría presencial / teoría virtual / laboratorio).
+        /// Reemplaza a <c>Asignatura.EspacioFijoId</c> (un solo uuid por asignatura): ahora vive por
+        /// grupo, y cada tipo de sesión puede pedir un espacio concreto o un tipo de espacio.
+        /// Setter con guard explícito: filas de antes de P1_GrupoComoEje quedaron con la columna
+        /// "requisitos_espacio" en NULL, y EF Core no invoca el value converter para NULL — asigna
+        /// null directamente a esta propiedad, saltándose el <c>= new()</c> del inicializador.
+        /// </summary>
+        public List<RequisitoEspacio> RequisitosEspacio
+        {
+            get => _requisitosEspacio;
+            private set => _requisitosEspacio = value ?? new();
+        }
 
         // ── Constructores ─────────────────────────────────────────────────────────
         private Grupo() : base() { }
@@ -59,8 +70,7 @@ namespace SOEA.Domain.Entities
             string? codigo = null,
             Guid? asignaturaId = null,
             Guid? facultadId = null,
-            Guid? docenteId = null,
-            List<FranjaHoraria>? disponibilidad = null) : base(id)
+            Guid? docenteId = null) : base(id)
         {
             Validar(nombre, estudiantesInscritos);
 
@@ -72,7 +82,6 @@ namespace SOEA.Domain.Entities
             AsignaturaId        = asignaturaId;
             FacultadId          = facultadId;
             DocenteId           = docenteId;
-            Disponibilidad      = disponibilidad ?? new();
         }
 
         // ── Mutadores ─────────────────────────────────────────────────────────────
@@ -107,18 +116,18 @@ namespace SOEA.Domain.Entities
         public void ActualizarAlternancia(TipoAlternancia nuevaAlternancia) =>
             Alternancia = nuevaAlternancia;
 
-        /// <summary>
-        /// Establece la disponibilidad horaria del grupo (eje HC-G01).
-        /// Lista vacía = sin restricción de franja.
-        /// </summary>
-        public void ActualizarDisponibilidad(List<FranjaHoraria> disponibilidad)
-        {
-            Disponibilidad = disponibilidad ?? new();
-        }
-
         public void ActualizarDisponibilidadUi(string? disponibilidadUiJson)
         {
             DisponibilidadUiJson = disponibilidadUiJson;
+        }
+
+        /// <summary>Deriva la disponibilidad estructurada (HC-G01) desde <see cref="DisponibilidadUiJson"/>.</summary>
+        public DisponibilidadSemanal ObtenerDisponibilidadSemanal() =>
+            DisponibilidadSemanal.DesdeJson(DisponibilidadUiJson);
+
+        public void ActualizarRequisitosEspacio(List<RequisitoEspacio> requisitos)
+        {
+            RequisitosEspacio = requisitos ?? new();
         }
 
         // ── Validación ────────────────────────────────────────────────────────────

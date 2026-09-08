@@ -16,6 +16,15 @@ namespace SOEA.Application.Features.Horario.Responses
         /// <summary>Sesiones fijas del horario base cuyo día/hora no coincidió con la grilla y se omitieron. Ver Logs para el detalle.</summary>
         public int    SesionesFijasOmitidas { get; set; }
         public string? MensajeError  { get; set; }
+        /// <summary>Causa de infactibilidad de Fase 2 (ver MotivoInfactibilidad), solo cuando EsFactible es false.</summary>
+        public string? MotivoInfactibilidad { get; set; }
+        /// <summary>
+        /// Ids (como string) de los grupos que el barrido de diagnóstico opcional de Fase 2
+        /// identificó como responsables de la infactibilidad — vacío si el barrido no corrió o
+        /// no encontró un responsable individual. El frontend los usa para resaltar esos grupos
+        /// en el catálogo sin tener que interpretar el texto libre de MensajeError.
+        /// </summary>
+        public List<string> GruposEnConflicto { get; set; } = new();
         public List<string> Logs     { get; set; } = new();
         public List<SesionGeneradaDto> Sesiones { get; set; } = new();
     }
@@ -29,6 +38,11 @@ namespace SOEA.Application.Features.Horario.Responses
         public string  Id           { get; set; } = string.Empty;
         public string  AsignaturaId { get; set; } = string.Empty;
         public string  DocenteId    { get; set; } = string.Empty;
+        /// <summary>
+        /// Grupo (cohorte) dueño de la sesión. Sin esto el frontend no puede distinguir dos
+        /// grupos de la misma asignatura — se pintaban como una sola fila en el horario.
+        /// </summary>
+        public string  GrupoId      { get; set; } = string.Empty;
         public string? EspacioId    { get; set; }
         /// <summary>
         /// Lab de origen: el espacio donde la sesión es presencial. Se rellena también en las filas
@@ -49,5 +63,11 @@ namespace SOEA.Application.Features.Horario.Responses
         public string  Semana       { get; set; } = string.Empty;
         /// <summary>Laboratorio | AulaVirtual. Distingue teoría (presencial o virtual) de laboratorio.</summary>
         public string  TipoFlujo    { get; set; } = "Laboratorio";
+        /// <summary>
+        /// M5 auditoría: causa por la que Fase 1 no pudo asignarle un bloque libre sin conflicto
+        /// (ver AgendadorColoracionGrafo). Se calculaba y persistía desde antes, pero ningún DTO
+        /// lo exponía — vacío si la sesión se agendó sin conflicto.
+        /// </summary>
+        public string  MotivoConflicto { get; set; } = string.Empty;
     }
 }

@@ -51,12 +51,6 @@ namespace SOEA.Domain.Entities
         // docentes distintos en grupos distintos). Ver Grupo.DocenteId.
 
         /// <summary>
-        /// Espacio físico específico al que está asignada esta asignatura (proveniente del Excel de curriculum).
-        /// Cuando está presente, el algoritmo DEBE asignar sus sesiones presenciales a este espacio (HC-S05).
-        /// </summary>
-        public Guid? EspacioFijoId { get; private set; }
-
-        /// <summary>
         /// Categoría curricular que rige la prioridad de presencialidad (presencial-first).
         /// Andamiaje del modelo: la lógica de orden (SC-PRES) se implementa en etapas posteriores.
         /// </summary>
@@ -163,11 +157,6 @@ namespace SOEA.Domain.Entities
                    sesionesLaboratorioSemestre: sesionesLaboratorioSemestre, programaId: programaId,
                    umbralTipoA: umbralTipoA, categoria: categoria, horaInicioMin: horaInicioMin, horaFinMax: horaFinMax)
         {
-        }
-
-        public void AsignarEspacioFijo(Guid? espacioId)
-        {
-            EspacioFijoId = espacioId;
         }
 
         public void EstablecerCategoria(CategoriaAsignatura categoria)

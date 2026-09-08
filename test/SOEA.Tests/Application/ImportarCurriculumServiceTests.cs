@@ -497,6 +497,8 @@ namespace SOEA.Tests.Application
 
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) =>
                 Task.FromResult<IEnumerable<Grupo>>(_store.Values.Where(x => x.AsignaturaId == asignaturaId).ToList());
+            public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) =>
+                Task.FromResult<IEnumerable<Grupo>>(_store.Values.Where(x => x.DocenteId == docenteId).ToList());
         }
 
         private sealed class FakeSesionRepo : ISesionRepositorio

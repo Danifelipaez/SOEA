@@ -37,7 +37,7 @@ namespace SOEA.Tests.Application
             var progId = Guid.NewGuid();
             var asig   = Existente(Guid.NewGuid(), progId);
             var repo   = new FakeAsignaturaRepo(asig);
-            var service = new AsignaturaService(repo);
+            var service = new AsignaturaService(repo, new FakeGrupoRepoVacio());
 
             var response = await service.UpdateAsync(asig.Id, Request(progId));
 
@@ -55,7 +55,7 @@ namespace SOEA.Tests.Application
         {
             var progId = Guid.NewGuid();
             var asig   = Existente(Guid.NewGuid(), progId);
-            var service = new AsignaturaService(new FakeAsignaturaRepo(asig));
+            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepoVacio());
 
             var request = Request(progId);
             request.Alternancia = TipoAlternancia.TipoA; // override manual (11 lab inferiría TipoB)
@@ -65,27 +65,60 @@ namespace SOEA.Tests.Application
             Assert.Equal(TipoAlternancia.TipoA, response.Alternancia);
         }
 
-        [Fact]
-        public async Task ActualizaEspacioFijo()
+        // ── P3.1: POST /api/asignaturas — id de cliente + Categoria/Alternancia explícitas ──
+
+        private static CreateAsignaturaRequest CreateRequest(Guid progId) => new()
         {
-            // El docente ya no vive en la asignatura (se movió a Grupo): aquí solo se prueba EspacioFijo.
-            var progId    = Guid.NewGuid();
-            var espacioId = Guid.NewGuid();
-            var asig      = Existente(Guid.NewGuid(), progId);
-            var service   = new AsignaturaService(new FakeAsignaturaRepo(asig));
+            Nombre = "Física I",
+            Codigo = "FIS101",
+            SesionesTeoriaPresencialSemana = 2,
+            HorasTeoriaPresencial = 2,
+            ProgramaId = progId
+        };
 
-            var request = Request(progId);
-            request.EspacioFijoId = espacioId;
+        [Fact]
+        public async Task CreateAsync_ConIdDeCliente_LaRespeta()
+        {
+            var repo = new FakeAsignaturaRepo();
+            var service = new AsignaturaService(repo, new FakeGrupoRepoVacio());
+            var idCliente = Guid.NewGuid();
 
-            var response = await service.UpdateAsync(asig.Id, request);
+            var request = CreateRequest(Guid.NewGuid());
+            request.Id = idCliente;
 
-            Assert.Equal(espacioId, response.EspacioFijoId);
+            var response = await service.CreateAsync(request);
+
+            Assert.Equal(idCliente, response.Id);
+        }
+
+        [Fact]
+        public async Task CreateAsync_SinIdDeCliente_GeneraUno()
+        {
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio());
+
+            var response = await service.CreateAsync(CreateRequest(Guid.NewGuid()));
+
+            Assert.NotEqual(Guid.Empty, response.Id);
+        }
+
+        [Fact]
+        public async Task CreateAsync_AplicaCategoriaYAlternanciaExplicitas()
+        {
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio());
+            var request = CreateRequest(Guid.NewGuid());
+            request.Categoria = CategoriaAsignatura.Electiva;
+            request.Alternancia = TipoAlternancia.TipoA;
+
+            var response = await service.CreateAsync(request);
+
+            Assert.Equal(CategoriaAsignatura.Electiva, response.Categoria);
+            Assert.Equal(TipoAlternancia.TipoA, response.Alternancia);
         }
 
         [Fact]
         public async Task LanzaInvalidOperation_SiNoExiste()
         {
-            var service = new AsignaturaService(new FakeAsignaturaRepo());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio());
 
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => service.UpdateAsync(Guid.NewGuid(), Request(Guid.NewGuid())));
@@ -96,7 +129,7 @@ namespace SOEA.Tests.Application
         {
             var progId  = Guid.NewGuid();
             var asig    = Existente(Guid.NewGuid(), progId);
-            var service = new AsignaturaService(new FakeAsignaturaRepo(asig));
+            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepoVacio());
 
             var request = Request(progId);
             request.HorasTeoriaPresencial = 0; // conteo > 0 con horas = 0 → el dominio exige horas > 0
@@ -130,6 +163,21 @@ namespace SOEA.Tests.Application
             public Task AddAsync(Asignatura e) { _store[e.Id] = e; return Task.CompletedTask; }
             public Task UpdateAsync(Asignatura e) { _store[e.Id] = e; Actualizaciones++; return Task.CompletedTask; }
             public Task DeleteAsync(Guid id) { _store.Remove(id); return Task.CompletedTask; }
+        }
+
+        /// <summary>Siempre vacío — estos tests no ejercitan el guard de Grupos asociados de
+        /// AsignaturaService.DeleteAsync (ver DeleteAsignaturaServiceTests.cs).</summary>
+        private sealed class FakeGrupoRepoVacio : IGrupoRepositorio
+        {
+            public Task<Grupo?> GetByIdAsync(Guid id) => Task.FromResult<Grupo?>(null);
+            public Task<List<Grupo>> GetAllAsync() => Task.FromResult(new List<Grupo>());
+            public Task AddAsync(Grupo entity) => Task.CompletedTask;
+            public Task UpdateAsync(Grupo entity) => Task.CompletedTask;
+            public Task DeleteAsync(Guid id) => Task.CompletedTask;
+            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) => Task.FromResult<Grupo?>(null);
+            public Task<Grupo?> GetByCodigoAsync(string codigo) => Task.FromResult<Grupo?>(null);
+            public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) => Task.FromResult(Enumerable.Empty<Grupo>());
+            public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) => Task.FromResult(Enumerable.Empty<Grupo>());
         }
     }
 }

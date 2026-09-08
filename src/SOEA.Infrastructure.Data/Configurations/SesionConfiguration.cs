@@ -67,6 +67,10 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasColumnName("esta_dividida")
                 .IsRequired();
 
+            builder.Property(s => s.MotivoConflicto)
+                .HasColumnName("motivo_conflicto")
+                .IsRequired();
+
             builder.Property(s => s.TipoFlujo)
                 .HasColumnName("tipo_flujo")
                 .HasConversion<string>()
@@ -75,6 +79,11 @@ namespace SOEA.Infrastructure.Data.Configurations
 
             builder.Property(s => s.PatronAlternanciaId)
                 .HasColumnName("patron_alternancia_id")
+                .IsRequired(false);
+
+            // A4 — clave de pareja de alternancia (Guid libre, sin FK; ver docstring en Sesion).
+            builder.Property(s => s.ParejaAlternanciaId)
+                .HasColumnName("pareja_alternancia_id")
                 .IsRequired(false);
 
             builder.Property(s => s.Bloqueada)
@@ -115,6 +124,9 @@ namespace SOEA.Infrastructure.Data.Configurations
 
             builder.HasIndex(s => s.PatronAlternanciaId)
                 .HasDatabaseName("ix_sesion_patron_alternancia_id");
+
+            builder.HasIndex(s => s.ParejaAlternanciaId)
+                .HasDatabaseName("ix_sesion_pareja_alternancia_id");
         }
     }
 }

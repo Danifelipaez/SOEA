@@ -17,9 +17,12 @@ namespace SOEA.Application.Features.Asignaturas.Responses
         public int SesionesLaboratorioSemestre { get; set; }
         public TipoAlternancia Alternancia { get; set; }
         public Guid ProgramaId { get; set; }
-        public Guid? EspacioFijoId { get; set; }
         public CategoriaAsignatura Categoria { get; set; }
         public bool EsCandidataAlternancia { get; set; }
+
+        /// <summary>Ventana horaria HC-VH, formato "HH:mm" (mismo formato que GenerarHorarioRequest). Null = sin restricción.</summary>
+        public string? HoraInicioMin { get; set; }
+        public string? HoraFinMax { get; set; }
 
         public static AsignaturaResponse FromEntity(Asignatura a) => new()
         {
@@ -35,9 +38,10 @@ namespace SOEA.Application.Features.Asignaturas.Responses
             SesionesLaboratorioSemestre = a.SesionesLaboratorioSemestre,
             Alternancia = a.Alternancia,
             ProgramaId = a.ProgramaId,
-            EspacioFijoId = a.EspacioFijoId,
             Categoria = a.Categoria,
-            EsCandidataAlternancia = a.EsCandidataAlternancia
+            EsCandidataAlternancia = a.EsCandidataAlternancia,
+            HoraInicioMin = a.HoraInicioMin?.ToString("HH:mm"),
+            HoraFinMax = a.HoraFinMax?.ToString("HH:mm")
         };
     }
 }

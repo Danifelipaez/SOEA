@@ -4,6 +4,8 @@ namespace SOEA.Application.Features.Asignaturas.Requests
 {
     public class CreateAsignaturaRequest
     {
+        /// <summary>Id sugerido por el cliente (consistencia con Docentes/Espacios/Grupos). Vacío = se genera en el servidor.</summary>
+        public Guid Id { get; set; }
         public string Nombre { get; set; } = "";
         public string Codigo { get; set; } = "";
         public int SesionesTeoriaPresencialSemana { get; set; }
@@ -14,5 +16,17 @@ namespace SOEA.Application.Features.Asignaturas.Requests
         public int HorasLaboratorio { get; set; }
         public int SesionesLaboratorioSemestre { get; set; }
         public Guid ProgramaId { get; set; }
+
+        /// <summary>Override manual del tipo de alternancia. Null = se infiere por umbral.</summary>
+        public TipoAlternancia? Alternancia { get; set; }
+
+        /// <summary>Categoría curricular (prioridad de presencialidad, SC-PRES). Null = Obligatoria (default de dominio).</summary>
+        public CategoriaAsignatura? Categoria { get; set; }
+
+        /// <summary>
+        /// Ventana horaria HC-VH (Secretaría Académica), formato "HH:mm". Null = sin restricción.
+        /// </summary>
+        public string? HoraInicioMin { get; set; }
+        public string? HoraFinMax { get; set; }
     }
 }

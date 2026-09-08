@@ -23,5 +23,18 @@ namespace SOEA.Engine.ConstraintProg
         /// el App Service (más cores) para asegurar diversidad de búsqueda.
         /// </summary>
         public int NumWorkers { get; set; } = 0;
+
+        /// <summary>
+        /// Si es true, ante una infactibilidad SIN causa explicada por ningún pre-check (el
+        /// catch-all final tras un solve CP-SAT genuinamente INFEASIBLE), reintenta el solve una
+        /// vez por grupo excluyéndolo, para reportar cuáles grupos son responsables. Default false:
+        /// cada intento es un solve CP-SAT completo adicional — herramienta de depuración, no para
+        /// el camino caliente de producción.
+        /// </summary>
+        public bool SweepGrupos { get; set; } = false;
+
+        /// <summary>Tope de grupos candidatos para el barrido de <see cref="SweepGrupos"/> — evita
+        /// un costo O(N) descontrolado en runs con muchos grupos.</summary>
+        public int SweepGruposMaximo { get; set; } = 20;
     }
 }

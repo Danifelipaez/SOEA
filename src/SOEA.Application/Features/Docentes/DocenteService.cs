@@ -13,6 +13,7 @@ namespace SOEA.Application.Features.Docentes
     public class DocenteService
     {
         private readonly IDocenteRepositorio _repo;
+        private readonly IGrupoRepositorio _grupoRepo;
 
         private static readonly Dictionary<DiaDeSemana, string> DiaKey = new()
         {
@@ -44,7 +45,11 @@ namespace SOEA.Application.Features.Docentes
         private const string LabelVespertino = "Vespertino (12:00–18:00)";
         private const string LabelNocturno = "Nocturno (18:00–22:00)";
 
-        public DocenteService(IDocenteRepositorio repo) => _repo = repo;
+        public DocenteService(IDocenteRepositorio repo, IGrupoRepositorio grupoRepo)
+        {
+            _repo = repo;
+            _grupoRepo = grupoRepo;
+        }
 
         public async Task<List<DocenteUiDto>> GetAllAsync()
         {
@@ -80,11 +85,25 @@ namespace SOEA.Application.Features.Docentes
             return MapToDto(existing);
         }
 
-        /// <summary>Elimina el docente. Devuelve false si el id no existe (el repo es silencioso).</summary>
+        /// <summary>
+        /// Elimina el docente. Devuelve false si el id no existe (el repo es silencioso).
+        /// Bloquea el borrado (InvalidOperationException) si algún Grupo lo tiene asignado —
+        /// Grupo.DocenteId no tiene FK en BD, así que sin este guard el borrado dejaba el
+        /// grupo apuntando a un docente inexistente (mismo bug que DeleteAsignaturaService
+        /// ya corrige para Asignatura→Grupo). No se revisan Sesiones: son datos generados y
+        /// transitorios (se regeneran en cada corrida — ver FusionDocentesService), no catálogo.
+        /// </summary>
         public async Task<bool> DeleteAsync(Guid id)
         {
             var existing = await _repo.GetByIdAsync(id);
             if (existing is null) return false;
+
+            var gruposAsociados = await _grupoRepo.GetByDocenteIdAsync(id);
+            var cantidad = gruposAsociados.Count();
+            if (cantidad > 0)
+                throw new InvalidOperationException(
+                    $"No se puede eliminar el docente: tiene {cantidad} grupo(s) asignado(s). Reasígnelos primero.");
+
             await _repo.DeleteAsync(id);
             return true;
         }

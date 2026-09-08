@@ -8,13 +8,18 @@ namespace SOEA.Application.Features.Asignaturas;
 public class AsignaturaService
 {
     private readonly IAsignaturaRepositorio _repository;
+    private readonly IGrupoRepositorio _grupoRepository;
 
-    public AsignaturaService(IAsignaturaRepositorio repository) => _repository = repository;
+    public AsignaturaService(IAsignaturaRepositorio repository, IGrupoRepositorio grupoRepository)
+    {
+        _repository = repository;
+        _grupoRepository = grupoRepository;
+    }
 
     public async Task<AsignaturaResponse> CreateAsync(CreateAsignaturaRequest request)
     {
         var asignatura = new Asignatura(
-            Guid.NewGuid(),
+            request.Id == Guid.Empty ? Guid.NewGuid() : request.Id,
             request.Nombre,
             request.Codigo,
             sesionesTeoriaPresencialSemana: request.SesionesTeoriaPresencialSemana,
@@ -24,7 +29,13 @@ public class AsignaturaService
             sesionesLaboratorioSemana: request.SesionesLaboratorioSemana,
             horasLaboratorio: request.HorasLaboratorio,
             sesionesLaboratorioSemestre: request.SesionesLaboratorioSemestre,
-            programaId: request.ProgramaId);
+            programaId: request.ProgramaId,
+            categoria: request.Categoria ?? Domain.Enums.CategoriaAsignatura.Obligatoria,
+            horaInicioMin: ParseHora(request.HoraInicioMin),
+            horaFinMax: ParseHora(request.HoraFinMax));
+
+        if (request.Alternancia.HasValue)
+            asignatura.EstablecerAlternancia(request.Alternancia.Value);
 
         await _repository.AddAsync(asignatura);
         return AsignaturaResponse.FromEntity(asignatura);
@@ -60,17 +71,29 @@ public class AsignaturaService
             sesionesLaboratorioSemestre: request.SesionesLaboratorioSemestre,
             programaId: request.ProgramaId,
             alternanciaExplicita: request.Alternancia,
-            categoria: request.Categoria);
-        asignatura.AsignarEspacioFijo(request.EspacioFijoId);
+            categoria: request.Categoria,
+            horaInicioMin: ParseHora(request.HoraInicioMin),
+            horaFinMax: ParseHora(request.HoraFinMax));
 
         await _repository.UpdateAsync(asignatura);
         return AsignaturaResponse.FromEntity(asignatura);
     }
 
+    // Mismo criterio que GenerarHorarioService.ParseHora — TimeOnly.TryParse acepta "HH:mm".
+    private static TimeOnly? ParseHora(string? hhmm) =>
+        !string.IsNullOrWhiteSpace(hhmm) && TimeOnly.TryParse(hhmm, out var t) ? t : null;
+
     public async Task DeleteAsync(Guid id)
     {
         if (await _repository.GetByIdAsync(id) is null)
-            throw new InvalidOperationException($"Asignatura con ID {id} no encontrada.");
+            throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
+
+        var gruposAsociados = await _grupoRepository.GetByAsignaturaIdAsync(id);
+        var cantidad = gruposAsociados.Count();
+        if (cantidad > 0)
+            throw new InvalidOperationException(
+                $"No se puede eliminar la asignatura: tiene {cantidad} grupo(s) asociado(s). Elimínelos o reasígnelos primero.");
+
         await _repository.DeleteAsync(id);
     }
 

@@ -37,12 +37,31 @@ namespace SOEA.Domain.Services
 
             foreach (var dia in DiasLunesAViernes)
                 for (int h = HoraAperturaLunesAViernes.Hour; h < HoraCierreLunesAViernes.Hour; h++)
-                    bloques.Add(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(h, 0), new TimeOnly(h + 1, 0)));
+                {
+                    var horaInicio = new TimeOnly(h, 0);
+                    bloques.Add(new BloqueTiempo(IdDeterministico(dia, horaInicio), dia, horaInicio, new TimeOnly(h + 1, 0)));
+                }
 
             for (int h = HoraAperturaSabado.Hour; h < HoraCierreSabado.Hour; h++)
-                bloques.Add(new BloqueTiempo(Guid.NewGuid(), DiaDeSemana.Sábado, new TimeOnly(h, 0), new TimeOnly(h + 1, 0)));
+            {
+                var horaInicio = new TimeOnly(h, 0);
+                bloques.Add(new BloqueTiempo(IdDeterministico(DiaDeSemana.Sábado, horaInicio), DiaDeSemana.Sábado, horaInicio, new TimeOnly(h + 1, 0)));
+            }
 
             return bloques;
+        }
+
+        /// <summary>
+        /// Id estable por (día, hora) — no un Guid.NewGuid() al vuelo. La grilla se regenera en cada
+        /// request (GenerarHorarioService, ReacomodarHorarioService); sin un id determinístico, un
+        /// BloqueTiempoId persistido en una corrida no se puede volver a encontrar en la siguiente
+        /// (P5: reacomodar necesita correlacionar el bloque de una sesión ya generada).
+        /// </summary>
+        private static Guid IdDeterministico(DiaDeSemana dia, TimeOnly horaInicio)
+        {
+            var key = $"bloque-{dia}-{horaInicio:HH\\:mm}";
+            var hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(key));
+            return new Guid(hash);
         }
     }
 }

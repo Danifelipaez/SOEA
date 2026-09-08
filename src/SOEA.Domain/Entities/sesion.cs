@@ -34,13 +34,32 @@ namespace SOEA.Domain.Entities
         public TipoFlujo TipoFlujo { get; private set; }
 
         /// <summary>
-        /// Patrón de alternancia aplicado (FK a <see cref="TipoAlternanciaConfig"/>).
-        /// Null = presencial puro. Lo asigna el optimizador solo cuando la presión de aforo lo exige.
+        /// Patrón de alternancia aplicado (FK a <see cref="TipoAlternanciaConfig"/> — solo TipoA/TipoB/
+        /// SinAlternancia, catálogo fijo de 3 filas). Null = presencial puro. Lo asigna el optimizador
+        /// solo cuando la presión de aforo lo exige.
         /// </summary>
         public Guid? PatronAlternanciaId { get; private set; }
 
         /// <summary>
+        /// A4 — clave de PAREJA de alternancia: dos sesiones (normalmente de asignaturas distintas)
+        /// que comparten el mismo <see cref="ParejaAlternanciaId"/> comparten también el mismo
+        /// bloque de tiempo y el mismo espacio físico entre semanas (VERIFICA: alternancia atómica
+        /// por espacio — una es presencial en semana A y la otra en semana B, en el mismo salón).
+        /// Distinto de <see cref="PatronAlternanciaId"/> (que solo indica TipoA/TipoB, FK a un
+        /// catálogo de 3 filas): este es un Guid libre, único por pareja, sin FK.
+        /// </summary>
+        public Guid? ParejaAlternanciaId { get; private set; }
+
+        /// <summary>
         /// Si es true, el optimizador no puede cambiar la alternancia de esta sesión (caso fijado).
+        /// B1 auditoría: hoy siempre queda en false — ningún endpoint llama <see cref="Bloquear"/>,
+        /// y una regeneración completa siempre crea sesiones nuevas con este valor por defecto
+        /// (regla 8, CLAUDE.md). El mecanismo de "sesión fija" (horario base, ver
+        /// GenerarHorarioService.MapearSesionesFijas) ya cubre el mismo caso de uso por Id
+        /// (<c>fijasIds.Contains(s.Id)</c>, comprobado junto a este flag en todos sus consumidores —
+        /// MotorGenetico, GenerarHorarioService), así que este campo es hoy redundante. Se conserva
+        /// como punto de extensión reservado en vez de borrarlo (columna de BD ya migrada), pero no
+        /// se toca sin antes decidir si de verdad hace falta un segundo mecanismo.
         /// </summary>
         public bool Bloqueada { get; private set; }
 
@@ -68,7 +87,8 @@ namespace SOEA.Domain.Entities
             bool estaDividida,
             TipoFlujo tipoFlujo = TipoFlujo.Laboratorio,
             Guid? patronAlternanciaId = null,
-            bool bloqueada = false) : base(id)
+            bool bloqueada = false,
+            Guid? parejaAlternanciaId = null) : base(id)
         {
             Validar(asignaturaId, duracionHoras, esBloque, estaDividida);
 
@@ -85,6 +105,7 @@ namespace SOEA.Domain.Entities
             TipoFlujo = tipoFlujo;
             PatronAlternanciaId = patronAlternanciaId;
             Bloqueada = bloqueada;
+            ParejaAlternanciaId = parejaAlternanciaId;
             Estado = EstadoSesion.Pendiente;
         }
 
@@ -147,15 +168,20 @@ namespace SOEA.Domain.Entities
         /// <summary>
         /// SC-PRES / "Tipo C" dinámico: bajo saturación de aforo, alterna la sesión (presencial una
         /// semana, virtual la otra) en lugar de virtualizarla por completo — conserva más
-        /// presencialidad. Fija a la vez el <see cref="PatronAlternanciaId"/> de trazabilidad.
+        /// presencialidad. Fija a la vez el <see cref="PatronAlternanciaId"/> de trazabilidad y,
+        /// si se indica, el <see cref="ParejaAlternanciaId"/> (A4 — VERIFICA: la alternancia se
+        /// aplica en pares, nunca a una sesión suelta).
         /// Regla 8: no toca sesiones <see cref="Bloqueada"/> (el optimizador no altera su alternancia).
         /// </summary>
-        public void AplicarAlternancia(TipoAlternancia tipo, Guid? patronAlternanciaId = null, bool cedidaPorSaturacion = false)
+        public void AplicarAlternancia(
+            TipoAlternancia tipo, Guid? patronAlternanciaId = null, bool cedidaPorSaturacion = false,
+            Guid? parejaAlternanciaId = null)
         {
             if (Bloqueada) return;
             Alternancia = tipo;
             PatronAlternanciaId = patronAlternanciaId;
             CedidaPorSaturacion = cedidaPorSaturacion;
+            ParejaAlternanciaId = parejaAlternanciaId;
         }
 
         /// <summary>
@@ -169,6 +195,7 @@ namespace SOEA.Domain.Entities
             Modalidad = Modalidad.Presencial;
             Alternancia = TipoAlternancia.SinAlternancia;
             PatronAlternanciaId = null;
+            ParejaAlternanciaId = null;
             CedidaPorSaturacion = false;
             return true;
         }
