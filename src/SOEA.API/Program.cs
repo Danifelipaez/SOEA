@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;  // EPPlus 8 license
+using SOEA.API;
 using SOEA.Application.Features.Asignaturas;
 using SOEA.Application.Features.CriteriosCesionAlternancia;
 using SOEA.Application.Features.Docentes;
+using SOEA.Application.Features.Espacios;
 using SOEA.Application.Features.Horario;
 using SOEA.Domain.Interfaces;
 using SOEA.Engine.ConstraintProg;
@@ -44,8 +46,17 @@ if (string.IsNullOrWhiteSpace(connectionString))
         "No hay cadena de conexión configurada. Defina ConnectionStrings:DefaultConnection en " +
         "appsettings.Development.json (desarrollo) o en variables de entorno / user-secrets.");
 }
+// B5 auditoría: sin CommandTimeout, una migración lenta en Database.Migrate() al arrancar (o una
+// consulta puntual pesada) usaba el default de Npgsql (30s) sin poder ajustarse.
+// ponytail: NO se activa EnableRetryOnFailure — UnitOfWork (BeginTransactionAsync/CommitAsync
+// manual, usado por GenerarHorarioService/ImportarCurriculumService/ReacomodarHorarioService) usa
+// transacciones iniciadas por el usuario, incompatibles con la execution strategy de reintento de
+// EF Core a menos que se envuelvan en Database.CreateExecutionStrategy().ExecuteAsync(...) — de
+// otro modo el primer BeginTransactionAsync() con retry activo lanza InvalidOperationException en
+// los 3 flujos de escritura críticos. Upgrade path: refactorizar IUnitOfWork a un único
+// ExecuteInTransactionAsync(Func<Task>) que use la execution strategy, y entonces sí activar retry.
 builder.Services.AddDbContext<SOEABdContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString, npgsql => npgsql.CommandTimeout(60)));
 
 // ── Repositorios ──────────────────────────────────────────────────────────────
 builder.Services.AddScoped<IAsignaturaRepositorio, AsignaturaRepository>();
@@ -71,9 +82,13 @@ builder.Services.AddGraphColoringEngine();
 // con IDs de docentes/sesiones en producción (P0.2 auditoría).
 builder.Services.AddConstraintProgEngine(opts =>
 {
-    opts.ExportarModelo  = builder.Configuration.GetValue<bool>("CpSat:ExportarModelo");
-    opts.TimeoutSegundos = builder.Configuration.GetValue("CpSat:TimeoutSegundos", 120);
-    opts.NumWorkers      = builder.Configuration.GetValue("CpSat:NumWorkers", 0);
+    opts.ExportarModelo     = builder.Configuration.GetValue<bool>("CpSat:ExportarModelo");
+    opts.TimeoutSegundos    = builder.Configuration.GetValue("CpSat:TimeoutSegundos", 120);
+    opts.NumWorkers         = builder.Configuration.GetValue("CpSat:NumWorkers", 0);
+    // M3 auditoría: SweepGrupos (diagnóstico de qué grupo causa infactibilidad) ya estaba
+    // implementado y testeado pero nunca se leía de config, así que nunca se activaba.
+    opts.SweepGrupos        = builder.Configuration.GetValue<bool>("CpSat:SweepGrupos");
+    opts.SweepGruposMaximo  = builder.Configuration.GetValue("CpSat:SweepGruposMaximo", 20);
 });
 builder.Services.AddGeneticEngine();
 
@@ -84,6 +99,8 @@ builder.Services.AddScoped<CrearSesionManualService>();
 // CRUD Docentes
 builder.Services.AddScoped<DocenteService>();
 builder.Services.AddScoped<FusionDocentesService>();
+// CRUD Espacios
+builder.Services.AddScoped<EspacioService>();
 // Lista ordenada/activable de criterios de cesión a alternancia (cesión por saturación de espacio)
 builder.Services.AddScoped<CriterioCesionAlternanciaService>();
 // Generación de horario
@@ -106,6 +123,10 @@ builder.Services.AddOpenApi();
 // ── Manejo global de excepciones (ProblemDetails) ─────────────────────────────
 // Toda excepción no controlada se devuelve como application/problem+json con traceId,
 // en lugar de un 500 con formato inconsistente (P1.4 auditoría).
+// GlobalExceptionHandler traduce antes las excepciones de dominio/EF Core conocidas (auditoría
+// e2e pre-producción: varios controllers nunca capturaban DbUpdateException en Delete y
+// escalaban a un 500 sin causa real).
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();

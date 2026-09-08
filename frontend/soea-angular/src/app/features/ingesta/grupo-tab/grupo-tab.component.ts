@@ -91,8 +91,13 @@ export class GrupoDialogComponent {
   /**
    * Asignatura fijada por el contexto (diálogo abierto desde la fila desplegada de una
    * asignatura). Vacío = modo completo: el usuario elige la jerarquía con los selects.
+   * Un grupo huérfano (asignaturaId no resuelve, p. ej. la asignatura fue eliminada) no cuenta
+   * como "fija" — sin esto asignaturaCtx() da undefined y el diálogo queda sin forma de reasignar.
    */
-  readonly asignaturaFija = this.grupo?.asignaturaId ?? this.data?.asignaturaId ?? '';
+  readonly asignaturaFija =
+    (this.grupo?.asignaturaId && this.state.asignaturaById().has(this.grupo.asignaturaId))
+      ? this.grupo.asignaturaId
+      : (this.data?.asignaturaId ?? '');
 
   form: FormGroup;
   disponibilidad = signal<Record<string, any>>(

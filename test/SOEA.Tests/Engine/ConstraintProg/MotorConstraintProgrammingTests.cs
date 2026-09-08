@@ -288,7 +288,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 grupos: new[] { grupo });
 
             Assert.False(resultado.EsFactible);
-            Assert.Contains("HC-CAP", resultado.MensajeError);
+            Assert.Contains("Capacidad insuficiente", resultado.MensajeError);
             Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
         }
 
@@ -438,7 +438,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 ventanaPorAsignatura: ventana);
 
             Assert.False(resultado.EsFactible);
-            Assert.Contains("HC-VH", resultado.MensajeError);
+            Assert.Contains("Fuera de la ventana horaria", resultado.MensajeError);
             Assert.Equal(MotivoInfactibilidad.VentanaHoraria, resultado.Motivo);
         }
 
@@ -504,7 +504,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 sesiones, bloques, Enumerable.Empty<Espacio>());
 
             Assert.False(resultado.EsFactible);
-            Assert.Contains("HC-SEP", resultado.MensajeError);
+            Assert.Contains("separación mínima de 2 días", resultado.MensajeError);
             Assert.Equal(MotivoInfactibilidad.Otro, resultado.Motivo);
         }
 

@@ -98,3 +98,95 @@ describe('HorarioApiService — contrato con /horario/generar', () => {
     });
   });
 });
+
+/**
+ * manejarError trataba CUALQUIER `err.error` de tipo objeto como el payload 422 real
+ * (GenerarHorarioResponse con EsFactible=false) — pero un fallo de red real (backend caído,
+ * CORS) también llega con status 0 y `err.error` como un ProgressEvent, que también es
+ * `typeof === 'object'`. Sin distinguir por status, un caso de red se reenvía como si fuera
+ * el 422 real; horario.component.ts no encuentra .mensajeError/.message/.error en un
+ * ProgressEvent y cae a "Error desconocido" — indistinguible de un 422 mal formado.
+ */
+describe('HorarioApiService — manejarError', () => {
+  let service: HorarioApiService;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    service = TestBed.inject(HorarioApiService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => httpMock.verify());
+
+  it('un 422 real (payload GenerarHorarioResponse) sigue pasando el objeto tal cual', () => {
+    let recibido: any;
+    service.generarHorario([], [], []).subscribe({ error: (e) => (recibido = e) });
+
+    const req = httpMock.expectOne(r => r.url.endsWith('/horario/generar'));
+    req.flush(
+      { esFactible: false, mensajeError: 'No se encontró un horario factible.' },
+      { status: 422, statusText: 'Unprocessable Entity' }
+    );
+
+    expect(recibido).toEqual({ esFactible: false, mensajeError: 'No se encontró un horario factible.' });
+  });
+
+  it('un error de red real (status 0) produce un Error con mensaje distinguible, no el ProgressEvent crudo', () => {
+    let recibido: any;
+    service.generarHorario([], [], []).subscribe({ error: (e) => (recibido = e) });
+
+    const req = httpMock.expectOne(r => r.url.endsWith('/horario/generar'));
+    req.error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
+
+    expect(recibido).toBeInstanceOf(Error);
+    expect(recibido.mensajeError).toBeUndefined();
+    // No debe colapsar en el genérico indistinguible del 422 real mal formado.
+    expect(recibido.message).not.toBe('Error desconocido al conectar con el API.');
+    expect(recibido.message).toMatch(/conectar|conexión|servidor/i);
+  });
+});
+
+/**
+ * P6: rehidrata la grilla de /horario tras un reload leyendo el horario ya persistido en vez de
+ * dejarla vacía. Un 404 (aún no se generó ningún horario para el semestre) es un estado normal,
+ * no un error — nunca debe llegar como `error` al subscriber.
+ */
+describe('HorarioApiService — obtenerActual', () => {
+  let service: HorarioApiService;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    service = TestBed.inject(HorarioApiService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => httpMock.verify());
+
+  it('devuelve el horario cuando el backend tiene uno persistido para el semestre', () => {
+    let recibido: any;
+    service.obtenerActual('2026-1').subscribe(r => (recibido = r));
+
+    const req = httpMock.expectOne(r => r.url.endsWith('/horario/actual') && r.params.get('semestre') === '2026-1');
+    req.flush({ horarioId: 'h1', semestre: '2026-1', esFactible: true, puntajeFitness: 100, generaciones: 0, sesiones: [] });
+
+    expect(recibido.horarioId).toBe('h1');
+  });
+
+  it('un 404 (aún no se ha generado ningún horario) se resuelve como null, no como error', () => {
+    let recibido: any = 'sin-resolver';
+    let fallo = false;
+    service.obtenerActual('2026-1').subscribe({ next: r => (recibido = r), error: () => (fallo = true) });
+
+    const req = httpMock.expectOne(r => r.url.endsWith('/horario/actual'));
+    req.flush(null, { status: 404, statusText: 'Not Found' });
+
+    expect(fallo).toBe(false);
+    expect(recibido).toBeNull();
+  });
+});

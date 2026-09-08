@@ -62,6 +62,19 @@ namespace SOEA.Tests.Application.Horario
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
         }
 
+        private sealed class FakeGrupoRepo : IGrupoRepositorio
+        {
+            public Task AddAsync(Grupo entity) => Task.CompletedTask;
+            public Task<Grupo?> GetByIdAsync(Guid id) => Task.FromResult<Grupo?>(null);
+            public Task<List<Grupo>> GetAllAsync() => Task.FromResult(new List<Grupo>());
+            public Task UpdateAsync(Grupo entity) => Task.CompletedTask;
+            public Task DeleteAsync(Guid id) => Task.CompletedTask;
+            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) => Task.FromResult<Grupo?>(null);
+            public Task<Grupo?> GetByCodigoAsync(string codigo) => Task.FromResult<Grupo?>(null);
+            public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) => Task.FromResult(Enumerable.Empty<Grupo>());
+            public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) => Task.FromResult(Enumerable.Empty<Grupo>());
+        }
+
         private sealed class FakeUow : IUnitOfWork
         {
             public Task BeginTransactionAsync() => Task.CompletedTask;
@@ -81,7 +94,7 @@ namespace SOEA.Tests.Application.Horario
                 new AsignadorEspaciosExactoCpSat(NullLogger<AsignadorEspaciosExactoCpSat>.Instance));
             return new GenerarHorarioService(
                 fase1, fase2, fase3, new FakeHorarioRepo(), new FakeSesionRepo(),
-                new FakeAsignacionRepo(), new FakeCriterioCesionRepo(), new FakeUow());
+                new FakeAsignacionRepo(), new FakeGrupoRepo(), new FakeCriterioCesionRepo(), new FakeUow());
         }
 
         [Fact]

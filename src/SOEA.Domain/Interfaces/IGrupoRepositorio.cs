@@ -10,5 +10,6 @@ namespace SOEA.Domain.Interfaces
         Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId);
         Task<Grupo?> GetByCodigoAsync(string codigo);
         Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId);
+        Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId);
     }
 }

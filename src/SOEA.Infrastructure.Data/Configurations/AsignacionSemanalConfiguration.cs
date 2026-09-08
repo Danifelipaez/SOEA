@@ -48,8 +48,16 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .IsUnique()
                 .HasDatabaseName("ux_asignacion_semanal_sesion_semana");
 
+            // M8 auditoría: antes solo de performance (no única) — dos sesiones distintas podían
+            // reservar el mismo espacio en el mismo bloque/semana si dos requests concurrentes
+            // pasaban la validación en memoria antes de que cualquiera de las dos escribiera.
+            // Única red de seguridad a nivel de BD contra doble reserva; EspacioId nulo (sesión
+            // virtual) queda fuera del filtro porque muchas sesiones virtuales comparten
+            // EspacioId=null en el mismo bloque legítimamente.
             builder.HasIndex(a => new { a.EspacioId, a.Semana, a.BloqueTiempoId })
-                .HasDatabaseName("ix_asignacion_semanal_espacio_conflicto");
+                .IsUnique()
+                .HasFilter("espacio_id IS NOT NULL")
+                .HasDatabaseName("ux_asignacion_semanal_espacio_conflicto");
         }
     }
 }

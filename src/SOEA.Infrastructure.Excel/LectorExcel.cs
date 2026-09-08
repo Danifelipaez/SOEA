@@ -15,10 +15,14 @@ namespace SOEA.Infrastructure.Excel
 {
     /// <summary>
     /// Implementación del lector de Excel para SOEA.
-    /// Formato de entrada del horario existente (columnas A-J):
-    ///   A: Facultad | B: Programa | C: Asignatura | D: Código (puede estar vacío)
-    ///   E: Tipo de Espacio | F: Espacio Específico | G: Duración (horas)
-    ///   H: Día | I: Hora | J: Docente (nombre completo)
+    /// Formato de entrada del horario existente — columnas detectadas por cabecera (row 1),
+    /// no por posición fija; acepta variantes vistas en archivos reales, por ejemplo:
+    ///   Facultad | Programa | Asignatura | Código (opcional) | Tipo de Espacio (opcional)
+    ///   Espacio/Curso/Salón/Aula (nombre específico) | Duración/Horas/Reales [h] | Día | Hora
+    ///   Docente | Grupo (opcional, número de grupo/sección real) | Final (opcional, hora de fin)
+    /// Si "Grupo" viene en el archivo, se usa como número real de grupo (y como Grupo.Codigo) en
+    /// vez de numerar secuencialmente. Si "Final" viene, se usa como hora de fin real de la sesión
+    /// en vez de derivarla de Hora + Duración.
     /// </summary>
     public class LectorExcel : ILectorExcel
     {
@@ -57,17 +61,37 @@ namespace SOEA.Infrastructure.Excel
             int cFacultad   = ColReq(colIdx, "facultad",   1);
             int cPrograma   = ColReq(colIdx, "programa",   2);
             int cAsignatura = ColReq(colIdx, new[] { "asignatura", "nombre" }, 3);
-            int cCodigo     = ColOpt(colIdx, new[] { "codigo", "código" }, 4);
-            int cTipoEsp    = ColOpt(colIdx, new[] { "espacio", "tipo_espacio", "tipo espacio", "tipoespacio" }, 5);
-            int cEspNombre  = ColOpt(colIdx, new[] { "curso", "espacio_especifico", "espacio especifico", "salon", "salón", "aula" }, 6);
-            int cDuracion   = ColOpt(colIdx, new[] { "duracion", "duración", "duracion h", "duracion [h]", "duración [h]", "horas" }, 7);
+            // Sin fallback posicional: la posición 4 es "Grupo" en el formato real de Rosa, no
+            // "Código" — adivinar por posición aquí corrompía Asignatura.Codigo con el número de
+            // grupo (colisión de unicidad codigo+programa entre asignaturas distintas del mismo
+            // programa que comparten número de grupo). Sin columna "Código" reconocible, el
+            // constructor de Asignatura ya genera un código dummy único — preferible a adivinar mal.
+            int cCodigo     = ColOpt(colIdx, new[] { "codigo", "código" }, -1);
+            int cTipoEsp    = ColOpt(colIdx, new[] { "tipo_espacio", "tipo espacio", "tipoespacio" }, 5);
+            int cEspNombre  = ColOpt(colIdx, new[] { "espacio", "curso", "espacio_especifico", "espacio especifico", "salon", "salón", "aula" }, 6);
+            int cDuracion   = ColOpt(colIdx, new[] { "duracion", "duración", "duracion h", "duracion [h]", "duración [h]", "horas", "reales", "reales h" }, 7);
             int cDia        = ColOpt(colIdx, new[] { "dia", "día", "day" }, 8);
             int cHora       = ColOpt(colIdx, new[] { "hora", "horario", "time" }, 9);
             int cDocente    = ColOpt(colIdx, new[] { "docente", "profesor", "teacher" }, 10);
+            // Columnas opcionales sin posición histórica: sin fallback (-1 = ausente).
+            int cGrupo      = ColOpt(colIdx, new[] { "grupo", "seccion", "sección" }, -1);
+            int cHoraFin    = ColOpt(colIdx, new[] { "final", "hora fin", "hora final", "horafin", "fin" }, -1);
 
-            // ── 2. Pre-pass: contar sesiones por (asig_norm, prog_texto, docente_norm) ─
+            // Discriminador de conteo: por número de grupo cuando el Excel lo trae (cada grupo
+            // cuenta SUS PROPIAS filas → su propio número real de reuniones semanales), o por
+            // docente si no (formato viejo). Sin esto, un docente que dicta VARIAS secciones de la
+            // misma asignatura (una fila por sección, cada una reuniéndose una vez/semana) inflaba
+            // sesionesPorSemana al número de secciones que dicta, no al de reuniones de cada una.
+            string DiscriminadorConteo(int fila)
+            {
+                var txtG = Celda(hoja, fila, cGrupo);
+                if (!string.IsNullOrWhiteSpace(txtG) && int.TryParse(txtG, out var gnum)) return $"N{gnum}";
+                return NormalizadorTexto.Normalizar(Celda(hoja, fila, cDocente));
+            }
+
+            // ── 2. Pre-pass: contar sesiones por (asig_norm, prog_texto, discriminador) ─
             // Esto nos da el sesionesPorSemana real sin hardcodear 2.
-            var conteoGrupos = new Dictionary<(string AsigNorm, string ProgTexto, string DocNorm), int>();
+            var conteoGrupos = new Dictionary<(string AsigNorm, string ProgTexto, string Discriminador), int>();
             for (int fila = 2; fila <= totalFilas; fila++)
             {
                 var fa = Celda(hoja, fila, cFacultad);
@@ -75,8 +99,7 @@ namespace SOEA.Infrastructure.Excel
                 var as_ = Celda(hoja, fila, cAsignatura);
                 if (string.IsNullOrWhiteSpace(fa) || string.IsNullOrWhiteSpace(pr) || string.IsNullOrWhiteSpace(as_)) continue;
 
-                var docNorm = NormalizadorTexto.Normalizar(Celda(hoja, fila, cDocente));
-                var clave = (NormalizadorTexto.Normalizar(as_), NormalizadorTexto.Normalizar(pr), docNorm);
+                var clave = (NormalizadorTexto.Normalizar(as_), NormalizadorTexto.Normalizar(pr), DiscriminadorConteo(fila));
                 conteoGrupos[clave] = conteoGrupos.TryGetValue(clave, out int cnt) ? cnt + 1 : 1;
             }
 
@@ -91,8 +114,10 @@ namespace SOEA.Infrastructure.Excel
             var espaciosDict    = new Dictionary<string, Espacio>(StringComparer.OrdinalIgnoreCase);
             var sesionesPredefinidas = new List<Sesion>();
             var grupos          = new List<Grupo>();
-            // Clave: (asig_norm, programaId, docente_norm) → Grupo (un grupo por docente de la asignatura)
-            var gruposDict      = new Dictionary<(string AsigNorm, Guid ProgramaId, string DocNorm), Grupo>();
+            // Clave: (asig_norm, programaId, discriminador) → Grupo. El discriminador es el número
+            // real de grupo ("N{numero}") cuando el Excel lo trae, o el docente normalizado si no
+            // (formato viejo, sin columna Grupo).
+            var gruposDict      = new Dictionary<(string AsigNorm, Guid ProgramaId, string Discriminador), Grupo>();
             // conteo de grupos por (asig_norm, programaId) para numerar secuencialmente
             var gruposContador  = new Dictionary<(string AsigNorm, Guid ProgramaId), int>();
             var advertencias    = new List<string>();
@@ -116,13 +141,25 @@ namespace SOEA.Infrastructure.Excel
                 var txtDuracion      = Celda(hoja, fila, cDuracion);
                 var txtDia           = Celda(hoja, fila, cDia);
                 var txtHora          = Celda(hoja, fila, cHora);
+                var txtHoraFin       = Celda(hoja, fila, cHoraFin);
                 var txtDocente       = Celda(hoja, fila, cDocente);
+                var txtGrupo         = Celda(hoja, fila, cGrupo);
+                var numeroGrupoExplicito = int.TryParse(txtGrupo, out var ngExp) ? ngExp : (int?)null;
                 var docenteNorm      = NormalizadorTexto.Normalizar(txtDocente);
                 var asignaturaNorm   = NormalizadorTexto.Normalizar(txtAsignatura);
 
                 // Facultad
                 if (!facultadesDict.TryGetValue(txtFacultad, out var facultad))
                 {
+                    // Verificación pre-deploy (2026-09-08): un typo real en el Excel ("INGENIERA" en
+                    // vez de "INGENIERIA") no lo detecta el match case-insensitive de arriba y crea
+                    // una facultad duplicada en silencio. No se fusiona automáticamente (unir dos
+                    // facultades realmente distintas sería peor que el duplicado, mismo criterio que
+                    // DetectorDocentesDuplicados) — solo se avisa para que Rosa lo revise.
+                    var similar = facultadesDict.Keys.FirstOrDefault(existente => EsPosibleTypo(existente, txtFacultad));
+                    if (similar != null)
+                        advertencias.Add($"Fila {fila}: la facultad '{txtFacultad}' es muy similar a '{similar}', ya registrada — revisar si es un typo antes de tratarlas como distintas.");
+
                     facultad = new Facultad(Guid.NewGuid(), txtFacultad);
                     facultadesDict[txtFacultad] = facultad;
                 }
@@ -148,7 +185,7 @@ namespace SOEA.Infrastructure.Excel
                 }
 
                 // SesionesPorSemana: tomado del pre-pass
-                var claveConteo = (asignaturaNorm, NormalizadorTexto.Normalizar(txtPrograma), docenteNorm);
+                var claveConteo = (asignaturaNorm, NormalizadorTexto.Normalizar(txtPrograma), DiscriminadorConteo(fila));
                 int sesionesSemana = conteoGrupos.TryGetValue(claveConteo, out int cnt2) ? cnt2 : 1;
 
                 // Asignatura: ÚNICA por (asig_norm, programaId) — el docente ya no la diferencia.
@@ -193,19 +230,32 @@ namespace SOEA.Infrastructure.Excel
                         docentesDict[docenteNorm] = docente;
                     }
 
-                    // Grupo: uno por (asignatura, programa, docente). El docente vive en el GRUPO,
-                    // no en la asignatura (la misma asignatura la dictan docentes distintos).
-                    var claveGrupo = (asignaturaNorm, programa.Id, docenteNorm);
+                    // Grupo: uno por (asignatura, programa, grupo/docente). El docente vive en el
+                    // GRUPO, no en la asignatura (la misma asignatura la dictan docentes distintos).
+                    // Si el Excel trae un número de grupo real, es la clave/nombre autoritativa;
+                    // si no (formato viejo), se sigue numerando secuencialmente por docente.
+                    var discriminadorGrupo = numeroGrupoExplicito.HasValue ? $"N{numeroGrupoExplicito}" : docenteNorm;
+                    var claveGrupo = (asignaturaNorm, programa.Id, discriminadorGrupo);
                     if (!gruposDict.TryGetValue(claveGrupo, out var grupoDocente))
                     {
-                        var grupoKey = (asignaturaNorm, programa.Id);
-                        gruposContador.TryGetValue(grupoKey, out int numGrupoActual);
-                        numGrupoActual++;
-                        gruposContador[grupoKey] = numGrupoActual;
+                        int numGrupoMostrado;
+                        if (numeroGrupoExplicito.HasValue)
+                        {
+                            numGrupoMostrado = numeroGrupoExplicito.Value;
+                        }
+                        else
+                        {
+                            var grupoKey = (asignaturaNorm, programa.Id);
+                            gruposContador.TryGetValue(grupoKey, out int numGrupoActual);
+                            numGrupoActual++;
+                            gruposContador[grupoKey] = numGrupoActual;
+                            numGrupoMostrado = numGrupoActual;
+                        }
 
-                        var nombreGrupo = $"{txtAsignatura} - Grupo {numGrupoActual}";
+                        var nombreGrupo = $"{txtAsignatura} - Grupo {numGrupoMostrado}";
                         grupoDocente = new Grupo(
                             Guid.NewGuid(), nombreGrupo, programa.Id, 30, asignatura.Alternancia,
+                            codigo: numeroGrupoExplicito?.ToString(),
                             asignaturaId: asignatura.Id, facultadId: facultad.Id, docenteId: docente.Id);
                         grupos.Add(grupoDocente);
                         gruposDict[claveGrupo] = grupoDocente;
@@ -215,9 +265,27 @@ namespace SOEA.Infrastructure.Excel
                     Guid bloqueIdParaSesion = Guid.Empty;
                     if (!string.IsNullOrWhiteSpace(txtDia) && !string.IsNullOrWhiteSpace(txtHora))
                     {
-                        if (TryParseDia(txtDia, out var diaSemana) &&
-                            TryParseRangoHora(txtHora, duracion, out var horaIni, out var horaFin))
+                        // Si hay columna "Final" con hora de fin explícita, es autoritativa sobre
+                        // el rango derivado de Hora + Duración.
+                        TimeOnly horaIniParaBloque, horaFinParaBloque;
+                        bool horaOk;
+                        if (!string.IsNullOrWhiteSpace(txtHoraFin) &&
+                            TryParseHoraUnica(txtHora, out var horaIniExplicita) &&
+                            TryParseHoraUnica(txtHoraFin, out var horaFinExplicita))
                         {
+                            horaIniParaBloque = horaIniExplicita;
+                            horaFinParaBloque = horaFinExplicita;
+                            horaOk = true;
+                        }
+                        else
+                        {
+                            horaOk = TryParseRangoHora(txtHora, duracion, out horaIniParaBloque, out horaFinParaBloque);
+                        }
+
+                        if (TryParseDia(txtDia, out var diaSemana) && horaOk)
+                        {
+                            var horaIni = horaIniParaBloque;
+                            var horaFin = horaFinParaBloque;
                             // Expandir rango en slots de 1h y agregar a disponibilidad del docente
                             var horaActual = horaIni;
                             bool esPrimerBloque = true;
@@ -363,6 +431,39 @@ namespace SOEA.Infrastructure.Excel
             }
 
             return new BloqueTiempo(Guid.NewGuid(), dia, horaInicio, horaFin);
+        }
+
+        /// <summary>
+        /// Heurística conservadora (mismo criterio que DetectorDocentesDuplicados: falso negativo es
+        /// preferible a fusionar dos facultades realmente distintas): dos nombres normalizados a
+        /// máximo 2 ediciones de distancia, con longitudes parecidas, son un probable typo del mismo
+        /// nombre — no una facultad legítimamente distinta ("INGENIERIA" vs "INGENIERIA CIVIL" difieren
+        /// en más de 2 ediciones y no deben avisar).
+        /// </summary>
+        private static bool EsPosibleTypo(string a, string b)
+        {
+            var na = NormalizadorTexto.Normalizar(a);
+            var nb = NormalizadorTexto.Normalizar(b);
+            if (na == nb || na.Length == 0 || nb.Length == 0) return false;
+            if (Math.Abs(na.Length - nb.Length) > 2) return false;
+
+            return DistanciaLevenshtein(na, nb) <= 2;
+        }
+
+        private static int DistanciaLevenshtein(string a, string b)
+        {
+            var d = new int[a.Length + 1, b.Length + 1];
+            for (int i = 0; i <= a.Length; i++) d[i, 0] = i;
+            for (int j = 0; j <= b.Length; j++) d[0, j] = j;
+
+            for (int i = 1; i <= a.Length; i++)
+                for (int j = 1; j <= b.Length; j++)
+                {
+                    var costo = a[i - 1] == b[j - 1] ? 0 : 1;
+                    d[i, j] = Math.Min(Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1), d[i - 1, j - 1] + costo);
+                }
+
+            return d[a.Length, b.Length];
         }
 
         private static bool TryParseDia(string texto, out DiaDeSemana dia)

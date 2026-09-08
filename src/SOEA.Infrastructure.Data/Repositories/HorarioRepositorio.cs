@@ -14,8 +14,13 @@ namespace SOEA.Infrastructure.Data.Repositories
 
         public async Task<Horario?> GetBySemestreAsync(string semestre)
         {
+            // Un semestre acumula una fila por corrida (G4 auditoría: nunca se borran), así que sin
+            // ordenar esto devolvía una fila arbitraria (orden físico de la tabla) en vez de la
+            // corrida vigente — la última generada es la única con sesiones vivas en BD.
             return await _dbSet
-                .FirstOrDefaultAsync(h => h.Semestre == semestre);
+                .Where(h => h.Semestre == semestre)
+                .OrderByDescending(h => h.GeneradoEn)
+                .FirstOrDefaultAsync();
         }
     }
 }

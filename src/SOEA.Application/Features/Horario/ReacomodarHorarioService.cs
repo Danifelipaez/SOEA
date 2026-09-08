@@ -166,6 +166,11 @@ namespace SOEA.Application.Features.Horario
             await _uow.BeginTransactionAsync();
             try
             {
+                // B4 auditoría: delete uno por uno en vez de un DeleteRangeAsync — ineficiencia, no
+                // bug (misma transacción, y freedIds es siempre un puñado de sesiones en conflicto,
+                // nunca la tabla completa). No se agrega DeleteRangeAsync a IAsignacionSemanalRepositorio
+                // solo para esto: el costo de tocar los 11 fakes de test que implementan la interfaz
+                // no se justifica para este volumen.
                 foreach (var vieja in asignacionesViejasAEliminar)
                     await _asignacionRepo.DeleteAsync(vieja.Id);
                 await _asignacionRepo.AddRangeAsync(nuevasAsignaciones);

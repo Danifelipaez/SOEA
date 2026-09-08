@@ -21,5 +21,8 @@ namespace SOEA.Infrastructure.Data.Repositories
 
         public async Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId)
             => await _dbSet.Where(x => x.AsignaturaId == asignaturaId).ToListAsync();
+
+        public async Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId)
+            => await _dbSet.Where(x => x.DocenteId == docenteId).ToListAsync();
     }
 }

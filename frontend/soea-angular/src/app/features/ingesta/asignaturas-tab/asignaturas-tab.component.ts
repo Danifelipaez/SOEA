@@ -2,7 +2,7 @@ import { Component, inject, computed, signal } from '@angular/core';
 import { forkJoin, of, Observable } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { CommonModule } from '@angular/common';
-import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
+import { FormsModule, ReactiveFormsModule, FormBuilder, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
 import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
@@ -49,7 +49,11 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
         </tr></thead>
         <tbody>
           @for (a of filtered(); track a.id) {
-            <tr class="asig-row" (click)="toggleExpand(a.id)">
+            <tr class="asig-row"
+                [class.row-incompleto]="asignaturaIncompleta(a)"
+                [class.row-conflicto]="asignaturaEnConflicto(a)"
+                [title]="tituloAsignatura(a)"
+                (click)="toggleExpand(a.id)">
               <td class="chev">{{ expandidos().has(a.id) ? '▾' : '▸' }}</td>
               <td><b>{{ a.nombre }}</b> @if (a.categoria) { <span class="tag tag-neutral" style="font-size:9px">{{ a.categoria }}</span> }</td>
               <td class="text-muted">{{ a.codigo }}</td>
@@ -70,17 +74,18 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
                     </tr></thead>
                     <tbody>
                       @for (g of state.getGruposByAsignatura(a.id); track g.id) {
-                        <tr>
+                        <tr [class.row-incompleto]="grupoIncompleto(g)" [class.row-conflicto]="grupoEnConflicto(g)" [title]="tituloGrupo(g)">
                           <td>{{ g.nombre }}</td>
-                          <td class="text-muted">{{ requisitosResumen(g) }}</td>
+                          <td [class.text-error]="!g.requisitosEspacio?.length" [class.text-muted]="!!g.requisitosEspacio?.length">{{ requisitosResumen(g) }}</td>
                           <td>
                             @if (g.docenteId) { {{ docenteNombre(g.docenteId) }} }
                             @else { <span style="color:var(--err-bd);font-size:12.5px">Sin docente</span> }
                           </td>
                           <td>{{ g.estudiantesInscritos }}</td>
                           <td>
-                            @if (g.disponibilidadUiJson) { <span class="text-muted" style="font-size:12.5px">{{ dispResumenGrupo(g) }}</span> }
-                            @else { <span style="color:var(--err-bd);font-size:12.5px">Sin declarar</span> }
+                            @if (g.disponibilidadUiJson) {
+                              <span [class.text-muted]="!sinDiasDisponibles(g)" [class.text-error]="sinDiasDisponibles(g)" style="font-size:12.5px">{{ dispResumenGrupo(g) }}</span>
+                            } @else { <span style="color:var(--err-bd);font-size:12.5px">Sin declarar</span> }
                           </td>
                           <td>
                             <span class="material-icons ic-edit" (click)="openGrupoDialog(a, g)" title="Editar">edit</span>
@@ -103,6 +108,25 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
           }
         </tbody>
       </table>
+
+      @if (state.gruposHuerfanos().length > 0) {
+        <h3 class="sec" style="margin-top:18px">⚠ {{ state.gruposHuerfanos().length }} grupo(s) sin asignatura válida</h3>
+        <table class="table subtable tabla-huerfanos">
+          <thead><tr><th>Grupo</th><th>Id</th><th style="width:60px"></th></tr></thead>
+          <tbody>
+            @for (g of state.gruposHuerfanos(); track g.id) {
+              <tr>
+                <td>{{ g.nombre }}</td>
+                <td class="text-muted" style="font-size:11px">{{ g.id.slice(0, 8) }}…</td>
+                <td>
+                  <span class="material-icons ic-edit" (click)="openGrupoDialog(undefined, g)" title="Editar">edit</span>
+                  <span class="material-icons ic-del" (click)="deleteGrupo(g)" title="Eliminar">delete</span>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
     </div>
   `,
   styles: [`
@@ -119,6 +143,12 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
     .subtable { background: var(--color-bg); }
     .empty-sub { text-align: center; color: var(--color-neutral-500); padding: 12px; }
     .btn-sm { font-size: 12px; padding: 4px 10px; }
+    /* Grupo con datos incompletos (sin espacio o sin disponibilidad): borde rojo fijo.
+       Se propaga a la fila de la asignatura para que sea visible con el desplegable cerrado. */
+    .row-incompleto { outline: 2px solid var(--err-bd); outline-offset: -2px; }
+    /* Grupo señalado por el backend como responsable de una infactibilidad: mismo borde, parpadeando. */
+    .row-conflicto { outline: 2px solid var(--err-bd); outline-offset: -2px; animation: parpadeo-conflicto 1s step-start infinite; }
+    @keyframes parpadeo-conflicto { 50% { outline-color: transparent; } }
   `]
 })
 export class AsignaturasTabComponent {
@@ -165,12 +195,78 @@ export class AsignaturasTabComponent {
   }
 
   dispResumenGrupo(g: Grupo): string {
+    const n = this.diasDisponibles(g);
+    return n ? `${n} día(s) disponibles` : 'Sin días disponibles';
+  }
+
+  /** true si el grupo declaró disponibilidad pero ningún día quedó marcado como disponible. */
+  sinDiasDisponibles(g: Grupo): boolean {
+    return !!g.disponibilidadUiJson && this.diasDisponibles(g) === 0;
+  }
+
+  /** Nº de días con disponibilidad declarada. 0 si no hay JSON o si no parsea. */
+  private diasDisponibles(g: Grupo): number {
+    if (!g.disponibilidadUiJson) return 0;
     try {
-      const disp = JSON.parse(g.disponibilidadUiJson!);
+      const disp = JSON.parse(g.disponibilidadUiJson);
       const dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
-      const n = dias.filter(d => disp[d] && !disp[d].noDisponible).length;
-      return n ? `${n} día(s) disponibles` : 'Sin días disponibles';
-    } catch { return 'Configurada'; }
+      return dias.filter(d => disp[d] && !disp[d].noDisponible).length;
+    } catch { return 0; }
+  }
+
+  /** Sin requisito de espacio o sin ningún día disponible: el grupo quedaría fuera del
+   *  pipeline de generación en la práctica (regla por defecto de espacio, o HC-G01 vacío). */
+  grupoIncompleto(g: Grupo): boolean {
+    return !g.requisitosEspacio?.length || this.diasDisponibles(g) === 0;
+  }
+
+  /** El backend (diagnóstico opcional de Fase 2) señaló este grupo como responsable de que la
+   *  última generación de horario fuera infactible. */
+  grupoEnConflicto(g: Grupo): boolean {
+    return this.state.gruposEnConflictoSet().has(g.id);
+  }
+
+  asignaturaIncompleta(a: Asignatura): boolean {
+    return this.state.getGruposByAsignatura(a.id).some(g => this.grupoIncompleto(g));
+  }
+
+  asignaturaEnConflicto(a: Asignatura): boolean {
+    return this.state.getGruposByAsignatura(a.id).some(g => this.grupoEnConflicto(g));
+  }
+
+  /** Motivo concreto del borde rojo de un grupo — el borde solo no dice qué falta. '' si está completo. */
+  private motivoIncompleto(g: Grupo): string {
+    const motivos: string[] = [];
+    if (!g.requisitosEspacio?.length) motivos.push('sin requisito de espacio declarado (se usará la regla por defecto)');
+    if (!g.disponibilidadUiJson) motivos.push('sin disponibilidad horaria declarada');
+    else if (this.diasDisponibles(g) === 0) motivos.push('sin ningún día habilitado en su disponibilidad horaria');
+    return motivos.length ? `Datos incompletos: ${motivos.join('; ')}.` : '';
+  }
+
+  /** Motivo concreto del parpadeo de un grupo. '' si no está en conflicto. */
+  private motivoConflicto(g: Grupo): string {
+    return this.grupoEnConflicto(g)
+      ? 'El sistema señaló este grupo como responsable de que el último intento de generar el horario fallara — revise si comparte un espacio fijo con otro grupo o si su disponibilidad es demasiado restrictiva, y vuelva a generar.'
+      : '';
+  }
+
+  /** Texto del tooltip (title) de la fila de un grupo. '' si no hay ningún aviso activo. */
+  tituloGrupo(g: Grupo): string {
+    return [this.motivoIncompleto(g), this.motivoConflicto(g)].filter(Boolean).join(' ');
+  }
+
+  /**
+   * Texto del tooltip (title) de la fila de asignatura — nombra los grupos afectados, porque con
+   * el desplegable cerrado el borde rojo por sí solo no dice cuál de los grupos es el problema.
+   */
+  tituloAsignatura(a: Asignatura): string {
+    const grupos = this.state.getGruposByAsignatura(a.id);
+    const incompletos = grupos.filter(g => this.grupoIncompleto(g));
+    const enConflicto = grupos.filter(g => this.grupoEnConflicto(g));
+    const partes: string[] = [];
+    if (incompletos.length) partes.push(`${incompletos.length} grupo(s) con datos incompletos: ${incompletos.map(g => g.nombre).join(', ')}.`);
+    if (enConflicto.length) partes.push(`${enConflicto.length} grupo(s) señalado(s) en el último intento fallido: ${enConflicto.map(g => g.nombre).join(', ')}.`);
+    return partes.length ? `${partes.join(' ')} Expanda para revisar cada uno.` : '';
   }
 
   /** Sin `asignatura` (botón del toolbar) el diálogo abre en modo completo: el usuario elige la jerarquía. */
@@ -231,8 +327,7 @@ export class AsignaturasTabComponent {
       },
       error: (err) => {
         this.uploading.set(false);
-        const msg = err?.error?.detail ?? err?.error ?? err?.message ?? 'Error desconocido';
-        this.snackBar.open(`Error al importar: ${msg}`, 'Cerrar', { duration: 5000 });
+        this.snackBar.open(`Error al importar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 });
       }
     });
   }
@@ -326,6 +421,15 @@ export class AsignaturasTabComponent {
 
 // ─── Popup: Crear/Editar asignatura (REQUISITOS §1.1) ─────────────────────────
 type CategoriaSesion = 'presencial' | 'virtual' | 'lab';
+
+/** HC-VH: horaInicioMin debe ser anterior a horaFinMax. Sin declarar ninguna de las dos
+ *  (sin restricción de ventana) es válido — solo se exige el orden cuando ambas están presentes. */
+function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors | null {
+  const inicio = group.get('horaInicioMin')?.value;
+  const fin = group.get('horaFinMax')?.value;
+  if (!inicio || !fin) return null;
+  return inicio < fin ? null : { ventanaHorariaInvertida: true };
+}
 
 @Component({
   selector: 'app-asignatura-dialog',
@@ -554,7 +658,7 @@ export class AsignaturaDialogComponent {
     horasTeoriaPresencial: [this.data?.horasTeoriaPresencial ?? 2, [Validators.required, Validators.min(1)]],
     horasTeoriaVirtual: [this.data?.horasTeoriaVirtual ?? 2, [Validators.required, Validators.min(1)]],
     horasLaboratorio: [this.data?.horasLaboratorio ?? 2, [Validators.required, Validators.min(1)]]
-  });
+  }, { validators: ventanaHorariaValidaValidator });
 
   constructor() {
     if (this.data?.programaId) {
@@ -634,6 +738,10 @@ export class AsignaturaDialogComponent {
     if (v.facultadId === '__nueva__' && !v.nuevaFacultad) return false;
     if (!v.programaId) return false;
     if (v.programaId === '__nuevo__' && !v.nuevoPrograma) return false;
+    // HC-VH: ventana horaria invertida (ver ventanaHorariaValidaValidator) no debe guardarse —
+    // canSave() no consulta this.form.valid (rehace sus propios checks), así que el validador
+    // del FormGroup por sí solo no bastaba para deshabilitar "Guardar".
+    if (v.horaInicioMin && v.horaFinMax && v.horaInicioMin >= v.horaFinMax) return false;
     const s = this.sesiones();
     return (s.presencial + s.virtual + s.lab) > 0;
   }

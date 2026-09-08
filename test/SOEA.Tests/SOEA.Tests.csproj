@@ -25,6 +25,11 @@
     <ProjectReference Include="..\..\src\SOEA.Engine.ConstraintProg\SOEA.Engine.ConstraintProg.csproj" />
     <ProjectReference Include="..\..\src\SOEA.Engine.Genetic\SOEA.Engine.Genetic.csproj" />
     <ProjectReference Include="..\..\src\SOEA.Infrastructure.Data\SOEA.Infrastructure.Data.csproj" />
+    <ProjectReference Include="..\..\src\SOEA.Infrastructure.Excel\SOEA.Infrastructure.Excel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="EPPlus" Version="8.0.1" />
   </ItemGroup>
 
 </Project>

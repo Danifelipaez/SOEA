@@ -48,6 +48,44 @@ function describirSesionConflicto(
   return `${nombre} (${s.dia} ${s.horaInicio}–${s.horaFin})`;
 }
 
+/**
+ * El backend siempre reporta un MensajeError técnico ("status del solver: Infeasible", "HC-SEP",
+ * "HC-ALT") pensado para quien lee el código, no para un coordinador académico — y el snackbar lo
+ * reemplazaba por una frase genérica que tampoco ayuda ("No se encontró un horario factible para
+ * N asignatura(s) en M espacio(s)."). Traduce motivoInfactibilidad (siempre real) a una guía
+ * accionable en español simple, y si gruposEnConflicto trae Ids (diagnóstico opcional de Fase 2)
+ * nombra los grupos reales en vez de un conteo vacío — nunca inventa una causa que el backend no
+ * reportó; si no hay nada estructurado, cae a un mensaje genérico pero igual sin jerga interna.
+ */
+export function mensajeInfactibilidadAmigable(
+  motivo: string | undefined,
+  gruposEnConflictoIds: string[] | undefined,
+  grupos: Grupo[],
+  totalAsignaturas: number,
+  totalEspacios: number
+): string {
+  const nombresConflicto = (gruposEnConflictoIds ?? [])
+    .map(id => grupos.find(g => g.id === id)?.nombre)
+    .filter((n): n is string => !!n);
+  if (nombresConflicto.length > 0) {
+    return `No se encontró un horario factible. Grupo(s) en conflicto: ${nombresConflicto.join(', ')} — revíselos en el catálogo (posible espacio compartido o pareja de alternancia) y vuelva a generar.`;
+  }
+  switch (motivo) {
+    case 'Espacio':
+      return 'No hay espacio físico suficiente para todas las sesiones presenciales en los horarios permitidos. Revise la disponibilidad de los grupos o libere algún espacio.';
+    case 'VentanaHoraria':
+      return 'Una o más asignaturas tienen una ventana horaria demasiado estrecha para todas sus sesiones. Revise la ventana horaria configurada en esas asignaturas.';
+    case 'FranjaGrupo':
+      return 'Uno o más grupos tienen más sesiones de las que caben en su disponibilidad horaria declarada. Revise la disponibilidad de esos grupos en el catálogo.';
+    case 'Datos':
+      return 'Faltan datos necesarios para generar el horario. Revise que haya asignaturas, docentes y espacios cargados.';
+    case 'Timeout':
+      return 'El sistema no pudo determinar si existe una solución a tiempo. Intente de nuevo, o reduzca el número de asignaturas o grupos en este intento.';
+    default:
+      return `No se encontró un horario factible para ${totalAsignaturas} asignatura(s) en ${totalEspacios} espacio(s). Pruebe con disponibilidad más flexible o menos requisitos de espacio fijo.`;
+  }
+}
+
 @Component({
   selector: 'app-horario',
   standalone: true,
@@ -87,7 +125,7 @@ function describirSesionConflicto(
             <button class="btn btn-secondary" (click)="abrirCrearSesion()" [disabled]="loadingBackend()">＋ Sesión manual</button>
             <button class="btn btn-secondary" (click)="guardarComoBase()">Guardar como base</button>
           }
-          <button class="btn btn-primary" (click)="generarHorario()" [disabled]="loadingBackend()">▶ Generar horario</button>
+          <button class="btn btn-primary" (click)="generarHorario()" [disabled]="loadingBackend() || generandoHorario()">▶ Generar horario</button>
         </div>
       </div>
 
@@ -118,8 +156,8 @@ function describirSesionConflicto(
       <!-- Estado C (HF-3): sin solución + logs -->
       @if (state.sesiones().length === 0 && state.executionLogs().length > 0) {
         <div class="fail">
-          <div class="errb"><b>✕ No se encontró un horario factible</b> con el catálogo actual.</div>
-          <div class="text-muted logs-lbl">Logs de ejecución (solo al fallar):</div>
+          <div class="errb"><b>✕ Horario no generado.</b> {{ mensajeInfactible() }}</div>
+          <div class="text-muted logs-lbl">Detalle técnico (solo al fallar):</div>
           <pre class="logs">{{ state.executionLogs().join('\n') }}</pre>
         </div>
       }
@@ -284,8 +322,16 @@ export class HorarioComponent implements OnInit {
   private readonly ESPACIO_VIRTUAL = '__virtual__';
   activeWeek = signal<'A' | 'B'>('A');
   loadingBackend = signal(false);
+  /** Evita disparar dos POST /horario/generar concurrentes por doble-click antes de que
+   *  llegue la primera respuesta — generarHorario() no compartía loadingBackend (ese solo lo
+   *  toca syncFromBackend). */
+  generandoHorario = signal(false);
   backendReady = signal(false);
   avanzadoAbierto = signal(false);
+  /** Guía accionable (sin jerga interna) del banner persistente de infactibilidad — ver
+   *  mensajeInfactibilidadAmigable(). Vacío mientras no haya fallado ninguna generación, o
+   *  tras una generación exitosa. */
+  mensajeInfactible = signal('');
 
   gaConfig = this.state.configuracionAlgoritmo;
   patchGaConfig(patch: Partial<ConfiguracionAlgoritmo>) { this.state.setConfiguracionAlgoritmo({ ...this.gaConfig(), ...patch }); }
@@ -322,12 +368,24 @@ export class HorarioComponent implements OnInit {
         const espacios = this.state.espacios();
         const current = this.activeSpace();
         if (!current || !espacios.find(e => e.id === current.id)) this.activeSpace.set(espacios[0] ?? null);
+        this.cargarHorarioActual();
       },
       error: () => {
         this.loadingBackend.set(false);
         this.backendReady.set(false);
         this.snackBar.open('No se pudo conectar con el backend. Verifica que la API esté activa.', 'Cerrar', { duration: 5000, panelClass: ['snack-error'] });
       }
+    });
+  }
+
+  /** P6: rehidrata la grilla con el último horario ya generado, para que un reload de página no
+   *  la deje vacía aunque el horario siga persistido en BD. Silencioso si aún no hay ninguno. */
+  private cargarHorarioActual() {
+    this.horarioApi.obtenerActual('2026-1').subscribe(respuesta => {
+      if (!respuesta) return;
+      this.state.setSesiones(this.horarioApi.mapearSesiones(respuesta.sesiones));
+      this.state.setExecutionLogs(respuesta.logs || []);
+      this.state.horarioId.set(respuesta.horarioId);
     });
   }
 
@@ -493,30 +551,45 @@ export class HorarioComponent implements OnInit {
   }
 
   generarHorario() {
+    if (this.generandoHorario()) return;
     if (!this.backendReady()) { this.snackBar.open('Conecta el backend antes de generar el horario.', 'Cerrar', { duration: 4000 }); return; }
     if (this.state.asignaturas().length === 0 || this.state.espacios().length === 0 || this.state.docentes().length === 0) {
       this.snackBar.open('Carga asignaturas, docentes y espacios antes de generar el horario.', 'Cerrar', { duration: 4000 });
       return;
     }
     const asignaturas = this.state.asignaturas();
+    this.generandoHorario.set(true);
     const dialogRef = this.dialog.open(ProgressDialogComponent, { disableClose: true, width: '340px' });
     this.horarioApi.generarHorario(asignaturas, this.state.docentes(), this.state.espacios(), this.state.configuracionAlgoritmo(), '2026-1', this.state.baseSeleccionada() ?? undefined, this.state.grupos())
       .subscribe({
         next: (respuesta) => {
+          this.generandoHorario.set(false);
           dialogRef.close();
           const sesiones = this.horarioApi.mapearSesiones(respuesta.sesiones);
           this.state.setSesiones(sesiones);
           this.state.setExecutionLogs(respuesta.logs || []);
           this.state.horarioId.set(respuesta.horarioId);
+          // Una generación exitosa invalida cualquier aviso de un intento previo.
+          this.state.setGruposEnConflicto([]);
+          this.state.setMotivoInfactibilidad(undefined);
+          this.mensajeInfactible.set('');
           this.snackBar.open(`Horario generado: ${sesiones.length} sesiones (fitness: ${respuesta.puntajeFitness.toFixed(2)}).`, 'Cerrar', { duration: 6000 });
         },
         error: (err: any) => {
+          this.generandoHorario.set(false);
           dialogRef.close();
           const mensaje = err.mensajeError || err.message || err.error || 'Error desconocido';
           if (err.logs && Array.isArray(err.logs)) this.state.setExecutionLogs(err.logs);
-          const texto = /factible|infeasible/i.test(mensaje)
-            ? `No se encontró un horario factible para ${asignaturas.length} asignatura(s) en ${this.state.espacios().length} espacio(s).`
+          const gruposEnConflicto = Array.isArray(err.gruposEnConflicto) ? err.gruposEnConflicto : [];
+          this.state.setGruposEnConflicto(gruposEnConflicto);
+          this.state.setMotivoInfactibilidad(err.motivoInfactibilidad);
+          const esInfeasible = /factible|infeasible/i.test(mensaje);
+          const texto = esInfeasible
+            ? mensajeInfactibilidadAmigable(err.motivoInfactibilidad, gruposEnConflicto, this.state.grupos(), asignaturas.length, this.state.espacios().length)
             : mensaje;
+          // El banner persistente de /horario (a diferencia del snackbar) sigue visible hasta la
+          // próxima generación — debe llevar la misma guía accionable, no el texto crudo del backend.
+          this.mensajeInfactible.set(esInfeasible ? texto : '');
           this.snackBar.open(texto, 'Cerrar', { duration: 9000, panelClass: ['snack-error'] });
         }
       });

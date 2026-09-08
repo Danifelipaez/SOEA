@@ -33,7 +33,14 @@ namespace SOEA.Domain.Interfaces
         bool EsFactible,
         IReadOnlyList<AsignacionSemanal> Asignaciones,
         string MensajeError,
-        MotivoInfactibilidad Motivo = MotivoInfactibilidad.Ninguno);
+        MotivoInfactibilidad Motivo = MotivoInfactibilidad.Ninguno,
+        /// <summary>
+        /// Ids de los grupos que el barrido de diagnóstico opcional (CpSatOptions.SweepGrupos)
+        /// identificó como responsables de la infactibilidad (excluir cualquiera de ellos vuelve el
+        /// modelo factible). Null si el barrido no corrió (deshabilitado, tope de candidatos
+        /// superado, o la causa ya la explicó un pre-check estructural).
+        /// </summary>
+        IReadOnlyList<Guid>? GruposResponsablesIds = null);
 
     /// <summary>
     /// Motor de Constraint Programming (Fase 2).

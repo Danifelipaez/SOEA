@@ -52,6 +52,14 @@ namespace SOEA.Domain.Entities
 
         /// <summary>
         /// Si es true, el optimizador no puede cambiar la alternancia de esta sesión (caso fijado).
+        /// B1 auditoría: hoy siempre queda en false — ningún endpoint llama <see cref="Bloquear"/>,
+        /// y una regeneración completa siempre crea sesiones nuevas con este valor por defecto
+        /// (regla 8, CLAUDE.md). El mecanismo de "sesión fija" (horario base, ver
+        /// GenerarHorarioService.MapearSesionesFijas) ya cubre el mismo caso de uso por Id
+        /// (<c>fijasIds.Contains(s.Id)</c>, comprobado junto a este flag en todos sus consumidores —
+        /// MotorGenetico, GenerarHorarioService), así que este campo es hoy redundante. Se conserva
+        /// como punto de extensión reservado en vez de borrarlo (columna de BD ya migrada), pero no
+        /// se toca sin antes decidir si de verdad hace falta un segundo mecanismo.
         /// </summary>
         public bool Bloqueada { get; private set; }
 

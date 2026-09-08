@@ -103,7 +103,7 @@ PostgreSQL `localhost:5432`, DB `SOEAdb`. Configuraciones EF en `SOEA.Infrastruc
 **Motor CP-SAT:** la sección `CpSat` de configuración controla `ExportarModelo` (volcado de `cp_model_debug.txt`, default `false`) y `TimeoutSegundos` (default 120).
 
 `ILectorExcel` expone tres métodos:
-- `LeerCurriculumAsync` — cols A–J: Facultad, Programa, Asignatura, Código, TipoEspacio, Espacio, Duración, Día, Hora, Docente.
+- `LeerCurriculumAsync` — columnas detectadas por cabecera (no por posición): Facultad, Programa, Asignatura, Código (opcional), TipoEspacio (opcional), Espacio/Curso/Salón/Aula, Duración/Horas/Reales [h], Día, Hora, Docente, Grupo (opcional, número real de grupo/sección), Final (opcional, hora de fin explícita — si no viene, se deriva de Hora+Duración). Acepta tanto el formato legado (A–J fijo) como el formato real de Rosa (Facultad, Programa, Asignatura, Grupo, Docente, Reales [h], Espacio, Dia, Hora, Final).
 - `LeerAsignaturasModo2Async` — cols A–H (sin Día/Hora).
 - `LeerDisponibilidadDocentesAsync` — cols: Docente, Correo, MaxHoras, Días, Franjas.
 

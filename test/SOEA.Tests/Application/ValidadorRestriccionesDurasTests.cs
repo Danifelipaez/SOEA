@@ -572,6 +572,52 @@ namespace SOEA.Tests.Application
             Assert.Empty(conflictos);
         }
 
+        // El código ya maneja miembros.Count != 2 (línea defensiva, nunca ejercitada por ningún
+        // test existente) — pareja mal formada por reutilización errónea del Id, o por una sesión
+        // huérfana tras un movimiento manual que dejó su contraparte fuera de las asignaciones.
+
+        [Fact]
+        public void HCALT_TresSesionesComparten_ParejaAlternanciaId_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(3);
+            var pareja = Guid.NewGuid();
+            var s1 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoA, pareja, TipoAlternancia.TipoA);
+            var s2 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoB, pareja, TipoAlternancia.TipoB);
+            var s3 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoA, pareja, TipoAlternancia.TipoA);
+            var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2, [s3.Id] = s3 };
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), s3.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+            };
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-ALT") && c.Contains("no tiene exactamente 2 sesiones") && c.Contains("(3)"));
+        }
+
+        [Fact]
+        public void HCALT_UnaSolaSesionConPareja_SinContraparteEnAsignaciones_Detecta()
+        {
+            var (bloques, indice) = CrearGrilla(3);
+            var pareja = Guid.NewGuid();
+            // s2 existe en el diccionario de sesiones (p. ej. residuo de un movimiento manual)
+            // pero ninguna AsignacionSemanal la referencia — el validador solo agrupa lo que
+            // aparece en `asignaciones`, así que para él la pareja tiene un solo miembro real.
+            var s1 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoA, pareja, TipoAlternancia.TipoA);
+            var s2 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoB, pareja, TipoAlternancia.TipoB);
+            var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2 };
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+            };
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-ALT") && c.Contains("no tiene exactamente 2 sesiones") && c.Contains("(1)"));
+        }
+
         // ── HC-SEP: separación mínima de días — nunca probada en el validador (sólo en CP-SAT).
 
         [Fact]

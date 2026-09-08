@@ -93,9 +93,13 @@ namespace SOEA.API.Controllers
                 await _service.DeleteAsync(id);
                 return NoContent();
             }
-            catch (InvalidOperationException ex)
+            catch (KeyNotFoundException ex)
             {
                 return NotFound(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(ex.Message);
             }
         }
 

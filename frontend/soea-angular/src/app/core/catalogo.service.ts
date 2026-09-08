@@ -1,4 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, forkJoin, of, throwError } from 'rxjs';
 import { map, catchError, tap } from 'rxjs/operators';
 import { PersistenciaService } from './persistencia.service';
@@ -194,8 +195,11 @@ export class CatalogoService {
       asignaturas: this.persistencia.cargarAsignaturas(),
       docentes:    this.persistencia.cargarDocentes(),
       espacios:    this.persistencia.cargarEspacios(),
-      // ponytail: catchError para que un /grupos 404 no rompa el resto del forkJoin
-      grupos:      this.persistencia.cargarGrupos().pipe(catchError(() => of([])))
+      // M7: solo un 404 (sin grupos creados aún) se trata como "lista vacía" — cualquier otro
+      // error (backend caído, 500) debe propagarse en vez de disfrazarse de "no hay grupos".
+      grupos:      this.persistencia.cargarGrupos().pipe(
+        catchError((err: HttpErrorResponse) => err.status === 404 ? of([]) : throwError(() => err))
+      )
     }).pipe(
       map(({ facultades, programas, asignaturas, docentes, espacios, grupos }) => {
         this.state.facultades.set(facultades.map((f: any) => ({ id: f.id, nombre: f.nombre })));

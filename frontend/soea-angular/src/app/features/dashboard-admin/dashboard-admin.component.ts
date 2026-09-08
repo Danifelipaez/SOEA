@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { StateService } from '../../core/state.service';
 import { CatalogoService } from '../../core/catalogo.service';
 import { RouterModule } from '@angular/router';
+import { mensajeInfactibilidadAmigable } from '../horario/horario.component';
 
 /** Paso 4 del journey (HF-4) — KPIs de solo lectura sobre el horario generado. */
 @Component({
@@ -15,6 +16,16 @@ import { RouterModule } from '@angular/router';
       <h1 class="rev-title">Revisar</h1>
       <span class="text-muted rev-sub">Solo lectura, tras generar/ajustar el horario.</span>
     </div>
+
+    <!-- M6 auditoría: antes este aviso solo vivía en /horario y se perdía al navegar. -->
+    @if (mensajeConflicto()) {
+      <div class="blueprint elev-md conflict-banner">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <b>⚠ El último intento de generar el horario no fue factible.</b>
+        <p>{{ mensajeConflicto() }}</p>
+        <a class="btn btn-secondary" routerLink="/horario">Ir a Horario para ajustar y reintentar</a>
+      </div>
+    }
 
     @if (state.sesiones().length === 0) {
       <div class="blueprint elev-md empty">
@@ -76,6 +87,11 @@ import { RouterModule } from '@angular/router';
     .rev-title { margin: 0; font-size: 26px; } .rev-sub { font-size: 13px; }
     .empty { padding: 40px; text-align: center; }
 
+    .conflict-banner { padding: 16px 18px; margin-bottom: 18px; display: flex; flex-direction: column;
+      gap: 8px; align-items: flex-start; border-color: var(--warn-bd, #b45309); }
+    .conflict-banner b { color: var(--warn-bd, #b45309); }
+    .conflict-banner p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--color-neutral-700); }
+
     .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 18px; }
     .kpi { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
     .klabel { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--color-neutral-600); }
@@ -107,6 +123,17 @@ export class DashboardAdminComponent implements OnInit {
   ngOnInit() {
     if (this.state.espacios().length === 0) this.catalogo.cargarTodo().subscribe({ error: () => {} });
   }
+
+  /** M6 auditoría: mismo texto accionable que el banner de /horario, pero leído de StateService
+   *  (sobrevive a la navegación) en vez del signal local que HorarioComponent destruye al salir. */
+  mensajeConflicto = computed(() => {
+    const motivo = this.state.motivoInfactibilidad();
+    const gruposEnConflicto = this.state.gruposEnConflicto();
+    if (!motivo && gruposEnConflicto.length === 0) return '';
+    return mensajeInfactibilidadAmigable(
+      motivo, gruposEnConflicto, this.state.grupos(),
+      this.state.asignaturas().length, this.state.espacios().length);
+  });
 
   totalPresenciales = computed(() => this.state.sesiones().filter(s => !s.virtual).length);
   totalVirtuales = computed(() => this.state.sesiones().filter(s => s.virtual).length);

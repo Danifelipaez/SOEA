@@ -67,6 +67,22 @@ namespace SOEA.Tests.Application.Horario
             }
         }
 
+        private sealed class FakeGrupoRepo : IGrupoRepositorio
+        {
+            public readonly List<Grupo> Items = new();
+            public Task AddAsync(Grupo entity) { Items.Add(entity); return Task.CompletedTask; }
+            public Task<Grupo?> GetByIdAsync(Guid id) => Task.FromResult(Items.FirstOrDefault(g => g.Id == id));
+            public Task<List<Grupo>> GetAllAsync() => Task.FromResult(Items.ToList());
+            public Task UpdateAsync(Grupo entity) => Task.CompletedTask;
+            public Task DeleteAsync(Guid id) => Task.CompletedTask;
+            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) => Task.FromResult<Grupo?>(null);
+            public Task<Grupo?> GetByCodigoAsync(string codigo) => Task.FromResult<Grupo?>(null);
+            public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) =>
+                Task.FromResult(Items.Where(g => g.AsignaturaId == asignaturaId));
+            public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) =>
+                Task.FromResult(Items.Where(g => g.DocenteId == docenteId));
+        }
+
         /// <summary>Repo fake con los 4 criterios de sistema (MultiplesSesiones orden 1, Electiva orden 2,
         /// Optativa orden 3, Elegible orden 4, todos activos) — mismo estado que deja el seed real de la migración.</summary>
         private sealed class FakeCriterioCesionRepo : ICriterioCesionAlternanciaRepositorio
@@ -142,7 +158,7 @@ namespace SOEA.Tests.Application.Horario
             var fase2 = new MotorConstraintProgramming(NullLogger<MotorConstraintProgramming>.Instance, cpSatOptions);
             fase3 ??= new MotorGenetico(NullLogger<MotorGenetico>.Instance,
                 new AsignadorEspaciosExactoCpSat(NullLogger<AsignadorEspaciosExactoCpSat>.Instance));
-            return new GenerarHorarioService(fase1, fase2, fase3, horarioRepo, sesionRepo, asigRepo, new FakeCriterioCesionRepo(), uow);
+            return new GenerarHorarioService(fase1, fase2, fase3, horarioRepo, sesionRepo, asigRepo, new FakeGrupoRepo(), new FakeCriterioCesionRepo(), uow);
         }
 
         private static readonly string LabId = Guid.NewGuid().ToString();
@@ -291,6 +307,89 @@ namespace SOEA.Tests.Application.Horario
             Assert.Equal(1, uow.Commits);
             Assert.Equal(0, uow.Rollbacks);
             Assert.Equal(0, horarioRepo.Items[0].ViolacionesRestriccionesDuras);
+        }
+
+        /// <summary>
+        /// P6 auditoría: antes no existía ningún GET para el horario ya persistido — el frontend
+        /// solo tenía las sesiones en memoria hasta la próxima generación, así que un simple reload
+        /// de /horario dejaba la grilla vacía aunque el horario siguiera intacto en BD. Confirma que
+        /// ObtenerActualAsync reconstruye el mismo resultado que devolvió la generación original.
+        /// </summary>
+        [Fact]
+        public async Task ObtenerActualAsync_TrasGenerar_DevuelveElMismoHorarioPersistido()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+            var svc = CrearServicio(horarioRepo, sesionRepo, asigRepo, uow);
+
+            var request = RequestBase();
+            var generado = await svc.EjecutarAsync(request);
+            Assert.True(generado.EsFactible, generado.MensajeError ?? string.Join("\n", generado.Logs));
+
+            var actual = await svc.ObtenerActualAsync(request.Semestre);
+
+            Assert.NotNull(actual);
+            Assert.True(actual!.EsFactible);
+            Assert.Equal(generado.HorarioId, actual.HorarioId);
+            Assert.Equal(generado.PuntajeFitness, actual.PuntajeFitness);
+            Assert.Equal(generado.Sesiones.Count, actual.Sesiones.Count);
+            Assert.Equal(
+                generado.Sesiones.Select(s => s.Id).OrderBy(id => id),
+                actual.Sesiones.Select(s => s.Id).OrderBy(id => id));
+        }
+
+        [Fact]
+        public async Task ObtenerActualAsync_SinNingunaGeneracionPrevia_DevuelveNull()
+        {
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+
+            var actual = await svc.ObtenerActualAsync("2026-1");
+
+            Assert.Null(actual);
+        }
+
+        /// <summary>
+        /// M2 (auditoría): antes, cada POST /horario/generar solo AGREGABA sesiones/asignaciones
+        /// (AddRangeAsync sin delete previo) — las de la corrida anterior quedaban huérfanas en la
+        /// BD para siempre (crecimiento ilimitado + contaminación de cualquier query que no
+        /// filtrara por horario activo, el mismo problema que "G4 auditoría" documenta en
+        /// AsignarDocenteSesionService). Verifica que regenerar limpia la corrida anterior, sin
+        /// tocar sesiones manuales (que no pertenecen a ningún Horario.SesioneIds) ni los registros
+        /// Horario en sí (auditoría de corridas — IHorarioRepositorio.GetAllAsync).
+        /// </summary>
+        [Fact]
+        public async Task Regenerar_BorraSesionesYAsignacionesDeLaCorridaAnterior_PeroConservaSesionesManualesYHorarios()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+            var svc = CrearServicio(horarioRepo, sesionRepo, asigRepo, uow);
+
+            var request = RequestBase();
+
+            // Sesión manual (CrearSesionManualService): nunca entra en Horario.SesioneIds.
+            var manual = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, Guid.NewGuid(),
+                TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m, false, false);
+            sesionRepo.Items.Add(manual);
+
+            var r1 = await svc.EjecutarAsync(request);
+            Assert.True(r1.EsFactible, r1.MensajeError ?? string.Join("\n", r1.Logs));
+
+            var idsPrimeraCorrida = sesionRepo.Items.Select(s => s.Id).Where(id => id != manual.Id).ToList();
+            Assert.NotEmpty(idsPrimeraCorrida);
+            var horarioPrimeraCorridaId = horarioRepo.Items.Single().Id;
+
+            var r2 = await svc.EjecutarAsync(request);
+            Assert.True(r2.EsFactible, r2.MensajeError ?? string.Join("\n", r2.Logs));
+
+            Assert.DoesNotContain(sesionRepo.Items, s => idsPrimeraCorrida.Contains(s.Id));
+            Assert.DoesNotContain(asigRepo.Items, a => idsPrimeraCorrida.Contains(a.SesionId));
+            Assert.Contains(sesionRepo.Items, s => s.Id == manual.Id);
+            Assert.Contains(horarioRepo.Items, h => h.Id == horarioPrimeraCorridaId);
+            Assert.Equal(2, horarioRepo.Items.Count);
         }
 
         [Fact]

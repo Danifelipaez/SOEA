@@ -57,9 +57,16 @@ namespace SOEA.API.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            var eliminado = await _service.DeleteAsync(id);
-            if (!eliminado) return NotFound($"Docente con ID {id} no encontrado.");
-            return NoContent();
+            try
+            {
+                var eliminado = await _service.DeleteAsync(id);
+                if (!eliminado) return NotFound($"Docente con ID {id} no encontrado.");
+                return NoContent();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(ex.Message);
+            }
         }
 
         /// <summary>

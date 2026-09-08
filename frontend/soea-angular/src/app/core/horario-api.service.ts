@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Observable, throwError } from 'rxjs';
+import { Observable, of, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion } from './models';
 import { environment } from '../../environments/environment';
@@ -112,6 +112,10 @@ export interface GenerarHorarioResponse {
   puntajeFitness: number;
   generaciones: number;
   mensajeError?: string;
+  motivoInfactibilidad?: string;
+  /** Ids de grupo señalados por el diagnóstico opcional de Fase 2 como responsables de la
+   *  infactibilidad — ver GenerarHorarioResponse.GruposEnConflicto en el backend. */
+  gruposEnConflicto?: string[];
   logs?: string[];
   // alternancia y semana llegan como string desde JSON; mapearSesiones() los castea
   sesiones: (Omit<Sesion, 'alternancia' | 'semana'> & { alternancia: string; semana?: string })[];
@@ -234,6 +238,18 @@ export class HorarioApiService {
   }
 
   /**
+   * P6: recupera el horario ya persistido para un semestre (última corrida generada), para
+   * rehidratar la grilla tras un reload de página — antes esto no existía y el horario generado
+   * solo vivía en memoria del navegador, así que un simple F5 lo vaciaba aunque siguiera intacto
+   * en BD. null si aún no se ha generado ningún horario para ese semestre (404, no es un error).
+   */
+  obtenerActual(semestre = '2026-1'): Observable<GenerarHorarioResponse | null> {
+    return this.http
+      .get<GenerarHorarioResponse>(`${this.apiBase}/horario/actual`, { params: { semestre } })
+      .pipe(catchError((err: HttpErrorResponse) => err.status === 404 ? of(null) : this.manejarError(err)));
+  }
+
+  /**
    * Petición 13: mueve una sesión ya generada a un nuevo (día, hora, espacio) sin regenerar el
    * horario completo. El backend recalcula solo la sesión editada y las que ahora chocan con ella.
    */
@@ -261,6 +277,13 @@ export class HorarioApiService {
   }
 
   private manejarError(err: HttpErrorResponse): Observable<never> {
+    // Fallo de red real (backend caído, CORS, sin conexión): Angular reporta status 0 y
+    // err.error es un ProgressEvent — también `typeof === 'object'`, así que sin este chequeo
+    // primero caía en la rama de abajo y se reenviaba el ProgressEvent crudo como si fuera el
+    // payload 422 real, indistinguible en el componente de un 422 mal formado.
+    if (err.status === 0) {
+      return throwError(() => new Error('No se pudo conectar con el servidor. Verifique su conexión o que el backend esté disponible.'));
+    }
     if (err.status === 400) {
       const errors = err.error?.errors;
       if (errors && typeof errors === 'object') {

@@ -110,8 +110,8 @@ namespace SOEA.Engine.ConstraintProg
                          .GroupBy(s => (Grupo: s.GrupoId!.Value, Asignatura: s.AsignaturaId, Tipo: CalculadorEspaciosSesion.TipoSesionDe(s)))
                          .Where(g => g.Count() >= 4))
             {
-                var msg = $"HC-SEP infactible: el grupo '{NombreGrupo(cluster.Key.Grupo)}' tiene {cluster.Count()} sesiones " +
-                          $"semanales de tipo {cluster.Key.Tipo} para esa asignatura, pero la separación " +
+                var msg = $"No es posible programar esta asignatura: el grupo '{NombreGrupo(cluster.Key.Grupo)}' tiene " +
+                          $"{cluster.Count()} sesiones semanales de tipo {cluster.Key.Tipo}, pero la separación " +
                           "mínima de 2 días entre sesiones del mismo tipo sólo admite 3 por semana sin solaparse " +
                           "(p. ej. lunes/miércoles/viernes). Reduzca las sesiones semanales de este tipo o repártalas " +
                           "en más de un grupo.";
@@ -217,7 +217,7 @@ namespace SOEA.Engine.ConstraintProg
             {
                 var detalle = string.Join("; ", gruposSobrecargados.Select(x =>
                     $"'{NombreGrupo(x.GrupoId)}' necesita {x.Requeridos} bloque(s) y su disponibilidad solo permite {x.Permitidos}"));
-                var msg = $"HC-G01 agregada infactible: {detalle}. Amplíe la disponibilidad declarada de ese/esos grupo(s) " +
+                var msg = $"Disponibilidad insuficiente: {detalle}. Amplíe la disponibilidad declarada de ese/esos grupo(s) " +
                           "o reduzca/redistribuya sus sesiones semanales.";
                 _logger.LogError(msg);
                 return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.FranjaGrupo);
@@ -350,7 +350,7 @@ namespace SOEA.Engine.ConstraintProg
                 if (startsGrupo.Length == 0)
                 {
                     var msg = permitidosPorGrupo is not null
-                        ? $"HC-G01: no hay bloques válidos para la sesión de {dur}h del grupo '{NombreGrupo(sesion.GrupoId)}' dentro de su disponibilidad declarada."
+                        ? $"Sin bloques disponibles: la sesión de {dur}h del grupo '{NombreGrupo(sesion.GrupoId)}' no cabe dentro de su disponibilidad horaria declarada."
                         : $"No hay bloques válidos para una sesión de {dur}h (no cabe sin cruzar día en la grilla canónica).";
                     _logger.LogError(msg);
                     var motivo = permitidosPorGrupo is not null ? MotivoInfactibilidad.FranjaGrupo : MotivoInfactibilidad.Otro;
@@ -370,8 +370,8 @@ namespace SOEA.Engine.ConstraintProg
 
                     if (startsFiltrados.Length == 0)
                     {
-                        var msg = $"HC-VH infactible: la sesión de {dur}h del grupo '{NombreGrupo(sesion.GrupoId)}' no " +
-                                  $"cabe dentro de su ventana horaria [{ventana.min:HH\\:mm}–{ventana.max:HH\\:mm}] " +
+                        var msg = $"Fuera de la ventana horaria: la sesión de {dur}h del grupo '{NombreGrupo(sesion.GrupoId)}' no " +
+                                  $"cabe dentro de la ventana horaria permitida [{ventana.min:HH\\:mm}–{ventana.max:HH\\:mm}] " +
                                   "en ningún día de la grilla. Amplíe la ventana o reduzca la duración.";
                         _logger.LogError(msg);
                         return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.VentanaHoraria);
@@ -481,7 +481,7 @@ namespace SOEA.Engine.ConstraintProg
                         if (conAforo.Count == 0)
                         {
                             int aforoMax = lista.Max(e => espacios[e].Capacidad);
-                            var msg = $"HC-CAP infactible: la sesión del grupo '{NombreGrupo(sesion.GrupoId)}' necesita un espacio para {estudiantes} " +
+                            var msg = $"Capacidad insuficiente: la sesión del grupo '{NombreGrupo(sesion.GrupoId)}' necesita un espacio para {estudiantes} " +
                                       $"estudiantes, pero el aforo máximo disponible entre sus candidatos es {aforoMax}. " +
                                       "Añada un espacio con mayor capacidad o reduzca el grupo.";
                             _logger.LogError(msg);
@@ -612,27 +612,30 @@ namespace SOEA.Engine.ConstraintProg
             }
 
             var mensaje = "El modelo no tiene solución factible (status del solver: " + status + "). Ninguna combinación " +
-                "de horario satisface todas las restricciones duras configuradas — revise separación mínima de días " +
-                "(HC-SEP), parejas de alternancia (HC-ALT), o la combinación de disponibilidad de grupo y ventana horaria.";
+                "de horario satisface todas las restricciones duras configuradas — revise la separación mínima de días " +
+                "entre sesiones del mismo tipo, las parejas de alternancia, o la combinación de disponibilidad de grupo " +
+                "y ventana horaria.";
 
             // Causa real no explicada por ningún pre-check estructural: si está habilitado, el
             // barrido reintenta el solve una vez por grupo excluyéndolo para nombrar culpables.
+            IReadOnlyList<Guid>? gruposResponsablesIds = null;
             if (permitirSweep)
             {
                 var gruposResponsables = EjecutarSweepDiagnostico(
                     sesiones, bloques, espacios, grupos, sesionesFijasIds, ventanaPorAsignatura, ct);
                 if (gruposResponsables is not null)
                 {
+                    gruposResponsablesIds = gruposResponsables.Select(g => g.Id).ToList();
                     mensaje += gruposResponsables.Count > 0
-                        ? $" Diagnóstico adicional: al excluir el grupo '{string.Join("' o '", gruposResponsables)}' " +
+                        ? $" Diagnóstico adicional: al excluir el grupo '{string.Join("' o '", gruposResponsables.Select(g => g.Nombre))}' " +
                           "el modelo pasa a ser factible; revise conflictos entre esos grupos (espacio compartido, " +
                           "pareja de alternancia, u otra restricción cruzada)."
-                        : " Diagnóstico adicional: ningún grupo individual es responsable — revise capacidad global " +
-                          "o HC-SEP/HC-ALT.";
+                        : " Diagnóstico adicional: ningún grupo individual es responsable — revise la capacidad global, " +
+                          "la separación mínima de días entre sesiones, o las parejas de alternancia.";
                 }
             }
 
-            return new ResultadoFactibilidad(false, SinAsignaciones, mensaje, MotivoInfactibilidad.Otro);
+            return new ResultadoFactibilidad(false, SinAsignaciones, mensaje, MotivoInfactibilidad.Otro, gruposResponsablesIds);
         }
 
         /// <summary>
@@ -642,7 +645,7 @@ namespace SOEA.Engine.ConstraintProg
         /// en las resoluciones recursivas (nunca dispara un segundo barrido). Devuelve null si el
         /// barrido no corrió (deshabilitado o demasiados grupos candidatos).
         /// </summary>
-        private List<string>? EjecutarSweepDiagnostico(
+        private List<Grupo>? EjecutarSweepDiagnostico(
             List<Sesion> sesiones, List<BloqueTiempo> bloques, List<Espacio> espacios,
             List<Grupo> grupos, HashSet<Guid> sesionesFijasIds,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)> ventanaPorAsignatura,
@@ -663,7 +666,7 @@ namespace SOEA.Engine.ConstraintProg
                 return null;
             }
 
-            var responsables = new List<string>();
+            var responsables = new List<Grupo>();
             try
             {
                 foreach (var candidato in candidatos)
@@ -674,7 +677,7 @@ namespace SOEA.Engine.ConstraintProg
                         sesionesReducidas, bloques, espacios, gruposReducidos, sesionesFijasIds,
                         ventanaPorAsignatura, ct, permitirSweep: false);
                     if (resultadoReducido.EsFactible)
-                        responsables.Add(candidato.Nombre);
+                        responsables.Add(candidato);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

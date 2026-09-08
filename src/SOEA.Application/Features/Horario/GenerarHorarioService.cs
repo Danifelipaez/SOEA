@@ -22,6 +22,7 @@ namespace SOEA.Application.Features.Horario
         private readonly IHorarioRepositorio         _horarioRepo;
         private readonly ISesionRepositorio          _sesionRepo;
         private readonly IAsignacionSemanalRepositorio _asignacionRepo;
+        private readonly IGrupoRepositorio           _grupoRepo;
         private readonly ICriterioCesionAlternanciaRepositorio _criterioCesionRepo;
         private readonly IUnitOfWork                 _uow;
 
@@ -32,6 +33,7 @@ namespace SOEA.Application.Features.Horario
             IHorarioRepositorio         horarioRepo,
             ISesionRepositorio          sesionRepo,
             IAsignacionSemanalRepositorio asignacionRepo,
+            IGrupoRepositorio           grupoRepo,
             ICriterioCesionAlternanciaRepositorio criterioCesionRepo,
             IUnitOfWork                 uow)
         {
@@ -41,8 +43,40 @@ namespace SOEA.Application.Features.Horario
             _horarioRepo = horarioRepo;
             _sesionRepo  = sesionRepo;
             _asignacionRepo = asignacionRepo;
+            _grupoRepo   = grupoRepo;
             _criterioCesionRepo = criterioCesionRepo;
             _uow         = uow;
+        }
+
+        /// <summary>
+        /// Recupera el horario vigente ya persistido para un semestre (última corrida generada),
+        /// reconstruyendo el mismo DTO que devuelve POST /generar. Antes no existía ningún GET —
+        /// el horario generado solo vivía en memoria del navegador y un simple reload de la página
+        /// lo perdía por completo aunque siguiera intacto en BD (P6 auditoría).
+        /// </summary>
+        public async Task<GenerarHorarioResponse?> ObtenerActualAsync(string semestre)
+        {
+            var horario = await _horarioRepo.GetBySemestreAsync(semestre);
+            if (horario == null) return null;
+
+            var sesionIds = horario.SesioneIds.ToHashSet();
+            var sesiones = (await _sesionRepo.GetAllAsync())
+                .Where(s => sesionIds.Contains(s.Id))
+                .ToList();
+            if (sesiones.Count == 0) return null;
+
+            var asignaciones = await _asignacionRepo.GetBySesionIdsAsync(sesionIds);
+            var grupos = await _grupoRepo.GetAllAsync();
+            var bloques = GenerarBloquesTiempo();
+
+            return new GenerarHorarioResponse
+            {
+                HorarioId      = horario.Id,
+                Semestre       = horario.Semestre,
+                EsFactible     = true,
+                PuntajeFitness = horario.PuntajeFitness,
+                Sesiones       = ConstruirSesionesDto(sesiones, asignaciones, grupos, bloques)
+            };
         }
 
         public async Task<GenerarHorarioResponse> EjecutarAsync(GenerarHorarioRequest request, CancellationToken ct = default)
@@ -205,6 +239,7 @@ namespace SOEA.Application.Features.Horario
                     EsFactible    = false,
                     MensajeError  = resultadoFactibilidad.MensajeError,
                     MotivoInfactibilidad = resultadoFactibilidad.Motivo.ToString(),
+                    GruposEnConflicto = resultadoFactibilidad.GruposResponsablesIds?.Select(id => id.ToString()).ToList() ?? new(),
                     Logs          = logs,
                     Sesiones      = new List<SesionGeneradaDto>()
                 };
@@ -325,6 +360,27 @@ namespace SOEA.Application.Features.Horario
             await _uow.BeginTransactionAsync();
             try
             {
+                // M2 auditoría: cada corrida ANTES solo agregaba (AddRangeAsync sin delete previo),
+                // dejando las sesiones/asignaciones de corridas superadas huérfanas en la BD —
+                // crecimiento ilimitado y cada consumidor (AsignarDocenteSesionService,
+                // ReacomodarHorarioService) tuvo que aprender a filtrarlas por su cuenta (ver
+                // comentario "G4 auditoría" en AsignarDocenteSesionService). El registro Horario en
+                // sí NO se borra (auditoría de corridas — IHorarioRepositorio.GetAllAsync), pero sus
+                // sesiones y asignaciones son datos regenerables (regla 8, CLAUDE.md) y sí se limpian
+                // antes de escribir la corrida nueva. Las sesiones manuales (CrearSesionManualService)
+                // nunca pertenecen a un Horario.SesioneIds, así que sobreviven intactas.
+                var horariosAnteriores = await _horarioRepo.GetAllAsync();
+                var sesionIdsAnteriores = horariosAnteriores.SelectMany(h => h.SesioneIds).ToHashSet();
+                if (sesionIdsAnteriores.Count > 0)
+                {
+                    var asignacionesAnteriores = await _asignacionRepo.GetBySesionIdsAsync(sesionIdsAnteriores);
+                    foreach (var a in asignacionesAnteriores)
+                        await _asignacionRepo.DeleteAsync(a.Id);
+                    foreach (var sesionId in sesionIdsAnteriores)
+                        await _sesionRepo.DeleteAsync(sesionId);
+                    logs.Add($"[INFO] Limpiadas {sesionIdsAnteriores.Count} sesión(es) de corridas anteriores antes de persistir la nueva.");
+                }
+
                 await _sesionRepo.AddRangeAsync(sesionesColoreadas);
                 await _horarioRepo.AddAsync(horario);
                 await _asignacionRepo.AddRangeAsync(asignaciones);
@@ -468,7 +524,9 @@ namespace SOEA.Application.Features.Horario
 
                 // Fuente única del parseo por día (A1): sin información → sin restricción (todos los
                 // bloques); día explícitamente no-disponible → cerrado; el resto respeta su ventana.
-                var disponibilidad = DisponibilidadSemanal.Desde(MapearEntradasCrudas(dto.Disponibilidad));
+                // M1: "disponibilidad": null explícito en el JSON pisa el default del DTO (los
+                // property initializers de System.Text.Json no protegen contra null explícito).
+                var disponibilidad = DisponibilidadSemanal.Desde(MapearEntradasCrudas(dto.Disponibilidad ?? new()));
                 var bloquesDisponibles = bloques
                     .Where(b => disponibilidad.PermiteBloque(b.Dia, b.HoraInicio, b.HoraFin))
                     .ToList();
@@ -525,7 +583,7 @@ namespace SOEA.Application.Features.Horario
             {
                 if (grupo.AsignaturaId is not { } asigId || !asignaturaPorId.TryGetValue(asigId, out var dto))
                 {
-                    advertencias.Add($"[WARN] Grupo '{grupo.Nombre}' no tiene una asignatura válida y no se incluyó en el horario.");
+                    advertencias.Add($"[WARN] Grupo '{grupo.Nombre}' (Id {grupo.Id}) no tiene una asignatura válida y no se incluyó en el horario.");
                     continue;
                 }
 
@@ -662,7 +720,8 @@ namespace SOEA.Application.Features.Horario
                 Alternancia   = s.Alternancia.ToString(),
                 Virtual       = a.Modalidad == Modalidad.Virtual,
                 Semana        = a.Semana.ToString(),
-                TipoFlujo     = s.TipoFlujo.ToString()
+                TipoFlujo     = s.TipoFlujo.ToString(),
+                MotivoConflicto = s.MotivoConflicto
             };
         }
 
@@ -863,9 +922,14 @@ namespace SOEA.Application.Features.Horario
             int excesohoras  = demandaHoras - capacidadMaxEstimada;
             if (excesohoras <= 0) return cedidasIds; // sin saturación de teoría → no tocar nada
 
-            // Sesiones por asignatura (un run = un grupo ⇒ = sesiones/semana).
-            var totalPorAsig = sesiones
-                .GroupBy(s => s.AsignaturaId)
+            // Sesiones por (asignatura, grupo) — espejo de PuedeCederLab en CederSiguienteCandidatoLab.
+            // Indexar solo por AsignaturaId mezclaba grupos distintos que comparten la misma
+            // asignatura: un grupo con una única sesión de esa materia podía calificar como
+            // candidato a cesión solo porque OTRO grupo tenía varias sesiones de ella, dejándolo
+            // sin ninguna sesión presencial de esa asignatura (bug confirmado por
+            // AplicarPrioridadPresencialPorGrupoTests).
+            var totalPorAsigYGrupo = sesiones
+                .GroupBy(s => (s.AsignaturaId, s.GrupoId))
                 .ToDictionary(g => g.Key, g => g.Count());
 
             // MultiplesSesiones no otorga elegibilidad por sí solo (evita que CUALQUIER asignatura con
@@ -892,7 +956,7 @@ namespace SOEA.Application.Features.Horario
             // semanas opuestas) en vez de virtualizar. Solo asignaturas con ≥2 sesiones y conservando
             // SIEMPRE ≥1 sesión presencial pura por asignatura. Respeta Bloqueada. Excluye
             // TipoFlujo.Laboratorio: la Etapa 2 (reactiva) se encarga de los labs.
-            var presencialesPurasPorAsig = new Dictionary<Guid, int>(totalPorAsig);
+            var presencialesPurasPorAsigYGrupo = new Dictionary<(Guid AsignaturaId, Guid? GrupoId), int>(totalPorAsigYGrupo);
             var candidatasPase1 = OrdenarCesion(sesiones.Where(s =>
                 s.Modalidad == Modalidad.Presencial &&
                 s.TipoFlujo != TipoFlujo.Laboratorio &&
@@ -902,8 +966,8 @@ namespace SOEA.Application.Features.Horario
                 EsCandidata(s)));
 
             bool PuedeCeder(Sesion s) =>
-                totalPorAsig.TryGetValue(s.AsignaturaId, out var n) && n >= 2 &&
-                presencialesPurasPorAsig[s.AsignaturaId] > 1;
+                totalPorAsigYGrupo.TryGetValue((s.AsignaturaId, s.GrupoId), out var n) && n >= 2 &&
+                presencialesPurasPorAsigYGrupo[(s.AsignaturaId, s.GrupoId)] > 1;
 
             var usadasPase1 = new HashSet<Guid>();
             for (int i = 0; i < candidatasPase1.Count && excesohoras > 0; i++)
@@ -928,8 +992,8 @@ namespace SOEA.Application.Features.Horario
                 s1.AplicarAlternancia(TipoAlternancia.TipoA, TipoAlternanciaConfig.IdTipoA, cedidaPorSaturacion: true, parejaAlternanciaId: patron);
                 s2.AplicarAlternancia(TipoAlternancia.TipoB, TipoAlternanciaConfig.IdTipoB, cedidaPorSaturacion: true, parejaAlternanciaId: patron);
                 usadasPase1.Add(s1.Id); usadasPase1.Add(s2.Id);
-                presencialesPurasPorAsig[s1.AsignaturaId]--;
-                presencialesPurasPorAsig[s2.AsignaturaId]--;
+                presencialesPurasPorAsigYGrupo[(s1.AsignaturaId, s1.GrupoId)]--;
+                presencialesPurasPorAsigYGrupo[(s2.AsignaturaId, s2.GrupoId)]--;
                 excesohoras -= (Horas(s1) + 1) / 2 + (Horas(s2) + 1) / 2; // cada una alterna ⇒ ~mitad de huella
                 cedidasIds.Add(s1.Id); cedidasIds.Add(s2.Id);
             }

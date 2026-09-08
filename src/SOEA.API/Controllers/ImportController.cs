@@ -62,15 +62,9 @@ namespace SOEA.API.Controllers
                 return BadRequest($"Error al leer el Excel: {ex.Message}");
             }
 
-            ImportarCurriculumStats stats;
-            try
-            {
-                stats = await _importService.EjecutarAsync(resultado);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Error al persistir: {ex.Message}");
-            }
+            // B3 auditoría: sin catch-all aquí — GlobalExceptionHandler (A1) cubre lo demás sin
+            // exponer ex.Message crudo.
+            var stats = await _importService.EjecutarAsync(resultado);
 
             return Ok(new ImportExcelStatsDto
             {
@@ -117,15 +111,9 @@ namespace SOEA.API.Controllers
                 facultades, programas, asignaturas, docentes,
                 sesiones, espacios, grupos);
 
-            ImportarCurriculumStats stats;
-            try
-            {
-                stats = await _importService.EjecutarAsync(resultado);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, ex.Message);
-            }
+            // B3 auditoría: sin catch-all aquí — GlobalExceptionHandler (A1) cubre lo demás sin
+            // exponer ex.Message crudo.
+            var stats = await _importService.EjecutarAsync(resultado);
 
             return Ok(new ImportResultDto
             {

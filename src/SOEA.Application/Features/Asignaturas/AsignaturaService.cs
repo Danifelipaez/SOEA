@@ -8,8 +8,13 @@ namespace SOEA.Application.Features.Asignaturas;
 public class AsignaturaService
 {
     private readonly IAsignaturaRepositorio _repository;
+    private readonly IGrupoRepositorio _grupoRepository;
 
-    public AsignaturaService(IAsignaturaRepositorio repository) => _repository = repository;
+    public AsignaturaService(IAsignaturaRepositorio repository, IGrupoRepositorio grupoRepository)
+    {
+        _repository = repository;
+        _grupoRepository = grupoRepository;
+    }
 
     public async Task<AsignaturaResponse> CreateAsync(CreateAsignaturaRequest request)
     {
@@ -81,7 +86,14 @@ public class AsignaturaService
     public async Task DeleteAsync(Guid id)
     {
         if (await _repository.GetByIdAsync(id) is null)
-            throw new InvalidOperationException($"Asignatura con ID {id} no encontrada.");
+            throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
+
+        var gruposAsociados = await _grupoRepository.GetByAsignaturaIdAsync(id);
+        var cantidad = gruposAsociados.Count();
+        if (cantidad > 0)
+            throw new InvalidOperationException(
+                $"No se puede eliminar la asignatura: tiene {cantidad} grupo(s) asociado(s). Elimínelos o reasígnelos primero.");
+
         await _repository.DeleteAsync(id);
     }
 

@@ -5,6 +5,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
 import { Asignatura, CriterioCesionAlternancia } from '../../../core/models';
+import { mensajeErrorHttp } from '../../../core/http-error.util';
 
 interface AsignaturaFila {
   asignatura: Asignatura;
@@ -181,7 +182,7 @@ export class AlternanciaTabComponent implements OnInit {
       next: () => this.guardandoSet.update(s => { const n = new Set(s); n.delete(id); return n; }),
       error: (err) => {
         this.guardandoSet.update(s => { const n = new Set(s); n.delete(id); return n; });
-        const msg = err?.error?.message ?? err?.message ?? 'Error al guardar';
+        const msg = mensajeErrorHttp(err);
         this.errorMap.update(m => { const n = new Map(m); n.set(id, msg); return n; });
         this.snack.open(`Error: ${msg}`, 'Cerrar', { duration: 4000 });
       }

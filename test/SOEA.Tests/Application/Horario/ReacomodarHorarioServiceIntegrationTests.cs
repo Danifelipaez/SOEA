@@ -105,6 +105,8 @@ namespace SOEA.Tests.Application.Horario
             public Task<Grupo?> GetByCodigoAsync(string codigo) => Task.FromResult<Grupo?>(null);
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) =>
                 Task.FromResult(Items.Where(g => g.AsignaturaId == asignaturaId));
+            public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) =>
+                Task.FromResult(Items.Where(g => g.DocenteId == docenteId));
         }
 
         private sealed class FakeAsignaturaRepo : IAsignaturaRepositorio
@@ -182,7 +184,7 @@ namespace SOEA.Tests.Application.Horario
             var fase2 = new MotorConstraintProgramming(NullLogger<MotorConstraintProgramming>.Instance, new CpSatOptions { NumWorkers = 1 });
             var fase3 = new MotorGenetico(NullLogger<MotorGenetico>.Instance,
                 new AsignadorEspaciosExactoCpSat(NullLogger<AsignadorEspaciosExactoCpSat>.Instance));
-            return new GenerarHorarioService(fase1, fase2, fase3, horarioRepo, sesionRepo, asigRepo, new FakeCriterioCesionRepo(), uow);
+            return new GenerarHorarioService(fase1, fase2, fase3, horarioRepo, sesionRepo, asigRepo, new FakeGrupoRepo(), new FakeCriterioCesionRepo(), uow);
         }
 
         private ReacomodarHorarioService CrearReacomodarServicio(

@@ -75,7 +75,9 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasDatabaseName("ux_asignacion_semanal_sesion_semana");
 
                     b.HasIndex("EspacioId", "Semana", "BloqueTiempoId")
-                        .HasDatabaseName("ix_asignacion_semanal_espacio_conflicto");
+                        .IsUnique()
+                        .HasDatabaseName("ux_asignacion_semanal_espacio_conflicto")
+                        .HasFilter("espacio_id IS NOT NULL");
 
                     b.ToTable("AsignacionesSemanales", (string)null);
                 });

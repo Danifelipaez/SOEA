@@ -27,6 +27,24 @@ namespace SOEA.API.Controllers
         }
 
         /// <summary>
+        /// Recupera el horario vigente ya persistido para un semestre (última corrida generada),
+        /// para que el frontend pueda rehidratar la grilla tras un reload sin volver a ejecutar el
+        /// pipeline. 404 si aún no se ha generado ningún horario para ese semestre.
+        /// </summary>
+        [HttpGet("actual")]
+        [ProducesResponseType(typeof(GenerarHorarioResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> ObtenerActual([FromQuery] string semestre)
+        {
+            if (string.IsNullOrWhiteSpace(semestre))
+                return BadRequest("Debe especificar el semestre.");
+
+            var resultado = await _generarService.ObtenerActualAsync(semestre);
+            return resultado is null ? NotFound() : Ok(resultado);
+        }
+
+        /// <summary>
         /// Genera un horario académico ejecutando el pipeline de 3 fases
         /// (GraphColoring → CP-SAT → Genetic Algorithm).
         /// Recibe el estado actual del frontend (asignaturas, docentes, espacios)
@@ -81,12 +99,8 @@ namespace SOEA.API.Controllers
                 _logger.LogInformation("Generación de horario cancelada por desconexión del cliente.");
                 return StatusCode(499);
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error inesperado al generar el horario.");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    new { error = "Error interno al generar el horario.", detalle = ex.Message });
-            }
+            // B3 auditoría: sin catch-all aquí — cualquier otra excepción cae en GlobalExceptionHandler
+            // (A1), que ya no expone ex.Message crudo para lo que no reconoce.
         }
 
         /// <summary>
@@ -116,12 +130,7 @@ namespace SOEA.API.Controllers
                 // Violación de hard constraint — el mensaje ya viene en español para el usuario
                 return UnprocessableEntity(new { error = ex.Message });
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error inesperado al crear sesión manual.");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    new { error = "Error interno al crear la sesión.", detalle = ex.Message });
-            }
+            // B3 auditoría: sin catch-all aquí — GlobalExceptionHandler (A1) cubre lo demás.
         }
 
         /// <summary>
@@ -151,12 +160,7 @@ namespace SOEA.API.Controllers
             {
                 return BadRequest(new { error = ex.Message });
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error inesperado al reacomodar el horario.");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    new { error = "Error interno al reacomodar el horario.", detalle = ex.Message });
-            }
+            // B3 auditoría: sin catch-all aquí — GlobalExceptionHandler (A1) cubre lo demás.
         }
     }
 }

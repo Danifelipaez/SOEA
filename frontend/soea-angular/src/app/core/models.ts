@@ -155,6 +155,8 @@ export interface Sesion {
   semana?: 'A' | 'B';
   /** Laboratorio | AulaVirtual. Distingue teoría (presencial o virtual) de laboratorio. */
   tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
+  /** Causa por la que Fase 1 no encontró un bloque libre sin conflicto para esta sesión. Vacío si se agendó sin conflicto. */
+  motivoConflicto?: string;
 }
 
 /** Vista de UI de los 3 tipos de sesión combinables por asignatura (desglose por tipo). */

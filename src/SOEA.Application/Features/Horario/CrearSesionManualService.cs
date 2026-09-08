@@ -185,7 +185,8 @@ namespace SOEA.Application.Features.Horario
                 Alternancia  = alternanciaFinal.ToString(),
                 Virtual      = a.Modalidad == Modalidad.Virtual,
                 Semana       = a.Semana.ToString(),
-                TipoFlujo    = sesion.TipoFlujo.ToString()
+                TipoFlujo    = sesion.TipoFlujo.ToString(),
+                MotivoConflicto = sesion.MotivoConflicto
             }).ToList();
         }
 

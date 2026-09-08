@@ -18,6 +18,13 @@ namespace SOEA.Application.Features.Horario.Responses
         public string? MensajeError  { get; set; }
         /// <summary>Causa de infactibilidad de Fase 2 (ver MotivoInfactibilidad), solo cuando EsFactible es false.</summary>
         public string? MotivoInfactibilidad { get; set; }
+        /// <summary>
+        /// Ids (como string) de los grupos que el barrido de diagnóstico opcional de Fase 2
+        /// identificó como responsables de la infactibilidad — vacío si el barrido no corrió o
+        /// no encontró un responsable individual. El frontend los usa para resaltar esos grupos
+        /// en el catálogo sin tener que interpretar el texto libre de MensajeError.
+        /// </summary>
+        public List<string> GruposEnConflicto { get; set; } = new();
         public List<string> Logs     { get; set; } = new();
         public List<SesionGeneradaDto> Sesiones { get; set; } = new();
     }
@@ -56,5 +63,11 @@ namespace SOEA.Application.Features.Horario.Responses
         public string  Semana       { get; set; } = string.Empty;
         /// <summary>Laboratorio | AulaVirtual. Distingue teoría (presencial o virtual) de laboratorio.</summary>
         public string  TipoFlujo    { get; set; } = "Laboratorio";
+        /// <summary>
+        /// M5 auditoría: causa por la que Fase 1 no pudo asignarle un bloque libre sin conflicto
+        /// (ver AgendadorColoracionGrafo). Se calculaba y persistía desde antes, pero ningún DTO
+        /// lo exponía — vacío si la sesión se agendó sin conflicto.
+        /// </summary>
+        public string  MotivoConflicto { get; set; } = string.Empty;
     }
 }

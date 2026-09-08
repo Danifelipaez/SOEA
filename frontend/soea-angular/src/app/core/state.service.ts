@@ -53,6 +53,12 @@ export class StateService {
     return this.gruposByAsignatura().get(asignaturaId) ?? [];
   }
 
+  /** Grupos cuyo asignaturaId no resuelve a ninguna Asignatura del catálogo (p. ej. la asignatura
+   *  fue eliminada mientras el grupo seguía existiendo). Un asignaturaId vacío es "sin asignar a
+   *  propósito", no huérfano. */
+  readonly gruposHuerfanos = computed(() =>
+    this.grupos().filter(g => g.asignaturaId && !this.asignaturaById().has(g.asignaturaId)));
+
   // ── Color por asignatura (petición 12) ──────────────────────────────────────
   // Rampa fija coherente con --alt-a/--alt-b/--alt-lab de styles.css. Hash determinístico
   // del id: misma asignatura → mismo color en toda la sesión, sin persistir nada nuevo.
@@ -134,6 +140,24 @@ export class StateService {
     }));
   }
   setExecutionLogs(logs: string[]) { this.executionLogs.set(logs); }
+
+  /**
+   * Ids de grupo que el backend señaló como responsables de una infactibilidad (diagnóstico
+   * opcional de Fase 2, ver GenerarHorarioResponse.GruposEnConflicto). Vacío mientras no haya
+   * fallado ninguna generación, o tras una generación exitosa (ver horario.component.ts).
+   */
+  gruposEnConflicto = signal<string[]>([]);
+  readonly gruposEnConflictoSet = computed(() => new Set(this.gruposEnConflicto()));
+  setGruposEnConflicto(ids: string[]) { this.gruposEnConflicto.set(ids); }
+
+  /**
+   * M6 auditoría: causa de infactibilidad (GenerarHorarioResponse.MotivoInfactibilidad) del último
+   * intento — junto con gruposEnConflicto, persiste fuera de /horario para que /revisar y /publicar
+   * puedan mostrar la misma guía accionable sin que se pierda al navegar (antes solo vivía en un
+   * signal local de HorarioComponent, que se destruye al salir de la ruta).
+   */
+  motivoInfactibilidad = signal<string | undefined>(undefined);
+  setMotivoInfactibilidad(motivo: string | undefined) { this.motivoInfactibilidad.set(motivo); }
 
   // ── Horarios base ────────────────────────────────────────────────────────────
   horariosBases       = signal<HorarioBase[]>(this.cargarBasesLocalStorage());
