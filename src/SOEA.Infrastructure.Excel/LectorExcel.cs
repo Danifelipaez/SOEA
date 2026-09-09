@@ -121,6 +121,11 @@ namespace SOEA.Infrastructure.Excel
             // conteo de grupos por (asig_norm, programaId) para numerar secuencialmente
             var gruposContador  = new Dictionary<(string AsigNorm, Guid ProgramaId), int>();
             var advertencias    = new List<string>();
+            // Ventana [Día → mín(Hora), máx(Final)] por grupo (HC-G01): la Hora/Final de cada fila
+            // es cuándo SE REÚNE ese grupo, no la disponibilidad personal del docente que lo dicta
+            // — un docente puede estar libre fuera de las horas en que este Excel lo muestra dictando
+            // clase. Se acumula aquí y se aplica al Grupo (no al Docente) después del loop principal.
+            var disponibilidadPorGrupo = new Dictionary<Guid, Dictionary<DiaDeSemana, (TimeOnly Desde, TimeOnly Hasta)>>();
 
             for (int fila = 2; fila <= totalFilas; fila++)
             {
@@ -261,7 +266,7 @@ namespace SOEA.Infrastructure.Excel
                         gruposDict[claveGrupo] = grupoDocente;
                     }
 
-                    // Disponibilidad del docente: expandir rango en bloques de 1h
+                    // Bloque de la sesión (para la sesión predefinida) + ventana del grupo (HC-G01)
                     Guid bloqueIdParaSesion = Guid.Empty;
                     if (!string.IsNullOrWhiteSpace(txtDia) && !string.IsNullOrWhiteSpace(txtHora))
                     {
@@ -286,34 +291,25 @@ namespace SOEA.Infrastructure.Excel
                         {
                             var horaIni = horaIniParaBloque;
                             var horaFin = horaFinParaBloque;
-                            // Expandir rango en slots de 1h y agregar a disponibilidad del docente
-                            var horaActual = horaIni;
-                            bool esPrimerBloque = true;
-                            while (horaActual < horaFin)
+
+                            // Ampliar la ventana [Desde,Hasta] de ese día para el GRUPO de esta fila.
+                            if (!disponibilidadPorGrupo.TryGetValue(grupoDocente.Id, out var ventanasGrupo))
                             {
-                                var horaNext = horaActual.AddHours(1);
-                                var bloqueKey = (diaSemana, horaActual);
-                                BloqueTiempo? bloque;
-
-                                if (catalogoBloques != null && catalogoBloques.TryGetValue(bloqueKey, out var bloqueSeeded))
-                                {
-                                    bloque = bloqueSeeded;
-                                }
-                                else
-                                {
-                                    bloque = new BloqueTiempo(Guid.NewGuid(), diaSemana, horaActual, horaNext);
-                                }
-
-                                docente.AgregarBloqueDisponibilidad(bloque);
-
-                                if (esPrimerBloque)
-                                {
-                                    bloqueIdParaSesion = bloque.Id;
-                                    esPrimerBloque = false;
-                                }
-
-                                horaActual = horaNext;
+                                ventanasGrupo = new Dictionary<DiaDeSemana, (TimeOnly Desde, TimeOnly Hasta)>();
+                                disponibilidadPorGrupo[grupoDocente.Id] = ventanasGrupo;
                             }
+                            ventanasGrupo[diaSemana] = ventanasGrupo.TryGetValue(diaSemana, out var ventanaActual)
+                                ? (horaIni < ventanaActual.Desde ? horaIni : ventanaActual.Desde,
+                                   horaFin > ventanaActual.Hasta ? horaFin : ventanaActual.Hasta)
+                                : (horaIni, horaFin);
+
+                            // Resolver el bloque de 1h de inicio contra el catálogo canónico, para que
+                            // la sesión predefinida referencie un BloqueTiempoId real y persistible.
+                            var bloqueKey = (diaSemana, horaIni);
+                            BloqueTiempo bloque = catalogoBloques != null && catalogoBloques.TryGetValue(bloqueKey, out var bloqueSeeded)
+                                ? bloqueSeeded
+                                : new BloqueTiempo(Guid.NewGuid(), diaSemana, horaIni, horaIni.AddHours(1));
+                            bloqueIdParaSesion = bloque.Id;
                         }
                         else
                         {
@@ -345,6 +341,25 @@ namespace SOEA.Infrastructure.Excel
                 {
                     advertencias.Add($"Fila {fila}: asignatura '{txtAsignatura}' sin docente asignado.");
                 }
+            }
+
+            // Aplicar la ventana acumulada de cada grupo como su DisponibilidadUiJson (HC-G01).
+            // Días sin ninguna fila para ese grupo quedan sin entrada = sin restricción (no se cierran
+            // por falta de evidencia — ver DisponibilidadSemanal.PermiteBloque).
+            foreach (var grupo in grupos)
+            {
+                if (!disponibilidadPorGrupo.TryGetValue(grupo.Id, out var ventanas) || ventanas.Count == 0)
+                    continue;
+
+                var porDia = ventanas.ToDictionary(
+                    kv => kv.Key.ToString(),
+                    kv => new DisponibilidadSemanal.DiaEntradaCruda(
+                        NoDisponible: false,
+                        Tipo: "Franja específica",
+                        FranjaGeneral: null,
+                        Desde: kv.Value.Desde.ToString("HH:mm"),
+                        Hasta: kv.Value.Hasta.ToString("HH:mm")));
+                grupo.ActualizarDisponibilidadUi(System.Text.Json.JsonSerializer.Serialize(porDia));
             }
 
             var resultado = new CurriculumExcelResult(

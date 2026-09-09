@@ -386,13 +386,17 @@ export class AsignaturasTabComponent {
 
   delete(asignatura: Asignatura) {
     const enBd = this.catalogo.estaEnBd('asignatura', asignatura.id);
+    const cantidadGrupos = this.state.getGruposByAsignatura(asignatura.id).length;
+    const avisoGrupos = cantidadGrupos > 0
+      ? ` Sus ${cantidadGrupos} grupo(s) también se eliminarán.`
+      : '';
     const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
       width: '320px',
       data: {
         title: 'Eliminar asignatura',
         message: enBd
-          ? `Se eliminará "${asignatura.nombre}" de la base de datos. Esta acción es irreversible.`
-          : `Se eliminará "${asignatura.nombre}" (aún no está guardada en la BD).`
+          ? `Se eliminará "${asignatura.nombre}" de la base de datos.${avisoGrupos} Esta acción es irreversible.`
+          : `Se eliminará "${asignatura.nombre}" (aún no está guardada en la BD).${avisoGrupos}`
       }
     });
     ref.afterClosed().subscribe(confirmado => {

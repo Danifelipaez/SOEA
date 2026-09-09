@@ -14,8 +14,8 @@ namespace SOEA.Tests.Application
     /// antes de borrarla — sin FK a nivel de BD (Grupos.asignatura_id no tiene ninguna restricción),
     /// el borrado siempre tenía éxito y dejaba esos Grupos huérfanos (AsignaturaId apuntando a un
     /// registro que ya no existe). El síntoma: GenerarHorarioService los excluía en silencio de la
-    /// generación de horario, identificados solo por Nombre (no único). Este guard bloquea el
-    /// borrado mientras existan Grupos asociados, en vez de dejarlos huérfanos.
+    /// generación de horario, identificados solo por Nombre (no único). Ahora el borrado elimina
+    /// primero los Grupos asociados y luego la Asignatura, en vez de dejarlos huérfanos o bloquear.
     /// </summary>
     public class DeleteAsignaturaServiceTests
     {
@@ -45,21 +45,23 @@ namespace SOEA.Tests.Application
         }
 
         [Fact]
-        public async Task LanzaInvalidOperation_ConConteo_SiTieneGruposAsociados()
+        public async Task EliminaGruposAsociados_YLuegoLaAsignatura_SiTieneGruposAsociados()
         {
             var asig = Existente(Guid.NewGuid());
             var asigRepo = new FakeAsignaturaRepo(asig);
-            var grupoRepo = new FakeGrupoRepo(
-                new Grupo(Guid.NewGuid(), "G1", Guid.Empty, 30, asignaturaId: asig.Id),
-                new Grupo(Guid.NewGuid(), "G2", Guid.Empty, 30, asignaturaId: asig.Id));
+            var grupo1 = new Grupo(Guid.NewGuid(), "G1", Guid.Empty, 30, asignaturaId: asig.Id);
+            var grupo2 = new Grupo(Guid.NewGuid(), "G2", Guid.Empty, 30, asignaturaId: asig.Id);
+            var grupoOtraAsignatura = new Grupo(Guid.NewGuid(), "G3", Guid.Empty, 30, asignaturaId: Guid.NewGuid());
+            var grupoRepo = new FakeGrupoRepo(grupo1, grupo2, grupoOtraAsignatura);
             var service = new AsignaturaService(asigRepo, grupoRepo);
 
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => service.DeleteAsync(asig.Id));
+            await service.DeleteAsync(asig.Id);
 
-            Assert.Contains("2", ex.Message);
-            // El guard no debe tener fugas: si rechaza, el repo de asignaturas nunca se toca.
-            Assert.False(asigRepo.Eliminado);
+            Assert.True(asigRepo.Eliminado);
+            Assert.Null(await grupoRepo.GetByIdAsync(grupo1.Id));
+            Assert.Null(await grupoRepo.GetByIdAsync(grupo2.Id));
+            // Los grupos de otras asignaturas no deben verse afectados.
+            Assert.NotNull(await grupoRepo.GetByIdAsync(grupoOtraAsignatura.Id));
         }
 
         // ── Repos fake ───────────────────────────────────────────────────────────

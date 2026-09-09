@@ -95,7 +95,7 @@ El motor CP-SAT (Fase 2) las aplica todas **por semana** (A y B por separado). U
 |---|---|---|
 | HC-C01 | Una cohorte/grupo no puede tener dos sesiones en la misma franja (presencial o virtual) | por `(grupo, Semana)`; re-verificada en el validador post-gen |
 | HC-G01 | Si el grupo declara disponibilidad (Matutino/Vespertino), toda sesión inicia dentro de esa franja | dominio de inicios en las 3 fases (`CalculadorDominioSesion`, auditoría A1); re-verificada en el validador post-gen |
-| HC-SEP | Sesiones semanales repetidas del mismo `(grupo, asignatura, TipoSesion)` deben quedar separadas por al menos 2 posiciones de día de la semana | **implementada** (nueva, agosto 2026): CP-SAT vía `AddElement` sobre el día de cada `start`, más re-verificación en el validador post-gen |
+| HC-SEP | Cuando hay ≥2 sesiones semanales del mismo `(grupo, asignatura, TipoSesion)`, cada par debe quedar separado por al menos 2 posiciones de día de la semana (no aplica con 1 sola sesión) | **implementada** (nueva, agosto 2026): CP-SAT vía `AddElement` sobre el día de cada `start`, más re-verificación en el validador post-gen |
 | HC-ALT | Toda pareja de sesiones con el mismo `ParejaAlternanciaId` debe tener tipos opuestos (TipoA/TipoB), coincidir de bloque en su semana presencial y compartir el mismo espacio físico entre semanas | **implementada** (nueva, agosto 2026 — "alternancia por parejas"/Tipo C dinámico): CP-SAT + re-verificada en el validador post-gen. Etiquetada `VERIFICA` en el código: implementada y probada, pendiente de confirmación formal con la coordinadora académica |
 | HC-C02 | Horas totales programadas deben coincidir con la malla curricular | **no implementada** (C3 auditoría) |
 

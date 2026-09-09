@@ -88,11 +88,9 @@ public class AsignaturaService
         if (await _repository.GetByIdAsync(id) is null)
             throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
 
-        var gruposAsociados = await _grupoRepository.GetByAsignaturaIdAsync(id);
-        var cantidad = gruposAsociados.Count();
-        if (cantidad > 0)
-            throw new InvalidOperationException(
-                $"No se puede eliminar la asignatura: tiene {cantidad} grupo(s) asociado(s). Elimínelos o reasígnelos primero.");
+        var gruposAsociados = (await _grupoRepository.GetByAsignaturaIdAsync(id)).ToList();
+        foreach (var grupo in gruposAsociados)
+            await _grupoRepository.DeleteAsync(grupo.Id);
 
         await _repository.DeleteAsync(id);
     }

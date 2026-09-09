@@ -259,6 +259,8 @@ namespace SOEA.Application.Features.Import
                     {
                         var nuevo = new Grupo(Guid.NewGuid(), g.Nombre, progRealId, 30, g.Alternancia,
                             asignaturaId: asigRealId, facultadId: g.FacultadId, docenteId: docRealId);
+                        if (!string.IsNullOrWhiteSpace(g.DisponibilidadUiJson))
+                            nuevo.ActualizarDisponibilidadUi(g.DisponibilidadUiJson);
                         if (espacioFijoDelGrupo.HasValue)
                             nuevo.ActualizarRequisitosEspacio(new List<RequisitoEspacio>
                             {
@@ -275,6 +277,12 @@ namespace SOEA.Application.Features.Import
                         if (docRealId.HasValue && !existe.DocenteId.HasValue)
                         {
                             existe.AsignarDocente(docRealId);
+                            cambios = true;
+                        }
+                        if (string.IsNullOrWhiteSpace(existe.DisponibilidadUiJson) &&
+                            !string.IsNullOrWhiteSpace(g.DisponibilidadUiJson))
+                        {
+                            existe.ActualizarDisponibilidadUi(g.DisponibilidadUiJson);
                             cambios = true;
                         }
                         if (espacioFijoDelGrupo.HasValue &&

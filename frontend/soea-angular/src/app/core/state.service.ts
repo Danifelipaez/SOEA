@@ -100,7 +100,10 @@ export class StateService {
   // ── Asignaturas ──────────────────────────────────────────────────────────────
   addAsignatura(a: Asignatura)      { this.asignaturas.update(v => [...v, a]); }
   updateAsignatura(a: Asignatura)   { this.asignaturas.update(v => v.map(x => x.id === a.id ? a : x)); }
-  deleteAsignatura(id: string)      { this.asignaturas.update(v => v.filter(x => x.id !== id)); }
+  deleteAsignatura(id: string)      {
+    this.grupos.update(v => v.filter(g => g.asignaturaId !== id));
+    this.asignaturas.update(v => v.filter(x => x.id !== id));
+  }
   /** Reemplaza el listado completo (útil para importación masiva desde Excel). */
   setAsignaturas(list: Asignatura[]) { this.asignaturas.set(list); }
 
