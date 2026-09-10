@@ -62,6 +62,13 @@ namespace SOEA.Application.Features.Import
             try
             {
                 // ── Facultades ────────────────────────────────────────────────────────
+                // Regresión (auditoría de limpieza, hallazgo 1.6): GetByNombreAsync consulta la
+                // BD, no el change tracker — un Add() de EF Core no es visible para una consulta
+                // LINQ hasta el próximo SaveChangesAsync. Dos filas del Excel con la misma
+                // facultad, antes de este fix, la creaban dos veces: la segunda iteración volvía
+                // a ver "no existe" porque la primera todavía no se había guardado. El mismo
+                // patrón se repite en Programas/Espacios/Asignaturas/Grupos más abajo — aquí se
+                // vuelca (SaveAsync) al final de CADA iteración, no una sola vez tras el bucle.
                 foreach (var f in resultado.Facultades)
                 {
                     var existe = await _facultades.GetByNombreAsync(f.Nombre);
@@ -76,9 +83,8 @@ namespace SOEA.Application.Features.Import
                     {
                         facultadIdMap[f.Id] = existe.Id;
                     }
+                    await _uow.SaveAsync();
                 }
-                // SaveAsync entre facultades y programas: los IDs reales son FK de programas
-                await _uow.SaveAsync();
 
                 // ── Programas ─────────────────────────────────────────────────────────
                 foreach (var p in resultado.Programas)
@@ -96,11 +102,20 @@ namespace SOEA.Application.Features.Import
                     {
                         programaIdMap[p.Id] = existe.Id;
                     }
+                    await _uow.SaveAsync();
                 }
-                await _uow.SaveAsync();
 
                 // ── Docentes (con bloques de disponibilidad) ──────────────────────────
-                // Cargamos todos para comparar nombres normalizados y evitar duplicados por acento.
+                // Cargamos todos para comparar nombres normalizados y evitar duplicados por acento
+                // — IDocenteRepositorio no expone una búsqueda por nombre normalizado, así que a
+                // diferencia de Facultades/Programas/Espacios/Asignaturas/Grupos (que sí pueden
+                // reconsultar la BD cada iteración) este diccionario vive solo en memoria.
+                // Regresión (auditoría de limpieza, hallazgo 1.6): nunca se actualizaba dentro del
+                // bucle — dos filas del Excel con el mismo docente (normal: un docente dicta
+                // varias asignaturas) entraban las dos por la rama "no existe" y creaban dos
+                // Docente distintos, justo el problema que FusionDocentesService existe para
+                // limpiar después. Ahora se añade la nueva entrada al diccionario en el momento de
+                // crearla, para que la siguiente fila del mismo docente la encuentre.
                 var docentesExistentes = await _docentes.GetAllAsync(); // incluye BloquesDisponibles
                 var docentesNormDict = docentesExistentes
                     .GroupBy(x => NormalizadorTexto.Normalizar(x.Nombre))
@@ -130,6 +145,7 @@ namespace SOEA.Application.Features.Import
                             nuevo.ActualizarPersistenciaUi(d.CedulaIdentidad, null);
 
                         _uow.Track(nuevo);
+                        docentesNormDict[nombreNorm] = nuevo;
                         docenteIdMap[d.Id] = nuevo.Id;
                         stats.DocentesCreados++;
                     }
@@ -175,8 +191,8 @@ namespace SOEA.Application.Features.Import
                             existe.ActualizarCapacidad(e.Capacidad);
                         stats.EspaciosActualizados++;
                     }
+                    await _uow.SaveAsync();
                 }
-                await _uow.SaveAsync();
 
                 // Lookup asignaturaId (temp) → EspacioId de su primera sesión (HC-S05: espacio fijo)
                 var espacioPorAsignatura = resultado.SesionesPredefinidas
@@ -239,8 +255,8 @@ namespace SOEA.Application.Features.Import
                         asignaturaIdMap[a.Id] = existe.Id;
                         stats.AsignaturasActualizadas++;
                     }
+                    await _uow.SaveAsync();
                 }
-                await _uow.SaveAsync();
 
                 // ── Grupos (el grupo carga su asignatura y su docente — remapeados temp→real) ──
                 foreach (var g in resultado.Grupos)
@@ -297,8 +313,8 @@ namespace SOEA.Application.Features.Import
                         if (cambios) await _grupos.UpdateAsync(existe);
                         grupoIdMap[g.Id] = existe.Id;
                     }
+                    await _uow.SaveAsync();
                 }
-                await _uow.SaveAsync();
 
                 // ── Sesiones predefinidas ─────────────────────────────────────────────
                 foreach (var s in resultado.SesionesPredefinidas)
@@ -323,8 +339,10 @@ namespace SOEA.Application.Features.Import
                         s.Alternancia, Modalidad.Presencial, s.DuracionHoras,
                         esBloque: false, estaDividida: false));
                     stats.SesionesPersistidas++;
+                    // Mismo motivo que las secciones de arriba: ExisteAsync consulta la BD, así
+                    // que dos filas idénticas del Excel se duplicarían sin este flush.
+                    await _uow.SaveAsync();
                 }
-                await _uow.SaveAsync();
 
                 await _uow.CommitAsync();
             }
