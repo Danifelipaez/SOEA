@@ -9,6 +9,7 @@ using SOEA.Application.Features.Horario.Requests;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.Services;
 using SOEA.Engine.ConstraintProg;
 using SOEA.Engine.Genetic;
 using SOEA.Engine.GraphColoring;
@@ -297,6 +298,109 @@ namespace SOEA.Tests.Application.Horario
             Assert.Single(filasB);
             // B ya no puede seguir en el mismo (día, hora, espacio) que A: eso era justo el choque.
             Assert.All(filasB, s => Assert.False(s.Dia == dtoB.Dia && s.HoraInicio == dtoB.HoraInicio && s.EspacioId == dtoB.EspacioId));
+        }
+
+        // ── Fixture directo (sin pasar por GenerarHorarioService): da control total sobre qué
+        // aula queda en la AsignacionSemanal de cada sesión frente a cuál queda en Sesion.EspacioId
+        // — la distinción exacta que estos dos bugs necesitan reproducir. Sesion.EspacioId es el
+        // requisito de aula FIJA (HC-S05); casi siempre null, incluso para una sesión presencial
+        // con aula real asignada por CP-SAT — esa vive solo en su AsignacionSemanal.
+
+        private static BloqueTiempo BloqueReal(DiaDeSemana dia, int hora) =>
+            GrillaInstitucional.GenerarBloques().Single(b => b.Dia == dia && b.HoraInicio == new TimeOnly(hora, 0));
+
+        private Sesion SesionSinAulaFija(Guid asignaturaId, Guid grupoId, Guid bloqueId) =>
+            new(Guid.NewGuid(), asignaturaId, docenteId: null, bloqueId, espacioId: null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, duracionHoras: 2m, esBloque: false, estaDividida: false,
+                tipoFlujo: TipoFlujo.AulaVirtual); // teoría presencial ⇒ cualquier Salón sirve (no exige Laboratorio)
+
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.5 — bug 1/2): mover una sesión sin volver
+        /// a especificar EspacioId en la petición ("no tocar el aula actual") reconstruía la fila
+        /// nueva desde Sesion.EspacioId en vez de desde la AsignacionSemanal actual — para
+        /// cualquier sesión sin aula FIJA (la inmensa mayoría), eso es null, así que el aula real
+        /// desaparecía en silencio con EsFactible=true. Habría fallado antes del fix
+        /// (EspacioId nulo en la respuesta en vez de Salón 1).
+        /// </summary>
+        [Fact]
+        public async Task MoverSesionSinReespecificarEspacio_ConservaElAulaQueYaTenia()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+
+            var bloqueLunes  = BloqueReal(DiaDeSemana.Lunes, 8);
+            var bloqueMartes = BloqueReal(DiaDeSemana.Martes, 8);
+
+            var sesionA = SesionSinAulaFija(_asigAId, _grupoAId, bloqueLunes.Id);
+            sesionRepo.Items.Add(sesionA);
+            asigRepo.Items.Add(new AsignacionSemanal(Guid.NewGuid(), sesionA.Id, SemanaAcademica.A, bloqueLunes.Id, _salon1Id, Modalidad.Presencial));
+            var horario = new SOEA.Domain.Entities.Horario(Guid.NewGuid(), "2026-1", new List<Guid> { sesionA.Id });
+            horarioRepo.Items.Add(horario);
+
+            var reacomodarSvc = CrearReacomodarServicio(horarioRepo, sesionRepo, asigRepo, uow);
+            var resultado = await reacomodarSvc.EjecutarAsync(new ReacomodarHorarioRequest
+            {
+                HorarioId = horario.Id,
+                SesionEditadaId = sesionA.Id,
+                Dia = "martes",
+                HoraInicio = "08:00"
+                // EspacioId se omite a propósito: "no tocar el aula actual".
+            });
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            var fila = Assert.Single(resultado.Sesiones);
+            Assert.Equal(_salon1Id.ToString(), fila.EspacioId);
+        }
+
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.5 — bug 2/2): el detector de choques solo
+        /// comparaba contra `espacioNuevo` (el de la petición). Si la petición no trae uno ("no
+        /// tocar el aula actual"), nunca comprobaba si la sesión editada, quedándose en SU PROPIA
+        /// aula, colisionaba con otra sesión que ya estaba ahí en la nueva franja — "reacomodar"
+        /// podía aterrizar dos sesiones en la misma aula a la misma hora con EsFactible=true.
+        /// Habría fallado antes del fix (EsFactible=true con ambas sesiones en Salón 1 el martes
+        /// a las 08:00, en vez de reubicar una o reportar infactibilidad).
+        /// </summary>
+        [Fact]
+        public async Task MoverSesionSinReespecificarEspacio_DetectaChoqueContraSuPropiaAulaActual()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+
+            var bloqueLunes  = BloqueReal(DiaDeSemana.Lunes, 8);
+            var bloqueMartes = BloqueReal(DiaDeSemana.Martes, 8);
+
+            // A y B ya comparten aula (Salón 1) hoy, pero en días distintos — sin conflicto todavía.
+            var sesionA = SesionSinAulaFija(_asigAId, _grupoAId, bloqueLunes.Id);
+            var sesionB = SesionSinAulaFija(_asigBId, _grupoBId, bloqueMartes.Id);
+            sesionRepo.Items.Add(sesionA);
+            sesionRepo.Items.Add(sesionB);
+            asigRepo.Items.Add(new AsignacionSemanal(Guid.NewGuid(), sesionA.Id, SemanaAcademica.A, bloqueLunes.Id, _salon1Id, Modalidad.Presencial));
+            asigRepo.Items.Add(new AsignacionSemanal(Guid.NewGuid(), sesionB.Id, SemanaAcademica.A, bloqueMartes.Id, _salon1Id, Modalidad.Presencial));
+            var horario = new SOEA.Domain.Entities.Horario(Guid.NewGuid(), "2026-1", new List<Guid> { sesionA.Id, sesionB.Id });
+            horarioRepo.Items.Add(horario);
+
+            var reacomodarSvc = CrearReacomodarServicio(horarioRepo, sesionRepo, asigRepo, uow);
+            // Mover A al slot de B, sin especificar EspacioId: A se queda en Salón 1 (el que ya
+            // tenía) — que es justo el aula que B ya ocupa ese día y hora.
+            var resultado = await reacomodarSvc.EjecutarAsync(new ReacomodarHorarioRequest
+            {
+                HorarioId = horario.Id,
+                SesionEditadaId = sesionA.Id,
+                Dia = "martes",
+                HoraInicio = "08:00"
+            });
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            var filasEnSalon1MartesA8 = resultado.Sesiones
+                .Where(s => s.Dia == "martes" && s.HoraInicio == "08:00" && s.EspacioId == _salon1Id.ToString())
+                .ToList();
+            // Nunca dos sesiones presenciales en la misma aula, mismo día, misma hora.
+            Assert.Single(filasEnSalon1MartesA8);
         }
     }
 }
