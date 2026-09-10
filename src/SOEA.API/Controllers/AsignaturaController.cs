@@ -48,15 +48,13 @@ namespace SOEA.API.Controllers
         [HttpGet]
         public async Task<ActionResult<List<AsignaturaResponse>>> GetAllAsignaturas()
         {
-            try
-            {
-                var responses = await _service.GetAllAsync();
-                return Ok(responses);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, ex.Message);
-            }
+            // Bug (auditoría de limpieza, hallazgo 1.8): catch-all que filtraba ex.Message crudo
+            // al cliente en un 500 — cualquier excepción no relacionada con la petición (un fallo
+            // de conexión a BD, por ejemplo) exponía detalle interno en vez del ProblemDetails
+            // genérico. GlobalExceptionHandler ya cubre esto; el resto de este controller (y
+            // HorarioController/ImportController) no lleva catch-all a propósito, por la misma razón.
+            var responses = await _service.GetAllAsync();
+            return Ok(responses);
         }
 
         /// <summary>

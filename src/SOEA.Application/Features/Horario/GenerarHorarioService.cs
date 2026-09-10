@@ -106,23 +106,24 @@ namespace SOEA.Application.Features.Horario
             if (grupos.Count > 0 && gruposConRequisito == 0)
                 logs.Add("[WARN] Ningún grupo trae requisito de espacio: se aplicará la regla por defecto por tipo de sesión a todas las sesiones presenciales.");
 
+            // Bug: las tres claves de abajo colapsaban un Id sin parsear a Guid.Empty — dos
+            // asignaturas con Id inválido en la misma petición chocaban en esa clave compartida y
+            // ToDictionary lanzaba ArgumentException (400 con un mensaje de framework en inglés)
+            // en vez de simplemente ignorar la fila inválida, que es lo que ya hace
+            // MapearSesionesIniciales más abajo con el mismo request.Asignaturas.
+            var asignaturasConIdValido = request.Asignaturas.Where(dto => Guid.TryParse(dto.Id, out _)).ToList();
+
             // SC-PRES: mapa de categoría por asignatura (alimenta el criterio "Electiva" de la lista
             // de cesión) y de elegibilidad explícita (criterio "Elegible", marcado por el departamento).
-            var categoriaPorAsig = request.Asignaturas
-                .ToDictionary(
-                    dto => Guid.TryParse(dto.Id, out var aid) ? aid : Guid.Empty,
-                    dto => ParseCategoria(dto.Categoria));
-            var elegiblePorAsig = request.Asignaturas
-                .ToDictionary(
-                    dto => Guid.TryParse(dto.Id, out var aid) ? aid : Guid.Empty,
-                    dto => dto.EsCandidataAlternancia);
+            var categoriaPorAsig = asignaturasConIdValido
+                .ToDictionary(dto => Guid.Parse(dto.Id), dto => ParseCategoria(dto.Categoria));
+            var elegiblePorAsig = asignaturasConIdValido
+                .ToDictionary(dto => Guid.Parse(dto.Id), dto => dto.EsCandidataAlternancia);
 
             // HC-VH: ventana horaria por asignatura (la fija Secretaría Académica). Se pasa a CP-SAT
             // como hard constraint — ninguna sesión se asigna fuera de [HoraInicioMin, HoraFinMax].
-            var ventanaPorAsig = request.Asignaturas
-                .ToDictionary(
-                    dto => Guid.TryParse(dto.Id, out var aid) ? aid : Guid.Empty,
-                    dto => (ParseHora(dto.HoraInicioMin), ParseHora(dto.HoraFinMax)));
+            var ventanaPorAsig = asignaturasConIdValido
+                .ToDictionary(dto => Guid.Parse(dto.Id), dto => (ParseHora(dto.HoraInicioMin), ParseHora(dto.HoraFinMax)));
 
             var (sesiones, advertenciasSesiones) = MapearSesionesIniciales(grupos, request.Asignaturas);
             logs.AddRange(advertenciasSesiones);

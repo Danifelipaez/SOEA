@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
@@ -113,13 +112,14 @@ namespace SOEA.API.Controllers
             {
                 return BadRequest(ex.Message);
             }
-            catch (DbUpdateException)
-            {
-                // G6 auditoría: el índice único ix_grupo_codigo (único constraint del Grupo)
-                // lanzaba DbUpdateException sin capturar → 500 genérico. El frontend lo pintaba
-                // como "no se guarda, no crea grupo" sin decir por qué.
-                return Conflict($"Ya existe un grupo con el código '{dto.Codigo}'. Use un código distinto.");
-            }
+            // G6 auditoría: el índice único ix_grupo_codigo (único constraint del Grupo) lanzaba
+            // DbUpdateException sin capturar → 500 genérico. Bug (auditoría de limpieza, hallazgo
+            // 1.8): el catch que arreglaba eso aquí asumía que CUALQUIER DbUpdateException era el
+            // código duplicado — una violación de FK, de NOT NULL o cualquier otra restricción
+            // salía con el mismo mensaje falso. GlobalExceptionHandler ya traduce DbUpdateException
+            // a 409 con un mensaje genérico correcto ("ya existe un registro con esos datos, o hace
+            // referencia a algo que no existe"); se deja que llegue ahí en vez de afirmar una causa
+            // que este catch no puede conocer.
         }
 
         [HttpPut("{id}")]
@@ -154,10 +154,7 @@ namespace SOEA.API.Controllers
             {
                 return BadRequest(ex.Message);
             }
-            catch (DbUpdateException)
-            {
-                return Conflict($"Ya existe un grupo con el código '{dto.Codigo}'. Use un código distinto.");
-            }
+            // Ver comentario en Create: GlobalExceptionHandler traduce DbUpdateException.
         }
 
         [HttpDelete("{id}")]

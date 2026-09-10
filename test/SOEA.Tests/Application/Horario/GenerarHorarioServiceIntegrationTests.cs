@@ -733,5 +733,26 @@ namespace SOEA.Tests.Application.Horario
             var horario2 = r2.Sesiones.Select(s => (s.AsignaturaId, s.Semana, s.Dia, s.HoraInicio, s.Virtual)).OrderBy(x => x.AsignaturaId).ThenBy(x => x.Semana).ToList();
             Assert.Equal(horario1, horario2);
         }
+
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.8): categoriaPorAsig/elegiblePorAsig/
+        /// ventanaPorAsig colapsaban un AsignaturaDto.Id que no parseaba a Guid.Empty como clave.
+        /// Dos asignaturas con Id inválido en la MISMA petición chocaban en esa clave compartida
+        /// y ToDictionary lanzaba ArgumentException (500/400 con mensaje de framework en inglés)
+        /// en vez de simplemente ignorarlas, que es lo que ya hace MapearSesionesIniciales con el
+        /// mismo request.Asignaturas unas líneas más abajo en el propio servicio.
+        /// </summary>
+        [Fact]
+        public async Task DosAsignaturasConIdInvalido_NoLanzaPorClaveDuplicada()
+        {
+            var request = RequestBase();
+            request.Asignaturas.Add(new AsignaturaDto { Id = "no-es-un-guid", Nombre = "Basura 1", SesionesTeoriaPresencialSemana = 1, HorasTeoriaPresencial = 2 });
+            request.Asignaturas.Add(new AsignaturaDto { Id = "no-es-un-guid", Nombre = "Basura 2", SesionesTeoriaPresencialSemana = 1, HorasTeoriaPresencial = 2 });
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+        }
     }
 }

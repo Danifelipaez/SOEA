@@ -58,9 +58,13 @@ namespace SOEA.API.Controllers
             }
             catch (Exception ex)
             {
+                // Bug (auditoría de limpieza, hallazgo 1.8): "detalle = ex.Message" filtraba el
+                // mensaje crudo de la excepción al cliente — puede incluir detalle interno (nombres
+                // de columna, stack de EF Core) que un 500 nunca debería exponer. El log de
+                // servidor sigue teniendo el mensaje completo; la respuesta al cliente no.
                 _logger.LogError(ex, "Error inesperado al asignar docente a sesión {Id}.", id);
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    new { error = "Error interno al asignar el docente.", detalle = ex.Message });
+                    new { error = "Error interno al asignar el docente." });
             }
         }
     }
