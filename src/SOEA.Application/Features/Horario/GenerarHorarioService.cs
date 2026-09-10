@@ -508,8 +508,18 @@ namespace SOEA.Application.Features.Horario
                     continue;
                 }
 
-                var asigId  = Guid.TryParse(dto.AsignaturaId, out var aid) ? aid : Guid.NewGuid();
+                // Bug: un AsignaturaId que no parsea caía a Guid.NewGuid() — una sesión fantasma
+                // (sin categoría, sin ventana, sin nombre en los mensajes de conflicto) en vez de
+                // reportarse en omitidas, que es justo el contrato que este método documenta.
+                if (!Guid.TryParse(dto.AsignaturaId, out var asigId))
+                {
+                    omitidas.Add($"AsignaturaId '{dto.AsignaturaId}' no es un identificador válido ({dto.Dia} {dto.HoraInicio}).");
+                    continue;
+                }
                 Guid? espId = Guid.TryParse(dto.EspacioId, out var eid) ? eid : null;
+                // Bug: docenteId: null se ignoraba el docente aunque el frontend sí lo manda —
+                // regenerar con horario base borraba el docente de todas sus sesiones fijas.
+                Guid? docId = Guid.TryParse(dto.DocenteId, out var did) ? did : null;
 
                 var alternancia = dto.Alternancia?.Trim().ToLowerInvariant() switch
                 {
@@ -523,7 +533,7 @@ namespace SOEA.Application.Features.Horario
                 var sesion = new Sesion(
                     id: id,
                     asignaturaId: asigId,
-                    docenteId: null,
+                    docenteId: docId,
                     bloqueId: bloque.Id,
                     espacioId: espId,
                     grupoId: sesionesFijasGrupoId,

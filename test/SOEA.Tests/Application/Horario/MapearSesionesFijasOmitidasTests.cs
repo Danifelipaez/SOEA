@@ -168,5 +168,71 @@ namespace SOEA.Tests.Application.Horario
             var fila = Assert.Single(r.Sesiones);
             Assert.Equal(string.Empty, fila.Semana);
         }
+
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.7): MapearSesionesFijas ignoraba
+        /// SesionFijaDto.DocenteId y construía la sesión con docenteId: null, aunque el frontend sí
+        /// lo manda (horario-api.service.ts). Regenerar con horario base borraba el docente de
+        /// todas sus sesiones fijas en cada corrida.
+        /// </summary>
+        [Fact]
+        public async Task SesionFijaConDocenteId_LoConservaEnLaSesionGenerada()
+        {
+            var asigId = Guid.NewGuid().ToString();
+            var docenteId = Guid.NewGuid();
+            var request = new GenerarHorarioRequest
+            {
+                Semestre = "2026-1",
+                Asignaturas = new List<AsignaturaDto>(),
+                Espacios = new List<EspacioDto>(),
+                Grupos = new List<GrupoDto>(),
+                Docentes = new List<DocenteDto>(),
+                SesionesFijas = new List<SesionFijaDto>
+                {
+                    new() { AsignaturaId = asigId, DocenteId = docenteId.ToString(), Virtual = true }
+                }
+            };
+
+            var r = await CrearServicio().EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            var fila = Assert.Single(r.Sesiones);
+            Assert.Equal(docenteId.ToString(), fila.DocenteId);
+        }
+
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.7): un AsignaturaId que no parsea como
+        /// Guid caía a Guid.NewGuid() — creaba una sesión FANTASMA (sin categoría, sin ventana
+        /// horaria, "asignatura sin nombre" en cualquier mensaje de conflicto) en vez de omitirse
+        /// con aviso, que es justo el contrato que el propio método documenta y que el caso
+        /// "día que no existe en la grilla" (arriba) sí respeta.
+        /// </summary>
+        [Fact]
+        public async Task SesionFijaConAsignaturaIdInvalido_SeOmiteEnVezDeCrearSesionFantasma()
+        {
+            var asigValidaId = Guid.NewGuid().ToString();
+            var request = new GenerarHorarioRequest
+            {
+                Semestre = "2026-1",
+                Asignaturas = new List<AsignaturaDto>(),
+                Espacios = new List<EspacioDto>(),
+                Grupos = new List<GrupoDto>(),
+                Docentes = new List<DocenteDto>(),
+                SesionesFijas = new List<SesionFijaDto>
+                {
+                    // Válida, en un slot distinto — solo para que el Horario resultante no quede
+                    // vacío (regla de dominio ajena a este bug: un Horario exige ≥1 sesión).
+                    new() { AsignaturaId = asigValidaId, Dia = "martes", HoraInicio = "07:00", Virtual = true },
+                    new() { AsignaturaId = "no-es-un-guid", Virtual = true }
+                }
+            };
+
+            var r = await CrearServicio().EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.Equal(1, r.SesionesFijasOmitidas);
+            var fila = Assert.Single(r.Sesiones);
+            Assert.Equal(asigValidaId, fila.AsignaturaId);
+        }
     }
 }
