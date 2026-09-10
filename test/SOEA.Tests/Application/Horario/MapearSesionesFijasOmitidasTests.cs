@@ -8,6 +8,7 @@ using SOEA.Application.Features.Horario.Requests;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.Services;
 
 namespace SOEA.Tests.Application.Horario
 {
@@ -97,8 +98,8 @@ namespace SOEA.Tests.Application.Horario
                 Task.FromResult(sesiones);
         }
 
-        /// <summary>Fase 2 falsa: siempre factible, generando 2 AsignacionSemanal (A/B) por sesión
-        /// en el bloque ya fijado por MapearSesionesFijas.</summary>
+        /// <summary>Fase 2 falsa: siempre factible, generando UNA AsignacionSemanal por sesión (su
+        /// semana canónica) en el bloque ya fijado por MapearSesionesFijas.</summary>
         private sealed class FakeMotorFactible : IMotorConstraintProgramming
         {
             public Task<ResultadoFactibilidad> ResolverFactibilidadAsync(
@@ -107,11 +108,10 @@ namespace SOEA.Tests.Application.Horario
                 IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
                 CancellationToken ct = default)
             {
-                var asignaciones = sesiones.SelectMany(s => new[]
-                {
-                    new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.A, s.BloqueTiempoId, s.EspacioId, s.Modalidad),
-                    new AsignacionSemanal(Guid.NewGuid(), s.Id, SemanaAcademica.B, s.BloqueTiempoId, s.EspacioId, s.Modalidad),
-                }).ToList();
+                var asignaciones = sesiones.Select(s => new AsignacionSemanal(
+                    Guid.NewGuid(), s.Id, ModalidadSemanal.SemanaCanonica(s), s.BloqueTiempoId,
+                    ModalidadSemanal.ModalidadCanonica(s) == Modalidad.Presencial ? s.EspacioId : null,
+                    ModalidadSemanal.ModalidadCanonica(s))).ToList();
                 return Task.FromResult(new ResultadoFactibilidad(true, asignaciones, ""));
             }
         }
@@ -163,9 +163,10 @@ namespace SOEA.Tests.Application.Horario
             Assert.True(r.EsFactible);
             Assert.Equal(1, r.SesionesFijasOmitidas);
             Assert.Contains(r.Logs, log => log.Contains("[WARN] Sesión fija omitida") && log.Contains("domingo"));
-            // La válida sí llegó hasta el horario generado — 2 filas (semana A/B), mismo Sesion.id.
-            Assert.Equal(2, r.Sesiones.Count);
-            Assert.All(r.Sesiones, s => Assert.Equal(r.Sesiones[0].Id, s.Id));
+            // La válida sí llegó hasta el horario generado — una fila, que aplica a todas las
+            // semanas (la sesión no alterna, así que no hay contraparte virtual que derivar).
+            var fila = Assert.Single(r.Sesiones);
+            Assert.Equal(string.Empty, fila.Semana);
         }
     }
 }

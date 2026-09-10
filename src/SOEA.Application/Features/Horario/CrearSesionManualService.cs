@@ -107,9 +107,15 @@ namespace SOEA.Application.Features.Horario
                     var asignacionesBD = await _asignaciones.GetBySesionIdsAsync(
                         sesionesEnBloque.Select(s => s.Id));
 
+                    // Solo es conflicto si las dos ocupan el aula ALGUNA semana en común: dos
+                    // sesiones que alternan en semanas opuestas comparten aula y bloque a propósito.
+                    var sesionPorIdBloque = sesionesEnBloque.ToDictionary(x => x.Id);
                     var ocupadaPor = asignacionesBD.FirstOrDefault(a =>
                         a.EspacioId == espacioFinal &&
-                        a.Modalidad == Modalidad.Presencial);
+                        a.Modalidad == Modalidad.Presencial &&
+                        sesionPorIdBloque.TryGetValue(a.SesionId, out var ocupante) &&
+                        ModalidadSemanal.CompartenSemanaDeEspacio(
+                            alternanciaFinal, modalidad, ocupante));
 
                     if (ocupadaPor is not null)
                     {
@@ -162,7 +168,7 @@ namespace SOEA.Application.Features.Horario
 
             await _sesiones.AddAsync(sesion);
 
-            // ── Crear AsignacionSemanal (1 o 2 filas según alternancia) ───────────
+            // ── Crear AsignacionSemanal (una fila: aplica a todas las semanas) ────
             var asignacionesList = CrearAsignaciones(sesion, bloque.Id);
             await _asignaciones.AddRangeAsync(asignacionesList);
 
@@ -184,7 +190,7 @@ namespace SOEA.Application.Features.Horario
                 DuracionHoras = req.DuracionHoras,
                 Alternancia  = alternanciaFinal.ToString(),
                 Virtual      = a.Modalidad == Modalidad.Virtual,
-                Semana       = a.Semana.ToString(),
+                Semana       = alternanciaFinal == TipoAlternancia.SinAlternancia ? string.Empty : a.Semana.ToString(),
                 TipoFlujo    = sesion.TipoFlujo.ToString(),
                 MotivoConflicto = sesion.MotivoConflicto
             }).ToList();
@@ -199,20 +205,19 @@ namespace SOEA.Application.Features.Horario
                 _             => TipoFlujo.AulaVirtual   // default: teoría
             };
 
-        /// <summary>internal (no private): reutilizado por <see cref="ReacomodarHorarioService"/> (P5) para reconstruir las 2 filas A/B tras mover una sesión.</summary>
+        /// <summary>
+        /// UNA fila por sesión, en su semana canónica (ver <see cref="ModalidadSemanal"/>): la
+        /// franja y el aula son un dato único que aplica a todas las semanas (regla 9 / ALT-05).
+        /// internal (no private): reutilizado por <see cref="ReacomodarHorarioService"/> (P5) para
+        /// reconstruir la fila tras mover una sesión.
+        /// </summary>
         internal static List<AsignacionSemanal> CrearAsignaciones(Sesion sesion, Guid bloqueId)
         {
-            Modalidad ModalidadParaSemana(SemanaAcademica s) => ModalidadSemanal.Derivar(sesion, s);
-
+            var modalidad = ModalidadSemanal.ModalidadCanonica(sesion);
             return new List<AsignacionSemanal>
             {
-                new(Guid.NewGuid(), sesion.Id, SemanaAcademica.A, bloqueId,
-                    ModalidadParaSemana(SemanaAcademica.A) == Modalidad.Presencial ? sesion.EspacioId : null,
-                    ModalidadParaSemana(SemanaAcademica.A)),
-
-                new(Guid.NewGuid(), sesion.Id, SemanaAcademica.B, bloqueId,
-                    ModalidadParaSemana(SemanaAcademica.B) == Modalidad.Presencial ? sesion.EspacioId : null,
-                    ModalidadParaSemana(SemanaAcademica.B))
+                new(Guid.NewGuid(), sesion.Id, ModalidadSemanal.SemanaCanonica(sesion), bloqueId,
+                    modalidad == Modalidad.Presencial ? sesion.EspacioId : null, modalidad)
             };
         }
 

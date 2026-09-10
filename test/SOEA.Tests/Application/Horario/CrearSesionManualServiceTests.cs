@@ -24,7 +24,7 @@ namespace SOEA.Tests.Application.Horario
             new(new FakeBloques(), new FakeSesiones(), new FakeAsignaciones());
 
         [Fact]
-        public async Task Laboratorio_ConAlternanciaTipoA_GeneraPresencialEnAYVirtualEnB()
+        public async Task Laboratorio_ConAlternanciaTipoA_GeneraUnaFilaPresencialEnSemanaA()
         {
             var asigId = Guid.NewGuid();
             var espacioId = Guid.NewGuid();
@@ -42,17 +42,16 @@ namespace SOEA.Tests.Application.Horario
                 TipoFlujo = "Laboratorio"
             });
 
-            Assert.Equal(2, resultado.Count);
-            var a = resultado.First(r => r.Semana == "A");
-            var b = resultado.First(r => r.Semana == "B");
+            // Una sola fila persistida: la presencial de la semana A. La contraparte virtual de
+            // la semana B no reserva aula, así que la deriva la grilla, no el servicio.
+            var a = Assert.Single(resultado);
+            Assert.Equal("A", a.Semana);
             Assert.False(a.Virtual);
             Assert.Equal(espacioId.ToString(), a.EspacioId);
-            Assert.True(b.Virtual);
-            Assert.Null(b.EspacioId);
         }
 
         [Fact]
-        public async Task TeoriaVirtual_AmbasSemanasVirtualesSinEspacio()
+        public async Task TeoriaVirtual_UnaFilaVirtualSinEspacio()
         {
             var asigId = Guid.NewGuid();
             var svc = Crear();
@@ -69,7 +68,7 @@ namespace SOEA.Tests.Application.Horario
                 EsVirtual = true
             });
 
-            Assert.Equal(2, resultado.Count);
+            var unica = Assert.Single(resultado);
             Assert.All(resultado, r =>
             {
                 Assert.True(r.Virtual);
@@ -97,7 +96,7 @@ namespace SOEA.Tests.Application.Horario
                 EsVirtual = false
             });
 
-            Assert.Equal(2, resultado.Count);
+            Assert.Single(resultado);
             Assert.All(resultado, r =>
             {
                 Assert.Equal("SinAlternancia", r.Alternancia);

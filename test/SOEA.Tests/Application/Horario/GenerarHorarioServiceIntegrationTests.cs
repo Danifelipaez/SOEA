@@ -261,8 +261,9 @@ namespace SOEA.Tests.Application.Horario
             var r = await svc.EjecutarAsync(request);
 
             Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
-            // 4 sesiones (1 lab + 2 teoría presencial + 1 teoría virtual) × 2 semanas = 8 DTOs.
-            Assert.Equal(8, r.Sesiones.Count);
+            // 4 sesiones ⇒ 4 filas persistidas, más la contraparte virtual DERIVADA del lab TipoA
+            // (la única que alterna) = 5 DTOs. Sin alternancia no hay segunda semana que dibujar.
+            Assert.Equal(5, r.Sesiones.Count);
 
             // HC-C01: cohorte sin solapes por semana.
             AssertSinSolapesDeCohorte(r.Sesiones);
@@ -290,7 +291,8 @@ namespace SOEA.Tests.Application.Horario
                     Assert.NotNull(s.EspacioId);
             }
 
-            // Regla 9 / ALT-05: el lab TipoA es presencial en A, virtual en B, misma franja.
+            // Regla 9 / ALT-05: el lab TipoA es presencial en A y su contraparte derivada es
+            // virtual en B, en la misma franja.
             var labSesiones = r.Sesiones.Where(s => s.Alternancia == nameof(TipoAlternancia.TipoA)).ToList();
             Assert.Equal(2, labSesiones.Count);
             var labA = labSesiones.Single(s => s.Semana == "A");
@@ -300,10 +302,11 @@ namespace SOEA.Tests.Application.Horario
             Assert.Equal(labA.HoraInicio, labB.HoraInicio);
             Assert.Equal(labA.Dia, labB.Dia);
 
-            // Persistencia: 4 sesiones + 1 horario + 8 asignaciones, en una transacción confirmada.
+            // Persistencia: 4 sesiones + 1 horario + 4 asignaciones (una por sesión), en una
+            // transacción confirmada.
             Assert.Equal(4, sesionRepo.Items.Count);
             Assert.Single(horarioRepo.Items);
-            Assert.Equal(8, asigRepo.Items.Count);
+            Assert.Equal(4, asigRepo.Items.Count);
             Assert.Equal(1, uow.Commits);
             Assert.Equal(0, uow.Rollbacks);
             Assert.Equal(0, horarioRepo.Items[0].ViolacionesRestriccionesDuras);

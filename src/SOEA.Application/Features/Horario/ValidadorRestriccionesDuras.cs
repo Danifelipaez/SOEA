@@ -111,22 +111,38 @@ namespace SOEA.Application.Features.Horario
             // HC-C01 — conflicto de cohorte (presencial + virtual consumen el tiempo del grupo).
             // CR-08 (presencial-first): el grupo de estudiantes es el eje de no-solapamiento; el
             // docente sale del pipeline. Solo aplica a sesiones con grupo asignado.
+            // INDEPENDIENTE DE LA SEMANA (ALT-05): la sesión cae en la misma franja todas las
+            // semanas, y una que alterna se sigue dictando virtualmente la semana contraria.
             foreach (var grupo in items
                          .Where(i => i.Sesion.GrupoId.HasValue)
-                         .GroupBy(i => (GrupoId: i.Sesion.GrupoId!.Value, i.Asignacion.Semana)))
+                         .GroupBy(i => i.Sesion.GrupoId!.Value))
                 conflictos.AddRange(DetectarSolapes(grupo, "HC-C01",
-                    $"{NombreGrupo(grupo.Key.GrupoId, contexto)} (semana {grupo.Key.Semana})", contexto));
+                    NombreGrupo(grupo.Key, contexto), contexto));
 
             // HC-S01 — conflicto de espacio físico (solo presencial; las virtuales no ocupan espacio).
+            //
+            // Se expande cada sesión a las semanas que REALMENTE ocupa el aula, en vez de usar la
+            // semana de su fila. Al persistirse una sola fila por sesión, Asignacion.Semana dejó de
+            // ser una clave fiable de ocupación: una sesión que no alterna tiene fila en A pero está
+            // en el aula también en B, así que choca con el miembro TipoB de una pareja aunque las
+            // dos filas digan semanas distintas.
+            //
+            // AVISO: el índice único de BD ux_asignacion_semanal_espacio_conflicto
+            // (espacio_id, semana, bloque_tiempo_id) NO puede ver ese caso, porque los valores de
+            // semana difieren. No se puede endurecer: una pareja comparte legítimamente aula y
+            // bloque entre semanas y SQL no ve pareja_alternancia_id. La garantía real vive AQUÍ,
+            // más el NoOverlap por (espacio, semana) de CP-SAT y del asignador de aulas.
             foreach (var grupo in items
                          .Where(i => i.Asignacion.Modalidad == Modalidad.Presencial && i.Asignacion.EspacioId.HasValue)
-                         .GroupBy(i => (Espacio: i.Asignacion.EspacioId!.Value, i.Asignacion.Semana)))
+                         .SelectMany(i => ModalidadSemanal.SemanasQueOcupanEspacio(i.Sesion).Select(w => (Item: i, Semana: w)))
+                         .GroupBy(x => (Espacio: x.Item.Asignacion.EspacioId!.Value, x.Semana),
+                                  x => x.Item))
                 conflictos.AddRange(DetectarSolapes(grupo, "HC-S01",
                     $"espacio '{NombreEspacio(grupo.Key.Espacio, contexto)}' (semana {grupo.Key.Semana})", contexto));
 
             // HC-ALT — alternancia atómica por espacio (A4/VERIFICA): toda sesión con pareja
-            // (ParejaAlternanciaId) debe compartir bloque (cada semana) y espacio (semanas
-            // presenciales cruzadas) con su pareja, y ambas deben tener tipos opuestos.
+            // (ParejaAlternanciaId) debe compartir bloque y aula con su pareja, tener tipos
+            // opuestos, y ocupar semanas opuestas. Cada miembro tiene UNA fila.
             foreach (var parejaGrupo in items
                          .Where(i => i.Sesion.ParejaAlternanciaId.HasValue)
                          .GroupBy(i => i.Sesion.ParejaAlternanciaId!.Value))
@@ -149,20 +165,17 @@ namespace SOEA.Application.Features.Horario
                     conflictos.Add($"HC-ALT: la pareja {d1} / {d2} no tiene tipos opuestos (TipoA/TipoB): " +
                                    $"{d1}={s1.Alternancia}, {d2}={s2.Alternancia}.");
 
-                foreach (var semana in itemsS1.Select(i => i.Asignacion.Semana)
-                             .Concat(itemsS2.Select(i => i.Asignacion.Semana)).Distinct())
-                {
-                    var b1 = itemsS1.FirstOrDefault(i => i.Asignacion.Semana == semana);
-                    var b2 = itemsS2.FirstOrDefault(i => i.Asignacion.Semana == semana);
-                    if (b1.Sesion is not null && b2.Sesion is not null && b1.Inicio != b2.Inicio)
-                        conflictos.Add($"HC-ALT: la pareja {d1} / {d2} no coincide de bloque en semana {semana}.");
-                }
+                if (itemsS1[0].Inicio != itemsS2[0].Inicio)
+                    conflictos.Add($"HC-ALT: la pareja {d1} / {d2} no coincide de bloque.");
 
-                var presS1 = itemsS1.FirstOrDefault(i => i.Asignacion.Modalidad == Modalidad.Presencial);
-                var presS2 = itemsS2.FirstOrDefault(i => i.Asignacion.Modalidad == Modalidad.Presencial);
-                if (presS1.Sesion is not null && presS2.Sesion is not null &&
-                    presS1.Asignacion.EspacioId != presS2.Asignacion.EspacioId)
-                    conflictos.Add($"HC-ALT: la pareja {d1} / {d2} no comparte el mismo espacio entre sus semanas presenciales.");
+                if (itemsS1[0].Asignacion.Semana == itemsS2[0].Asignacion.Semana)
+                    conflictos.Add($"HC-ALT: la pareja {d1} / {d2} ocupa la misma semana " +
+                                   $"({itemsS1[0].Asignacion.Semana}) en vez de alternar.");
+
+                var esp1 = itemsS1[0].Asignacion.EspacioId;
+                var esp2 = itemsS2[0].Asignacion.EspacioId;
+                if (esp1 is null || esp2 is null || esp1 != esp2)
+                    conflictos.Add($"HC-ALT: la pareja {d1} / {d2} no comparte el mismo espacio físico.");
             }
 
             if (contexto is not null)
@@ -272,12 +285,13 @@ namespace SOEA.Application.Features.Horario
             }
 
             // HC-SEP — separación mínima de días entre sesiones semanales del mismo
-            // (grupo, asignatura, tipo de sesión), por semana. Sesiones fijas del horario base
-            // quedan fuera (mismo criterio que HC-VH/HC-G01: CP-SAT no les aplica este dominio).
+            // (grupo, asignatura, tipo de sesión). Eje temporal ⇒ independiente de la semana
+            // (ALT-05: la sesión cae el mismo día todas las semanas). Sesiones fijas del horario
+            // base quedan fuera (mismo criterio que HC-VH/HC-G01: CP-SAT no les aplica este dominio).
             foreach (var grupo in items
                          .Where(i => i.Sesion.GrupoId.HasValue && ctx.SesionesFijas?.Contains(i.Sesion.Id) != true)
                          .GroupBy(i => (GrupoId: i.Sesion.GrupoId!.Value, i.Sesion.AsignaturaId,
-                                        Tipo: CalculadorEspaciosSesion.TipoSesionDe(i.Sesion), i.Asignacion.Semana)))
+                                        Tipo: CalculadorEspaciosSesion.TipoSesionDe(i.Sesion))))
             {
                 var lista = grupo.Where(i => i.Inicio < ctx.Bloques.Count).ToList();
                 for (int x = 0; x < lista.Count; x++)
@@ -287,7 +301,7 @@ namespace SOEA.Application.Features.Horario
                         var diaY = ctx.Bloques[lista[y].Inicio].Dia;
                         if (!ReglasSesion.SeparacionDiasOk(diaX, diaY))
                             conflictos.Add($"HC-SEP: mismo grupo/asignatura/tipo sin separación mínima de 2 días " +
-                                           $"(semana {grupo.Key.Semana}) — Sesión 1: {DescribirConHorario(lista[x], ctx)}; " +
+                                           $"— Sesión 1: {DescribirConHorario(lista[x], ctx)}; " +
                                            $"Sesión 2: {DescribirConHorario(lista[y], ctx)}. " +
                                            "Sepárelas al menos 2 días o reduzca las sesiones semanales de este tipo.");
                     }

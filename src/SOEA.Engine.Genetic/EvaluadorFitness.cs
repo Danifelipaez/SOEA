@@ -9,29 +9,25 @@ using SOEA.Domain.Services;
 namespace SOEA.Engine.Genetic
 {
     /// <summary>
-    /// Fitness del modelo bi-semanal (menor = mejor). Objetivos temporales centrados en la cohorte
+    /// Fitness del horario (menor = mejor). Objetivos temporales centrados en la cohorte
     /// (CR-08: el docente sale del pipeline) — ninguno depende del aula, por eso el aula no está en
     /// el cromosoma:
     ///   ① SC-01: minimizar huecos ociosos entre sesiones de la misma cohorte en un día.
     ///   ② SC-09: penalizar rachas de > 6 horas SEGUIDAS de sesiones (restricción BLANDA fuerte).
     ///   ③ SC-06: balancear la carga de la cohorte entre los días operativos de la grilla (desviación
     ///            media absoluta sobre todos los días, contando ceros).
-    /// Desde el Incremento 2, cada sesión tiene un inicio por semana (<c>Start</c>/<c>StartB</c>),
-    /// así que ①②③ se calculan UNA VEZ POR SEMANA (con el arreglo de inicios correspondiente) y se
-    /// suman. Para TipoA/TipoB las dos semanas son idénticas en timing (StartB==Start por
-    /// construcción), así que su aporte se duplica sin distorsionar el balance entre sesiones; solo
-    /// SinAlternancia puede hacer que el aporte de A y B difiera.
-    ///   ④ SC-BAL (nuevo, Incremento 2): por cohorte y día, penaliza la diferencia de carga horaria
-    ///      total entre Semana A y Semana B. Los genes TipoA/TipoB nunca contribuyen a esta
-    ///      diferencia (StartB==Start ⇒ mismo día, mismas horas en ambas semanas); solo
-    ///      SinAlternancia puede introducir o resolver desbalance, aprovechando la libertad de ALT-06.
+    /// Cada sesión tiene UN inicio que aplica a todas las semanas (regla 9 / ALT-05), así que
+    /// ①②③ se calculan UNA sola vez. Antes se calculaban dos veces, una por semana, y existía un
+    /// cuarto término SC-BAL que penalizaba el desbalance de carga entre A y B: ambos solo tenían
+    /// sentido cuando una sesión podía caer en franjas distintas según la semana. Con un gen por
+    /// sesión ese desbalance es idénticamente cero, así que SC-BAL se eliminó.
     ///
     /// Además, una GUARDA de factibilidad de aulas (no es un objetivo blando): penaliza fuerte si en
     /// alguna (semana, día) hay más sesiones presenciales simultáneas que aulas. Mantiene al GA en la
     /// región donde el pase posterior de asignación de aulas (HC-S01) es factible.
     ///
     /// SC-PRES (ceder presencialidad de sesiones de alta prioridad) NO forma parte de <see cref="Evaluar"/>:
-    /// es un término constante para el conjunto de sesiones del run (el GA solo mueve Start/StartB,
+    /// es un término constante para el conjunto de sesiones del run (el GA solo mueve Start,
     /// nunca la alternancia — eso lo decide Application antes de generar), así que sumarlo al
     /// fitness no cambiaba ningún ranking, solo inflaba el número reportado. Se expone aparte en
     /// <see cref="PenalizacionPresencial"/> como métrica informativa.
@@ -52,7 +48,6 @@ namespace SOEA.Engine.Genetic
         private readonly int _pesoSC06;  // balance entre días
         private readonly int _pesoSC09;  // > _umbralSC09 horas seguidas
         private readonly int _umbralSC09; // C2 auditoría: antes hardcodeado en 6 dentro de SC09_HorasSeguidas
-        private readonly int _pesoSCBAL; // balance entre semanas A/B (Incremento 2)
         private readonly int _pesoSCPRES;     // SC-PRES: ceder presencialidad de sesiones de alta prioridad
         private readonly decimal _penalSCPRES; // término SC-PRES precomputado (ver nota)
 
@@ -82,7 +77,6 @@ namespace SOEA.Engine.Genetic
             _pesoSC06  = config?.PesoTiempos          ?? 2;
             _pesoSC09  = config?.PesoMaxHorasSeguidas ?? 3;
             _umbralSC09 = config?.UmbralHorasSeguidas ?? 6;
-            _pesoSCBAL = config?.PesoBalanceSemanas   ?? 2;
             _pesoSCPRES = config?.PesoPresencialFirst ?? 4;
             _penalSCPRES = PenalizacionPresencialFirst(sesiones, infoAsignatura);
         }
@@ -95,8 +89,8 @@ namespace SOEA.Engine.Genetic
         /// </summary>
         public decimal PenalizacionPresencial => _pesoSCPRES * _penalSCPRES;
 
-        // ponytail: constante para un conjunto de sesiones dado — el GA solo mueve Start/StartB,
-        // nunca la alternancia (fijada antes en AplicarPrioridadPresencial). Se precomputa una vez
+        // ponytail: constante para un conjunto de sesiones dado — el GA solo mueve Start,
+        // nunca la alternancia (la fija el bucle de cesión antes de generar). Se precomputa una vez
         // aquí en vez de recalcularse por cromosoma.
         private static decimal PenalizacionPresencialFirst(
             List<Sesion> sesiones,
@@ -124,14 +118,12 @@ namespace SOEA.Engine.Genetic
 
         public decimal Evaluar(CromosomaHorario c)
         {
-            var spansA = SpansPorGrupoDia(c.Start);
-            var spansB = SpansPorGrupoDia(c.StartB);
+            var spans = SpansPorGrupoDia(c.Start);
 
             decimal fitness = 0;
-            fitness += _pesoSC01  * (SC01_HuecosOciosos(spansA) + SC01_HuecosOciosos(spansB));
-            fitness += _pesoSC06  * (SC06_BalanceEntreDias(c.Start) + SC06_BalanceEntreDias(c.StartB));
-            fitness += _pesoSC09  * (SC09_HorasSeguidas(spansA) + SC09_HorasSeguidas(spansB));
-            fitness += _pesoSCBAL * SCBAL_DesbalanceEntreSemanas(c);
+            fitness += _pesoSC01 * SC01_HuecosOciosos(spans);
+            fitness += _pesoSC06 * SC06_BalanceEntreDias(c.Start);
+            fitness += _pesoSC09 * SC09_HorasSeguidas(spans);
             fitness += PesoFactibilidadSalas * GuardaCapacidadAulas(c);
             return fitness;
         }
@@ -244,30 +236,6 @@ namespace SOEA.Engine.Genetic
             return (int)Math.Ceiling(penalizacion);
         }
 
-        // ④ SC-BAL: por cohorte y día, |carga(Semana A) − carga(Semana B)|. TipoA/TipoB nunca
-        // contribuyen (StartB==Start por construcción): solo SinAlternancia puede introducir o
-        // resolver desbalance entre semanas, aprovechando la libertad de ALT-06.
-        private int SCBAL_DesbalanceEntreSemanas(CromosomaHorario c)
-        {
-            var cargaA = CargaPorGrupoDia(c.Start);
-            var cargaB = CargaPorGrupoDia(c.StartB);
-
-            decimal penalizacion = 0;
-            foreach (var grupo in cargaA.Keys.Union(cargaB.Keys))
-            {
-                var diasA = cargaA.TryGetValue(grupo, out var da) ? da : new Dictionary<DiaDeSemana, decimal>();
-                var diasB = cargaB.TryGetValue(grupo, out var db) ? db : new Dictionary<DiaDeSemana, decimal>();
-
-                foreach (var dia in diasA.Keys.Union(diasB.Keys))
-                {
-                    decimal cargaDiaA = diasA.TryGetValue(dia, out var va) ? va : 0m;
-                    decimal cargaDiaB = diasB.TryGetValue(dia, out var vb) ? vb : 0m;
-                    penalizacion += Math.Abs(cargaDiaA - cargaDiaB);
-                }
-            }
-            return (int)Math.Ceiling(penalizacion);
-        }
-
         // Guarda de aulas: máx. sesiones presenciales simultáneas por (semana, día) vs nº de aulas.
         // M1 (auditoría): antes comparaba la concurrencia TOTAL contra TODAS las aulas sin distinguir
         // tipo — un run con muchos salones y ningún laboratorio nunca penalizaba la sobre-reserva de
@@ -279,14 +247,16 @@ namespace SOEA.Engine.Genetic
             int exceso = 0;
             foreach (var semana in new[] { SemanaAcademica.A, SemanaAcademica.B })
             {
-                var starts = semana == SemanaAcademica.A ? c.Start : c.StartB;
+                var starts = c.Start;
 
-                // Spans presenciales en esta semana, agrupados por día y por clase de espacio.
+                // Spans que ocupan aula en esta semana, agrupados por día y por clase de espacio.
+                // Sigue siendo por semana: lo que no alterna cuenta en las dos, una pareja reparte
+                // un miembro en cada una — que es justamente la capacidad que libera emparejar.
                 var porDiaLab = new Dictionary<DiaDeSemana, List<(int start, int dur)>>();
                 var porDiaNoLab = new Dictionary<DiaDeSemana, List<(int start, int dur)>>();
                 for (int i = 0; i < c.CantidadGenes; i++)
                 {
-                    if (ModalidadSemanal.Derivar(_sesiones[i], semana) != Modalidad.Presencial) continue;
+                    if (!ModalidadSemanal.SemanasQueOcupanEspacio(_sesiones[i]).Contains(semana)) continue;
                     int start = starts[i];
                     if (start < 0 || start >= _bloques.Count) continue;
                     var dia = _diaPorIdx[start];

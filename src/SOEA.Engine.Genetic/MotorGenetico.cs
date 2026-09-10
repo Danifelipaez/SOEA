@@ -11,11 +11,11 @@ using SOEA.Domain.Services;
 namespace SOEA.Engine.Genetic
 {
     /// <summary>
-    /// Motor de Algoritmo Genético (Fase 3) del modelo bi-semanal presencial-first.
-    /// Optimiza objetivos blandos de la cohorte (huecos, &gt; 6 horas seguidas, balance entre días,
-    /// balance entre semanas SC-BAL) moviendo el inicio de cada sesión por semana:
-    /// <c>Start</c> (Semana A) y <c>StartB</c> (Semana B). Para TipoA/TipoB ambos coinciden
-    /// siempre (regla 9 / ALT-05); para SinAlternancia pueden diferir (ALT-06).
+    /// Motor de Algoritmo Genético (Fase 3) del modelo presencial-first.
+    /// Optimiza objetivos blandos de la cohorte (huecos, &gt; 6 horas seguidas, balance entre días)
+    /// moviendo el inicio de cada sesión: UN gen por sesión (<c>Start</c>), porque la franja es la
+    /// misma en todas las semanas (regla 9 / ALT-05). Antes había un segundo gen <c>StartB</c> que
+    /// para SinAlternancia podía divergir; esa libertad producía dos horarios incompatibles.
     /// Las restricciones duras se preservan así:
     ///   - HC-G01 (disponibilidad de grupo): los operadores solo eligen inicios dentro de la
     ///     disponibilidad declarada por el grupo, por día. El docente NO restringe el dominio.
@@ -95,12 +95,10 @@ namespace SOEA.Engine.Genetic
             var diaPorIdx  = BloquesPlanner.DiaPorBloqueIdx(bloques);
             var duraciones = sesiones.Select(s => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras))).ToArray();
 
-            // ── Semilla: inicios desde Fase 2, Semana A en Start y Semana B en StartB ─────
-            var esIndependiente = sesiones.Select(s => s.Alternancia == TipoAlternancia.SinAlternancia).ToArray();
-            var startSemilla  = SembrarInicios(sesiones, asignacionesFase2, bloqueIndex);
-            var startBSemilla = SembrarInicioB(sesiones, asignacionesFase2, bloqueIndex, startSemilla, esIndependiente);
+            // ── Semilla: el único inicio de cada sesión, desde su fila de Fase 2 ─────────
+            var startSemilla = SembrarInicios(sesiones, asignacionesFase2, bloqueIndex);
             var sesionIds = sesiones.Select(s => s.Id).ToArray();
-            var semilla = new CromosomaHorario(sesionIds, startSemilla, startBSemilla);
+            var semilla = new CromosomaHorario(sesionIds, startSemilla);
 
             var operadores = new OperadoresGeneticos(sesiones, bloques, docentes, rng, grupos,
                 ventanaPorAsignatura, sesionesFijasIds);
@@ -187,7 +185,7 @@ namespace SOEA.Engine.Genetic
                 .ToDictionary(gr => gr.Key, gr => gr.First().RequisitosEspacio);
 
             var aulas = _asignadorEspacios.Asignar(
-                sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx, estudiantesPorGrupo, requisitosPorGrupo);
+                sesiones, mejor.Start, duraciones, espacios, diaPorIdx, estudiantesPorGrupo, requisitosPorGrupo);
             if (aulas is null)
             {
                 _logger.LogWarning(
@@ -242,8 +240,11 @@ namespace SOEA.Engine.Genetic
                         continue;
                     }
 
+                    // Revertir una pareja deja DOS presenciales en el mismo bloque necesitando DOS
+                    // aulas distintas (al limpiarse ParejaAlternanciaId desaparece la igualdad de
+                    // HC-ALT). Este re-asignado es exactamente el chequeo que lo acepta o lo rechaza.
                     var aulasTentativas = _asignadorEspacios.Asignar(
-                        sesiones, mejor.Start, mejor.StartB, duraciones, espacios, diaPorIdx, estudiantesPorGrupo, requisitosPorGrupo);
+                        sesiones, mejor.Start, duraciones, espacios, diaPorIdx, estudiantesPorGrupo, requisitosPorGrupo);
 
                     if (aulasTentativas is not null)
                     {
@@ -269,22 +270,23 @@ namespace SOEA.Engine.Genetic
                 sesionesRevertidas.Count > 0 ? sesionesRevertidas : null);
         }
 
-        // Inicios semilla desde la Semana A de Fase 2 (Start). Regla 9: A y B comparten franja en
-        // TipoA/TipoB — ver SembrarInicioB para la Semana B.
+        // Inicios semilla desde la ÚNICA fila de Fase 2 de cada sesión, sea cual sea su semana.
+        // Filtrar por Semana A aquí sería un fallo silencioso: la fila de un TipoB vive en la
+        // semana B, así que la semilla caería al respaldo y el GA arrancaría fuera de la solución
+        // que CP-SAT acaba de encontrar.
         private static int[] SembrarInicios(
             List<Sesion> sesiones,
             List<AsignacionSemanal> asignacionesFase2,
             Dictionary<Guid, int> bloqueIndex)
         {
-            var bloquePorSesionA = asignacionesFase2
-                .Where(a => a.Semana == SemanaAcademica.A)
+            var bloquePorSesion = asignacionesFase2
                 .GroupBy(a => a.SesionId)
                 .ToDictionary(g => g.Key, g => g.First().BloqueTiempoId);
 
             var start = new int[sesiones.Count];
             for (int i = 0; i < sesiones.Count; i++)
             {
-                if (bloquePorSesionA.TryGetValue(sesiones[i].Id, out var bid) && bloqueIndex.TryGetValue(bid, out var idx))
+                if (bloquePorSesion.TryGetValue(sesiones[i].Id, out var bid) && bloqueIndex.TryGetValue(bid, out var idx))
                     start[i] = idx;
                 else if (bloqueIndex.TryGetValue(sesiones[i].BloqueTiempoId, out var idx2))
                     start[i] = idx2;
@@ -294,73 +296,39 @@ namespace SOEA.Engine.Genetic
             return start;
         }
 
-        // Inicios semilla de Semana B (StartB). Para TipoA/TipoB se fuerza == startA (regla 9 /
-        // ALT-05), de forma defensiva aunque Fase 2 ya debería traerlos iguales. Para
-        // SinAlternancia se siembra desde la Semana B real de Fase 2 (ALT-06: puede diferir).
-        private static int[] SembrarInicioB(
-            List<Sesion> sesiones,
-            List<AsignacionSemanal> asignacionesFase2,
-            Dictionary<Guid, int> bloqueIndex,
-            int[] startA,
-            bool[] esIndependiente)
-        {
-            var bloquePorSesionB = asignacionesFase2
-                .Where(a => a.Semana == SemanaAcademica.B)
-                .GroupBy(a => a.SesionId)
-                .ToDictionary(g => g.Key, g => g.First().BloqueTiempoId);
-
-            var startB = new int[sesiones.Count];
-            for (int i = 0; i < sesiones.Count; i++)
-            {
-                if (!esIndependiente[i])
-                {
-                    startB[i] = startA[i];
-                    continue;
-                }
-
-                if (bloquePorSesionB.TryGetValue(sesiones[i].Id, out var bid) && bloqueIndex.TryGetValue(bid, out var idx))
-                    startB[i] = idx;
-                else
-                    startB[i] = startA[i];
-            }
-            return startB;
-        }
-
+        // UNA fila por sesión, en su semana canónica (ver ModalidadSemanal). La contraparte
+        // virtual de lo que alterna no se persiste: no reserva aula y se deriva al construir el DTO.
         private static List<AsignacionSemanal> Decodificar(
             List<Sesion> sesiones,
             CromosomaHorario cromosoma,
             List<BloqueTiempo> bloques,
-            Dictionary<(Guid, SemanaAcademica), Guid> aulas)
+            Dictionary<Guid, Guid> aulas)
         {
-            var asignaciones = new List<AsignacionSemanal>(sesiones.Count * 2);
+            var asignaciones = new List<AsignacionSemanal>(sesiones.Count);
             for (int i = 0; i < sesiones.Count; i++)
             {
                 var sesion = sesiones[i];
-                foreach (var semana in new[] { SemanaAcademica.A, SemanaAcademica.B })
-                {
-                    var bloque = bloques[semana == SemanaAcademica.A ? cromosoma.Start[i] : cromosoma.StartB[i]];
-                    var modalidad = ModalidadSemanal.Derivar(sesion, semana);
-                    Guid? espacioId = null;
-                    if (modalidad == Modalidad.Presencial &&
-                        aulas.TryGetValue((sesion.Id, semana), out var eid))
-                        espacioId = eid;
+                var bloque = bloques[cromosoma.Start[i]];
+                var modalidad = ModalidadSemanal.ModalidadCanonica(sesion);
+                Guid? espacioId = null;
+                if (modalidad == Modalidad.Presencial && aulas.TryGetValue(sesion.Id, out var eid))
+                    espacioId = eid;
 
-                    asignaciones.Add(new AsignacionSemanal(
-                        Guid.NewGuid(), sesion.Id, semana, bloque.Id, espacioId, modalidad));
-                }
+                asignaciones.Add(new AsignacionSemanal(
+                    Guid.NewGuid(), sesion.Id, ModalidadSemanal.SemanaCanonica(sesion),
+                    bloque.Id, espacioId, modalidad));
             }
             return asignaciones;
         }
 
-        private static bool TieneSolapeGrupo(
-            CromosomaHorario c, List<Sesion> sesiones, int[] duraciones, DiaDeSemana[] diaPorIdx)
-        {
-            return TieneSolapeGrupoSemana(c.Start, sesiones, duraciones, diaPorIdx)
-                || TieneSolapeGrupoSemana(c.StartB, sesiones, duraciones, diaPorIdx);
-        }
-
         // CR-08: solape por cohorte (GrupoId) — el grupo no puede estar en dos sesiones a la vez.
-        private static bool TieneSolapeGrupoSemana(
+        // Independiente de la semana: una sesión que alterna se sigue dictando virtualmente la
+        // semana contraria, así que ocupa el tiempo del grupo en las dos.
+        private static bool TieneSolapeGrupo(
+            CromosomaHorario c, List<Sesion> sesiones, int[] duraciones, DiaDeSemana[] diaPorIdx) =>
+            TieneSolapeGrupoStarts(c.Start, sesiones, duraciones, diaPorIdx);
+
+        private static bool TieneSolapeGrupoStarts(
             int[] starts, List<Sesion> sesiones, int[] duraciones, DiaDeSemana[] diaPorIdx)
         {
             var porGrupo = new Dictionary<Guid, List<(int start, int dur)>>();

@@ -249,7 +249,7 @@ namespace SOEA.Tests.Application.Horario
             Assert.Empty(resultado.Advertencias); // nada chocó: no hubo que invocar CP-SAT
 
             var sesionADespues = resultado.Sesiones.Where(s => s.Id == sesionA.Id.ToString()).ToList();
-            Assert.Equal(2, sesionADespues.Count); // semana A + B
+            Assert.Single(sesionADespues); // una fila: aplica a todas las semanas
             Assert.All(sesionADespues, s => Assert.Equal("viernes", s.Dia));
             Assert.All(sesionADespues, s => Assert.Equal("20:00", s.HoraInicio));
 
@@ -294,7 +294,7 @@ namespace SOEA.Tests.Application.Horario
             Assert.All(filasA, s => Assert.Equal(dtoB.EspacioId, s.EspacioId));
 
             var filasB = resultado.Sesiones.Where(s => s.Id == sesionB.Id.ToString()).ToList();
-            Assert.Equal(2, filasB.Count);
+            Assert.Single(filasB);
             // B ya no puede seguir en el mismo (día, hora, espacio) que A: eso era justo el choque.
             Assert.All(filasB, s => Assert.False(s.Dia == dtoB.Dia && s.HoraInicio == dtoB.HoraInicio && s.EspacioId == dtoB.EspacioId));
         }

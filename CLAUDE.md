@@ -17,6 +17,7 @@ SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanale
 7. Las asignaturas Tipo A (8+8) son hard constraint — el algoritmo NO puede alterar su distribución.
 8. El horario se genera desde cero en cada ejecución. Un horario base es un conjunto de restricciones de entrada (sesiones con franja/espacio predefinidos) que CP-SAT trata como hard constraints de igualdad — el algoritmo no itera sobre ellas sino que planifica el resto alrededor.
 9. Sesión virtual = sincrónica online; se registra con la misma franja que su contraparte presencial. `EspacioId = null` en BD.
+10. **Semana A es EL horario** (ALT-05): la franja y el aula de una sesión aplican a todas las semanas del semestre; solo la modalidad puede variar. La Semana B únicamente existe cuando la alternancia se activa, de forma reactiva, tras comprobar que no hay configuración válida por falta de aulas; contiene solo las sesiones emparejadas. Emparejar es el ÚNICO mecanismo que libera capacidad: una sesión que no alterna ocupa su aula en las dos semanas. Fuente única: `ModalidadSemanal`. Se persiste UNA fila `AsignacionSemanal` por sesión; la contraparte virtual se deriva al construir el DTO.
 
 ## 3 — Estado actual del proyecto
 

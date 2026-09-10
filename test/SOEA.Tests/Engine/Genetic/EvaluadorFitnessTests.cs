@@ -91,24 +91,6 @@ namespace SOEA.Tests.Engine.Genetic
             Assert.True(eval.Evaluar(concentrado) > eval.Evaluar(balanceado));
         }
 
-        [Fact] // ④ SC-BAL: desbalance de carga entre Semana A y B penaliza más que carga simétrica.
-        public void SCBAL_PenalizaDesbalanceEntreSemanas()
-        {
-            var docId = Guid.NewGuid();
-            var sesiones = new List<Sesion> { Virtual(docId, 2m) }; // SinAlternancia: StartB libre
-            var bloques  = Grilla(4, DiaDeSemana.Lunes, DiaDeSemana.Martes); // Lunes 0-3, Martes 4-7
-            var docentes = new List<Docente> { Doc(docId, bloques) };
-            var cfg = new ConfiguracionOptimizacion(
-                PesoErgo: 0, PesoTiempos: 0, PesoMaxHorasSeguidas: 0, PesoBalanceSemanas: 1);
-            var eval = new EvaluadorFitness(sesiones, bloques, docentes, new List<Espacio>(), cfg);
-
-            var ids = sesiones.Select(s => s.Id).ToArray();
-            var balanceado    = new CromosomaHorario(ids, new[] { 0 }, new[] { 0 }); // misma franja A y B
-            var desbalanceado = new CromosomaHorario(ids, new[] { 0 }, new[] { 4 }); // Lunes en A, Martes en B
-
-            Assert.True(eval.Evaluar(desbalanceado) > eval.Evaluar(balanceado));
-        }
-
         // ⑤ SC-PRES: ceder presencialidad (Alternancia != SinAlternancia) de una sesión única +
         // Obligatoria penaliza MÁS que la de una 2ª sesión + Electiva. Es un término CONSTANTE por
         // cromosoma (B2: no lo mueve el GA), así que ya NO forma parte de Evaluar() — se expone
@@ -158,7 +140,7 @@ namespace SOEA.Tests.Engine.Genetic
             var cfg = new ConfiguracionOptimizacion(PesoErgo: 0, PesoTiempos: 0, PesoMaxHorasSeguidas: 0);
             var eval = new EvaluadorFitness(new List<Sesion> { sesionLab }, bloques, new List<Docente>(), espacios, cfg);
 
-            var c = new CromosomaHorario(new[] { sesionLab.Id }, new[] { 0 }, new[] { 0 });
+            var c = new CromosomaHorario(new[] { sesionLab.Id }, new[] { 0 });
 
             // 0 laboratorios para 1 sesión de laboratorio ⇒ la guarda (peso fijo 1000) debe disparar
             // en ambas semanas, aunque haya 2 salones libres que esa sesión no puede usar.
@@ -183,8 +165,8 @@ namespace SOEA.Tests.Engine.Genetic
                 new List<Espacio>(), cfg, info);
 
             var ids = new[] { sesion.Id };
-            var a = new CromosomaHorario(ids, new[] { 0 }, new[] { 0 });
-            var b = new CromosomaHorario(ids, new[] { 2 }, new[] { 2 }); // mismo dia, otro inicio
+            var a = new CromosomaHorario(ids, new[] { 0 });
+            var b = new CromosomaHorario(ids, new[] { 2 }); // mismo dia, otro inicio
 
             Assert.True(eval.PenalizacionPresencial > 0m);
             Assert.Equal(0m, eval.Evaluar(a)); // todos los pesos que quedan en Evaluar están en 0

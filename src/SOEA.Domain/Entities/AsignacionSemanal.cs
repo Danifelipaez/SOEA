@@ -4,9 +4,17 @@ using SOEA.Domain.Enums;
 namespace SOEA.Domain.Entities
 {
     /// <summary>
-    /// Materialización de una <see cref="Sesion"/> en una semana concreta del ciclo de alternancia.
-    /// Cada sesión lógica produce dos asignaciones (una por <see cref="SemanaAcademica"/>), que pueden
-    /// diferir en franja, espacio y modalidad. La <see cref="Sesion"/> permanece como unidad lógica intacta.
+    /// Materialización de una <see cref="Sesion"/>: su franja, su aula y su modalidad.
+    ///
+    /// Cada sesión lógica produce UNA asignación, en su semana canónica — la semana en la que es
+    /// presencial (ver <see cref="Services.ModalidadSemanal.SemanaCanonica"/>). Para una sesión que
+    /// no alterna, <see cref="SemanaAcademica.A"/> significa "todas las semanas", no "solo la impar":
+    /// la franja y el aula son un dato único del semestre (regla 9 / ALT-05).
+    ///
+    /// Antes se producían DOS asignaciones por sesión, una por semana, y nada obligaba a que
+    /// coincidieran salvo para TipoA/TipoB: el resultado eran dos horarios incompatibles
+    /// presentados como uno. La contraparte virtual de una sesión que alterna ya no se persiste
+    /// (no reserva aula, así que en BD era ruido); se deriva al construir el DTO.
     /// </summary>
     public class AsignacionSemanal : EntidadBase
     {

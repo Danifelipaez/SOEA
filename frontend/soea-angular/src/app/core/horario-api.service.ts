@@ -267,6 +267,7 @@ export class HorarioApiService {
       duracionHoras: s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin),
       alternancia: (s.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia') ?? 'SinAlternancia',
       semana: (s.semana === 'A' || s.semana === 'B') ? s.semana : undefined,
+      parejaId: s.parejaId || undefined,
     }));
   }
 

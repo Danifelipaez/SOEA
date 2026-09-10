@@ -124,24 +124,20 @@ namespace SOEA.Application.Features.Horario
             var todasAsigs  = await _asignaciones.GetBySesionIdsAsync(todosIds);
             var bloqueDict  = (await _bloques.GetAllAsync()).ToDictionary(b => b.Id);
 
-            var targetAsigs = todasAsigs
-                .Where(a => a.SesionId == sesion.Id)
-                .ToDictionary(a => a.Semana);
+            // Sin agrupar por semana: la franja de una sesión es la misma todas las semanas
+            // (ALT-05), y una que alterna sigue ocupando al docente la semana en que se dicta en
+            // línea. Agrupar por Semana dejaría de comparar una fila de la semana A contra una de
+            // la B y perdería solapes reales, devolviendo 200 en vez de 409.
+            var targetAsigs = todasAsigs.Where(a => a.SesionId == sesion.Id).ToList();
+            var otrasAsigs  = todasAsigs.Where(a => a.SesionId != sesion.Id).ToList();
 
-            var otrasAsigs  = todasAsigs
-                .Where(a => a.SesionId != sesion.Id)
-                .GroupBy(a => a.Semana)
-                .ToDictionary(g => g.Key, g => g.ToList());
-
-            foreach (var (semana, targetAsig) in targetAsigs)
+            foreach (var targetAsig in targetAsigs)
             {
                 if (!bloqueDict.TryGetValue(targetAsig.BloqueTiempoId, out var tBloque)) continue;
                 var tStart = tBloque.HoraInicio;
                 var tEnd   = tStart.AddHours((double)sesion.DuracionHoras);
 
-                if (!otrasAsigs.TryGetValue(semana, out var otrasEnSemana)) continue;
-
-                foreach (var otraAsig in otrasEnSemana)
+                foreach (var otraAsig in otrasAsigs)
                 {
                     if (!bloqueDict.TryGetValue(otraAsig.BloqueTiempoId, out var oBloque)) continue;
                     if (tBloque.Dia != oBloque.Dia) continue;
@@ -155,7 +151,7 @@ namespace SOEA.Application.Features.Horario
                         var d1 = await DescribirSesionAsync(sesion, tBloque.Dia, tStart, tEnd);
                         var d2 = await DescribirSesionAsync(oSesion, oBloque.Dia, oStart, oEnd);
                         throw new InvalidOperationException(
-                            $"HC-I01 (edición): el docente ya tiene otra sesión en esa franja (semana {semana}). " +
+                            $"HC-I01 (edición): el docente ya tiene otra sesión en esa franja. " +
                             $"Sesión 1: {d1}. Sesión 2: {d2}. " +
                             "Elija otro docente para una de las dos sesiones, o cambie el horario de una de ellas.");
                     }

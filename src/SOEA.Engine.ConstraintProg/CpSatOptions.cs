@@ -36,5 +36,19 @@ namespace SOEA.Engine.ConstraintProg
         /// <summary>Tope de grupos candidatos para el barrido de <see cref="SweepGrupos"/> — evita
         /// un costo O(N) descontrolado en runs con muchos grupos.</summary>
         public int SweepGruposMaximo { get; set; } = 20;
+
+        /// <summary>
+        /// Ante una infactibilidad que ningún pre-check explicó, reintenta el solve UNA vez sin las
+        /// restricciones de aula. Si esa relajación es factible, la causa son los espacios y el
+        /// motivo se reporta como <c>Espacio</c> en vez de <c>Otro</c>.
+        ///
+        /// Es lo que permite que la Semana B se active de forma reactiva: el pre-check agregado de
+        /// demanda vs capacidad solo ve el total semanal, no los cuellos de botella por bloque (p.
+        /// ej. todos los grupos con disponibilidad que choca el martes a las 08:00). Sin esta
+        /// clasificación esos casos devolverían <c>Otro</c>, el bucle de cesión de
+        /// GenerarHorarioService no cedería nunca, y un horario que sí tiene solución con alternancia
+        /// fallaría. Default true: un único solve extra, y solo en el camino de fallo.
+        /// </summary>
+        public bool ClasificarInfactibilidadEspacio { get; set; } = true;
     }
 }

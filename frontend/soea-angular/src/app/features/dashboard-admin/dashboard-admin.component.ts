@@ -135,26 +135,42 @@ export class DashboardAdminComponent implements OnInit {
       this.state.asignaturas().length, this.state.espacios().length);
   });
 
-  totalPresenciales = computed(() => this.state.sesiones().filter(s => !s.virtual).length);
-  totalVirtuales = computed(() => this.state.sesiones().filter(s => s.virtual).length);
+  /** Sesiones REALES, no filas: una que alterna aporta su fila presencial más la contraparte
+   *  virtual derivada, ambas con el mismo id. Contar filas inflaba los KPI (y el porcentaje de
+   *  presencialidad bajaba solo por dibujar la contraparte). */
+  private sesionesUnicas = computed(() => {
+    const porId = new Map<string, { virtual: boolean; horas: number }>();
+    for (const s of this.state.sesiones()) {
+      const previo = porId.get(s.id);
+      // Una sesión es virtual solo si NINGUNA de sus filas es presencial.
+      const virtual = previo ? previo.virtual && s.virtual : s.virtual;
+      porId.set(s.id, { virtual, horas: s.duracionHoras ?? 0 });
+    }
+    return [...porId.values()];
+  });
+
+  totalPresenciales = computed(() => this.sesionesUnicas().filter(s => !s.virtual).length);
+  totalVirtuales = computed(() => this.sesionesUnicas().filter(s => s.virtual).length);
   presencialPct = computed(() => {
-    const t = this.totalPresenciales() + this.totalVirtuales();
+    const t = this.sesionesUnicas().length;
     return t ? Math.round((this.totalPresenciales() / t) * 100) : 0;
   });
 
-  // 16 franjas (06:00-21:00) × 6 días — misma grilla que horario.component.ts (antes 13, KPI
-  // desalineado con lo que la grilla realmente pinta).
-  private totalSlots = computed(() => this.state.espacios().length * 16 * 6);
-  ocupacionPct = computed(() => { const s = this.totalSlots(); return s ? Math.round((this.totalPresenciales() / s) * 100) : 0; });
-  franjasOciosas = computed(() => Math.max(0, this.totalSlots() - this.totalPresenciales()));
+  // Ocupación en HORAS-aula, no en conteo de sesiones: 16 franjas (06:00-21:00) × 6 días × aulas.
+  // Antes dividía un conteo de filas entre un conteo de slots, dos magnitudes distintas.
+  private totalHorasAula = computed(() => this.state.espacios().length * 16 * 6);
+  private horasPresenciales = computed(() =>
+    this.sesionesUnicas().filter(s => !s.virtual).reduce((acc, s) => acc + s.horas, 0));
+  ocupacionPct = computed(() => { const t = this.totalHorasAula(); return t ? Math.round((this.horasPresenciales() / t) * 100) : 0; });
+  franjasOciosas = computed(() => Math.max(0, Math.round(this.totalHorasAula() - this.horasPresenciales())));
 
   docentesData = computed(() => {
     const sesiones = this.state.sesiones();
     return this.state.docentes()
       .map(d => {
-        // G4 (bug reportado "error en el conteo de horas"): las filas de semana A y B de una
-        // misma sesión comparten id y tienen la misma duración — sin deduplicar, cada sesión
-        // se contaba dos veces.
+        // G4 (bug reportado "error en el conteo de horas"): la fila presencial y su contraparte
+        // virtual derivada comparten id y duración — sin deduplicar, cada sesión que alterna se
+        // contaría dos veces.
         const vistos = new Set<string>();
         const sesDoc = sesiones.filter(s => s.docenteId === d.id && (vistos.has(s.id) ? false : (vistos.add(s.id), true)));
         const horas = sesDoc.reduce((acc, s) => {

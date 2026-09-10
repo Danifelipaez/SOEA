@@ -31,6 +31,11 @@ interface MergedSesion {
   espacioId?: string;
   espacioIdHogar?: string;
   tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
+  /** Id de la pareja de alternancia; agrupa la presencial con su contraparte virtual. */
+  parejaId?: string;
+  /** Contraparte virtual de esta sesión, dibujada como sub-caja DENTRO de la misma celda:
+   *  la materia que ocupa el aula la semana contraria se sigue dictando, en línea. */
+  contraparte?: MergedSesion;
 }
 
 /**
@@ -110,11 +115,13 @@ export function mensajeInfactibilidadAmigable(
 
       <!-- toolbar -->
       <div class="toolbar">
-        <span class="tb-lbl">Semana</span>
-        <div class="seg">
-          <label class="seg-opt" [class.on]="activeWeek() === 'A'" (click)="selectWeek('A')">A · presencial</label>
-          <label class="seg-opt" [class.on]="activeWeek() === 'B'" (click)="selectWeek('B')">B</label>
-        </div>
+        @if (hayAlternancia()) {
+          <span class="tb-lbl">Semana</span>
+          <div class="seg">
+            <label class="seg-opt" [class.on]="activeWeek() === 'A'" (click)="selectWeek('A')">A · horario completo</label>
+            <label class="seg-opt" [class.on]="activeWeek() === 'B'" (click)="selectWeek('B')">B · solo lo que alterna</label>
+          </div>
+        }
         <div class="legend">
           <span><span class="lg-box pres"></span> Presencial</span>
           <span><span class="lg-box virt"></span> ⌁ Virtual</span>
@@ -198,6 +205,11 @@ export function mensajeInfactibilidadAmigable(
                                 @if (merged.docenteId) { <div class="m">{{ getDocenteName(merged) }}{{ grupoSuffix(merged) }}</div> }
                                 @else { <div class="nodoc">sin docente{{ grupoSuffix(merged) }}</div> }
                                 <div class="t">{{ celdaEspacio(merged) }} · {{ merged.horaInicio }}–{{ merged.horaFin }}</div>
+                                @if (merged.contraparte; as otra) {
+                                  <div class="gsub" [title]="'Alterna con esta sesión: ocupa el aula la semana contraria'">
+                                    ⌁ {{ getAsignaturaName(otra) }}{{ grupoSuffix(otra) }} · virtual
+                                  </div>
+                                }
                               </div>
                             }
                           </td>
@@ -292,6 +304,9 @@ export function mensajeInfactibilidadAmigable(
     .gcell .m { color: var(--color-neutral-700); }
     .gcell .nodoc { color: var(--err-bd); font-weight: 500; }
     .gcell .t { color: var(--color-neutral-500); font-size: 10px; }
+    .gcell .gsub { margin-top: 4px; padding: 3px 5px; border: 1px dashed var(--color-neutral-500);
+                   background: repeating-linear-gradient(-45deg, var(--color-bg) 0 5px, color-mix(in srgb, var(--color-accent) 12%, transparent) 5px 8px);
+                   color: var(--color-neutral-700); font-size: 10px; line-height: 1.2; }
     .grid-foot { text-align: center; font-size: 11px; margin-top: 8px; }
 
     .side { width: 250px; flex: none; background: var(--color-surface); }
@@ -389,16 +404,32 @@ export class HorarioComponent implements OnInit {
     });
   }
 
+  private aMerged(s: Sesion): MergedSesion {
+    const dur = Math.max(1, Math.round(s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin)));
+    return {
+      key: s.id, sesiones: [s], dia: s.dia, horaInicio: s.horaInicio, horaFin: s.horaFin, duracionSlots: dur,
+      virtual: s.virtual, alternancia: s.alternancia, semana: s.semana, asignaturaId: s.asignaturaId,
+      grupoId: s.grupoId, docenteId: s.docenteId, espacioId: s.espacioId, espacioIdHogar: s.espacioIdHogar,
+      tipoFlujo: s.tipoFlujo, parejaId: s.parejaId
+    };
+  }
+
   private computeMergedMap(spaceId: string | undefined, allSesiones: Sesion[]): Map<string, MergedSesion[]> {
     const map = new Map<string, MergedSesion[]>();
-    const visible = allSesiones.filter(s => this.sesionPerteneceAlEspacio(s, spaceId) && this.sesionVisibleEnSemana(s));
-    for (const s of visible) {
-      const dur = Math.max(1, Math.round(s.duracionHoras ?? this.diffHoras(s.horaInicio, s.horaFin)));
-      const merged: MergedSesion = {
-        key: s.id, sesiones: [s], dia: s.dia, horaInicio: s.horaInicio, horaFin: s.horaFin, duracionSlots: dur,
-        virtual: s.virtual, alternancia: s.alternancia, semana: s.semana, asignaturaId: s.asignaturaId,
-        grupoId: s.grupoId, docenteId: s.docenteId, espacioId: s.espacioId, espacioIdHogar: s.espacioIdHogar, tipoFlujo: s.tipoFlujo
-      };
+    const visibles = allSesiones.filter(s => this.sesionPerteneceAlEspacio(s, spaceId) && this.sesionVisibleEnSemana(s));
+
+    // La contraparte virtual no ocupa una caja propia: se pliega como sub-caja dentro de la celda
+    // de la presencial que tiene su aula esa semana. Sin esto se dibujarían dos cajas hermanas
+    // compitiendo por la misma celda, que es lo que hacía ilegible la grilla.
+    const contrapartes = new Map<string, Sesion>();
+    for (const s of visibles) if (s.esContraparteVirtual && s.parejaId) contrapartes.set(s.parejaId, s);
+
+    for (const s of visibles) {
+      if (s.esContraparteVirtual) continue;
+      const merged = this.aMerged(s);
+      const otra = s.parejaId ? contrapartes.get(s.parejaId) : undefined;
+      if (otra) merged.contraparte = this.aMerged(otra);
+
       const cid = this.cellId(s.dia, s.horaInicio);
       if (!map.has(cid)) map.set(cid, []);
       map.get(cid)!.push(merged);
@@ -422,10 +453,18 @@ export class HorarioComponent implements OnInit {
     return false;
   }
 
+  /** Hay alternancia activa cuando alguna sesión tiene pareja. Sin ella la Semana B no existe
+   *  y el selector ni siquiera se muestra: la Semana A es el horario completo. */
+  hayAlternancia = computed(() => this.state.sesiones().some(s => !!s.parejaId));
+
+  /** Semana A: el horario completo (lo que no alterna no trae `semana`). Semana B: SOLO las
+   *  celdas que alternan — el resto se entiende igual que en la Semana A. */
   private sesionVisibleEnSemana(s: Sesion): boolean {
-    if (s.semana) return s.semana === this.activeWeek();
-    if (s.alternancia === 'SinAlternancia') return true;
-    return this.activeWeek() === 'A' ? s.alternancia === 'TipoA' : s.alternancia === 'TipoB';
+    if (this.activeWeek() === 'B') return s.semana === 'B';
+    // Falsy, no `=== undefined`: POST /sesion-manual devuelve el DTO crudo (sin pasar por
+    // mapearSesiones), y ahí "no alterna" viaja como cadena vacía. Compararlo con undefined hacía
+    // desaparecer de la grilla la sesión recién creada.
+    return !s.semana || s.semana === 'A';
   }
 
   mergedByCell = computed(() => this.computeMergedMap(
@@ -603,7 +642,9 @@ export class HorarioComponent implements OnInit {
     ref.afterClosed().subscribe((nuevas: Sesion[] | undefined) => {
       if (!nuevas?.length) return;
       this.state.sesiones.update(prev => [...prev, ...nuevas]);
-      this.snackBar.open(`Sesión creada (${nuevas.length} fila${nuevas.length > 1 ? 's' : ''} añadidas).`, 'Cerrar', { duration: 5000 });
+      // "N filas" era jerga interna del modelo de datos: al coordinador solo le importa que la
+      // sesión quedó creada.
+      this.snackBar.open('Sesión creada.', 'Cerrar', { duration: 5000 });
     });
   }
 
@@ -682,15 +723,6 @@ interface EditarSesionResult { sesion?: Sesion; advertencias: string[]; }
             <label class="seg-opt" [class.on]="alternancia()==='SinAlternancia'" (click)="alternancia.set('SinAlternancia')">Sin</label>
           </div>
         </div>
-        @if (alternancia() !== 'SinAlternancia') {
-          <div class="dfield"><label>Semana</label>
-            <div class="seg" style="align-self:flex-start">
-              <label class="seg-opt" [class.on]="semana()==='A'" (click)="semana.set('A')">A</label>
-              <label class="seg-opt" [class.on]="semana()==='B'" (click)="semana.set('B')">B</label>
-              <label class="seg-opt" [class.on]="semana()===undefined" (click)="semana.set(undefined)">Ambas</label>
-            </div>
-          </div>
-        }
       }
 
       @for (c of validaciones(); track c.texto) {
@@ -719,7 +751,10 @@ export class EditarSesionDialogComponent {
   horaInicio = signal(this.orig.horaInicio);
   espacioId = signal(this.orig.espacioId ?? '');
   alternancia = signal<'TipoA' | 'TipoB' | 'SinAlternancia'>(this.orig.alternancia as any);
-  semana = signal<'A' | 'B' | undefined>(this.orig.semana);
+  /** Derivada, no editable: TipoA ocupa el aula en la semana A, TipoB en la B, y lo que no
+   *  alterna la ocupa en las dos. Elegirla a mano permitía estados que el motor no puede producir. */
+  semana = computed<'A' | 'B' | undefined>(() =>
+    this.alternancia() === 'TipoA' ? 'A' : this.alternancia() === 'TipoB' ? 'B' : undefined);
   guardando = signal(false);
   advertencias = signal<string[]>([]);
   errorServidor = signal('');
@@ -732,7 +767,7 @@ export class EditarSesionDialogComponent {
     this.dia() !== this.orig.dia || this.horaInicio() !== this.orig.horaInicio || this.espacioId() !== (this.orig.espacioId ?? ''));
   hayCambios = computed(() =>
     this.hayCambioDocente() || this.hayCambioSlot() ||
-    this.alternancia() !== (this.orig.alternancia as string) || this.semana() !== this.orig.semana);
+    this.alternancia() !== (this.orig.alternancia as string));
 
   readonly horasDisponibles = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
   readonly diasOpciones = ['lunes','martes','miercoles','jueves','viernes','sabado'].map(v => ({ valor: v }));
@@ -848,10 +883,12 @@ export class EditarSesionDialogComponent {
     const sDur = Math.max(1, Math.round(s.duracionHoras ?? this.diffH(s.horaInicio, s.horaFin)));
     return newStart < sStart + sDur && sStart < newEnd;
   }
-  /** Dos sesiones de semanas opuestas de un mismo ciclo de alternancia nunca coexisten en la
-   * misma semana real, así que no son un conflicto físico aunque compartan día/franja/espacio. */
+  /** Espejo de ModalidadSemanal.CompartenSemanaDeEspacio (backend): dos sesiones solo chocan si
+   * ocupan el aula alguna semana en común. Lo que no alterna la ocupa en las DOS, así que choca
+   * con todo; una pareja TipoA/TipoB no choca nunca entre sí. Antes bastaba con que las `semana`
+   * declaradas difirieran, y eso dejaba pasar el choque entre una sesión fija y un TipoB. */
   private nuncaCoexiste(semanaA: Sesion['semana'], semanaB: Sesion['semana']): boolean {
-    return semanaA !== undefined && semanaB !== undefined && semanaA !== semanaB;
+    return !!semanaA && !!semanaB && semanaA !== semanaB;
   }
   private addH(hora: string, h: number): string { const [hh, mm] = hora.split(':').map(Number); return `${String(hh + h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`; }
   private diffH(i: string, f: string): number { const [hi, mi] = i.split(':').map(Number); const [hf, mf] = f.split(':').map(Number); return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60); }

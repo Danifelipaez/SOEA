@@ -118,17 +118,15 @@ export class StateService {
 
   setSesiones(s: Sesion[])       { this.sesiones.set(s); }
   /**
-   * Aplica una edición a TODAS las filas que comparten `id`. Las filas A y B de una misma
-   * sesión comparten `id` y ocupan el mismo horario (idéntico en ambas semanas; solo cambia
-   * presencial↔virtual — ver Sesion.semana en models.ts), así que día/hora/docente/alternancia
-   * se sincronizan en ambas filas. `espacioId` es la excepción: una fila virtual siempre debe
-   * quedar en null (regla 9, CLAUDE.md) aunque el usuario haya editado el espacio presencial;
-   * ese valor se refleja en `espacioIdHogar` para que la fila virtual siga apuntando al lab.
-   * `semana` NUNCA se sincroniza: es precisamente el campo que distingue una fila de la otra
-   * (en sesiones sin alternancia ambas filas son presenciales — solo `semana` las diferencia).
-   * Reemplazar con el objeto completo (como antes) colapsaba ambas filas en una sola copia
-   * idéntica, perdiendo esa distinción — la sesión "duplicada" que se veía en el grid tras
-   * mover un día/hora era esa copia corrupta.
+   * Aplica una edición a TODAS las filas que comparten `id`. Una sesión que no alterna tiene
+   * UNA sola fila; una que alterna tiene su fila presencial más la contraparte virtual derivada,
+   * y ambas comparten `id` a propósito. Día, hora, docente y alternancia se sincronizan en todas.
+   * `espacioId` es la excepción: una fila virtual siempre debe quedar en null (regla 9,
+   * CLAUDE.md) aunque el usuario haya editado el espacio presencial; ese valor se refleja en
+   * `espacioIdHogar` para que la contraparte virtual siga apuntando a su aula.
+   * `semana` NUNCA se sincroniza: es lo que distingue la fila presencial de su contraparte.
+   * Reemplazar con el objeto completo colapsaba ambas filas en una copia idéntica, perdiendo esa
+   * distinción — la sesión "duplicada" que se veía en el grid tras mover un día/hora.
    */
   updateSesion(s: Sesion) {
     this.sesiones.update(v => v.map(x => x.id !== s.id ? x : {

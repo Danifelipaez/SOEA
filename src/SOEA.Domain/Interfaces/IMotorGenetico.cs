@@ -49,7 +49,7 @@ namespace SOEA.Domain.Interfaces
         int    PesoTiempos          = 2,   // SC-06: balancear carga entre días disponibles
         int    PesoMaxHorasSeguidas = 3,   // SC-09: evitar > UmbralHorasSeguidas horas seguidas (blanda fuerte: domina un hueco). Antes "PesoAlmuerzo" (C2 auditoría: no pondera almuerzo, sino rachas).
         int    UmbralHorasSeguidas  = 6,   // SC-09: máximo de horas seguidas antes de penalizar. Antes hardcodeado en EvaluadorFitness (C2 auditoría).
-        int    PesoBalanceSemanas   = 2,   // SC-BAL: desbalance de carga por día entre Semana A y B (Incremento 2)
+        int    PesoBalanceSemanas   = 2,   // OBSOLETO: SC-BAL se eliminó al colapsar el cromosoma a un gen por sesión (ALT-05). Se conserva para no romper el contrato con el frontend; no afecta al fitness.
         int    PesoPresencialFirst  = 4,   // SC-PRES: penaliza ceder presencialidad de sesiones de alta prioridad
         int?   Semilla              = null);
 

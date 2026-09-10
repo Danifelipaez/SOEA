@@ -25,6 +25,13 @@ namespace SOEA.Application.Features.Horario.Responses
         /// en el catálogo sin tener que interpretar el texto libre de MensajeError.
         /// </summary>
         public List<string> GruposEnConflicto { get; set; } = new();
+        /// <summary>
+        /// Sesiones que no cupieron en la Semana A y para las que no se encontró pareja de
+        /// alternancia, con el motivo en lenguaje del coordinador (no comparten franja, no hay aula
+        /// que sirva a ambas, es la única presencial de su grupo…). Vacío cuando el horario es
+        /// factible. Nunca se virtualiza una sesión en silencio para evitar este fallo.
+        /// </summary>
+        public List<string> SesionesSinAlternanciaPosible { get; set; } = new();
         public List<string> Logs     { get; set; } = new();
         public List<SesionGeneradaDto> Sesiones { get; set; } = new();
     }
@@ -59,8 +66,23 @@ namespace SOEA.Application.Features.Horario.Responses
         /// <summary>TipoA, TipoB o SinAlternancia.</summary>
         public string  Alternancia  { get; set; } = "SinAlternancia";
         public bool    Virtual      { get; set; }
-        /// <summary>Semana del ciclo de alternancia: "A" (impares) o "B" (pares).</summary>
+        /// <summary>
+        /// Semana del ciclo de alternancia. VACÍO = la sesión se dicta igual todas las semanas
+        /// (el caso normal: no alterna). "A" o "B" solo cuando alterna, e indica la semana en la
+        /// que esa fila ocurre.
+        /// </summary>
         public string  Semana       { get; set; } = string.Empty;
+        /// <summary>
+        /// Id de la pareja de alternancia, para agrupar la fila presencial con la contraparte
+        /// virtual que se dibuja dentro de la misma celda. Vacío si la sesión no alterna.
+        /// </summary>
+        public string  ParejaId     { get; set; } = string.Empty;
+        /// <summary>
+        /// True en la fila DERIVADA: la contraparte virtual de una sesión que alterna, en la semana
+        /// en la que su aula la ocupa su pareja. No está persistida (no reserva aula); existe solo
+        /// para que la grilla pueda dibujarla como sub-caja dentro de la celda del aula.
+        /// </summary>
+        public bool    EsContraparteVirtual { get; set; }
         /// <summary>Laboratorio | AulaVirtual. Distingue teoría (presencial o virtual) de laboratorio.</summary>
         public string  TipoFlujo    { get; set; } = "Laboratorio";
         /// <summary>

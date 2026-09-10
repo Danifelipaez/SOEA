@@ -99,8 +99,13 @@ namespace SOEA.Application.Features.Horario
                 bool choca = asigs.Any(a =>
                     idxPorBloque.TryGetValue(a.BloqueTiempoId, out var inicio) &&
                     Solapa(inicio, dur) &&
+                    // Cohorte: independiente de la semana (la sesión ocupa el tiempo del grupo
+                    // todas las semanas, presencial o virtualmente).
                     ((s.GrupoId.HasValue && s.GrupoId == sesionEditada.GrupoId) ||
-                     (espacioNuevo.HasValue && a.EspacioId == espacioNuevo)));
+                     // Aula: solo si ambas la ocupan alguna semana en común. Una pareja de
+                     // alternancia comparte aula y bloque a propósito y no es conflicto.
+                     (espacioNuevo.HasValue && a.EspacioId == espacioNuevo &&
+                      ModalidadSemanal.CompartenSemanaDeEspacio(s, sesionEditada))));
                 if (choca) freedIds.Add(s.Id);
             }
 
@@ -112,8 +117,8 @@ namespace SOEA.Application.Features.Horario
 
             if (freedIds.Count == 0)
             {
-                // Camino común: nada choca, no hace falta invocar CP-SAT — se reconstruyen
-                // directamente las 2 filas (semana A/B) de la editada, igual que una sesión manual.
+                // Camino común: nada choca, no hace falta invocar CP-SAT — se reconstruye
+                // directamente la fila de la editada, igual que una sesión manual.
                 nuevasAsignaciones = CrearSesionManualService.CrearAsignaciones(sesionEditada, bloqueNuevo.Id);
             }
             else

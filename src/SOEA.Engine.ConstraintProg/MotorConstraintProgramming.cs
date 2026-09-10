@@ -16,13 +16,20 @@ namespace SOEA.Engine.ConstraintProg
 {
     /// <summary>
     /// Fase 2 — Constraint Programming con OR-Tools CP-SAT.
-    /// Modela cada sesión como DOS intervalos de longitud fija = DuracionHoras, uno por
-    /// <see cref="SemanaAcademica"/> (A / B), e impone NoOverlap por (grupo, semana) — HC-C01,
-    /// CR-08: el docente sale del pipeline — y por (espacio, semana) — HC-S01. La modalidad por
-    /// semana se DERIVA de la alternancia (dato fijo):
-    /// TipoA → presencial en A / virtual en B; TipoB → virtual en A / presencial en B;
-    /// SinAlternancia → presencial en ambas. Para TipoA/TipoB la franja virtual se enlaza a la
-    /// presencial (regla 9: misma franja). La duración es inmutable (CLAUDE.md regla 6).
+    ///
+    /// Modela cada sesión como UN intervalo de longitud fija = DuracionHoras (regla 9 / ALT-05:
+    /// la franja y el aula son un dato único que aplica a todas las semanas del semestre; solo la
+    /// modalidad alterna). Antes había dos intervalos por sesión, uno por semana, y nada obligaba
+    /// a que coincidieran salvo para TipoA/TipoB — de ahí salían dos horarios incompatibles.
+    ///
+    /// El único eje sensible a la semana es el AULA, porque una sesión virtual la libera:
+    ///   - HC-C01 (cohorte) — un NoOverlap por grupo, independiente de la semana: una sesión que
+    ///     alterna se sigue dictando virtualmente la semana contraria y consume el tiempo del grupo.
+    ///   - HC-S01 (espacio) — NoOverlap por (espacio, semana), donde cada sesión aporta su intervalo
+    ///     a las semanas que devuelve <see cref="ModalidadSemanal.SemanasQueOcupanEspacio"/>: ambas
+    ///     si no alterna, solo la suya si es TipoA/TipoB. Por eso una pareja comparte legalmente
+    ///     bloque y aula, y por eso emparejar es lo único que libera capacidad.
+    /// CR-08: el docente sale del pipeline. La duración es inmutable (CLAUDE.md regla 6).
     /// </summary>
     public class MotorConstraintProgramming : IMotorConstraintProgramming
     {
@@ -82,7 +89,8 @@ namespace SOEA.Engine.ConstraintProg
             HashSet<Guid> sesionesFijasIds,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)> ventanaPorAsignatura,
             CancellationToken ct,
-            bool permitirSweep)
+            bool permitirSweep,
+            bool omitirRestriccionAulas = false)
         {
             if (!sesiones.Any() || !bloques.Any())
             {
@@ -131,7 +139,11 @@ namespace SOEA.Engine.ConstraintProg
             int espaciosNoLab = espacios.Count - espaciosLab;
             foreach (var semana in Semanas)
             {
-                var presencialesSemana = sesiones.Where(s => ModalidadDe(s, semana) == Modalidad.Presencial).ToList();
+                // Fuente única de la ocupación de aula: una sesión que no alterna cuenta en las DOS
+                // semanas (no libera nada), una TipoA solo en A y una TipoB solo en B.
+                var presencialesSemana = sesiones
+                    .Where(s => ModalidadSemanal.SemanasQueOcupanEspacio(s).Contains(semana))
+                    .ToList();
                 foreach (var (esLab, nombreClase, capacidadEspacios) in new[]
                          {
                              (true,  "laboratorios", espaciosLab),
@@ -160,9 +172,12 @@ namespace SOEA.Engine.ConstraintProg
 
                     if (demanda > capacidadHoras)
                     {
-                        var msg = $"Infactible (Semana {semana}): la demanda de {nombreClase} ({demanda}h) supera la " +
-                                  $"capacidad disponible ({capacidadHoras}h = {capacidadEspacios} espacio(s) de ese tipo " +
-                                  $"× {bloques.Count} bloques). Añada más {nombreClase} o ajuste la alternancia.";
+                        // Camino rápido (sin resolver) que devuelve Espacio y alimenta el bucle de
+                        // cesión de GenerarHorarioService: es la vía por la que se activa la Semana B.
+                        var msg = $"No caben las {nombreClase} en la semana {semana}: se piden {demanda}h y solo hay " +
+                                  $"{capacidadHoras}h disponibles ({capacidadEspacios} espacio(s) de ese tipo × " +
+                                  $"{bloques.Count} bloques). Añada más {nombreClase}, o marque más asignaturas como " +
+                                  "candidatas a alternancia para que puedan emparejarse y compartir aula en semanas alternas.";
                         _logger.LogError(msg);
                         return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio);
                     }
@@ -236,11 +251,13 @@ namespace SOEA.Engine.ConstraintProg
                 .GroupBy(gr => gr.Id)
                 .ToDictionary(gr => gr.Key, gr => gr.First().RequisitosEspacio);
 
-            // ── Variables: intervalo de longitud DuracionHoras por (sesión, semana) ─────
-            var startVars    = new Dictionary<(Guid, SemanaAcademica), IntVar>();
-            var endVars      = new Dictionary<(Guid, SemanaAcademica), IntVar>();
-            var intervalVars = new Dictionary<(Guid, SemanaAcademica), IntervalVar>();
-            var spaceVars    = new Dictionary<(Guid, SemanaAcademica), IntVar>(); // solo pares presenciales
+            // ── Variables: UN intervalo de longitud DuracionHoras por sesión ────────────
+            // Regla 9 / ALT-05: la franja es la misma en todas las semanas, así que no hay nada
+            // que enlazar entre A y B — simplemente no existen dos variables que puedan divergir.
+            var startVars    = new Dictionary<Guid, IntVar>();
+            var endVars      = new Dictionary<Guid, IntVar>();
+            var intervalVars = new Dictionary<Guid, IntervalVar>();
+            var spaceVars    = new Dictionary<Guid, IntVar>(); // solo sesiones que ocupan aula
             var duraciones   = new Dictionary<Guid, int>();
 
             foreach (var sesion in sesiones)
@@ -248,31 +265,21 @@ namespace SOEA.Engine.ConstraintProg
                 int duracion = Math.Max(1, (int)Math.Ceiling(sesion.DuracionHoras));
                 duraciones[sesion.Id] = duracion;
 
-                foreach (var semana in Semanas)
-                {
-                    var key = (sesion.Id, semana);
-                    var startVar = model.NewIntVar(0, bloques.Count - duracion, $"start_{sesion.Id}_{semana}");
-                    var endVar   = model.NewIntVar(duracion, bloques.Count, $"end_{sesion.Id}_{semana}");
-                    startVars[key] = startVar;
-                    endVars[key]   = endVar;
-                    intervalVars[key] = model.NewIntervalVar(startVar, duracion, endVar, $"int_{sesion.Id}_{semana}");
+                var startVar = model.NewIntVar(0, bloques.Count - duracion, $"start_{sesion.Id}");
+                var endVar   = model.NewIntVar(duracion, bloques.Count, $"end_{sesion.Id}");
+                startVars[sesion.Id] = startVar;
+                endVars[sesion.Id]   = endVar;
+                intervalVars[sesion.Id] = model.NewIntervalVar(startVar, duracion, endVar, $"int_{sesion.Id}");
 
-                    if (espacios.Any() && ModalidadDe(sesion, semana) == Modalidad.Presencial)
-                        spaceVars[key] = model.NewIntVar(0, espacios.Count - 1, $"space_{sesion.Id}_{semana}");
-                }
-            }
-
-            // ── Enlace regla 9: para alternancia, la franja virtual = franja presencial ─
-            foreach (var sesion in sesiones)
-            {
-                if (sesion.Alternancia is TipoAlternancia.TipoA or TipoAlternancia.TipoB)
-                    model.Add(startVars[(sesion.Id, SemanaAcademica.A)] == startVars[(sesion.Id, SemanaAcademica.B)]);
+                if (espacios.Any() && ModalidadSemanal.SemanasQueOcupanEspacio(sesion).Count > 0)
+                    spaceVars[sesion.Id] = model.NewIntVar(0, espacios.Count - 1, $"space_{sesion.Id}");
             }
 
             // ── HC-ALT: alternancia atómica por espacio (A4/VERIFICA) — cada pareja
-            // (mismo Sesion.ParejaAlternanciaId) comparte el MISMO bloque y el MISMO espacio físico,
-            // una presencial en semana A y la otra en B. "Mismo start" basta declararlo para la
-            // Semana A: el enlace regla 9 de cada sesión (arriba) ya liga su propia A↔B.
+            // (mismo Sesion.ParejaAlternanciaId) comparte el MISMO bloque y el MISMO espacio físico.
+            // Con una sola variable por sesión, "comparten aula en semanas distintas" se declara
+            // directamente: la separación entre semanas ya la hace SemanasQueOcupanEspacio en el
+            // NoOverlap de aula, así que aquí solo hace falta la igualdad.
             foreach (var pareja in sesiones
                          .Where(s => s.ParejaAlternanciaId.HasValue)
                          .GroupBy(s => s.ParejaAlternanciaId!.Value)
@@ -280,25 +287,42 @@ namespace SOEA.Engine.ConstraintProg
             {
                 var miembros = pareja.ToList();
                 var s1 = miembros[0]; var s2 = miembros[1];
-                model.Add(startVars[(s1.Id, SemanaAcademica.A)] == startVars[(s2.Id, SemanaAcademica.A)]);
+                model.Add(startVars[s1.Id] == startVars[s2.Id]);
 
-                // Cada miembro solo tiene spaceVar en su propia semana presencial (TipoA→A, TipoB→B);
-                // igualarlas cruzando semana es justamente "comparten el mismo espacio, en semanas
-                // distintas" — la atomicidad por espacio que pide VERIFICA.
-                if (spaceVars.TryGetValue((s1.Id, SemanaAcademica.A), out var sv1A) &&
-                    spaceVars.TryGetValue((s2.Id, SemanaAcademica.B), out var sv2B))
-                    model.Add(sv1A == sv2B);
-                else if (spaceVars.TryGetValue((s1.Id, SemanaAcademica.B), out var sv1B) &&
-                         spaceVars.TryGetValue((s2.Id, SemanaAcademica.A), out var sv2A))
-                    model.Add(sv1B == sv2A);
+                if (spaceVars.TryGetValue(s1.Id, out var sv1) && spaceVars.TryGetValue(s2.Id, out var sv2))
+                {
+                    model.Add(sv1 == sv2);
+                }
+                else
+                {
+                    // Pareja con un miembro que no ocupa aula (virtual puro): dato corrupto. Ceder
+                    // más sesiones no lo arregla, así que se reporta como Otro y no como Espacio
+                    // — si no, el bucle de cesión giraría sin avanzar.
+                    var msg = $"Pareja de alternancia inválida entre la sesión de '{NombreGrupo(s1.GrupoId)}' y la de " +
+                              $"'{NombreGrupo(s2.GrupoId)}': uno de los dos miembros no ocupa aula, así que no hay nada " +
+                              "que alternar. Regenere el horario.";
+                    _logger.LogError(msg);
+                    return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Otro);
+                }
             }
 
             // ── Warm-start y fijación de sesiones base ───────────────────────────────
+            // Los dos miembros de una pareja comparten start por HC-ALT, pero la coloración de
+            // Fase 1 puede haberlos separado. Hintear cada uno a su propio bloque daría una pista
+            // contradictoria que el solver descarta entera: se unifica al bloque del primer miembro.
+            var hintDePareja = sesiones
+                .Where(s => s.ParejaAlternanciaId.HasValue && bloqueIndex.ContainsKey(s.BloqueTiempoId))
+                .GroupBy(s => s.ParejaAlternanciaId!.Value)
+                .ToDictionary(g => g.Key, g => bloqueIndex[g.First().BloqueTiempoId]);
+
             foreach (var sesion in sesiones)
             {
                 if (sesion.Estado != EstadoSesion.Asignada) continue;
                 if (sesion.BloqueTiempoId == Guid.Empty) continue;
                 if (!bloqueIndex.TryGetValue(sesion.BloqueTiempoId, out var idx)) continue;
+
+                if (sesion.ParejaAlternanciaId is Guid parejaId && hintDePareja.TryGetValue(parejaId, out var idxPareja))
+                    idx = idxPareja;
 
                 int dur = duraciones[sesion.Id];
                 if (!BloquesPlanner.CabeEnDia(idx, dur, rangosPorDia, diaPorIdx)) continue;
@@ -306,23 +330,19 @@ namespace SOEA.Engine.ConstraintProg
                 if (sesionesFijasIds.Contains(sesion.Id))
                 {
                     // Sesión del horario base: igualdad estricta — CP-SAT no puede moverla.
-                    foreach (var semana in Semanas)
-                        model.Add(startVars[(sesion.Id, semana)] == idx);
+                    model.Add(startVars[sesion.Id] == idx);
                 }
                 else
                 {
                     // Fase 1 warm-start: pista, el solver puede sobreescribirla.
-                    foreach (var semana in Semanas)
-                    {
-                        model.AddHint(startVars[(sesion.Id, semana)], idx);
+                    model.AddHint(startVars[sesion.Id], idx);
 
-                        // Si Fase 1 ya trae espacio asignado, hintear también spaceVars:
-                        // si esa asignación es factible, CP-SAT la valida casi al instante.
-                        if (sesion.EspacioId is Guid espacioHint &&
-                            espacioIndex.TryGetValue(espacioHint, out var espIdx) &&
-                            spaceVars.TryGetValue((sesion.Id, semana), out var spaceVar))
-                            model.AddHint(spaceVar, espIdx);
-                    }
+                    // Si Fase 1 ya trae espacio asignado, hintear también spaceVars:
+                    // si esa asignación es factible, CP-SAT la valida casi al instante.
+                    if (sesion.EspacioId is Guid espacioHint &&
+                        espacioIndex.TryGetValue(espacioHint, out var espIdx) &&
+                        spaceVars.TryGetValue(sesion.Id, out var spaceVar))
+                        model.AddHint(spaceVar, espIdx);
                 }
             }
 
@@ -379,14 +399,14 @@ namespace SOEA.Engine.ConstraintProg
                 }
 
                 var dominio = CpDomain.FromValues(startsFiltrados.Select(v => (long)v).ToArray());
-                foreach (var semana in Semanas)
-                    model.AddLinearExpressionInDomain(startVars[(sesion.Id, semana)], dominio);
+                model.AddLinearExpressionInDomain(startVars[sesion.Id], dominio);
             }
 
             // ── HC-SEP: separación mínima de días entre sesiones semanales del mismo
             // (grupo, asignatura, tipo de sesión) — petición 11 (A5, ReglasSesion). Canaliza el
-            // día de cada start con AddElement y exige, por cada par y por semana, que el día
-            // difiera en ≥2 posiciones (lunes/martes no; lunes/miércoles sí). Sesiones fijas
+            // día de cada start con AddElement y exige, por cada par, que el día difiera en ≥2
+            // posiciones (lunes/martes no; lunes/miércoles sí). Es un eje TEMPORAL, así que no
+            // depende de la semana: la sesión cae el mismo día todas las semanas. Sesiones fijas
             // quedan fuera: ya están fijadas por igualdad y no participan de este dominio.
             var diaConstPorIdx = bloques.Select(bl => model.NewConstant((int)bl.Dia)).ToArray();
             var gruposSeparacion = sesiones
@@ -396,44 +416,44 @@ namespace SOEA.Engine.ConstraintProg
             foreach (var grupo in gruposSeparacion)
             {
                 var lista = grupo.ToList();
-                foreach (var semana in Semanas)
+                var diaVars = lista.Select(s =>
                 {
-                    var diaVars = lista.Select(s =>
-                    {
-                        var diaVar = model.NewIntVar(0, 5, $"dia_{s.Id}_{semana}");
-                        model.AddElement(startVars[(s.Id, semana)], diaConstPorIdx, diaVar);
-                        return diaVar;
-                    }).ToList();
+                    var diaVar = model.NewIntVar(0, 5, $"dia_{s.Id}");
+                    model.AddElement(startVars[s.Id], diaConstPorIdx, diaVar);
+                    return diaVar;
+                }).ToList();
 
-                    for (int i = 0; i < diaVars.Count; i++)
-                        for (int j = i + 1; j < diaVars.Count; j++)
-                        {
-                            var b = model.NewBoolVar($"sep_{lista[i].Id}_{lista[j].Id}_{semana}");
-                            model.Add(diaVars[i] - diaVars[j] >= 2).OnlyEnforceIf(b);
-                            model.Add(diaVars[j] - diaVars[i] >= 2).OnlyEnforceIf(b.Not());
-                        }
-                }
+                for (int i = 0; i < diaVars.Count; i++)
+                    for (int j = i + 1; j < diaVars.Count; j++)
+                    {
+                        var b = model.NewBoolVar($"sep_{lista[i].Id}_{lista[j].Id}");
+                        model.Add(diaVars[i] - diaVars[j] >= 2).OnlyEnforceIf(b);
+                        model.Add(diaVars[j] - diaVars[i] >= 2).OnlyEnforceIf(b.Not());
+                    }
             }
 
-            // ── HC-C01: conflicto de cohorte — NoOverlap por (grupo, semana) ──────────
+            // ── HC-C01: conflicto de cohorte — NoOverlap por grupo ────────────────────
             // CR-08 (presencial-first): el grupo de estudiantes es el eje de no-solapamiento (el
             // docente sale del pipeline y se asigna después de generar). Incluye presenciales y
-            // virtuales: ambos consumen el tiempo del grupo. Con cohorte única por run ⇒ un
-            // NoOverlap global por semana (todas las sesiones se serializan). No hay equivalente
-            // de "máx. horas" para el grupo, así que HC-I03 (carga docente) desaparece.
+            // virtuales: ambos consumen el tiempo del grupo.
+            //
+            // INDEPENDIENTE DE LA SEMANA: una sesión que alterna se sigue dictando la semana
+            // contraria, virtualmente, así que ocupa el tiempo de su cohorte en las dos. Dos
+            // sesiones del mismo grupo a la misma hora chocan alterne quien alterne — y de ahí sale
+            // que una pareja de alternancia DEBE ser de dos grupos distintos (HC-ALT las fuerza al
+            // mismo bloque). Emparejar dentro del mismo grupo produce infactibilidad con motivo
+            // Otro, no Espacio, que es justo lo que el bucle de cesión no sabe interpretar.
             var sesionesPorGrupo = sesiones.GroupBy(s => s.GrupoId).Where(g => g.Key.HasValue).ToList();
             foreach (var grupo in sesionesPorGrupo)
             {
-                foreach (var semana in Semanas)
-                {
-                    var intervals = grupo.Select(s => intervalVars[(s.Id, semana)]).ToArray();
-                    if (intervals.Length > 1)
-                        model.AddNoOverlap(intervals);
-                }
+                var intervals = grupo.Select(s => intervalVars[s.Id]).ToArray();
+                if (intervals.Length > 1)
+                    model.AddNoOverlap(intervals);
             }
 
             // ── HC-S01 + HC-S03 + HC-S04: espacio por (espacio, semana), solo presencial ─
-            if (spaceVars.Any() && espacios.Any())
+            // omitirRestriccionAulas: relajación de diagnóstico — ver ClasificarInfactibilidadEspacio.
+            if (!omitirRestriccionAulas && spaceVars.Any() && espacios.Any())
             {
                 // HC-S03 + HC-S05: candidatos por sesión.
                 // HC-S05: si la sesión trae un EspacioId específico y ese espacio existe en la
@@ -442,8 +462,7 @@ namespace SOEA.Engine.ConstraintProg
                 var candidatosPorSesion = new Dictionary<Guid, List<int>>();
                 foreach (var sesion in sesiones)
                 {
-                    bool tienePresencial = Semanas.Any(w => spaceVars.ContainsKey((sesion.Id, w)));
-                    if (!tienePresencial) continue;
+                    if (!spaceVars.ContainsKey(sesion.Id)) continue;
 
                     // M8: EspacioId fijo de la sesión que no está entre los espacios de esta corrida
                     // (p. ej. borrado del catálogo) hace que CalculadorEspaciosSesion.Candidatos caiga
@@ -493,38 +512,46 @@ namespace SOEA.Engine.ConstraintProg
                     candidatosPorSesion[sesion.Id] = lista;
                 }
 
-                // Intervalos opcionales agrupados por (espacio, semana).
+                // Intervalos opcionales agrupados por (espacio, semana). La sesión tiene UN solo
+                // intervalo; lo que varía es en cuántas listas semanales entra:
+                //   - no alterna ⇒ entra en A y en B (misma variable en las dos listas: ocupa el
+                //     aula todas las semanas, así que NO libera capacidad para nadie);
+                //   - TipoA ⇒ solo en A · TipoB ⇒ solo en B, y por eso una pareja puede compartir
+                //     aula y bloque sin que las dos listas la vean nunca a la vez.
+                // Fuente única del reparto: ModalidadSemanal.SemanasQueOcupanEspacio.
                 var optIntervalsPorEspacioSemana = new Dictionary<(int espacio, SemanaAcademica semana), List<IntervalVar>>();
                 for (int e = 0; e < espacios.Count; e++)
                     foreach (var semana in Semanas)
                         optIntervalsPorEspacioSemana[(e, semana)] = new List<IntervalVar>();
 
-                foreach (var key in spaceVars.Keys)
+                var sesionPorIdModelo = sesiones.ToDictionary(x => x.Id);
+                foreach (var sesionId in spaceVars.Keys)
                 {
-                    var (sesionId, semana) = key;
                     if (!candidatosPorSesion.TryGetValue(sesionId, out var candidatos)) continue;
+                    var semanasOcupadas = ModalidadSemanal.SemanasQueOcupanEspacio(sesionPorIdModelo[sesionId]);
 
                     var literales = new List<ILiteral>();
                     foreach (var e in candidatos)
                     {
-                        var lit = model.NewBoolVar($"sel_{sesionId}_{semana}_{e}");
+                        var lit = model.NewBoolVar($"sel_{sesionId}_{e}");
                         literales.Add(lit);
 
-                        model.Add(spaceVars[key] == e).OnlyEnforceIf(lit);
+                        model.Add(spaceVars[sesionId] == e).OnlyEnforceIf(lit);
 
                         var optInt = model.NewOptionalIntervalVar(
-                            startVars[key],
+                            startVars[sesionId],
                             duraciones[sesionId],
-                            endVars[key],
+                            endVars[sesionId],
                             lit,
-                            $"optInt_{sesionId}_{semana}_{e}");
-                        optIntervalsPorEspacioSemana[(e, semana)].Add(optInt);
+                            $"optInt_{sesionId}_{e}");
+                        foreach (var semana in semanasOcupadas)
+                            optIntervalsPorEspacioSemana[(e, semana)].Add(optInt);
                     }
 
                     model.AddExactlyOne(literales);
                 }
 
-                // NoOverlap por cada (espacio físico, semana): un slot puede reusarse en semanas distintas.
+                // NoOverlap por cada (espacio físico, semana).
                 foreach (var par in optIntervalsPorEspacioSemana)
                 {
                     if (par.Value.Count > 1)
@@ -560,36 +587,36 @@ namespace SOEA.Engine.ConstraintProg
 
             if (status == CpSolverStatus.Feasible || status == CpSolverStatus.Optimal)
             {
-                var asignaciones = new List<AsignacionSemanal>(sesiones.Count * 2);
+                // UNA fila por sesión, en su semana canónica: la semana en la que es presencial
+                // (B solo para TipoB). Para lo que no alterna, "A" significa "todas las semanas".
+                // La contraparte virtual de una sesión que alterna no se persiste — no reserva
+                // aula, así que no aporta nada al modelo; se deriva al construir el DTO.
+                var asignaciones = new List<AsignacionSemanal>(sesiones.Count);
                 foreach (var sesion in sesiones)
                 {
-                    foreach (var semana in Semanas)
+                    var startIdx = (int)solver.Value(startVars[sesion.Id]);
+                    var bloqueAsignado = bloques[startIdx];
+
+                    var modalidad = ModalidadSemanal.ModalidadCanonica(sesion);
+                    Guid? espacioAsignado = null;
+                    if (modalidad == Modalidad.Presencial && spaceVars.TryGetValue(sesion.Id, out var spaceVar))
                     {
-                        var key = (sesion.Id, semana);
-                        var startIdx = (int)solver.Value(startVars[key]);
-                        var bloqueAsignado = bloques[startIdx];
-
-                        var modalidad = ModalidadDe(sesion, semana);
-                        Guid? espacioAsignado = null;
-                        if (spaceVars.TryGetValue(key, out var spaceVar))
-                        {
-                            var espacioIdx = (int)solver.Value(spaceVar);
-                            if (espacioIdx >= 0 && espacioIdx < espacios.Count)
-                                espacioAsignado = espacios[espacioIdx].Id;
-                        }
-
-                        asignaciones.Add(new AsignacionSemanal(
-                            Guid.NewGuid(),
-                            sesion.Id,
-                            semana,
-                            bloqueAsignado.Id,
-                            espacioAsignado,
-                            modalidad));
+                        var espacioIdx = (int)solver.Value(spaceVar);
+                        if (espacioIdx >= 0 && espacioIdx < espacios.Count)
+                            espacioAsignado = espacios[espacioIdx].Id;
                     }
+
+                    asignaciones.Add(new AsignacionSemanal(
+                        Guid.NewGuid(),
+                        sesion.Id,
+                        ModalidadSemanal.SemanaCanonica(sesion),
+                        bloqueAsignado.Id,
+                        espacioAsignado,
+                        modalidad));
                 }
 
                 _logger.LogInformation(
-                    "Fase 2 completada exitosamente. {N} asignaciones semanales (2 por sesión) factibles.",
+                    "Fase 2 completada exitosamente. {N} asignaciones semanales (1 por sesión) factibles.",
                     asignaciones.Count);
                 return new ResultadoFactibilidad(true, asignaciones.AsReadOnly(), "");
             }
@@ -616,6 +643,31 @@ namespace SOEA.Engine.ConstraintProg
                 "entre sesiones del mismo tipo, las parejas de alternancia, o la combinación de disponibilidad de grupo " +
                 "y ventana horaria.";
 
+            // ¿Son las aulas? El pre-check agregado solo ve el total semanal; un cuello de botella
+            // por bloque concreto llega hasta aquí y, sin clasificar, se reportaría como Otro — y el
+            // bucle de cesión de GenerarHorarioService nunca activaría la Semana B. Una relajación
+            // sin restricciones de aula lo responde con un solo solve extra.
+            bool esFaltaDeAulas = false;
+            if (permitirSweep && !omitirRestriccionAulas && _options.ClasificarInfactibilidadEspacio
+                && spaceVars.Count > 0 && espacios.Count > 0)
+            {
+                var sinAulas = ResolverSincrono(
+                    sesiones, bloques, espacios, grupos, sesionesFijasIds, ventanaPorAsignatura, ct,
+                    permitirSweep: false, omitirRestriccionAulas: true);
+
+                if (sinAulas.EsFactible)
+                {
+                    esFaltaDeAulas = true;
+                    mensaje = "No alcanzan las aulas: existe una distribución horaria válida, pero no hay forma de " +
+                              "repartir los espacios sin que dos sesiones coincidan en la misma aula y bloque. " +
+                              "Añada espacios, amplíe la disponibilidad de los grupos, o marque más asignaturas " +
+                              "como candidatas a alternancia para que puedan compartir aula en semanas alternas.";
+                    _logger.LogError(mensaje);
+                }
+            }
+
+            // El barrido corre igual cuando la causa son las aulas: el motivo Espacio dice QUÉ hacer
+            // (emparejar / añadir aulas) y el barrido dice A QUIÉN mirar. Son complementarios.
             // Causa real no explicada por ningún pre-check estructural: si está habilitado, el
             // barrido reintenta el solve una vez por grupo excluyéndolo para nombrar culpables.
             IReadOnlyList<Guid>? gruposResponsablesIds = null;
@@ -635,7 +687,9 @@ namespace SOEA.Engine.ConstraintProg
                 }
             }
 
-            return new ResultadoFactibilidad(false, SinAsignaciones, mensaje, MotivoInfactibilidad.Otro, gruposResponsablesIds);
+            return new ResultadoFactibilidad(false, SinAsignaciones, mensaje,
+                esFaltaDeAulas ? MotivoInfactibilidad.Espacio : MotivoInfactibilidad.Otro,
+                gruposResponsablesIds);
         }
 
         /// <summary>

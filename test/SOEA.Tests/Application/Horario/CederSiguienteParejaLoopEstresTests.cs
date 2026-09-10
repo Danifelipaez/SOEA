@@ -23,7 +23,7 @@ namespace SOEA.Tests.Application.Horario
     /// (agotar TODOS los candidatos, nunca resolver por factibilidad real) con un dataset de 30
     /// grupos — y confirmar que el loop termina en un tiempo acotado, no se cuelga.
     /// </summary>
-    public class CederSiguienteCandidatoLabLoopEstresTests
+    public class CederSiguienteParejaLoopEstresTests
     {
         private sealed class FakeHorarioRepo : IHorarioRepositorio
         {
@@ -138,7 +138,7 @@ namespace SOEA.Tests.Application.Horario
         }
 
         [Fact]
-        public async Task LoopDeCesionDeLabs_ConMuchosPares_TerminaEnTiempoAcotado()
+        public async Task LoopDeCesion_ConMuchosPares_TerminaEnTiempoAcotado()
         {
             const int totalGrupos = 30; // 30 asignaturas×grupos con 2 sesiones de lab cada uno = 60 sesiones
             var asignaturas = new List<AsignaturaDto>();
@@ -154,7 +154,7 @@ namespace SOEA.Tests.Application.Horario
                     Nombre = $"Asig{i}",
                     SesionesLaboratorioSemana = 2,
                     HorasLaboratorio = 2,
-                    Categoria = "Electiva" // elegible para CederSiguienteCandidatoLab
+                    Categoria = "Electiva" // elegible para CederSiguientePareja
                 });
                 grupos.Add(new GrupoDto
                 {
@@ -188,12 +188,13 @@ namespace SOEA.Tests.Application.Horario
             // el loop SÍ debe terminar — no colgarse reintentando indefinidamente.
             Assert.False(r.EsFactible);
             Assert.True(cronometro.ElapsedMilliseconds < 5000,
-                $"El loop de cesión de labs tardó {cronometro.ElapsedMilliseconds}ms — sugiere que no está acotando iteraciones.");
-            // Cada iteración cede exactamente 1 par (2 sesiones) de 2 grupos distintos; con 30
-            // grupos de 2 sesiones cada uno, como máximo 15 pares antes de agotar candidatos.
-            // +1 porque Fase 2 se llama una vez más antes de que el loop detecte "sin más candidatos".
-            Assert.True(fase2.Llamadas <= totalGrupos / 2 + 1,
-                $"Fase 2 se invocó {fase2.Llamadas} veces — más de lo que los pares de laboratorio disponibles permiten.");
+                $"El loop de cesión tardó {cronometro.ElapsedMilliseconds}ms — sugiere que no está acotando iteraciones.");
+            // Cada iteración cede exactamente 1 par (2 sesiones de grupos distintos); con 60
+            // sesiones candidatas eso son 30 pares como máximo antes de agotarlas. +1 porque Fase 2
+            // se llama una vez más antes de que el loop detecte "sin más candidatos".
+            const int totalSesiones = totalGrupos * 2;
+            Assert.True(fase2.Llamadas <= totalSesiones / 2 + 1,
+                $"Fase 2 se invocó {fase2.Llamadas} veces — más de lo que los pares disponibles permiten.");
         }
     }
 }

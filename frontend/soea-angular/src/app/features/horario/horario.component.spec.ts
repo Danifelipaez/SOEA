@@ -55,6 +55,22 @@ describe('EditarSesionDialogComponent — validaciones() y semana', () => {
   const conflictoEspacio = (c: { ok: boolean; texto: string }[]) =>
     c.find(x => x.texto.includes('ocupado') || x.texto.includes('libre'));
 
+  it('sí reporta conflicto cuando la otra sesión no alterna: ocupa el aula TODAS las semanas', () => {
+    // Espejo de ModalidadSemanal.SemanasQueOcupanEspacio en el backend. Es el hueco que el índice
+    // único de BD ya no puede ver: una fila declarada en la semana A contra una TipoB en la B.
+    const editada = sesion({ semana: 'B', alternancia: 'TipoB' });
+    const fija = sesion({ id: 's2', asignaturaId: 'a2', grupoId: 'g2', alternancia: 'SinAlternancia', semana: undefined });
+    const c = crear(editada, [fija]).validaciones();
+    expect(conflictoEspacio(c)?.ok).toBe(false);
+  });
+
+  it('trata la semana vacía como "todas las semanas" (DTO crudo de POST /sesion-manual)', () => {
+    const editada = sesion({ semana: 'A', alternancia: 'TipoA' });
+    const cruda = sesion({ id: 's2', asignaturaId: 'a2', grupoId: 'g2', alternancia: 'SinAlternancia', semana: '' as unknown as undefined });
+    const c = crear(editada, [cruda]).validaciones();
+    expect(conflictoEspacio(c)?.ok).toBe(false);
+  });
+
   it('no reporta conflicto de espacio con la sesión de la semana opuesta del mismo par de alternancia', () => {
     const editada = sesion({ semana: 'A' });
     const opuesta = sesion({ id: 's2', asignaturaId: 'a2', grupoId: 'g2', semana: 'B' });

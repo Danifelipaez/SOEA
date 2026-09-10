@@ -148,11 +148,16 @@ export interface Sesion {
   espacioIdHogar?: string;
   virtual: boolean;
   alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia';
-  /** Semana del ciclo de alternancia. Presente desde el modelo bi-semanal (Incremento 1).
-   *  'A' = semanas impares (TipoA presencial), 'B' = semanas pares (TipoB presencial)
-   *  (convención del backend: SemanaAcademica.cs).
-   *  El horario (día/franja) es idéntico en A y B; solo cambia la modalidad presencial↔virtual. */
+  /** Semana del ciclo de alternancia. AUSENTE = la sesión se dicta igual todas las semanas (el
+   *  caso normal: no alterna). 'A' o 'B' solo cuando alterna, e indica en qué semana ocurre esta
+   *  fila. El día y la franja NUNCA cambian entre semanas: solo la modalidad. */
   semana?: 'A' | 'B';
+  /** Id de la pareja de alternancia: agrupa la fila presencial con su contraparte virtual, que se
+   *  dibuja como sub-caja dentro de la misma celda de aula. Ausente si la sesión no alterna. */
+  parejaId?: string;
+  /** True en la fila DERIVADA (no persistida): la contraparte virtual de una sesión que alterna,
+   *  en la semana en la que su aula la ocupa su pareja. */
+  esContraparteVirtual?: boolean;
   /** Laboratorio | AulaVirtual. Distingue teoría (presencial o virtual) de laboratorio. */
   tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
   /** Causa por la que Fase 1 no encontró un bloque libre sin conflicto para esta sesión. Vacío si se agendó sin conflicto. */
