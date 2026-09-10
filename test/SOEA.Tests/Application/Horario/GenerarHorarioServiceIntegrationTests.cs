@@ -395,6 +395,48 @@ namespace SOEA.Tests.Application.Horario
             Assert.Equal(2, horarioRepo.Items.Count);
         }
 
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.2): la limpieza de "corridas anteriores"
+        /// no filtraba por semestre — regenerar el horario de "2026-2" borraba también las
+        /// sesiones vivas de "2026-1", aunque nadie las hubiera tocado, dejando el Horario de ese
+        /// semestre con SesioneIds colgando (ObtenerActualAsync pasaba a devolver null para él).
+        /// Habría fallado antes del fix: idsSemestre1 quedaba vacío tras generar "2026-2".
+        /// </summary>
+        [Fact]
+        public async Task Regenerar_OtroSemestre_NoBorraLasSesionesDeUnSemestreDistinto()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+            var svc = CrearServicio(horarioRepo, sesionRepo, asigRepo, uow);
+
+            var requestSemestre1 = RequestBase();
+            requestSemestre1.Semestre = "2026-1";
+            var r1 = await svc.EjecutarAsync(requestSemestre1);
+            Assert.True(r1.EsFactible, r1.MensajeError ?? string.Join("\n", r1.Logs));
+
+            var idsSemestre1 = sesionRepo.Items.Select(s => s.Id).ToList();
+            Assert.NotEmpty(idsSemestre1);
+
+            var requestSemestre2 = RequestBase();
+            requestSemestre2.Semestre = "2026-2";
+            var r2 = await svc.EjecutarAsync(requestSemestre2);
+            Assert.True(r2.EsFactible, r2.MensajeError ?? string.Join("\n", r2.Logs));
+
+            // Las sesiones de 2026-1 deben seguir todas ahí — regenerar 2026-2 no las tocó.
+            Assert.All(idsSemestre1, id => Assert.Contains(sesionRepo.Items, s => s.Id == id));
+            Assert.All(idsSemestre1, id => Assert.Contains(asigRepo.Items, a => a.SesionId == id));
+
+            // Y GET /horario/actual?semestre=2026-1 sigue respondiendo con su horario intacto.
+            var actualSemestre1 = await svc.ObtenerActualAsync("2026-1");
+            Assert.NotNull(actualSemestre1);
+            Assert.True(actualSemestre1!.EsFactible);
+            Assert.NotEmpty(actualSemestre1.Sesiones);
+
+            Assert.Equal(2, horarioRepo.Items.Count);
+        }
+
         [Fact]
         public async Task GaInvalido_HaceFallbackAFase2_YPublicaHorarioValido()
         {

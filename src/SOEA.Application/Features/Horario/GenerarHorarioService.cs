@@ -416,7 +416,14 @@ namespace SOEA.Application.Features.Horario
                 // sesiones y asignaciones son datos regenerables (regla 8, CLAUDE.md) y sí se limpian
                 // antes de escribir la corrida nueva. Las sesiones manuales (CrearSesionManualService)
                 // nunca pertenecen a un Horario.SesioneIds, así que sobreviven intactas.
-                var horariosAnteriores = await _horarioRepo.GetAllAsync();
+                // Limpieza de sesión de limpieza: esto ANTES no filtraba por semestre — regenerar
+                // "2026-2" borraba también las sesiones vivas de "2026-1", dejando su Horario con
+                // SesioneIds colgando (ObtenerActualAsync empezaba a devolver 404 para ese semestre
+                // aunque nadie lo hubiera tocado). Solo las corridas DEL MISMO semestre quedan
+                // superadas por esta.
+                var horariosAnteriores = (await _horarioRepo.GetAllAsync())
+                    .Where(h => h.Semestre == request.Semestre)
+                    .ToList();
                 var sesionIdsAnteriores = horariosAnteriores.SelectMany(h => h.SesioneIds).ToHashSet();
                 if (sesionIdsAnteriores.Count > 0)
                 {
