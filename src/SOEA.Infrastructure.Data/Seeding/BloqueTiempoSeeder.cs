@@ -1,13 +1,24 @@
 using Microsoft.EntityFrameworkCore;
-using SOEA.Domain.Entities;
-using SOEA.Domain.Enums;
+using SOEA.Domain.Services;
 using SOEA.Infrastructure.Data.Context;
 
 namespace SOEA.Infrastructure.Data.Seeding
 {
     /// <summary>
     /// Siembra el catálogo canónico de bloques de tiempo de 1 hora.
-    /// Lunes–Viernes: 06:00–22:00. Sábado: 06:00–13:00.
+    /// Fuente única de la grilla: <see cref="GrillaInstitucional"/> — antes este seeder generaba
+    /// los mismos 87 bloques (día, hora) pero con <c>Guid.NewGuid()</c>, mientras que
+    /// GenerarHorarioService/ReacomodarHorarioService/ValidadorRestriccionesDuras regeneran la
+    /// grilla en memoria con el Id determinístico de GrillaInstitucional. Dos catálogos con Ids
+    /// incompatibles para el mismo bloque significaba que ningún <c>TryGetValue</c> contra la BD
+    /// (AsignarDocenteSesionService, CrearSesionManualService) encontraba nunca el bloque de una
+    /// sesión generada por el pipeline — HC-I01 (solape de docente) nunca disparaba para esas
+    /// sesiones, y HC-S01/HC-SEP en creación manual quedaban vacías. Confirmado en la BD de
+    /// desarrollo: los 87 bloques sembrados no coincidían con ninguno de los 87 que genera
+    /// GrillaInstitucional, y 2 sesiones ya reales tenían un BloqueTiempoId que no existía en
+    /// esta tabla.
+    /// Una base ya sembrada (Ids aleatorios) necesita además la migración de datos
+    /// M10_UnificarCatalogoBloques — este seeder por sí solo solo corrige bases nuevas.
     /// Operación idempotente: no hace nada si ya existen bloques.
     /// </summary>
     public static class BloqueTiempoSeeder
@@ -16,32 +27,7 @@ namespace SOEA.Infrastructure.Data.Seeding
         {
             if (await context.BloqueTiempos.AnyAsync()) return;
 
-            var bloques = new List<BloqueTiempo>();
-            var diasSemana = new[]
-            {
-                DiaDeSemana.Lunes, DiaDeSemana.Martes, DiaDeSemana.Miercoles,
-                DiaDeSemana.Jueves, DiaDeSemana.Viernes
-            };
-
-            foreach (var dia in diasSemana)
-            {
-                for (int h = 6; h < 22; h++)
-                {
-                    bloques.Add(new BloqueTiempo(
-                        Guid.NewGuid(), dia,
-                        new TimeOnly(h, 0), new TimeOnly(h + 1, 0)));
-                }
-            }
-
-            // Sábado: 06:00–13:00
-            for (int h = 6; h < 13; h++)
-            {
-                bloques.Add(new BloqueTiempo(
-                    Guid.NewGuid(), DiaDeSemana.Sábado,
-                    new TimeOnly(h, 0), new TimeOnly(h + 1, 0)));
-            }
-
-            await context.BloqueTiempos.AddRangeAsync(bloques);
+            await context.BloqueTiempos.AddRangeAsync(GrillaInstitucional.GenerarBloques());
             await context.SaveChangesAsync();
         }
     }
