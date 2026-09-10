@@ -97,6 +97,45 @@ namespace SOEA.Tests.Application
             Assert.Contains(res.Advertencias, a => a.Contains("máximo de horas"));
         }
 
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.4): `IdsDeOtrosHorariosAsync` calculaba
+        /// `propio` (el Horario al que pertenece la sesión editada) y excluía todo lo que NO
+        /// fuera `propio`. Cuando la sesión editada no pertenece a ningún horario (una sesión
+        /// manual, como aquí), `propio` es null — y `h.Id != propio?.Id` es cierto para
+        /// CUALQUIER Guid real (no hay Guid que sea igual a null), así que la comparación
+        /// excluía TODOS los horarios existentes del chequeo, no ninguno. El síntoma: asignar
+        /// docente a una sesión manual nunca detectaba solape ni carga contra sesiones generadas
+        /// por el pipeline. Habría fallado antes del fix (0 advertencias en vez de 1).
+        /// </summary>
+        [Fact]
+        public async Task SesionEditadaSinHorario_NoExcluyeSesionesDeHorariosExistentes()
+        {
+            var docente = CrearDocente(maxHoras: 3m);
+            var bloqueGenerado = Bloque(DiaDeSemana.Lunes, 7);
+            var bloqueManual = Bloque(DiaDeSemana.Martes, 7);
+
+            // Sesión generada por el pipeline, con Horario propio, mismo docente, 2h.
+            var sesionGenerada = CrearSesion(bloqueGenerado.Id, 2m, docente.Id);
+            var horarioGenerado = new SOEA.Domain.Entities.Horario(
+                Guid.NewGuid(), "2026-1", new List<Guid> { sesionGenerada.Id });
+
+            // La sesión que se está editando NO pertenece a ningún Horario (creada a mano).
+            var sesionManual = CrearSesion(bloqueManual.Id, 2m, docenteId: null);
+            var asigManual = Asig(sesionManual.Id, bloqueManual.Id);
+
+            var svc = new AsignarDocenteSesionService(
+                new FakeSesionRepo(sesionGenerada, sesionManual),
+                new FakeAsignacionRepo(asigManual),
+                new FakeBloqueRepo(bloqueGenerado, bloqueManual),
+                new FakeDocenteRepo(docente),
+                new FakeHorarioRepo(horarioGenerado));
+
+            var res = await svc.EjecutarAsync(new AsignarDocenteRequest { SesionId = sesionManual.Id, DocenteId = docente.Id });
+
+            // 2h (generada) + 2h (manual) = 4h > 3h máximo del docente → debe advertir.
+            Assert.Contains(res.Advertencias, a => a.Contains("máximo de horas"));
+        }
+
         [Fact]
         public async Task SinRepositorioDeHorarios_CaeAlComportamientoAnterior_SinAcotar()
         {

@@ -101,8 +101,13 @@ namespace SOEA.Application.Features.Horario
             if (_horarios is null) return new HashSet<Guid>();
             var horarios = await _horarios.GetAllAsync();
             var propio = horarios.FirstOrDefault(h => h.SesioneIds.Contains(sesionId));
+            // Bug: `h.Id != propio?.Id` con propio=null evaluaba a `h.Id != null`, cierto para
+            // TODOS los horarios (Guid no es Guid?), así que una sesión sin horario propio
+            // excluía TODA la historia de corridas del chequeo — justo lo opuesto de lo que dice
+            // el docstring. Sin horario propio no hay nada que excluir.
+            if (propio is null) return new HashSet<Guid>();
             return horarios
-                .Where(h => h.Id != propio?.Id)
+                .Where(h => h.Id != propio.Id)
                 .SelectMany(h => h.SesioneIds)
                 .ToHashSet();
         }
