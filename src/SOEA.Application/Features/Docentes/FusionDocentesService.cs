@@ -12,9 +12,11 @@ namespace SOEA.Application.Features.Docentes
     /// por variantes de nombre en el Excel — causa raíz del síntoma "un docente con 2 sesiones a
     /// la misma hora" (el motor los ve como personas distintas y los agenda en paralelo).
     /// La fusión es MANUAL: el usuario elige el registro canónico y cuáles absorber. Reasigna las
-    /// asignaturas de los duplicados al canónico y elimina los duplicados. NO toca las sesiones:
-    /// son transitorias (se regeneran en cada corrida — regla 8) y su columna docente_id no tiene
-    /// FK, así que no hay riesgo de integridad referencial.
+    /// asignaturas de los duplicados al canónico y elimina los duplicados. NO toca las sesiones
+    /// directamente: son transitorias (se regeneran en cada corrida — regla 8); las que ya
+    /// persisten con Sesion.DocenteId apuntando a un duplicado quedan con ese campo en null tras
+    /// el borrado (M14 auditoría: docente_id ahora SÍ tiene FK con DeleteBehavior.SetNull — antes
+    /// de esa migración esta misma fila quedaba con un id colgante).
     /// La disponibilidad del canónico se conserva tal cual; por eso el usuario debe elegir como
     /// canónico el registro con la disponibilidad correcta.
     /// </summary>
@@ -23,15 +25,18 @@ namespace SOEA.Application.Features.Docentes
         private readonly IDocenteRepositorio _docenteRepo;
         private readonly IGrupoRepositorio _grupoRepo;
         private readonly DocenteService _docenteService;
+        private readonly IUnitOfWork _uow;
 
         public FusionDocentesService(
             IDocenteRepositorio docenteRepo,
             IGrupoRepositorio grupoRepo,
-            DocenteService docenteService)
+            DocenteService docenteService,
+            IUnitOfWork uow)
         {
             _docenteRepo = docenteRepo;
             _grupoRepo = grupoRepo;
             _docenteService = docenteService;
+            _uow = uow;
         }
 
         /// <summary>
@@ -69,29 +74,43 @@ namespace SOEA.Application.Features.Docentes
             if (aAbsorber.Count == 0)
                 throw new ArgumentException("Debe indicar al menos un docente duplicado distinto del canónico.");
 
-            // Reasignar los grupos de los duplicados al canónico (el docente vive en Grupo).
-            var grupos = await _grupoRepo.GetAllAsync();
-            int reasignadas = 0;
-            foreach (var g in grupos)
+            // H6 auditoría: reasignar N grupos y borrar M docentes eran N+M escrituras
+            // independientes (cada una con su propio commit) — un fallo a mitad de camino dejaba
+            // algunos grupos ya reasignados y otros no, sin ninguna forma de saber hasta dónde
+            // llegó. Una sola transacción para toda la fusión.
+            await _uow.BeginTransactionAsync();
+            try
             {
-                if (g.DocenteId.HasValue && aAbsorber.Contains(g.DocenteId.Value))
+                // Reasignar los grupos de los duplicados al canónico (el docente vive en Grupo).
+                var grupos = await _grupoRepo.GetAllAsync();
+                int reasignadas = 0;
+                foreach (var g in grupos)
                 {
-                    g.AsignarDocente(canonicoId);
-                    await _grupoRepo.UpdateAsync(g);
-                    reasignadas++;
+                    if (g.DocenteId.HasValue && aAbsorber.Contains(g.DocenteId.Value))
+                    {
+                        g.AsignarDocente(canonicoId);
+                        await _grupoRepo.UpdateAsync(g);
+                        reasignadas++;
+                    }
                 }
-            }
 
-            // Eliminar los registros duplicados.
-            int eliminados = 0;
-            foreach (var dupId in aAbsorber)
+                // Eliminar los registros duplicados.
+                int eliminados = 0;
+                foreach (var dupId in aAbsorber)
+                {
+                    if (await _docenteRepo.GetByIdAsync(dupId) is null) continue;
+                    await _docenteRepo.DeleteAsync(dupId);
+                    eliminados++;
+                }
+
+                await _uow.CommitAsync();
+                return new FusionResultado(canonicoId, eliminados, reasignadas);
+            }
+            catch
             {
-                if (await _docenteRepo.GetByIdAsync(dupId) is null) continue;
-                await _docenteRepo.DeleteAsync(dupId);
-                eliminados++;
+                await _uow.RollbackAsync();
+                throw;
             }
-
-            return new FusionResultado(canonicoId, eliminados, reasignadas);
         }
     }
 

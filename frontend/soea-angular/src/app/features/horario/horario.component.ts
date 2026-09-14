@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule, DatePipe, TitleCasePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
@@ -11,6 +11,7 @@ import { PersistenciaService } from '../../core/persistencia.service';
 import { CatalogoService } from '../../core/catalogo.service';
 import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, Sesion, TipoSesionUi, tipoFlujoDesde, esVirtualDesde } from '../../core/models';
 import { nuevoId } from '../../core/id.util';
+import { mensajeErrorHttp } from '../../core/http-error.util';
 import { SearchableSelectComponent, SearchableOption } from '../../shared/searchable-select/searchable-select.component';
 
 /** Representación visual de una sesión atómica multi-slot. */
@@ -51,6 +52,66 @@ function describirSesionConflicto(
   const grupo = s.grupoId ? grupos.find(g => g.id === s.grupoId)?.nombre : undefined;
   const nombre = grupo ? `${asig} · ${grupo}` : asig;
   return `${nombre} (${s.dia} ${s.horaInicio}–${s.horaFin})`;
+}
+
+/** Espejo de horario-api.service.ts#diffHoras — usado solo como fallback cuando `duracionHoras`
+ *  no viene poblada (FE11: sigue duplicado en varios sitios, fuera de alcance de este fix). */
+function diffHorasEntre(inicio: string, fin: string): number {
+  const [hi, mi] = inicio.split(':').map(Number);
+  const [hf, mf] = fin.split(':').map(Number);
+  return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60);
+}
+
+/**
+ * FE5/FE16/FE17 auditoría: estas tres reglas vivían duplicadas —y una de las copias, distinta—
+ * entre CrearSesionDialogComponent, EditarSesionDialogComponent y SesionFijaDialogComponent.
+ * Fuente única aquí; los tres diálogos las usan ahora en vez de reimplementarlas cada uno.
+ */
+
+/** True si [newStart, newEnd) se solapa con el span horario de `s`, en índices de `horasDisponibles`. */
+export function seSolapanHorarios(s: Sesion, newStart: number, newEnd: number, horasDisponibles: string[]): boolean {
+  const sStart = horasDisponibles.indexOf(s.horaInicio);
+  if (sStart < 0) return false;
+  const sDur = Math.max(1, Math.round(s.duracionHoras ?? diffHorasEntre(s.horaInicio, s.horaFin)));
+  return newStart < sStart + sDur && sStart < newEnd;
+}
+
+/**
+ * Espejo (cliente) de ModalidadSemanal.CompartenSemanaDeEspacio (backend): dos sesiones solo
+ * chocan por aula si ocupan el aula alguna semana en común. Lo que no alterna la ocupa las DOS,
+ * así que choca con todo; una pareja TipoA/TipoB no choca nunca entre sí. FE5: el diálogo de
+ * Crear no aplicaba esta exención — bloqueaba una franja legítima (una TipoB en el mismo
+ * bloque/aula que una TipoA ya existente) por no descartar el caso en que las semanas nunca
+ * coinciden.
+ */
+export function nuncaCoexisteEnSemana(semanaA: Sesion['semana'], semanaB: Sesion['semana']): boolean {
+  return !!semanaA && !!semanaB && semanaA !== semanaB;
+}
+
+/**
+ * FE16 auditoría: los tres diálogos acotaban el sábado a las 13:00 pero ninguno (salvo
+ * SesionFijaDialogComponent) comprobaba el límite general de L-V — un `endIdx` fuera de
+ * `horasDisponibles` daba `undefined` al indexar, y cada diálogo caía a `?? horaInicio`, dejando
+ * pasar un "fin = inicio" silencioso (p. ej. "lunes 21:00–21:00") en vez de rechazar el horario.
+ */
+export function finDeJornadaOk(dia: string, endIdx: number, horasDisponibles: string[]): boolean {
+  if (endIdx > horasDisponibles.length) return false;
+  if (dia === 'sabado' && endIdx > horasDisponibles.indexOf('13:00')) return false;
+  return true;
+}
+
+/**
+ * Espejo (cliente) de CalculadorEspaciosSesion.Candidatos: HC-S05 (requisito de espacio del
+ * grupo, si lo hay) ∩ HC-S03 (tipo por defecto según TipoSesion cuando no hay requisito). FE17:
+ * solo el diálogo de Crear lo aplicaba — Editar dejaba mover un laboratorio a un salón cualquiera,
+ * o una sesión con aula fija de grupo a un aula distinta de la exigida.
+ */
+export function espaciosPermitidosPara(tipo: TipoSesionUi, grupo: Grupo | undefined, espacios: Espacio[]): Espacio[] {
+  if (tipo === 'TeoriaVirtual') return [];
+  const requisito = grupo?.requisitosEspacio?.find(r => r.tipoSesion === tipo);
+  if (requisito?.espacioId) return espacios.filter(e => e.id === requisito.espacioId);
+  if (requisito?.tipoEspacio) return espacios.filter(e => e.tipo === (requisito.tipoEspacio === 'Salon' ? 'Salón' : requisito.tipoEspacio));
+  return tipo === 'Laboratorio' ? espacios.filter(e => e.tipo === 'Laboratorio') : espacios.filter(e => e.tipo !== 'Laboratorio');
 }
 
 /**
@@ -383,24 +444,20 @@ export class HorarioComponent implements OnInit {
         const espacios = this.state.espacios();
         const current = this.activeSpace();
         if (!current || !espacios.find(e => e.id === current.id)) this.activeSpace.set(espacios[0] ?? null);
-        this.cargarHorarioActual();
+        // FE6/FE13 auditoría: la rehidratación del horario (P6) ahora vive en
+        // CatalogoService.cargarTodo() — única fuente, ver ficha allí — para que /revisar
+        // también la reciba tras un F5. Un fallo real ahí no tumba el resto del catálogo; se
+        // guarda en errorHorarioActual y se muestra aquí, que es donde el operador actúa sobre él.
+        const errorHorario = this.state.errorHorarioActual();
+        if (errorHorario) {
+          this.snackBar.open(`No se pudo cargar el horario guardado: ${errorHorario}`, 'Cerrar', { duration: 6000, panelClass: ['snack-error'] });
+        }
       },
       error: () => {
         this.loadingBackend.set(false);
         this.backendReady.set(false);
         this.snackBar.open('No se pudo conectar con el backend. Verifica que la API esté activa.', 'Cerrar', { duration: 5000, panelClass: ['snack-error'] });
       }
-    });
-  }
-
-  /** P6: rehidrata la grilla con el último horario ya generado, para que un reload de página no
-   *  la deje vacía aunque el horario siga persistido en BD. Silencioso si aún no hay ninguno. */
-  private cargarHorarioActual() {
-    this.horarioApi.obtenerActual('2026-1').subscribe(respuesta => {
-      if (!respuesta) return;
-      this.state.setSesiones(this.horarioApi.mapearSesiones(respuesta.sesiones));
-      this.state.setExecutionLogs(respuesta.logs || []);
-      this.state.horarioId.set(respuesta.horarioId);
     });
   }
 
@@ -476,6 +533,10 @@ export class HorarioComponent implements OnInit {
       for (const m of mergedList) {
         if (m.duracionSlots <= 1) continue;
         const startIdx = this.franjas.indexOf(m.horaInicio);
+        // FE14 auditoría: indexOf da -1 si horaInicio no cae en una franja en punto (dato corrupto
+        // o desalineado); sin esta guarda, -1 + k terminaba marcando la fila de las 06:00 (idx 0)
+        // como "cubierta" por una sesión que ni siquiera empieza ahí, y esa fila desaparecía.
+        if (startIdx < 0) continue;
         for (let k = 1; k < m.duracionSlots; k++) {
           const idx = startIdx + k;
           if (idx < this.franjas.length) covered.add(this.cellId(m.dia, this.franjas[idx]));
@@ -562,10 +623,25 @@ export class HorarioComponent implements OnInit {
     reader.onload = (e) => {
       try {
         const json = JSON.parse(e.target!.result as string);
-        const sesiones = json.sesiones ?? json;
-        if (!Array.isArray(sesiones)) throw new Error('Formato inválido: se espera un array de sesiones.');
-        this.state.setSesiones(sesiones);
-        this.snackBar.open(`Horario importado: ${sesiones.length} sesiones.`, 'Cerrar', { duration: 5000 });
+        const crudo = json.sesiones ?? json;
+        if (!Array.isArray(crudo)) throw new Error('Formato inválido: se espera un array de sesiones.');
+        // FE9 auditoría: antes se inyectaba cualquier fila tal cual — una sesión con un `dia` fuera
+        // de la grilla (p. ej. "domingo") entraba al state pero la grilla nunca la podía dibujar:
+        // pérdida de datos silenciosa que el conteo del snackbar tampoco reflejaba.
+        const diasValidos = new Set(this.dias);
+        const validas = crudo.filter((s: any) => diasValidos.has(s?.dia) && typeof s?.horaInicio === 'string' && typeof s?.horaFin === 'string');
+        const descartadas = crudo.length - validas.length;
+        this.state.setSesiones(validas);
+        // Esta vista es solo local: las sesiones importadas no corresponden a ningún horario
+        // persistido en BD. Antes horarioId seguía apuntando al horario viejo, así que la
+        // siguiente edición (reacomodar/asignar docente) volvía a pedirle al backend ESE horario
+        // y su respuesta pisaba el import en silencio. Al limpiarlo, esas acciones piden
+        // regenerar en vez de borrar el import sin avisar.
+        this.state.horarioId.set(null);
+        const detalle = descartadas > 0 ? ` (${descartadas} descartada(s): día fuera de la grilla o sin horario).` : '.';
+        this.snackBar.open(
+          `Horario importado: ${validas.length} sesiones${detalle} Vista local — no se guarda en el servidor.`,
+          'Cerrar', { duration: 7000 });
       } catch (err: any) {
         this.snackBar.open(`Error al leer el archivo: ${err.message}`, 'Cerrar', { duration: 6000, panelClass: ['snack-error'] });
       }
@@ -711,7 +787,7 @@ interface EditarSesionResult { sesion?: Sesion; advertencias: string[]; }
       <div class="dfield"><label>Espacio</label>
         <select class="input" [ngModel]="espacioId()" (ngModelChange)="espacioId.set($event)">
           <option value="">— Sin espacio (virtual) —</option>
-          @for (e of data.espacios; track e.id) { <option [value]="e.id">{{ e.nombre }}</option> }
+          @for (e of espaciosDisponibles(); track e.id) { <option [value]="e.id">{{ e.nombre }}</option> }
         </select>
       </div>
 
@@ -761,6 +837,14 @@ export class EditarSesionDialogComponent {
 
   asignatura = computed(() => this.data.asignaturas.find(a => a.id === this.orig.asignaturaId));
   esLaboratorio = computed(() => this.data.sesion.tipoFlujo === 'Laboratorio');
+  private tipoSesionActual = computed<TipoSesionUi>(() =>
+    this.esLaboratorio() ? 'Laboratorio' : this.data.sesion.virtual ? 'TeoriaVirtual' : 'TeoriaPresencial');
+  /** FE17 auditoría: antes listaba data.espacios sin filtrar — permitía mover un laboratorio a
+   *  un salón cualquiera, o una sesión con aula fija de grupo a un aula distinta de la exigida. */
+  espaciosDisponibles = computed(() => {
+    const grupo = this.orig.grupoId ? this.state.grupos().find(g => g.id === this.orig.grupoId) : undefined;
+    return espaciosPermitidosPara(this.tipoSesionActual(), grupo, this.data.espacios);
+  });
   hayCambioDocente = computed(() => this.docenteId() !== (this.orig.docenteId ?? ''));
   /** Petición 13: mover día/hora/espacio ya no es una mutación local — pasa por /reacomodar. */
   hayCambioSlot = computed(() =>
@@ -779,8 +863,10 @@ export class EditarSesionDialogComponent {
     const chks: Check[] = [];
     if (!dia || !inicio) return chks;
     const startIdx = this.horasDisponibles.indexOf(inicio), endIdx = startIdx + Math.round(dur);
-    if (dia === 'sabado' && endIdx > this.horasDisponibles.indexOf('13:00')) {
-      chks.push({ ok: false, texto: 'Sábado solo tiene jornada hasta las 13:00' });
+    // FE16 auditoría: antes solo se acotaba el sábado — un fin de jornada fuera de rango en L-V
+    // pasaba sin aviso y horaFinNueva caía a "?? inicio" (un "fin = inicio" silencioso).
+    if (!finDeJornadaOk(dia, endIdx, this.horasDisponibles)) {
+      chks.push({ ok: false, texto: dia === 'sabado' ? 'Sábado solo tiene jornada hasta las 13:00' : 'La sesión no cabe en la jornada de ese día.' });
     }
     const horaFinNueva = this.horasDisponibles[endIdx] ?? inicio;
     const sesion1 = () => describirSesionConflicto(
@@ -789,7 +875,7 @@ export class EditarSesionDialogComponent {
     const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.state.grupos());
 
     if (espacioId && !this.data.sesion.virtual) {
-      const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.espacioId === espacioId && s.dia === dia && !s.virtual && !this.nuncaCoexiste(s.semana, semanaActual) && this.overlaps(s, startIdx, endIdx));
+      const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.espacioId === espacioId && s.dia === dia && !s.virtual && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
       const nombre = this.data.espacios.find(e => e.id === espacioId)?.nombre ?? espacioId;
       const texto = conflicto
         ? `${nombre} ya está ocupado en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflicto)}. ` +
@@ -798,7 +884,7 @@ export class EditarSesionDialogComponent {
       chks.push({ ok: !conflicto, texto });
     }
     if (docenteId) {
-      const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.docenteId === docenteId && s.dia === dia && !this.nuncaCoexiste(s.semana, semanaActual) && this.overlaps(s, startIdx, endIdx));
+      const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.docenteId === docenteId && s.dia === dia && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
       const nombre = this.data.docentes.find(d => d.id === docenteId)?.nombre ?? 'El docente';
       const texto = conflicto
         ? `${nombre} ya tiene otra sesión en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflicto)}. ` +
@@ -817,10 +903,17 @@ export class EditarSesionDialogComponent {
     this.guardando.set(true); this.errorServidor.set(''); this.advertencias.set([]);
     if (this.hayCambioDocente()) {
       this.persistencia.asignarDocente(this.data.sesion.id, this.docenteId() || null).subscribe({
-        next: (resp) => { this.advertencias.set(resp.advertencias ?? []); this.continuar(); },
+        next: (resp) => {
+          this.advertencias.set(resp.advertencias ?? []);
+          // FE4 auditoría: el PATCH de docente ya quedó comprometido en el backend en este punto.
+          // Antes, si el reacomodo que sigue fallaba, el store seguía mostrando el docente viejo
+          // — divergía de lo que ya había en BD sin que nada lo avisara. Se refleja de inmediato.
+          this.state.updateSesion({ ...this.data.sesion, docenteId: this.docenteId() || undefined });
+          this.continuar();
+        },
         error: (err: any) => {
           this.guardando.set(false);
-          const msg = err?.error?.error ?? err?.message ?? 'Error al asignar el docente.';
+          const msg = mensajeErrorHttp(err);
           this.errorServidor.set(err?.status === 409 ? `Conflicto de horario (409): ${msg}` : msg);
         }
       });
@@ -855,13 +948,24 @@ export class EditarSesionDialogComponent {
           return;
         }
         this.state.setSesiones(this.horarioApi.mapearSesiones(resp.sesiones));
+        // FE1 auditoría: ReacomodarHorarioRequest no lleva alternancia — el backend no la toca en
+        // este endpoint. Antes, cambiar alternancia Y mover la sesión a la vez descartaba la
+        // alternancia en silencio (solo commitLocal() la aplicaba). Se aplica aquí el mismo parche
+        // local para que el comportamiento no dependa de si también hubo un cambio de slot.
+        if (this.alternancia() !== (this.orig.alternancia as string)) {
+          const movida = this.state.sesiones().find(s => s.id === this.data.sesion.id);
+          if (movida) this.state.updateSesion({ ...movida, alternancia: this.alternancia() });
+        }
         const avisos = [...this.advertencias(), ...resp.advertencias];
         this.guardando.set(false);
         this.dialogRef.close({ advertencias: avisos } satisfies EditarSesionResult);
       },
       error: (err: any) => {
         this.guardando.set(false);
-        this.errorServidor.set(err?.mensajeError ?? err?.error?.error ?? err?.message ?? 'Error al reacomodar la sesión.');
+        // ERR3 auditoría: manejarError() de HorarioApiService reenvía el body 422 (esFactible:false)
+        // TAL CUAL (no anidado bajo `.error`) — err.mensajeError se comprueba antes por eso;
+        // mensajeErrorHttp cubre el resto de formas (ProblemDetails, { error }, Error de red).
+        this.errorServidor.set(err?.mensajeError ?? mensajeErrorHttp(err));
       }
     });
   }
@@ -877,21 +981,9 @@ export class EditarSesionDialogComponent {
   }
 
   cancelar() { this.dialogRef.close(); }
-  private overlaps(s: Sesion, newStart: number, newEnd: number): boolean {
-    const sStart = this.horasDisponibles.indexOf(s.horaInicio);
-    if (sStart < 0) return false;
-    const sDur = Math.max(1, Math.round(s.duracionHoras ?? this.diffH(s.horaInicio, s.horaFin)));
-    return newStart < sStart + sDur && sStart < newEnd;
-  }
-  /** Espejo de ModalidadSemanal.CompartenSemanaDeEspacio (backend): dos sesiones solo chocan si
-   * ocupan el aula alguna semana en común. Lo que no alterna la ocupa en las DOS, así que choca
-   * con todo; una pareja TipoA/TipoB no choca nunca entre sí. Antes bastaba con que las `semana`
-   * declaradas difirieran, y eso dejaba pasar el choque entre una sesión fija y un TipoB. */
-  private nuncaCoexiste(semanaA: Sesion['semana'], semanaB: Sesion['semana']): boolean {
-    return !!semanaA && !!semanaB && semanaA !== semanaB;
-  }
-  private addH(hora: string, h: number): string { const [hh, mm] = hora.split(':').map(Number); return `${String(hh + h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`; }
-  private diffH(i: string, f: string): number { const [hi, mi] = i.split(':').map(Number); const [hf, mf] = f.split(':').map(Number); return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60); }
+  // FE5 auditoría: overlaps/nuncaCoexiste vivían duplicados aquí y en CrearSesionDialogComponent
+  // — ahora son las funciones de módulo seSolapanHorarios/nuncaCoexisteEnSemana, usadas por
+  // validaciones() arriba. addH/diffH quedaban sin uso salvo ese overlaps().
 }
 
 // ═══ Diálogo: Crear sesión manual (REQUISITOS §2) ═══
@@ -1030,17 +1122,10 @@ export class CrearSesionDialogComponent {
     switch (this.tipoSesion()) { case 'TeoriaVirtual': return a.horasTeoriaVirtual; case 'Laboratorio': return a.horasLaboratorio; default: return a.horasTeoriaPresencial; }
   });
 
-  // Espejo (cliente) de CalculadorEspaciosSesion.Candidatos: HC-S05 (requisito de espacio del
-  // grupo, si lo hay) ∩ HC-S03 (tipo por defecto según TipoSesion cuando no hay requisito).
-  espaciosDisponibles = computed(() => {
-    const tipo = this.tipoSesion();
-    if (tipo === 'TeoriaVirtual') return [];
-    const grupo = this.data.grupos.find(g => g.id === this.grupoIdSel());
-    const requisito = grupo?.requisitosEspacio?.find(r => r.tipoSesion === tipo);
-    if (requisito?.espacioId) return this.data.espacios.filter(e => e.id === requisito.espacioId);
-    if (requisito?.tipoEspacio) return this.data.espacios.filter(e => e.tipo === (requisito.tipoEspacio === 'Salon' ? 'Salón' : requisito.tipoEspacio));
-    return tipo === 'Laboratorio' ? this.data.espacios.filter(e => e.tipo === 'Laboratorio') : this.data.espacios.filter(e => e.tipo !== 'Laboratorio');
-  });
+  // FE17: espejo (cliente) de CalculadorEspaciosSesion.Candidatos — ahora la función de módulo
+  // compartida espaciosPermitidosPara, también usada por EditarSesionDialogComponent.
+  espaciosDisponibles = computed(() =>
+    espaciosPermitidosPara(this.tipoSesion(), this.data.grupos.find(g => g.id === this.grupoIdSel()), this.data.espacios));
 
   puedeCrear = computed(() => !!this.asignaturaId && !!this.grupoIdSel() && !!this.dia && !!this.horaInicio && (!!this.espacioId || this.tipoSesion() === 'TeoriaVirtual') && this.checksOk() && !this.guardando());
 
@@ -1067,8 +1152,9 @@ export class CrearSesionDialogComponent {
     const chks: Check[] = []; let ok = true;
     if (!a || !this.dia || !this.horaInicio || (!this.espacioId && !esVirtual)) { this.checks.set([]); this.checksOk.set(false); return; }
     const startIdx = this.horasDisponibles.indexOf(this.horaInicio), endIdx = startIdx + dur;
-    if (this.dia === 'sabado' && endIdx > this.horasDisponibles.indexOf('13:00')) {
-      chks.push({ ok: false, texto: 'Sábado solo tiene jornada hasta las 13:00' });
+    // FE16 auditoría: antes solo se acotaba el sábado — ver mismo fix en EditarSesionDialogComponent.
+    if (!finDeJornadaOk(this.dia, endIdx, this.horasDisponibles)) {
+      chks.push({ ok: false, texto: this.dia === 'sabado' ? 'Sábado solo tiene jornada hasta las 13:00' : 'La sesión no cabe en la jornada de ese día.' });
       ok = false;
     }
     const horaFinNueva = this.horasDisponibles[endIdx] ?? this.horaInicio;
@@ -1076,10 +1162,13 @@ export class CrearSesionDialogComponent {
       { asignaturaId: this.asignaturaId, grupoId: this.grupoIdSel(), dia: this.dia, horaInicio: this.horaInicio, horaFin: horaFinNueva },
       this.data.asignaturas, this.data.grupos);
     const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.data.grupos);
+    // FE5 auditoría: una sesión nueva TipoA/TipoB comparte semana con su propio par — la exención
+    // de "nunca coexiste" debe considerar la semana que ESTA sesión ocuparía, igual que Editar.
+    const semanaActual: Sesion['semana'] = this.alternancia === 'TipoA' ? 'A' : this.alternancia === 'TipoB' ? 'B' : undefined;
 
     const docenteId = this.docenteIdDelGrupo();
     if (docenteId) {
-      const conflictoDocente = this.data.sesiones.find(s => s.docenteId === docenteId && s.dia === this.dia && this.overlaps(s, startIdx, endIdx));
+      const conflictoDocente = this.data.sesiones.find(s => s.docenteId === docenteId && s.dia === this.dia && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
       if (conflictoDocente) ok = false;
       const texto = conflictoDocente
         ? `El docente ya tiene otra sesión en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflictoDocente)}. ` +
@@ -1088,7 +1177,10 @@ export class CrearSesionDialogComponent {
       chks.push({ ok: !conflictoDocente, texto });
     }
     if (!esVirtual) {
-      const conflictoEspacio = this.data.sesiones.find(s => s.espacioId === this.espacioId && s.dia === this.dia && !s.virtual && this.overlaps(s, startIdx, endIdx));
+      // FE5 auditoría: faltaba la exención de semana que Editar ya tenía — una TipoB nueva en el
+      // mismo bloque/aula que una TipoA existente es válida (nunca comparten semana), pero esto
+      // la bloqueaba igual por mirar solo solape de horario.
+      const conflictoEspacio = this.data.sesiones.find(s => s.espacioId === this.espacioId && s.dia === this.dia && !s.virtual && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
       if (conflictoEspacio) ok = false;
       const espNombre = this.data.espacios.find(e => e.id === this.espacioId)?.nombre ?? this.espacioId;
       const texto = conflictoEspacio
@@ -1106,23 +1198,20 @@ export class CrearSesionDialogComponent {
     const a = this.asignaturaSeleccionada()!, tipo = this.tipoSesion();
     this.persistencia.crearSesionManual({
       asignaturaId: a.id, docenteId: this.docenteIdDelGrupo(), espacioId: tipo === 'TeoriaVirtual' ? null : (this.espacioId || null),
+      // R2 auditoría: el diálogo ya exige elegir grupo (puedeCrear()) — antes se descartaba aquí.
+      grupoId: this.grupoIdSel() || null,
       dia: this.dia, horaInicio: this.horaInicio, duracionHoras: this.duracionSeleccionada(), alternancia: this.alternancia,
       tipoFlujo: tipoFlujoDesde(tipo), esVirtual: esVirtualDesde(tipo)
     }).subscribe({
       next: (sesiones: Sesion[]) => { this.guardando.set(false); this.dialogRef.close(sesiones); },
-      error: (err: any) => { this.guardando.set(false); this.errorServidor.set(err?.error?.error ?? err?.message ?? 'Error al guardar la sesión.'); }
+      error: (err: any) => { this.guardando.set(false); this.errorServidor.set(mensajeErrorHttp(err)); }
     });
   }
 
   cancelar() { this.dialogRef.close(); }
-  private overlaps(s: Sesion, newStart: number, newEnd: number): boolean {
-    const sStart = this.horasDisponibles.indexOf(s.horaInicio);
-    if (sStart < 0) return false;
-    const sDur = Math.max(1, Math.round(s.duracionHoras ?? this.diffH(s.horaInicio, s.horaFin)));
-    return newStart < sStart + sDur && sStart < newEnd;
-  }
+  // FE5 auditoría: overlaps/diffH vivían duplicados aquí y en EditarSesionDialogComponent — ahora
+  // son las funciones de módulo seSolapanHorarios/diffHorasEntre, usadas por recheck() arriba.
   nombreDocente(id?: string): string { return this.data.docentes.find(d => d.id === id)?.nombre ?? '—'; }
-  private diffH(i: string, f: string): number { const [hi, mi] = i.split(':').map(Number); const [hf, mf] = f.split(':').map(Number); return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60); }
 }
 
 // ═══ Diálogo: Agregar sesión fija (horario base, REQUISITOS §2) ═══
@@ -1198,9 +1287,8 @@ export class SesionFijaDialogComponent {
     if (!this.virtual && !this.espacioId) return false;
     const startIdx = this.horas.indexOf(this.horaInicio);
     const endIdx = startIdx + Math.round(this.duracion);
-    if (endIdx > this.horas.length) return false;
-    if (this.dia === 'sabado' && endIdx > this.horas.indexOf('13:00')) return false;
-    return true;
+    // FE16 auditoría: misma regla que Crear/Editar, ahora como función de módulo compartida.
+    return finDeJornadaOk(this.dia, endIdx, this.horas);
   }
 
   fijar() {
@@ -1218,6 +1306,12 @@ export class SesionFijaDialogComponent {
 }
 
 // ═══ Diálogo de progreso (HF-3 · B — generando) ═══
+// FE15 auditoría: antes mostraba "Fase 1/3 · GraphColoring" → "2/3 · CP-SAT" → "3/3 · Algoritmo
+// genético" avanzando con setTimeout a los 2s y 10s fijos, sin relación con el progreso real del
+// backend (que puede tardar segundos o, en un caso patológico, mucho más — ver PERF1). Le mostraba
+// al coordinador (no técnico) jerga de motor y una barra que mentía sobre cuánto faltaba. Sin
+// progreso real que reportar (el backend no transmite eventos de avance), es más honesto un
+// indicador indeterminado que no finge saber en qué fase va.
 @Component({
   selector: 'app-progress-dialog',
   standalone: true,
@@ -1225,10 +1319,9 @@ export class SesionFijaDialogComponent {
   template: `
     <div class="popbd" style="align-items:center;text-align:center;gap:13px;padding:26px 22px">
       <div class="spinner"></div>
-      <div class="opt">OPTIMIZANDO…</div>
+      <div class="opt">GENERANDO EL HORARIO…</div>
       <div class="prog"><i></i></div>
-      <div class="text-muted" style="font-size:12px">Fase {{ phase() }}/3 · {{ faseLabel() }}</div>
-      <div class="text-muted" style="font-size:11px">Puede tardar hasta 2 min. No cierres la ventana.</div>
+      <div class="text-muted" style="font-size:12px">Puede tardar hasta 2 min. No cierres la ventana.</div>
     </div>
   `,
   styles: [`
@@ -1241,13 +1334,4 @@ export class SesionFijaDialogComponent {
     @keyframes soea-prog { 0% { width: 12%; } 50% { width: 70%; } 100% { width: 92%; } }
   `]
 })
-export class ProgressDialogComponent implements OnInit, OnDestroy {
-  phase = signal(1);
-  faseLabel = computed(() => ({ 1: 'GraphColoring', 2: 'CP-SAT', 3: 'Algoritmo genético' }[this.phase()] ?? ''));
-  private timers: ReturnType<typeof setTimeout>[] = [];
-  ngOnInit() {
-    this.timers.push(setTimeout(() => { if (this.phase() === 1) this.phase.set(2); }, 2000));
-    this.timers.push(setTimeout(() => { if (this.phase() === 2) this.phase.set(3); }, 10000));
-  }
-  ngOnDestroy() { this.timers.forEach(t => clearTimeout(t)); }
-}
+export class ProgressDialogComponent {}

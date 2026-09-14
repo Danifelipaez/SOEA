@@ -299,8 +299,10 @@ export class AsignaturasTabComponent {
     ref.afterClosed().subscribe(confirmado => {
       if (!confirmado) return;
       if (!enBd) { this.state.deleteGrupo(grupo.id); this.snackBar.open('Grupo eliminado localmente.', '', { duration: 2500 }); return; }
-      this.persistencia.eliminarGrupoBD(grupo.id).subscribe({
-        next: () => { this.catalogo.quitarDeBd('grupo', grupo.id); this.state.deleteGrupo(grupo.id); this.snackBar.open('Grupo eliminado de la BD.', '', { duration: 2500 }); },
+      // FE10 auditoría: antes borraba a mano (persistencia + quitarDeBd + state) en vez de pasar
+      // por el único camino documentado (CatalogoService.eliminar).
+      this.catalogo.eliminar('grupo', grupo.id).subscribe({
+        next: () => this.snackBar.open('Grupo eliminado de la BD.', '', { duration: 2500 }),
         error: (err) => this.snackBar.open(`Error al eliminar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
       });
     });
@@ -402,11 +404,12 @@ export class AsignaturasTabComponent {
     ref.afterClosed().subscribe(confirmado => {
       if (!confirmado) return;
       if (!enBd) { this.state.deleteAsignatura(asignatura.id); this.snackBar.open('Asignatura eliminada localmente.', '', { duration: 2500 }); return; }
-      this.persistencia.eliminarAsignatura(asignatura.id).subscribe({
+      // FE10 auditoría: antes borraba a mano en vez de pasar por CatalogoService.eliminar; se
+      // conserva el cargarTodo() posterior — el backend cascadea a los grupos de la asignatura y
+      // el estado local necesita refrescarse para reflejarlo.
+      this.catalogo.eliminar('asignatura', asignatura.id).subscribe({
         next: () => {
-          this.catalogo.quitarDeBd('asignatura', asignatura.id);
-          this.state.deleteAsignatura(asignatura.id);
-          this.catalogo.cargarTodo().subscribe();
+          this.catalogo.cargarTodo().subscribe({ error: () => this.snackBar.open('Se eliminó, pero no se pudo refrescar el catálogo. Recarga la página.', 'Cerrar', { duration: 6000 }) });
           this.snackBar.open('Asignatura eliminada de la BD.', '', { duration: 2500 });
         },
         error: (err) => this.snackBar.open(`Error al eliminar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })

@@ -92,6 +92,26 @@ namespace SOEA.Tests.Domain.Entities
             Assert.Equal(EstadoSesion.Pendiente, sesion.Estado);
         }
 
+        [Fact]
+        public void Constructor_ConDocenteIdGuidEmpty_Lanza()
+        {
+            // DOC1 auditoría: AsignarDocente ya rechazaba Guid.Empty ("use null para desasignar"),
+            // pero el constructor no tenía la misma guarda — un DTO con DocenteId no-nullable que
+            // deserializa a Guid.Empty (sesión sin docente) lo persistía como si fuera un docente
+            // real. Mismo error, misma regla, en los dos únicos puntos donde DocenteId se fija.
+            Assert.Throws<ArgumentException>(() => new Sesion(
+                _validId,
+                _validAsignaturaId,
+                Guid.Empty,
+                _validBloqueId,
+                null,
+                null,
+                TipoAlternancia.SinAlternancia,
+                Modalidad.Presencial,
+                2m,
+                false,
+                false));
+        }
 
         [Theory]
         [InlineData(0)]
@@ -339,6 +359,27 @@ namespace SOEA.Tests.Domain.Entities
 
             Assert.True(sesion.CedidaPorSaturacion);
             Assert.Equal(Modalidad.Virtual, sesion.Modalidad);
+        }
+
+        [Fact]
+        public void RevertirCesion_TrasVirtualizarSesion_RestauraElEspacioFijo()
+        {
+            // H2 auditoría: VirtualizarSesion limpiaba EspacioId sin recordarlo, así que
+            // RevertirCesion dejaba una sesión "presencial" con EspacioId null (una clase sin
+            // aula) cuando la cesión que la había virtualizado se deshacía en la misma corrida.
+            var espacioFijo = Guid.NewGuid();
+            var sesion = new Sesion(
+                _validId, _validAsignaturaId, null, _validBloqueId,
+                espacioFijo, null, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false);
+
+            sesion.VirtualizarSesion(cedidaPorSaturacion: true);
+            Assert.Null(sesion.EspacioId); // se limpió al virtualizar
+
+            var revirtio = sesion.RevertirCesion();
+
+            Assert.True(revirtio);
+            Assert.Equal(Modalidad.Presencial, sesion.Modalidad);
+            Assert.Equal(espacioFijo, sesion.EspacioId); // restaurado, no una presencial sin aula
         }
 
         [Fact]

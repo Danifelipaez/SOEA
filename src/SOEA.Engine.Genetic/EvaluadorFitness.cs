@@ -54,7 +54,6 @@ namespace SOEA.Engine.Genetic
         public EvaluadorFitness(
             List<Sesion> sesiones,
             List<BloqueTiempo> bloques,
-            List<Docente> docentes,
             List<Espacio> espacios,
             ConfiguracionOptimizacion? config = null,
             IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null)

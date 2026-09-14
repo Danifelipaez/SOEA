@@ -6,6 +6,7 @@ using SOEA.Application.Features.Docentes;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Tests.Fakes;
 using Xunit;
 
 namespace SOEA.Tests.Application
@@ -30,7 +31,7 @@ namespace SOEA.Tests.Application
 
         private static FusionDocentesService Crear(
             FakeDocenteRepo docenteRepo, FakeGrupoRepo grupoRepo) =>
-            new(docenteRepo, grupoRepo, new DocenteService(docenteRepo, grupoRepo));
+            new(docenteRepo, grupoRepo, new DocenteService(docenteRepo, grupoRepo), new FakeUnitOfWork());
 
         [Fact]
         public async Task Fusionar_ReasignaGrupos_YEliminaDuplicados()

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using SOEA.Application.Features.Asignaturas;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Interfaces;
+using SOEA.Tests.Fakes;
 using Xunit;
 
 namespace SOEA.Tests.Application
@@ -28,7 +29,7 @@ namespace SOEA.Tests.Application
             var asig = Existente(Guid.NewGuid());
             var asigRepo = new FakeAsignaturaRepo(asig);
             var grupoRepo = new FakeGrupoRepo();
-            var service = new AsignaturaService(asigRepo, grupoRepo);
+            var service = new AsignaturaService(asigRepo, grupoRepo, new FakeUnitOfWork());
 
             await service.DeleteAsync(asig.Id);
 
@@ -38,7 +39,7 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task LanzaKeyNotFound_SiLaAsignaturaNoExiste()
         {
-            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepo());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepo(), new FakeUnitOfWork());
 
             await Assert.ThrowsAsync<KeyNotFoundException>(
                 () => service.DeleteAsync(Guid.NewGuid()));
@@ -53,7 +54,7 @@ namespace SOEA.Tests.Application
             var grupo2 = new Grupo(Guid.NewGuid(), "G2", Guid.Empty, 30, asignaturaId: asig.Id);
             var grupoOtraAsignatura = new Grupo(Guid.NewGuid(), "G3", Guid.Empty, 30, asignaturaId: Guid.NewGuid());
             var grupoRepo = new FakeGrupoRepo(grupo1, grupo2, grupoOtraAsignatura);
-            var service = new AsignaturaService(asigRepo, grupoRepo);
+            var service = new AsignaturaService(asigRepo, grupoRepo, new FakeUnitOfWork());
 
             await service.DeleteAsync(asig.Id);
 

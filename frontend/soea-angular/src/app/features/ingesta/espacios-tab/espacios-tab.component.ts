@@ -126,11 +126,10 @@ export class EspaciosTabComponent {
         this.snackBar.open('Espacio eliminado localmente.', '', { duration: 2500 });
         return;
       }
-      this.persistencia.eliminarEspacioBD(espacio.id).subscribe({
+      // FE10 auditoría: antes borraba a mano en vez de pasar por CatalogoService.eliminar.
+      this.catalogo.eliminar('espacio', espacio.id).subscribe({
         next: () => {
-          this.catalogo.quitarDeBd('espacio', espacio.id);
-          this.state.deleteEspacio(espacio.id);
-          this.catalogo.cargarTodo().subscribe();
+          this.catalogo.cargarTodo().subscribe({ error: () => this.snackBar.open('Se eliminó, pero no se pudo refrescar el catálogo. Recarga la página.', 'Cerrar', { duration: 6000 }) });
           this.snackBar.open('Espacio eliminado de la BD.', '', { duration: 2500 });
         },
         error: (err) => this.snackBar.open(`Error al eliminar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })

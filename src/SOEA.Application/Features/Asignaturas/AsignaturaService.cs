@@ -2,6 +2,7 @@ using SOEA.Domain.Entities;
 using SOEA.Domain.Interfaces;
 using SOEA.Application.Features.Asignaturas.Requests;
 using SOEA.Application.Features.Asignaturas.Responses;
+using SOEA.Application.Features.Horario;
 
 namespace SOEA.Application.Features.Asignaturas;
 
@@ -9,11 +10,13 @@ public class AsignaturaService
 {
     private readonly IAsignaturaRepositorio _repository;
     private readonly IGrupoRepositorio _grupoRepository;
+    private readonly IUnitOfWork _uow;
 
-    public AsignaturaService(IAsignaturaRepositorio repository, IGrupoRepositorio grupoRepository)
+    public AsignaturaService(IAsignaturaRepositorio repository, IGrupoRepositorio grupoRepository, IUnitOfWork uow)
     {
         _repository = repository;
         _grupoRepository = grupoRepository;
+        _uow = uow;
     }
 
     public async Task<AsignaturaResponse> CreateAsync(CreateAsignaturaRequest request)
@@ -31,8 +34,8 @@ public class AsignaturaService
             sesionesLaboratorioSemestre: request.SesionesLaboratorioSemestre,
             programaId: request.ProgramaId,
             categoria: request.Categoria ?? Domain.Enums.CategoriaAsignatura.Obligatoria,
-            horaInicioMin: ParseHora(request.HoraInicioMin),
-            horaFinMax: ParseHora(request.HoraFinMax));
+            horaInicioMin: GenerarHorarioService.ParseHora(request.HoraInicioMin),
+            horaFinMax: GenerarHorarioService.ParseHora(request.HoraFinMax));
 
         if (request.Alternancia.HasValue)
             asignatura.EstablecerAlternancia(request.Alternancia.Value);
@@ -44,7 +47,7 @@ public class AsignaturaService
     public async Task<AsignaturaResponse> GetByIdAsync(Guid id)
     {
         var asignatura = await _repository.GetByIdAsync(id)
-            ?? throw new InvalidOperationException($"Asignatura con ID {id} no encontrada.");
+            ?? throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
         return AsignaturaResponse.FromEntity(asignatura);
     }
 
@@ -57,7 +60,7 @@ public class AsignaturaService
     public async Task<AsignaturaResponse> UpdateAsync(Guid id, UpdateAsignaturaRequest request)
     {
         var asignatura = await _repository.GetByIdAsync(id)
-            ?? throw new InvalidOperationException($"Asignatura con ID {id} no encontrada.");
+            ?? throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
 
         asignatura.ActualizarDatos(
             request.Nombre,
@@ -72,16 +75,12 @@ public class AsignaturaService
             programaId: request.ProgramaId,
             alternanciaExplicita: request.Alternancia,
             categoria: request.Categoria,
-            horaInicioMin: ParseHora(request.HoraInicioMin),
-            horaFinMax: ParseHora(request.HoraFinMax));
+            horaInicioMin: GenerarHorarioService.ParseHora(request.HoraInicioMin),
+            horaFinMax: GenerarHorarioService.ParseHora(request.HoraFinMax));
 
         await _repository.UpdateAsync(asignatura);
         return AsignaturaResponse.FromEntity(asignatura);
     }
-
-    // Mismo criterio que GenerarHorarioService.ParseHora — TimeOnly.TryParse acepta "HH:mm".
-    private static TimeOnly? ParseHora(string? hhmm) =>
-        !string.IsNullOrWhiteSpace(hhmm) && TimeOnly.TryParse(hhmm, out var t) ? t : null;
 
     public async Task DeleteAsync(Guid id)
     {
@@ -89,10 +88,24 @@ public class AsignaturaService
             throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
 
         var gruposAsociados = (await _grupoRepository.GetByAsignaturaIdAsync(id)).ToList();
-        foreach (var grupo in gruposAsociados)
-            await _grupoRepository.DeleteAsync(grupo.Id);
 
-        await _repository.DeleteAsync(id);
+        // H5 auditoría: antes cada DeleteAsync confirmaba por su cuenta (SaveChanges propio) — si
+        // el borrado de la Asignatura fallaba después de borrar sus Grupos, esos Grupos quedaban
+        // borrados sin ninguna forma de recuperarlos. Una sola transacción para las dos escrituras.
+        await _uow.BeginTransactionAsync();
+        try
+        {
+            foreach (var grupo in gruposAsociados)
+                await _grupoRepository.DeleteAsync(grupo.Id);
+
+            await _repository.DeleteAsync(id);
+            await _uow.CommitAsync();
+        }
+        catch
+        {
+            await _uow.RollbackAsync();
+            throw;
+        }
     }
 
     /// <summary>
@@ -102,7 +115,7 @@ public class AsignaturaService
     public async Task UpdateElegibilidadAlternanciaAsync(Guid id, bool elegible)
     {
         var asignatura = await _repository.GetByIdAsync(id)
-            ?? throw new InvalidOperationException($"Asignatura con ID {id} no encontrada.");
+            ?? throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
         asignatura.EstablecerElegibilidadAlternancia(elegible);
         await _repository.UpdateAsync(asignatura);
     }

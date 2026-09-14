@@ -7,6 +7,7 @@ using SOEA.Application.Features.Asignaturas.Requests;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Tests.Fakes;
 using Xunit;
 
 namespace SOEA.Tests.Application
@@ -37,7 +38,7 @@ namespace SOEA.Tests.Application
             var progId = Guid.NewGuid();
             var asig   = Existente(Guid.NewGuid(), progId);
             var repo   = new FakeAsignaturaRepo(asig);
-            var service = new AsignaturaService(repo, new FakeGrupoRepoVacio());
+            var service = new AsignaturaService(repo, new FakeGrupoRepoVacio(), new FakeUnitOfWork());
 
             var response = await service.UpdateAsync(asig.Id, Request(progId));
 
@@ -55,7 +56,7 @@ namespace SOEA.Tests.Application
         {
             var progId = Guid.NewGuid();
             var asig   = Existente(Guid.NewGuid(), progId);
-            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepoVacio());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepoVacio(), new FakeUnitOfWork());
 
             var request = Request(progId);
             request.Alternancia = TipoAlternancia.TipoA; // override manual (11 lab inferiría TipoB)
@@ -80,7 +81,7 @@ namespace SOEA.Tests.Application
         public async Task CreateAsync_ConIdDeCliente_LaRespeta()
         {
             var repo = new FakeAsignaturaRepo();
-            var service = new AsignaturaService(repo, new FakeGrupoRepoVacio());
+            var service = new AsignaturaService(repo, new FakeGrupoRepoVacio(), new FakeUnitOfWork());
             var idCliente = Guid.NewGuid();
 
             var request = CreateRequest(Guid.NewGuid());
@@ -94,7 +95,7 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task CreateAsync_SinIdDeCliente_GeneraUno()
         {
-            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio(), new FakeUnitOfWork());
 
             var response = await service.CreateAsync(CreateRequest(Guid.NewGuid()));
 
@@ -104,7 +105,7 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task CreateAsync_AplicaCategoriaYAlternanciaExplicitas()
         {
-            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio(), new FakeUnitOfWork());
             var request = CreateRequest(Guid.NewGuid());
             request.Categoria = CategoriaAsignatura.Electiva;
             request.Alternancia = TipoAlternancia.TipoA;
@@ -116,11 +117,11 @@ namespace SOEA.Tests.Application
         }
 
         [Fact]
-        public async Task LanzaInvalidOperation_SiNoExiste()
+        public async Task LanzaKeyNotFound_SiNoExiste()
         {
-            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio(), new FakeUnitOfWork());
 
-            await Assert.ThrowsAsync<InvalidOperationException>(
+            await Assert.ThrowsAsync<KeyNotFoundException>(
                 () => service.UpdateAsync(Guid.NewGuid(), Request(Guid.NewGuid())));
         }
 
@@ -129,7 +130,7 @@ namespace SOEA.Tests.Application
         {
             var progId  = Guid.NewGuid();
             var asig    = Existente(Guid.NewGuid(), progId);
-            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepoVacio());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepoVacio(), new FakeUnitOfWork());
 
             var request = Request(progId);
             request.HorasTeoriaPresencial = 0; // conteo > 0 con horas = 0 → el dominio exige horas > 0

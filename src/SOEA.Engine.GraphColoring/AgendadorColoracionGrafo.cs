@@ -33,19 +33,21 @@ namespace SOEA.Engine.GraphColoring
             IEnumerable<BloqueTiempo> bloquesDisponibles,
             IEnumerable<Grupo>? grupos = null,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
+            IReadOnlySet<Guid>? sesionesFijasIds = null,
             CancellationToken ct = default)
         {
             var s = sesiones.ToList();
             var b = bloquesDisponibles.ToList();
             var g = grupos?.ToList();
-            return Task.Run<IEnumerable<Sesion>>(() => AsignarBloquesSincrono(s, b, g, ventanaPorAsignatura), ct);
+            return Task.Run<IEnumerable<Sesion>>(() => AsignarBloquesSincrono(s, b, g, ventanaPorAsignatura, sesionesFijasIds), ct);
         }
 
         private List<Sesion> AsignarBloquesSincrono(
             List<Sesion> sesiones,
             List<BloqueTiempo> bloques,
             List<Grupo>? grupos,
-            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura)
+            IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura,
+            IReadOnlySet<Guid>? sesionesFijasIds)
         {
             if (!sesiones.Any() || !bloques.Any())
             {
@@ -99,14 +101,34 @@ namespace SOEA.Engine.GraphColoring
                 startsValidosPorSesion[s.Id] = OrdenarRoundRobinPorDia(starts, diaPorIdx);
             }
 
-            // 4. Orden Welsh-Powell: grado DESC, romper empates por duración DESC.
+            // 4. Orden Welsh-Powell: grado DESC, romper empates por duración DESC. Las sesiones
+            //    fijas (horario base) quedan FUERA de este orden — regla 8 (CLAUDE.md): su bloque
+            //    es un dato de entrada, este motor no lo toca.
             var sesionesOrdenadas = sesiones
+                .Where(s => sesionesFijasIds is null || !sesionesFijasIds.Contains(s.Id))
                 .OrderByDescending(s => grafo[s.Id].Count)
                 .ThenByDescending(s => s.DuracionHoras)
                 .ToList();
+
+            // BASE1: reservar el bloque de cada sesión fija ANTES de colorear el resto, para que el
+            // grafo tenga en cuenta esa ocupación al buscar hueco para sus vecinas — sin tocar el
+            // bloque de la fija ni marcarla en conflicto si no cupiera (no debería: el bloque vino
+            // pre-validado por el usuario/horario base).
+            var bloquesOcupadosPorSesion = new Dictionary<Guid, HashSet<int>>();
+            if (sesionesFijasIds is { Count: > 0 })
+            {
+                var idxPorBloqueId = Enumerable.Range(0, bloques.Count).ToDictionary(i => bloques[i].Id, i => i);
+                foreach (var fija in sesiones.Where(s => sesionesFijasIds.Contains(s.Id)))
+                {
+                    if (!idxPorBloqueId.TryGetValue(fija.BloqueTiempoId, out var inicioFija)) continue;
+                    var ocupa = new HashSet<int>();
+                    for (int k = 0; k < duraciones[fija.Id]; k++) ocupa.Add(inicioFija + k);
+                    bloquesOcupadosPorSesion[fija.Id] = ocupa;
+                }
+            }
+
             // 5. Coloreado: para cada sesión, buscar el primer start (en orden round-robin por día)
             //    cuyo span no intersecte el span de ningún vecino ya colocado.
-            var bloquesOcupadosPorSesion = new Dictionary<Guid, HashSet<int>>();
             int asignadas = 0, enConflicto = 0;
             foreach (var sesion in sesionesOrdenadas)
             {
@@ -142,7 +164,13 @@ namespace SOEA.Engine.GraphColoring
                 }
                 else
                 {
-                    sesion.MarcarConConflicto("No se encontró un span de bloques sin conflictos para la duración requerida.");
+                    // CONF1 auditoría: esta salida es un warm-start NO VINCULANTE para CP-SAT (ver
+                    // docstring de la clase) — antes MarcarConConflicto dejaba Estado=Conflicto y un
+                    // MotivoConflicto persistidos aunque CP-SAT coloreara la sesión perfectamente
+                    // después. Con cohorte única el grafo de conflictos es completo, así que el
+                    // greedy de esta fase agota huecos en las últimas sesiones con normalidad; no es
+                    // un motivo real que el coordinador deba ver. El validador post-generación
+                    // (ValidadorRestriccionesDuras) es quien reporta conflictos reales, en español.
                     enConflicto++;
                 }
             }

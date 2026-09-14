@@ -25,48 +25,29 @@ namespace SOEA.API.Controllers
             return Ok(list);
         }
 
+        // ERR2 auditoría: sin catch — GlobalExceptionHandler traduce ArgumentException a 400 y
+        // BusinessRuleViolationException a 409 (DeleteAsync ya no lanza InvalidOperationException).
         [HttpPost]
         public async Task<ActionResult<DocenteUiDto>> Create([FromBody] DocenteUiDto dto)
         {
-            try
-            {
-                var created = await _service.CreateAsync(dto);
-                return StatusCode(StatusCodes.Status201Created, created);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
+            var created = await _service.CreateAsync(dto);
+            return StatusCode(StatusCodes.Status201Created, created);
         }
 
         [HttpPut("{id}")]
         public async Task<ActionResult<DocenteUiDto>> Update(Guid id, [FromBody] DocenteUiDto dto)
         {
-            try
-            {
-                var updated = await _service.UpdateAsync(id, dto);
-                if (updated is null) return NotFound();
-                return Ok(updated);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
+            var updated = await _service.UpdateAsync(id, dto);
+            if (updated is null) return NotFound();
+            return Ok(updated);
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            try
-            {
-                var eliminado = await _service.DeleteAsync(id);
-                if (!eliminado) return NotFound($"Docente con ID {id} no encontrado.");
-                return NoContent();
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Conflict(ex.Message);
-            }
+            var eliminado = await _service.DeleteAsync(id);
+            if (!eliminado) return NotFound($"Docente con ID {id} no encontrado.");
+            return NoContent();
         }
 
         /// <summary>
@@ -83,15 +64,8 @@ namespace SOEA.API.Controllers
         [HttpPost("fusionar")]
         public async Task<IActionResult> Fusionar([FromBody] FusionarDocentesRequest req)
         {
-            try
-            {
-                var resultado = await _fusion.FusionarAsync(req.CanonicoId, req.DuplicadosIds ?? new List<Guid>());
-                return Ok(resultado);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
+            var resultado = await _fusion.FusionarAsync(req.CanonicoId, req.DuplicadosIds ?? new List<Guid>());
+            return Ok(resultado);
         }
     }
 

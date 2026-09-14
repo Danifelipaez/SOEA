@@ -103,6 +103,45 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasForeignKey(s => s.PatronAlternanciaId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            // M14 auditoría (Decisión 1 del saneamiento): antes ninguna de estas cinco columnas
+            // tenía FK — un DocenteId/GrupoId/AsignaturaId/EspacioId/BloqueTiempoId inconsistente
+            // (Guid.Empty colado, id de una corrida de import anterior, catálogo borrado) se
+            // insertaba limpio y solo se detectaba, si acaso, en memoria más adelante (DOC1, M8).
+            // Comportamiento de borrado alineado con las guardas que el código YA aplicaba antes
+            // de tener FK real:
+            //   - DocenteId  → SetNull   (CR-02: el docente es opcional; borrar un docente no
+            //                              debe destruir la sesión, DocenteService.DeleteAsync ya
+            //                              exige reasignar los Grupos que lo usan, no las Sesiones).
+            //   - GrupoId/AsignaturaId/EspacioId/BloqueTiempoId → Restrict (regenerables solo por
+            //                              el pipeline; borrar el padre con sesiones vivas debe
+            //                              fallar con un error claro, no dejar referencias colgando).
+            // Sin navegación inversa (no se agregó ICollection<Sesion> a esas entidades) — misma
+            // convención que la FK de PatronAlternanciaId de arriba.
+            builder.HasOne<Docente>()
+                .WithMany()
+                .HasForeignKey(s => s.DocenteId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            builder.HasOne<Grupo>()
+                .WithMany()
+                .HasForeignKey(s => s.GrupoId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne<Asignatura>()
+                .WithMany()
+                .HasForeignKey(s => s.AsignaturaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne<Espacio>()
+                .WithMany()
+                .HasForeignKey(s => s.EspacioId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne<BloqueTiempo>()
+                .WithMany()
+                .HasForeignKey(s => s.BloqueTiempoId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             // Indexes
             builder.HasIndex(s => s.AsignaturaId)
                 .HasDatabaseName("ix_sesion_asignatura_id");

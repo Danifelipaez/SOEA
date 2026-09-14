@@ -32,6 +32,10 @@ namespace SOEA.Engine.ConstraintProg
         // esperado; si algún día hace falta afinarlo, promover a CpSatOptions (igual que Fase 2).
         private const int TimeoutSegundos = 10;
 
+        // REP1 auditoría: mismo motivo que MotorConstraintProgramming.RandomSeed — sin semilla fija,
+        // dos resoluciones del mismo sub-modelo podían elegir aulas distintas.
+        private const int RandomSeed = 1;
+
         public AsignadorEspaciosExactoCpSat(ILogger<AsignadorEspaciosExactoCpSat> logger)
         {
             _logger = logger;
@@ -115,7 +119,7 @@ namespace SOEA.Engine.ConstraintProg
                     model.AddNoOverlap(lista);
 
             var solver = new CpSolver();
-            solver.StringParameters = $"max_time_in_seconds:{TimeoutSegundos}";
+            solver.StringParameters = $"max_time_in_seconds:{TimeoutSegundos},random_seed:{RandomSeed}";
             var status = solver.Solve(model);
 
             if (status != CpSolverStatus.Feasible && status != CpSolverStatus.Optimal)

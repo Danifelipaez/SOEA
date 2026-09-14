@@ -49,9 +49,9 @@ import { mensajeInfactibilidadAmigable } from '../horario/horario.component';
         </div>
         <div class="blueprint kpi">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-          <span class="klabel">Franjas ociosas</span>
+          <span class="klabel">Horas-aula libres</span>
           <span class="kval warn">{{ franjasOciosas() }}</span>
-          <span class="text-muted knote">huecos entre sesiones por espacio</span>
+          <span class="text-muted knote">sin reservar en toda la semana (incluye noches y días sin clase)</span>
         </div>
       </div>
 
@@ -62,7 +62,7 @@ import { mensajeInfactibilidadAmigable } from '../horario/horario.component';
         @if (docentesData().length === 0) {
           <p class="text-muted" style="margin:0">Sin docentes asignados a sesiones.</p>
         }
-        @for (d of docentesData(); track d.docente) {
+        @for (d of docentesData(); track d.id) {
           <div class="crow">
             <span class="cname">{{ d.docente }}</span>
             <div class="bar"><i [style.width.%]="d.porcentaje > 100 ? 100 : d.porcentaje" [style.background]="d.color"></i></div>
@@ -183,7 +183,10 @@ export class DashboardAdminComponent implements OnInit {
         const estado = porcentaje >= 100 ? 'Límite' : porcentaje >= 85 ? 'Alerta' : 'Normal';
         const pill = porcentaje >= 100 ? 'err' : porcentaje >= 85 ? 'warn' : 'ok';
         const color = porcentaje >= 100 ? 'var(--err-bd)' : porcentaje >= 85 ? 'var(--warn-bd)' : 'var(--ok-bd)';
-        return { docente: d.nombre, horasAsignadas: Math.round(horas * 10) / 10, maxHoras, porcentaje, estado, pill, color, tiene: sesDoc.length > 0 };
+        // FE7 auditoría: el @for de arriba trackeaba por nombre — el Excel produce homónimos
+        // (por eso existe detectarDuplicadosDocentes()) y dos docentes con el mismo nombre
+        // rompían NG0955 / hacían que la fila no re-renderizara. Se trackea por id, que es único.
+        return { id: d.id, docente: d.nombre, horasAsignadas: Math.round(horas * 10) / 10, maxHoras, porcentaje, estado, pill, color, tiene: sesDoc.length > 0 };
       })
       .filter(d => d.tiene);
   });

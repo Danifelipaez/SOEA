@@ -115,6 +115,10 @@ export class StateService {
   executionLogs = signal<string[]>([]);
   /** Id del Horario persistido por la última generación exitosa (P5: lo necesita /reacomodar). */
   horarioId = signal<string | null>(null);
+  /** FE6/FE13 auditoría: CatalogoService.cargarTodo() intenta rehidratar el horario persistido
+   *  junto al resto del catálogo, pero un fallo ahí no debe tumbar esa carga — se guarda aquí en
+   *  vez de lanzarse, para que el componente que lo necesite (HorarioComponent) lo muestre. */
+  errorHorarioActual = signal<string | null>(null);
 
   setSesiones(s: Sesion[])       { this.sesiones.set(s); }
   /**

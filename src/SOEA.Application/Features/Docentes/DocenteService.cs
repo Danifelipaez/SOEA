@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
+using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
 
 namespace SOEA.Application.Features.Docentes
@@ -79,7 +80,14 @@ namespace SOEA.Application.Features.Docentes
             if (existing is null) return null;
 
             existing.ActualizarDatos(dto.Nombre, "", existing.Correo, (decimal)dto.MaxHoras);
-            existing.ActualizarPersistenciaUi(dto.Cedula, dto.Disponibilidad?.GetRawText());
+            // M3 auditoría: ActualizarPersistenciaUi pisa CedulaIdentidad/DisponibilidadUiJson
+            // incondicionalmente. Un PUT que no reenvía disponibilidad (dto.Disponibilidad es
+            // JsonElement? — null si el cliente omite el campo) borraba en silencio la
+            // disponibilidad ya cargada, p. ej. por Excel. Se preserva el valor existente cuando el
+            // DTO no trae uno propio.
+            var cedulaFinal = string.IsNullOrWhiteSpace(dto.Cedula) ? existing.CedulaIdentidad : dto.Cedula;
+            var disponibilidadFinal = dto.Disponibilidad?.GetRawText() ?? existing.DisponibilidadUiJson;
+            existing.ActualizarPersistenciaUi(cedulaFinal, disponibilidadFinal);
             await _repo.UpdateAsync(existing);
 
             return MapToDto(existing);
@@ -101,7 +109,7 @@ namespace SOEA.Application.Features.Docentes
             var gruposAsociados = await _grupoRepo.GetByDocenteIdAsync(id);
             var cantidad = gruposAsociados.Count();
             if (cantidad > 0)
-                throw new InvalidOperationException(
+                throw new BusinessRuleViolationException(
                     $"No se puede eliminar el docente: tiene {cantidad} grupo(s) asignado(s). Reasígnelos primero.");
 
             await _repo.DeleteAsync(id);

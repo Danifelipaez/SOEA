@@ -35,7 +35,10 @@ namespace SOEA.API.Controllers
     public class SesionImportDto
     {
         public Guid AsignaturaId { get; set; }
-        public Guid DocenteId { get; set; }
+        // DOC1 auditoría: nullable — CR-02/CR-08 permiten sesiones sin docente (presencial-first).
+        // Antes era Guid no-nullable: al omitirlo, el binder deserializaba Guid.Empty, que Sesion
+        // persistía como si fuera un docente real (ahora Sesion rechaza Guid.Empty en el constructor).
+        public Guid? DocenteId { get; set; }
         public Guid BloqueTiempoId { get; set; }
         public Guid? EspacioId { get; set; }
         public Guid? GrupoId { get; set; }
@@ -97,7 +100,7 @@ namespace SOEA.API.Controllers
         public int AsignaturasActualizadas { get; set; }
         public int GruposCreados { get; set; }
         public int SesionesPersistidas { get; set; }
-        public int AsignaturasSinDocente { get; set; }
+        public int GruposSinDocente { get; set; }
         public List<string> Advertencias { get; set; } = new();
     }
 }

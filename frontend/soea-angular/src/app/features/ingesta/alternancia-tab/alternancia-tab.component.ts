@@ -158,7 +158,7 @@ export class AlternanciaTabComponent implements OnInit {
   toggleCriterioActivo(c: CriterioCesionAlternancia, activo: boolean): void {
     this.persistencia.actualizarCriterioCesion(c.id, { activo }).subscribe({
       next: (lista) => this.criterios.set(this.ordenarCriterios(lista)),
-      error: (e) => this.snack.open(`Error: ${e?.error ?? 'desconocido'}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
+      error: (e) => this.snack.open(`Error: ${mensajeErrorHttp(e)}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
     });
   }
 
@@ -169,7 +169,7 @@ export class AlternanciaTabComponent implements OnInit {
     if (i < 0 || j < 0 || j >= lista.length) return;
     this.persistencia.actualizarCriterioCesion(c.id, { orden: lista[j].orden }).subscribe({
       next: (nueva) => this.criterios.set(this.ordenarCriterios(nueva)),
-      error: (e) => this.snack.open(`Error: ${e?.error ?? 'desconocido'}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
+      error: (e) => this.snack.open(`Error: ${mensajeErrorHttp(e)}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
     });
   }
 
@@ -182,6 +182,10 @@ export class AlternanciaTabComponent implements OnInit {
       next: () => this.guardandoSet.update(s => { const n = new Set(s); n.delete(id); return n; }),
       error: (err) => {
         this.guardandoSet.update(s => { const n = new Set(s); n.delete(id); return n; });
+        // FE8 auditoría: la escritura optimista de arriba nunca se revertía si el PATCH fallaba —
+        // la casilla quedaba marcada y countCandidatas() la seguía contando aunque el backend
+        // jamás guardó el cambio. Mismo criterio de reversión que CatalogoService.guardar().
+        this.state.updateAsignatura(fila.asignatura);
         const msg = mensajeErrorHttp(err);
         this.errorMap.update(m => { const n = new Map(m); n.set(id, msg); return n; });
         this.snack.open(`Error: ${msg}`, 'Cerrar', { duration: 4000 });

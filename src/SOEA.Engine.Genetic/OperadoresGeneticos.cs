@@ -33,7 +33,6 @@ namespace SOEA.Engine.Genetic
         public OperadoresGeneticos(
             List<Sesion> sesiones,
             List<BloqueTiempo> bloques,
-            IReadOnlyList<Docente> docentes,
             Random rng,
             IReadOnlyList<Grupo>? grupos = null,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,

@@ -212,13 +212,33 @@ namespace SOEA.Application.Features.Horario
                                    $"fuera de la ventana [{v.Min:HH\\:mm}–{v.Max:HH\\:mm}] de su asignatura (semana {a.Semana}).");
                 }
 
-                // HC-G01 — disponibilidad del grupo por día (misma fuente que CP-SAT/GA).
+                // HC-G01 — disponibilidad del grupo por día, MISMA fuente que CP-SAT/GA
+                // (CalculadorDominioSesion.BloquesPermitidos) — VAL1 auditoría. La comprobación
+                // anterior solo miraba el bloque de INICIO (una sesión de 3h que empezaba dentro de
+                // la franja pero terminaba fuera pasaba limpia) y no colapsaba "sin disponibilidad
+                // ningún día" a "sin restricción" como sí hacen los motores (un grupo marcado
+                // no-disponible toda la semana es, para ellos, "sin dato" — para el chequeo viejo,
+                // cada uno de sus bloques quedaba fuera de PermiteBloque y TODAS sus sesiones se
+                // reportaban como violación aunque los motores las hubieran programado sin problema).
                 if (!esFija && s.GrupoId.HasValue &&
-                    ctx.DisponibilidadPorGrupo.TryGetValue(s.GrupoId.Value, out var disp) &&
-                    !disp.PermiteBloque(ctx.Bloques[inicio].Dia, horaInicio, ctx.Bloques[inicio].HoraFin))
+                    ctx.DisponibilidadPorGrupo.TryGetValue(s.GrupoId.Value, out var disp))
                 {
-                    conflictos.Add($"HC-G01: {Describir(s, ctx)} inicia el {ctx.Bloques[inicio].Dia} a las " +
-                                   $"{horaInicio:HH\\:mm}, fuera de la disponibilidad declarada del grupo (semana {a.Semana}).");
+                    var permitidos = CalculadorDominioSesion.BloquesPermitidos(ctx.Bloques, disp);
+                    if (permitidos is not null)
+                    {
+                        bool cabeEnFranja = true;
+                        for (int k = 0; k < dur; k++)
+                        {
+                            if (inicio + k >= ctx.Bloques.Count || !permitidos.Contains(inicio + k))
+                            {
+                                cabeEnFranja = false;
+                                break;
+                            }
+                        }
+                        if (!cabeEnFranja)
+                            conflictos.Add($"HC-G01: {Describir(s, ctx)} inicia el {ctx.Bloques[inicio].Dia} a las " +
+                                           $"{horaInicio:HH\\:mm} ({dur}h), fuera de la disponibilidad declarada del grupo (semana {a.Semana}).");
+                    }
                 }
 
                 // HC-S04 (bidireccional, M8): la entidad ya garantiza virtual ⇒ sin espacio; el
@@ -325,6 +345,18 @@ namespace SOEA.Application.Features.Horario
                 {
                     // Como están ordenados por inicio, basta comparar contra el fin del primero.
                     if (ordenados[j].Inicio >= ordenados[i].Fin) break;
+                    // VAL4 auditoría: esta comparación asume que dos spans que no cruzan
+                    // medianoche y se solapan numéricamente están en el MISMO día — cierto salvo
+                    // que algún productor (p. ej. ReacomodarHorarioService antes de su propio fix)
+                    // deje pasar un span que sí cruce medianoche, en cuyo caso el índice plano
+                    // "solapa" con el primer bloque del día siguiente sin ser un conflicto real.
+                    // Con ctx disponible (los dos call sites de producción siempre lo pasan) se
+                    // descarta ese falso positivo comparando el día real de cada bloque de inicio,
+                    // igual que BloquesPlanner.Solapan.
+                    if (ctx is not null &&
+                        ordenados[i].Inicio < ctx.Bloques.Count && ordenados[j].Inicio < ctx.Bloques.Count &&
+                        ctx.Bloques[ordenados[i].Inicio].Dia != ctx.Bloques[ordenados[j].Inicio].Dia)
+                        continue;
                     yield return $"{regla}: solape en {descripcionContexto} — " +
                                  $"Sesión 1: {DescribirConHorario(ordenados[i], ctx)}; " +
                                  $"Sesión 2: {DescribirConHorario(ordenados[j], ctx)}. {sugerencia}";

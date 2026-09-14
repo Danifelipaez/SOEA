@@ -227,6 +227,11 @@ export class PersistenciaService {
     asignaturaId: string;
     docenteId: string;
     espacioId: string | null;
+    // R2 auditoría: el diálogo de creación manual ya obliga a elegir un grupo, pero el dato se
+    // descartaba antes de llegar aquí — sin él, HC-SEP se evaluaba sobre TODAS las cohortes
+    // (rechazaba una sesión válida por chocar con la de otro grupo) y HC-S05 (aula fija del
+    // grupo) no se podía aplicar en absoluto.
+    grupoId: string | null;
     dia: string;
     horaInicio: string;
     duracionHoras: number;

@@ -55,12 +55,9 @@ namespace SOEA.Application.Features.Horario
             var horario = await _horarioRepo.GetByIdAsync(req.HorarioId)
                 ?? throw new KeyNotFoundException("No se encontró el horario indicado. Puede haber sido regenerado — recargue la vista de horario.");
 
-            var sesiones = new List<Sesion>();
-            foreach (var id in horario.SesioneIds)
-            {
-                var s = await _sesionRepo.GetByIdAsync(id);
-                if (s != null) sesiones.Add(s);
-            }
+            // PERF4 auditoría: antes un GetByIdAsync por sesión del horario (N round trips) —
+            // mismo patrón masivo que ya usa GetBySesionIdsAsync más abajo.
+            var sesiones = await _sesionRepo.GetByIdsAsync(horario.SesioneIds);
 
             var sesionEditada = sesiones.FirstOrDefault(s => s.Id == req.SesionEditadaId)
                 ?? throw new KeyNotFoundException("La sesión editada no pertenece al horario actual. Puede haber sido regenerado — recargue la vista de horario.");
@@ -83,6 +80,21 @@ namespace SOEA.Application.Features.Horario
             var bloqueNuevo = bloquesGrid.FirstOrDefault(b => b.Dia == dia && b.HoraInicio == horaInicio)
                 ?? throw new ArgumentException($"({req.Dia} {req.HoraInicio}) no coincide con ningún bloque de la grilla canónica.");
             var inicioEditada = idxPorBloque[bloqueNuevo.Id];
+
+            // VAL4 auditoría: sin este chequeo, mover una sesión a una hora tarde (p. ej. viernes
+            // 21:00 con 3h de duración) generaba un span que cruzaba a sábado en la indexación
+            // plana de la grilla — Solapa() más abajo y el sweep de ValidadorRestriccionesDuras
+            // asumen que dos spans que no cruzan día y se solapan numéricamente están en el MISMO
+            // día; romper esa premisa producía falsos positivos/negativos de conflicto.
+            {
+                int durParaCabeEnDia = Math.Max(1, (int)Math.Ceiling(sesionEditada.DuracionHoras));
+                var rangosPorDia = BloquesPlanner.RangosPorDia(bloquesGrid);
+                var diaPorIdxGrid = BloquesPlanner.DiaPorBloqueIdx(bloquesGrid);
+                if (!BloquesPlanner.CabeEnDia(inicioEditada, durParaCabeEnDia, rangosPorDia, diaPorIdxGrid))
+                    throw new ArgumentException(
+                        $"La sesión no cabe en la jornada de {req.Dia} a partir de las {req.HoraInicio} " +
+                        "sin cruzar la medianoche del horario institucional.");
+            }
 
             var asignacionesActuales = await _asignacionRepo.GetBySesionIdsAsync(sesiones.Select(s => s.Id));
             var asignPorSesion = asignacionesActuales.GroupBy(a => a.SesionId).ToDictionary(g => g.Key, g => g.ToList());
@@ -209,20 +221,18 @@ namespace SOEA.Application.Features.Horario
             var contextoValidacion = new ContextoValidacion(
                 Bloques: bloquesGrid,
                 VentanaPorAsignatura: ventanaPorAsig,
-                DisponibilidadPorGrupo: gruposMotor
-                    .GroupBy(g => g.Id)
-                    .ToDictionary(g => g.Key, g => g.First().ObtenerDisponibilidadSemanal()),
-                EstudiantesPorGrupo: gruposMotor
-                    .GroupBy(g => g.Id)
-                    .ToDictionary(g => g.Key, g => g.First().EstudiantesInscritos),
+                // VAL5 auditoría: gruposMotor viene de _grupoRepo.GetAllAsync() (PK única) — sin
+                // ids repetidos, no hace falta el GroupBy(...).First() defensivo.
+                DisponibilidadPorGrupo: gruposMotor.ToDictionary(g => g.Id, g => g.ObtenerDisponibilidadSemanal()),
+                EstudiantesPorGrupo: gruposMotor.ToDictionary(g => g.Id, g => g.EstudiantesInscritos),
                 EspacioPorId: espacios.ToDictionary(e => e.Id),
-                RequisitosPorGrupo: gruposMotor
-                    .GroupBy(g => g.Id)
-                    .ToDictionary(g => g.Key, g => g.First().RequisitosEspacio),
+                // VAL5 auditoría: antes se omitía — el post-chequeo evaluaba HC-VH/HC-C01 sobre las
+                // sesiones del horario base como si no lo fueran (ValidadorRestriccionesDuras las
+                // exime explícitamente cuando SesionesFijas las identifica).
+                SesionesFijas: sesiones.Where(s => s.Bloqueada).Select(s => s.Id).ToHashSet(),
+                RequisitosPorGrupo: gruposMotor.ToDictionary(g => g.Id, g => g.RequisitosEspacio),
                 NombrePorAsignatura: asignaturas.ToDictionary(a => a.Id, a => a.Nombre),
-                NombrePorGrupo: gruposMotor
-                    .GroupBy(g => g.Id)
-                    .ToDictionary(g => g.Key, g => g.First().Nombre));
+                NombrePorGrupo: gruposMotor.ToDictionary(g => g.Id, g => g.Nombre));
 
             var conflictos = ValidadorRestriccionesDuras.Validar(
                 asignacionesFinal, sesionPorId, idxPorBloque, contextoValidacion);
@@ -235,18 +245,13 @@ namespace SOEA.Application.Features.Horario
                 };
 
             // ── Persistir: reemplazar solo las filas de la editada + liberadas ──
-            var asignacionesViejasAEliminar = asignacionesActuales.Where(a => idsAReemplazar.Contains(a.SesionId)).ToList();
-
             await _uow.BeginTransactionAsync();
             try
             {
-                // B4 auditoría: delete uno por uno en vez de un DeleteRangeAsync — ineficiencia, no
-                // bug (misma transacción, y freedIds es siempre un puñado de sesiones en conflicto,
-                // nunca la tabla completa). No se agrega DeleteRangeAsync a IAsignacionSemanalRepositorio
-                // solo para esto: el costo de tocar los 11 fakes de test que implementan la interfaz
-                // no se justifica para este volumen.
-                foreach (var vieja in asignacionesViejasAEliminar)
-                    await _asignacionRepo.DeleteAsync(vieja.Id);
+                // B4/PERF3 auditoría: el DeleteBySesionIdsAsync añadido para GenerarHorarioService
+                // (ver ahí) ya resuelve el bloqueo que citaba este comentario ("no vale la pena
+                // tocar los 11 fakes de test para esto") — un único DELETE en vez de uno por fila.
+                await _asignacionRepo.DeleteBySesionIdsAsync(idsAReemplazar);
                 await _asignacionRepo.AddRangeAsync(nuevasAsignaciones);
 
                 await _sesionRepo.UpdateAsync(sesionEditada);

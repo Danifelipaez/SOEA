@@ -25,6 +25,23 @@ namespace SOEA.Domain.Services
         };
 
         /// <summary>
+        /// Parseo único de <see cref="TipoFlujo"/> desde texto. IMP2/DUP7 auditoría: antes existían
+        /// dos copias con defaults OPUESTOS (<c>CrearSesionManualService</c> → AulaVirtual,
+        /// <c>GenerarHorarioService</c> → Laboratorio), y los dos puntos de importación (Excel y
+        /// JSON) omitían el argumento por completo — el constructor de <see cref="Sesion"/> por sí
+        /// solo defaultea a Laboratorio, así que TODA sesión importada quedaba marcada como
+        /// laboratorio. Default acordado: <see cref="TipoFlujo.AulaVirtual"/> (teoría) — es la
+        /// mayoría de las sesiones reales, y confundir teoría con laboratorio es precisamente lo
+        /// que satura los pocos laboratorios y hace infactible la generación.
+        /// </summary>
+        public static TipoFlujo ParseTipoFlujo(string? tipoFlujo) =>
+            tipoFlujo?.Trim().ToLowerInvariant() switch
+            {
+                "laboratorio" => TipoFlujo.Laboratorio,
+                _             => TipoFlujo.AulaVirtual
+            };
+
+        /// <summary>
         /// HC-S03: true si <paramref name="espacio"/> es válido para <paramref name="tipoSesion"/>,
         /// dado el requisito de espacio declarado por el grupo (si lo hay). Sin requisito, o con
         /// requisito sin tipo explícito (M6: <see cref="RequisitoEspacio.TipoEspacio"/> nullable):
@@ -46,10 +63,17 @@ namespace SOEA.Domain.Services
 
         /// <summary>
         /// Índices en <paramref name="espacios"/> candidatos para <paramref name="sesion"/>:
-        /// HC-S05 (espacio fijo de la sesión, o del requisito del grupo si existe en la lista)
-        /// ∩ HC-S03 (tipo, vía <see cref="CumpleTipo"/>). Con espacio fijo ausente de la lista,
-        /// cae al filtrado normal por tipo (mismo criterio pre-existente). No aplica HC-CAP —
-        /// el llamador lo filtra aparte (ver docstring de la clase).
+        /// HC-S05 (espacio fijo de la sesión, o del requisito del grupo) ∩ HC-S03 (tipo, vía
+        /// <see cref="CumpleTipo"/>) — las dos se exigen SIEMPRE, también cuando hay espacio fijo
+        /// (VAL2 auditoría). Antes un espacio fijo se devolvía como único candidato sin comprobar su
+        /// tipo, así que una sesión de laboratorio fijada a un salón (dato de entrada inconsistente,
+        /// p. ej. un horario base sin <c>TipoFlujo</c> explícito) generaba y persistía igual — el
+        /// único lugar que lo detectaba era <c>ValidadorRestriccionesDuras</c>, ya con el horario
+        /// generado y sin forma de arreglarlo salvo descartar toda la corrida.
+        /// Si el espacio fijo no está en <paramref name="espacios"/>, o no cumple el tipo, no hay
+        /// NINGÚN candidato (M17 auditoría) — antes cualquiera de los dos casos caía en silencio al
+        /// filtrado genérico por tipo y podía devolver un aula DISTINTA de la exigida.
+        /// No aplica HC-CAP — el llamador lo filtra aparte (ver docstring de la clase).
         /// </summary>
         public static IEnumerable<int> Candidatos(
             Sesion sesion,
@@ -64,9 +88,11 @@ namespace SOEA.Domain.Services
                 for (int e = 0; e < espacios.Count; e++)
                 {
                     if (espacios[e].Id != espacioFijo.Value) continue;
-                    yield return e;
+                    if (CumpleTipo(espacios[e], tipoSesion, requisito))
+                        yield return e;
                     yield break;
                 }
+                yield break;
             }
 
             for (int e = 0; e < espacios.Count; e++)

@@ -41,7 +41,6 @@ namespace SOEA.Engine.Genetic
             IEnumerable<AsignacionSemanal> asignacionesFase2,
             IEnumerable<BloqueTiempo>      bloques,
             IEnumerable<Espacio>           espacios,
-            IEnumerable<Docente>           docentes,
             IEnumerable<Grupo>?            grupos = null,
             ConfiguracionOptimizacion?     config = null,
             IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,
@@ -54,11 +53,10 @@ namespace SOEA.Engine.Genetic
             var a2 = asignacionesFase2.ToList();
             var b  = bloques.ToList();
             var e  = espacios.ToList();
-            var d  = docentes.ToList();
             var g  = grupos?.ToList();
             var c  = config ?? new ConfiguracionOptimizacion();
             var ia = infoAsignatura ?? new Dictionary<Guid, (int, CategoriaAsignatura)>();
-            return Task.Run(() => OptimizarSincrono(s, a2, b, e, d, g, c, ia, ventanaPorAsignatura, sesionesFijasIds, sesionesCedidasParaRevertir, ct), ct);
+            return Task.Run(() => OptimizarSincrono(s, a2, b, e, g, c, ia, ventanaPorAsignatura, sesionesFijasIds, sesionesCedidasParaRevertir, ct), ct);
         }
 
         private ResultadoOptimizacion OptimizarSincrono(
@@ -66,7 +64,6 @@ namespace SOEA.Engine.Genetic
             List<AsignacionSemanal> asignacionesFase2,
             List<BloqueTiempo>      bloques,
             List<Espacio>           espacios,
-            List<Docente>           docentes,
             List<Grupo>?            grupos,
             ConfiguracionOptimizacion config,
             IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)> infoAsignatura,
@@ -87,8 +84,12 @@ namespace SOEA.Engine.Genetic
             var probCruce          = Math.Clamp(config.ProbabilidadCruce,    0.0, 1.0);
             var umbralConvergencia = Math.Max(1,  config.UmbralConvergencia);
 
-            // RNG inyectable: semilla fija = reproducible (tests); null = aleatorio (producción).
-            var rng = config.Semilla.HasValue ? new Random(config.Semilla.Value) : new Random();
+            // REP1 auditoría: antes, sin semilla explícita, cada corrida usaba new Random()
+            // (time-based) — regenerar con la MISMA entrada daba un horario distinto y
+            // reemplazaba la corrida persistida, así que un reporte de conflicto no se podía
+            // reproducir. Sin una semilla explícita, se usa una fija por defecto: no hay UI
+            // todavía para que el usuario pida variedad a propósito, así que no se pierde nada.
+            var rng = new Random(config.Semilla ?? 12345);
 
             var bloqueIndex = Enumerable.Range(0, bloques.Count).ToDictionary(i => bloques[i].Id, i => i);
 
@@ -100,9 +101,9 @@ namespace SOEA.Engine.Genetic
             var sesionIds = sesiones.Select(s => s.Id).ToArray();
             var semilla = new CromosomaHorario(sesionIds, startSemilla);
 
-            var operadores = new OperadoresGeneticos(sesiones, bloques, docentes, rng, grupos,
+            var operadores = new OperadoresGeneticos(sesiones, bloques, rng, grupos,
                 ventanaPorAsignatura, sesionesFijasIds);
-            var evaluador  = new EvaluadorFitness(sesiones, bloques, docentes, espacios, config, infoAsignatura);
+            var evaluador  = new EvaluadorFitness(sesiones, bloques, espacios, config, infoAsignatura);
 
             _logger.LogInformation("Fase 3 (Genético): {S} sesiones, población={P}, maxGen={G}.",
                 sesiones.Count, tamañoPoblacion, maxGeneraciones);

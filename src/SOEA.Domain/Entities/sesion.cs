@@ -70,6 +70,13 @@ namespace SOEA.Domain.Entities
         /// </summary>
         public bool CedidaPorSaturacion { get; private set; }
 
+        /// <summary>
+        /// H2 auditoría: aula fija que <see cref="VirtualizarSesion"/> limpió, para que
+        /// <see cref="RevertirCesion"/> pueda restaurarla. No mapeado a BD — es estado transitorio
+        /// de una sola corrida de generación (Fase 3 vuelve a presencial dentro del mismo request).
+        /// </summary>
+        private Guid? _espacioIdAntesDeVirtualizar;
+
         // Constructor privado para EF Core
         private Sesion() : base() { }
 
@@ -91,6 +98,12 @@ namespace SOEA.Domain.Entities
             Guid? parejaAlternanciaId = null) : base(id)
         {
             Validar(asignaturaId, duracionHoras, esBloque, estaDividida);
+            // DOC1 auditoría: AsignarDocente ya rechazaba Guid.Empty ("use null para desasignar"),
+            // pero el constructor no tenía la misma guarda — un DTO con DocenteId no-nullable que
+            // deserializa a Guid.Empty (sesión sin docente) lo persistía como si fuera un docente
+            // real. Misma regla en los dos únicos puntos donde DocenteId se fija.
+            if (docenteId == Guid.Empty)
+                throw new ArgumentException("El docente no puede ser un Guid vacío (use null para sesión sin docente).");
 
             AsignaturaId = asignaturaId;
             DocenteId = docenteId;
@@ -150,6 +163,9 @@ namespace SOEA.Domain.Entities
         /// </summary>
         public void VirtualizarSesion(bool cedidaPorSaturacion = false)
         {
+            // H2 auditoría: recordar el aula fija (HC-S05) antes de limpiarla, para que
+            // RevertirCesion pueda devolverla si la cesión se deshace más tarde en la misma corrida.
+            _espacioIdAntesDeVirtualizar = EspacioId;
             Modalidad = Modalidad.Virtual;
             EspacioId = null;
             CedidaPorSaturacion = cedidaPorSaturacion;
@@ -197,7 +213,36 @@ namespace SOEA.Domain.Entities
             PatronAlternanciaId = null;
             ParejaAlternanciaId = null;
             CedidaPorSaturacion = false;
+            // H2 auditoría: si VirtualizarSesion había limpiado el aula fija, restaurarla — antes
+            // quedaba una sesión "presencial" con EspacioId null (una clase sin aula).
+            if (_espacioIdAntesDeVirtualizar is Guid espacioPrevio)
+            {
+                EspacioId = espacioPrevio;
+                _espacioIdAntesDeVirtualizar = null;
+            }
             return true;
+        }
+
+        /// <summary>
+        /// GA1 auditoría: restaura el estado de alternancia/modalidad de esta sesión a un snapshot
+        /// tomado antes de que el pase de reversión de Fase 3 (<see cref="MotorGenetico"/> vía las
+        /// mismas instancias que el orquestador conserva) lo mutara. Uso exclusivo de
+        /// <c>GenerarHorarioService</c>: cuando el post-chequeo descarta la salida del AG y cae de
+        /// vuelta a las asignaciones de Fase 2, esas asignaciones fueron calculadas contra el
+        /// estado PRE-Fase-3 — sin esto, el fallback se revalida contra sesiones que Fase 2 nunca
+        /// vio (una pareja de alternancia que Fase 3 revirtió a SinAlternancia hace que el
+        /// validador vea dos presenciales compartiendo aula, cuando Fase 2 las dejó compartiéndola
+        /// legítimamente por alternar).
+        /// </summary>
+        public void RestaurarEstadoAlternancia(
+            Modalidad modalidad, TipoAlternancia alternancia, Guid? patronAlternanciaId,
+            Guid? parejaAlternanciaId, bool cedidaPorSaturacion)
+        {
+            Modalidad = modalidad;
+            Alternancia = alternancia;
+            PatronAlternanciaId = patronAlternanciaId;
+            ParejaAlternanciaId = parejaAlternanciaId;
+            CedidaPorSaturacion = cedidaPorSaturacion;
         }
 
         public void Bloquear()

@@ -38,12 +38,17 @@ namespace SOEA.Tests.Application
     /// </summary>
     public class ImportarCurriculumServiceDuplicacionTests
     {
-        private static (ImportarCurriculumService svc, SOEABdContext db) Crear()
+        // dbName null = base de datos InMemory nueva (nombre aleatorio). Pasar el mismo nombre que
+        // un Crear() anterior simula una SEGUNDA request contra los mismos datos con un DbContext
+        // NUEVO — exactamente como en producción (DbContext scoped por request) — sin arrastrar el
+        // change tracker de la primera llamada, que es lo que rompería una reimportación real: EF
+        // lanza "already being tracked" si se reutiliza el mismo DbContext para dos EjecutarAsync.
+        private static (ImportarCurriculumService svc, SOEABdContext db) Crear(string? dbName = null)
         {
             // InMemory no soporta transacciones reales (BeginTransactionAsync es un no-op que
             // solo advierte) — el servicio bajo prueba sí las usa, así que se silencia el aviso.
             var options = new DbContextOptionsBuilder<SOEABdContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .UseInMemoryDatabase(dbName ?? Guid.NewGuid().ToString())
                 .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
                 .Options;
             var db = new SOEABdContext(options);
@@ -86,6 +91,71 @@ namespace SOEA.Tests.Application
 
             Assert.Equal(1, await db.Docentes.CountAsync());
             Assert.Equal(1, stats.DocentesCreados);
+        }
+
+        [Fact]
+        public async Task Reimportar_ConDocenteExistente_ActualizaLaFilaEnBD()
+        {
+            // IMP1 auditoría: existe (de _docentes.GetAllAsync(), AsNoTracking) se mutaba sin
+            // decírselo al DbContext — la respuesta reportaba "1 docente actualizado" y la fila en
+            // BD quedaba intacta. Solo un DbContext REAL (no un fake en memoria) puede reproducir
+            // esto: un fake que guarda en un Dictionary no distingue tracked de detached.
+            var dbName = Guid.NewGuid().ToString();
+            var (svc1, _) = Crear(dbName);
+
+            var primero = new CurriculumExcelResult(
+                facultades: new List<Facultad>(), programas: new List<Programa>(),
+                asignaturas: new List<Asignatura>(),
+                docentes: new List<Docente> { new(Guid.NewGuid(), "Juan Pérez", "", "", 20m, new List<FranjaHoraria> { FranjaHoraria.Matutino }) },
+                sesionesPredefinidas: new List<Sesion>(), espacios: new List<Espacio>(), grupos: new List<Grupo>());
+            await svc1.EjecutarAsync(primero);
+
+            // Segunda "request": DbContext NUEVO contra la MISMA base de datos InMemory — así
+            // reproduce la reimportación real (un docente ya persistido, no uno recién creado en
+            // el mismo request), en vez de un cliente lanzando "already being tracked".
+            var (svc2, db2) = Crear(dbName);
+            var segundo = new CurriculumExcelResult(
+                facultades: new List<Facultad>(), programas: new List<Programa>(),
+                asignaturas: new List<Asignatura>(),
+                docentes: new List<Docente> { new(Guid.NewGuid(), "Juan Pérez", "Gómez", "", 30m, new List<FranjaHoraria> { FranjaHoraria.Matutino }) },
+                sesionesPredefinidas: new List<Sesion>(), espacios: new List<Espacio>(), grupos: new List<Grupo>());
+            var stats = await svc2.EjecutarAsync(segundo);
+
+            Assert.Equal(1, await db2.Docentes.CountAsync());
+            Assert.Equal(1, stats.DocentesActualizados);
+            var docenteEnBd = await db2.Docentes.AsNoTracking().SingleAsync();
+            Assert.Equal("Gómez", docenteEnBd.Apellido);
+            Assert.Equal(30m, docenteEnBd.MaximoHorasSemanales);
+        }
+
+        [Fact]
+        public async Task Grupo_ConFacultadIdTemporal_SeRemapeaAlIdRealDeLaFacultad()
+        {
+            // M14 auditoría (descubierto al investigar la migración de FK de saneamiento):
+            // progRealId/asigRealId/docRealId se remapean del id TEMPORAL (asignado durante el
+            // mapeo DTO→entidad) al id REAL creado al persistir, pero g.FacultadId no pasaba por
+            // el mismo remapeo — se persistía el id temporal, que nunca corresponde a ninguna fila
+            // real de Facultades. En la BD local esto dejó el 100% de los Grupos con facultad_id
+            // huérfano.
+            var (svc, db) = Crear();
+            var facTempId = Guid.NewGuid(); // id "temporal" tal como lo asigna el mapeo DTO→entidad
+            var programaId = Guid.NewGuid();
+
+            var resultado = new CurriculumExcelResult(
+                facultades: new List<Facultad> { new(facTempId, "INGENIERIA") },
+                programas: new List<Programa>(),
+                asignaturas: new List<Asignatura>(),
+                docentes: new List<Docente>(),
+                sesionesPredefinidas: new List<Sesion>(),
+                espacios: new List<Espacio>(),
+                grupos: new List<Grupo> { new(Guid.NewGuid(), "G1", programaId, 30, facultadId: facTempId) });
+            await svc.EjecutarAsync(resultado);
+
+            var facultadReal = await db.Facultades.AsNoTracking().SingleAsync();
+            var grupoPersistido = await db.Grupos.AsNoTracking().SingleAsync();
+
+            Assert.Equal(facultadReal.Id, grupoPersistido.FacultadId);
+            Assert.NotEqual(facTempId, grupoPersistido.FacultadId); // el id temporal nunca debe sobrevivir
         }
 
         [Fact]

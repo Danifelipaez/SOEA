@@ -45,11 +45,13 @@ namespace SOEA.API.Controllers
     {
         private readonly IGrupoRepositorio _repo;
         private readonly IAsignaturaRepositorio _asignaturas;
+        private readonly ISesionRepositorio _sesiones;
 
-        public GruposController(IGrupoRepositorio repo, IAsignaturaRepositorio asignaturas)
+        public GruposController(IGrupoRepositorio repo, IAsignaturaRepositorio asignaturas, ISesionRepositorio sesiones)
         {
             _repo = repo;
             _asignaturas = asignaturas;
+            _sesiones = sesiones;
         }
 
         [HttpGet]
@@ -90,28 +92,20 @@ namespace SOEA.API.Controllers
                 return BadRequest($"No existe la asignatura con Id '{dto.AsignaturaId}'.");
 
             var id = dto.Id == Guid.Empty ? Guid.NewGuid() : dto.Id;
-            try
-            {
-                var grupo = new Grupo(
-                    id,
-                    dto.Nombre,
-                    dto.ProgramaId,
-                    dto.EstudiantesInscritos,
-                    asignaturaId: dto.AsignaturaId,
-                    facultadId: dto.FacultadId,
-                    docenteId: dto.DocenteId,
-                    codigo: dto.Codigo);
+            // ERR2 auditoría: sin catch de ArgumentException — GlobalExceptionHandler lo traduce a 400.
+            var grupo = new Grupo(
+                id,
+                dto.Nombre,
+                dto.ProgramaId,
+                dto.EstudiantesInscritos,
+                asignaturaId: dto.AsignaturaId,
+                facultadId: dto.FacultadId,
+                docenteId: dto.DocenteId,
+                codigo: dto.Codigo);
 
-                grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
-                grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
+            grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
+            grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
 
-                await _repo.AddAsync(grupo);
-                return StatusCode(StatusCodes.Status201Created, MapToDto(grupo));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
             // G6 auditoría: el índice único ix_grupo_codigo (único constraint del Grupo) lanzaba
             // DbUpdateException sin capturar → 500 genérico. Bug (auditoría de limpieza, hallazgo
             // 1.8): el catch que arreglaba eso aquí asumía que CUALQUIER DbUpdateException era el
@@ -120,6 +114,8 @@ namespace SOEA.API.Controllers
             // a 409 con un mensaje genérico correcto ("ya existe un registro con esos datos, o hace
             // referencia a algo que no existe"); se deja que llegue ahí en vez de afirmar una causa
             // que este catch no puede conocer.
+            await _repo.AddAsync(grupo);
+            return StatusCode(StatusCodes.Status201Created, MapToDto(grupo));
         }
 
         [HttpPut("{id}")]
@@ -136,25 +132,19 @@ namespace SOEA.API.Controllers
             if (asignatura is null)
                 return BadRequest($"No existe la asignatura con Id '{dto.AsignaturaId}'.");
 
-            try
-            {
-                grupo.ActualizarNombre(dto.Nombre);
-                grupo.ActualizarCodigo(dto.Codigo);
-                grupo.ActualizarPrograma(dto.ProgramaId);
-                grupo.ActualizarEstudiantes(dto.EstudiantesInscritos);
-                grupo.ActualizarAsignatura(dto.AsignaturaId, dto.FacultadId ?? grupo.FacultadId);
-                grupo.AsignarDocente(dto.DocenteId);
-                grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
-                grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
+            // ERR2 auditoría: sin catch de ArgumentException — GlobalExceptionHandler lo traduce a
+            // 400. Ver comentario en Create: GlobalExceptionHandler también traduce DbUpdateException.
+            grupo.ActualizarNombre(dto.Nombre);
+            grupo.ActualizarCodigo(dto.Codigo);
+            grupo.ActualizarPrograma(dto.ProgramaId);
+            grupo.ActualizarEstudiantes(dto.EstudiantesInscritos);
+            grupo.ActualizarAsignatura(dto.AsignaturaId, dto.FacultadId ?? grupo.FacultadId);
+            grupo.AsignarDocente(dto.DocenteId);
+            grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
+            grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
 
-                await _repo.UpdateAsync(grupo);
-                return Ok(MapToDto(grupo));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
-            // Ver comentario en Create: GlobalExceptionHandler traduce DbUpdateException.
+            await _repo.UpdateAsync(grupo);
+            return Ok(MapToDto(grupo));
         }
 
         [HttpDelete("{id}")]
@@ -162,6 +152,19 @@ namespace SOEA.API.Controllers
         {
             var grupo = await _repo.GetByIdAsync(id);
             if (grupo is null) return NotFound($"Grupo con Id {id} no encontrado.");
+
+            // M14 auditoría: antes no había ninguna comprobación — Sesiones.grupo_id no tenía FK,
+            // así que borrar un grupo con sesiones generadas dejaba esas sesiones apuntando a
+            // nada (HC-C01 dejaba de aplicárseles en silencio). Con la FK Restrict ya en su lugar,
+            // esto además evita el 409 genérico de EF y da un mensaje que nombra la causa.
+            var sesionesDelGrupo = (await _sesiones.GetAllAsync()).Count(s => s.GrupoId == id);
+            if (sesionesDelGrupo > 0)
+                return Conflict(new
+                {
+                    error = $"No se puede eliminar el grupo: tiene {sesionesDelGrupo} sesión(es) generada(s). " +
+                             "Regenere el horario sin este grupo, o elimínelo primero de la corrida vigente."
+                });
+
             await _repo.DeleteAsync(id);
             return NoContent();
         }

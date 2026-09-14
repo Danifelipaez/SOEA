@@ -40,20 +40,15 @@ namespace SOEA.API.Controllers
             return Ok(list.Select(MapToDto));
         }
 
+        // ERR2 auditoría: sin catch — GlobalExceptionHandler traduce ArgumentException a 400,
+        // KeyNotFoundException a 404 y BusinessRuleViolationException a 409.
         [HttpPost]
         public async Task<ActionResult<EspacioDto>> Create([FromBody] EspacioDto dto)
         {
             var id = dto.Id == Guid.Empty ? Guid.NewGuid() : dto.Id;
-            try
-            {
-                var espacio = new Espacio(id, dto.Nombre, ParseTipo(dto.Tipo), dto.Capacidad, dto.Edificio, dto.Piso);
-                await _repo.AddAsync(espacio);
-                return StatusCode(StatusCodes.Status201Created, MapToDto(espacio));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
+            var espacio = new Espacio(id, dto.Nombre, ParseTipo(dto.Tipo), dto.Capacidad, dto.Edificio, dto.Piso);
+            await _repo.AddAsync(espacio);
+            return StatusCode(StatusCodes.Status201Created, MapToDto(espacio));
         }
 
         [HttpPut("{id}")]
@@ -61,35 +56,17 @@ namespace SOEA.API.Controllers
         {
             var existing = await _repo.GetByIdAsync(id);
             if (existing is null) return NotFound();
-            try
-            {
-                existing.ActualizarDatos(dto.Nombre, ParseTipo(dto.Tipo), dto.Edificio, dto.Piso);
-                existing.ActualizarCapacidad(dto.Capacidad);
-                await _repo.UpdateAsync(existing);
-                return Ok(MapToDto(existing));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
+            existing.ActualizarDatos(dto.Nombre, ParseTipo(dto.Tipo), dto.Edificio, dto.Piso);
+            existing.ActualizarCapacidad(dto.Capacidad);
+            await _repo.UpdateAsync(existing);
+            return Ok(MapToDto(existing));
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            try
-            {
-                await _service.DeleteAsync(id);
-                return NoContent();
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ex.Message);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Conflict(ex.Message);
-            }
+            await _service.DeleteAsync(id);
+            return NoContent();
         }
 
         private static TipoEspacio ParseTipo(string tipo) => tipo switch

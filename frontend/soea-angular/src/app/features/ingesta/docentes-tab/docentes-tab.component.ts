@@ -136,11 +136,10 @@ export class DocentesTabComponent {
         this.snackBar.open('Docente eliminado localmente.', '', { duration: 2500 });
         return;
       }
-      this.persistencia.eliminarDocenteBD(docente.id).subscribe({
+      // FE10 auditoría: antes borraba a mano en vez de pasar por CatalogoService.eliminar.
+      this.catalogo.eliminar('docente', docente.id).subscribe({
         next: () => {
-          this.catalogo.quitarDeBd('docente', docente.id);
-          this.state.deleteDocente(docente.id);
-          this.catalogo.cargarTodo().subscribe();
+          this.catalogo.cargarTodo().subscribe({ error: () => this.snackBar.open('Se eliminó, pero no se pudo refrescar el catálogo. Recarga la página.', 'Cerrar', { duration: 6000 }) });
           this.snackBar.open('Docente eliminado de la BD.', '', { duration: 2500 });
         },
         error: (err) => this.snackBar.open(`Error al eliminar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
@@ -296,7 +295,7 @@ export class FusionDocentesDialogComponent {
         this.busy.set(false); this.done.add(gi); this.huboFusion = true;
         this.snackBar.open(`Fusionados ${r.docentesEliminados} docente(s); ${r.gruposReasignados} grupo(s) reasignado(s).`, '', { duration: 4000 });
       },
-      error: (err) => { this.busy.set(false); this.snackBar.open(`Error al fusionar: ${err?.error ?? 'desconocido'}`, 'Cerrar', { duration: 5000, panelClass: ['snack-error'] }); }
+      error: (err) => { this.busy.set(false); this.snackBar.open(`Error al fusionar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000, panelClass: ['snack-error'] }); }
     });
   }
 }

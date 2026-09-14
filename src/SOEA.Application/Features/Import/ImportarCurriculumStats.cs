@@ -20,7 +20,7 @@ namespace SOEA.Application.Features.Import
         public int AsignaturasActualizadas { get; set; }
         public int GruposCreados        { get; set; }
         public int SesionesPersistidas  { get; set; }
-        public int AsignaturasSinDocente { get; set; }
+        public int GruposSinDocente { get; set; }
         public List<string> Advertencias { get; set; } = new();
 
         /// <summary>TempGuid (del CurriculumExcelResult) → RealGuid (persisted en BD).</summary>

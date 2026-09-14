@@ -9,7 +9,9 @@ namespace SOEA.Domain.Interfaces
     /// <summary>
     /// Resultado de la Fase 3 (Algoritmo Genético).
     /// El GA optimiza restricciones blandas sobre el modelo bi-semanal: devuelve las
-    /// <see cref="AsignacionSemanal"/> optimizadas (dos por sesión, Semana A/B), NO sesiones sueltas.
+    /// <see cref="AsignacionSemanal"/> optimizadas, NO sesiones sueltas.
+    /// DOCS auditoría (ALT-05): UNA fila por sesión (su semana canónica), no dos — la contraparte
+    /// virtual se deriva al construir el DTO de respuesta.
     /// </summary>
     /// <param name="AsignacionesOptimizadas">Asignaciones finales (optimizadas o, si hubo fallback, las de Fase 2).</param>
     /// <param name="PuntajeFitness">Fitness del mejor cromosoma (menor = mejor).</param>
@@ -38,7 +40,9 @@ namespace SOEA.Domain.Interfaces
     /// Parámetros de ejecución del algoritmo genético y pesos de restricciones blandas.
     /// Todos los campos tienen valores por defecto; el frontend puede sobreescribirlos.
     /// </summary>
-    /// <param name="Semilla">Semilla del RNG. Null = aleatoria (producción); fija = reproducible (tests).</param>
+    /// <param name="Semilla">Semilla del RNG. Null = usa una semilla fija por defecto (REP1 auditoría:
+    /// reproducible por defecto, para que regenerar con la misma entrada dé el mismo horario);
+    /// un valor explícito permite pedir una corrida distinta.</param>
     public record ConfiguracionOptimizacion(
         int    TamañoPoblacion      = 50,
         int    MaxGeneraciones      = 200,
@@ -90,7 +94,6 @@ namespace SOEA.Domain.Interfaces
             IEnumerable<AsignacionSemanal>  asignacionesFase2,
             IEnumerable<BloqueTiempo>       bloques,
             IEnumerable<Espacio>            espacios,
-            IEnumerable<Docente>            docentes,
             IEnumerable<Grupo>?             grupos = null,
             ConfiguracionOptimizacion?      config = null,
             IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,

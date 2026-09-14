@@ -71,6 +71,47 @@ namespace SOEA.Infrastructure.Data.Configurations
                     v => DeserializarRequisitosEspacio(v))
                 .UsePropertyAccessMode(PropertyAccessMode.Property)
                 .IsRequired(false);
+            // M16 auditoría: sin ValueComparer, EF Core solo detecta un cambio en esta colección
+            // por REASIGNACIÓN de referencia — hoy funciona porque ActualizarRequisitosEspacio
+            // siempre asigna una lista nueva, pero un futuro `RequisitosEspacio.Add(...)` mutando
+            // in-place se descartaría en silencio al guardar, sin ningún error. RequisitoEspacio es
+            // un record (igualdad estructural), así que SequenceEqual ya compara por valor.
+            builder.Property(g => g.RequisitosEspacio).Metadata.SetValueComparer(
+                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<SOEA.Domain.ValueObjects.RequisitoEspacio>>(
+                    (a, b) => (a ?? new()).SequenceEqual(b ?? new()),
+                    v => (v ?? new()).Aggregate(0, (hash, r) => HashCode.Combine(hash, r.GetHashCode())),
+                    v => (v ?? new()).ToList()));
+
+            // M14 auditoría (Decisión 1 del saneamiento): ProgramaId/AsignaturaId/DocenteId no
+            // tenían FK — AsignaturaService.DeleteAsync ya cascadea a Grupos a mano, y
+            // DocenteService.DeleteAsync ya bloquea el borrado si hay Grupos asociados; estas FK
+            // son la red de seguridad para cualquier otro camino de borrado que no pase por esos
+            // dos servicios. Restrict en los tres: un Grupo vivo nunca debe quedar sin su
+            // Programa/Asignatura/Docente por un borrado que no lo previó.
+            // FacultadId → SetNull: a diferencia de los otros tres, esta columna no tiene ningún
+            // invariante de negocio que dependa de ella (verificado: solo se lee para mostrarla en
+            // el catálogo) y, en la BD local, el 100% de las filas existentes tenían un valor
+            // huérfano (bug de import corregido aparte) — SetNull permite sanear esos datos sin
+            // tener que inventar una facultad "correcta" para cada fila histórica.
+            builder.HasOne<Programa>()
+                .WithMany()
+                .HasForeignKey(g => g.ProgramaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne<Asignatura>()
+                .WithMany()
+                .HasForeignKey(g => g.AsignaturaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne<Docente>()
+                .WithMany()
+                .HasForeignKey(g => g.DocenteId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne<Facultad>()
+                .WithMany()
+                .HasForeignKey(g => g.FacultadId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             // Índices
             builder.HasIndex(g => g.Codigo)

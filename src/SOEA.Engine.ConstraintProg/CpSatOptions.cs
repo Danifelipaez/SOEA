@@ -25,6 +25,15 @@ namespace SOEA.Engine.ConstraintProg
         public int NumWorkers { get; set; } = 0;
 
         /// <summary>
+        /// REP1 auditoría: sin esto, dos solves con la MISMA entrada podían devolver horarios
+        /// distintos (sin garantías de reproducibilidad de CP-SAT) — un reporte de conflicto no se
+        /// podía reproducir. Con NumWorkers=1 esto hace el solve determinista; en portfolio
+        /// paralelo (NumWorkers &gt; 1) ayuda pero no lo garantiza al 100% — la carrera entre hilos
+        /// sigue dependiendo del scheduler del SO.
+        /// </summary>
+        public int RandomSeed { get; set; } = 1;
+
+        /// <summary>
         /// Si es true, ante una infactibilidad SIN causa explicada por ningún pre-check (el
         /// catch-all final tras un solve CP-SAT genuinamente INFEASIBLE), reintenta el solve una
         /// vez por grupo excluyéndolo, para reportar cuáles grupos son responsables. Default false:

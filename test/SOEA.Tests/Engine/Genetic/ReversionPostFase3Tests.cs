@@ -73,7 +73,7 @@ namespace SOEA.Tests.Engine.Genetic
             };
             var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios,
                 config: Cfg(), sesionesCedidasParaRevertir: new List<Guid> { s1.Id });
 
             Assert.False(r.UsoFallback);
@@ -102,7 +102,7 @@ namespace SOEA.Tests.Engine.Genetic
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Lab1", TipoEspacio.Laboratorio, 30) };
             var fase2 = Fase2(sesiones, new[] { 0, 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios,
                 config: Cfg(), sesionesCedidasParaRevertir: new List<Guid> { s1.Id });
 
             Assert.False(r.UsoFallback);
@@ -127,7 +127,7 @@ namespace SOEA.Tests.Engine.Genetic
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Lab1", TipoEspacio.Laboratorio, 30) };
             var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios,
                 config: Cfg(), sesionesCedidasParaRevertir: new List<Guid> { s1.Id });
 
             Assert.False(r.UsoFallback);
@@ -145,7 +145,7 @@ namespace SOEA.Tests.Engine.Genetic
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Lab1", TipoEspacio.Laboratorio, 30) };
             var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(), config: Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, config: Cfg());
 
             Assert.False(r.UsoFallback);
             Assert.Null(r.SesionesRevertidasIds);

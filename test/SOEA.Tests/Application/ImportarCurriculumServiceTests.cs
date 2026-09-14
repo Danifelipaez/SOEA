@@ -511,7 +511,7 @@ namespace SOEA.Tests.Application
                 return Task.CompletedTask;
             }
 
-            public Task<bool> ExisteAsync(Guid asignaturaId, Guid docenteId, Guid bloqueTiempoId) =>
+            public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) =>
                 Task.FromResult(_store.Values.Any(x =>
                     x.AsignaturaId   == asignaturaId  &&
                     x.DocenteId      == docenteId     &&
@@ -522,6 +522,8 @@ namespace SOEA.Tests.Application
             public Task AddAsync(Sesion e) { _store[e.Id] = e; return Task.CompletedTask; }
             public Task UpdateAsync(Sesion e) { _store[e.Id] = e; return Task.CompletedTask; }
             public Task DeleteAsync(Guid id) { _store.Remove(id); return Task.CompletedTask; }
+            public Task DeleteRangeAsync(IEnumerable<Guid> ids) { foreach (var id in ids) _store.Remove(id); return Task.CompletedTask; }
+            public Task<List<Sesion>> GetByIdsAsync(IEnumerable<Guid> ids) { var set = ids.ToHashSet(); return Task.FromResult(_store.Values.Where(s => set.Contains(s.Id)).ToList()); }
         }
 
         private sealed class FakeBloqueTiempoRepo : IBloqueTiempoRepositorio

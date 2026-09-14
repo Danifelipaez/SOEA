@@ -532,7 +532,15 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, grupoId,
                     TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual)
             ).ToList();
-            var fija = new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, grupoId,
+            // VAL3 auditoría: una sesión fija DEBE traer un BloqueTiempoId resoluble en la MISMA
+            // lista de bloques que recibe el solver — CP-SAT ahora reporta infactibilidad explícita
+            // si no lo trae, en vez de dejarla como variable libre en silencio (antes de VAL3, un
+            // Guid.NewGuid() aquí pasaba desapercibido porque la igualdad nunca se llegaba a fijar).
+            // Día elegido con cuidado: con 1 bloque/día y las 3 libres compartiendo grupoId con la
+            // fija, HC-C01 exige que ninguna libre caiga el mismo día que la fija. Con 5 días y
+            // separación ≥2 entre las 3 libres, {lunes, miércoles, viernes} (índices 0,2,4) es la
+            // ÚNICA terna posible — así que la fija debe caer en martes o jueves (índices 1,3).
+            var fija = new Sesion(Guid.NewGuid(), asigId, null, bloques[1].Id, null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
             var sesiones = libres.Append(fija).ToList();
 

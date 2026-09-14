@@ -54,18 +54,5 @@ namespace SOEA.Domain.Interfaces
         Task<CurriculumExcelResult> LeerCurriculumAsync(
             Stream excelStream,
             IReadOnlyDictionary<(DiaDeSemana Dia, TimeOnly HoraInicio), BloqueTiempo>? catalogoBloques = null);
-
-        /// <summary>
-        /// Lee el Excel de Asignaturas a Programar (Modo 2).
-        /// Devuelve un CurriculumExcelResult pero sin disponibilidad de bloques en los docentes.
-        /// </summary>
-        Task<CurriculumExcelResult> LeerAsignaturasModo2Async(Stream excelStream);
-
-        /// <summary>
-        /// Lee el Excel de Disponibilidad de Docentes (Formato 3) y actualiza/crea docentes con bloques basados en sus franjas.
-        /// </summary>
-        Task<IEnumerable<Docente>> LeerDisponibilidadDocentesAsync(Stream excelStream, IEnumerable<Docente> docentesExistentes);
-
-        Task<IEnumerable<Espacio>> LeerInventarioEspaciosAsync(Stream excelStream);
     }
 }

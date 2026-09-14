@@ -30,6 +30,7 @@ namespace SOEA.Tests.Application.Horario
             public Task AddAsync(SOEA.Domain.Entities.Horario e) { Items.Add(e); return Task.CompletedTask; }
             public Task<SOEA.Domain.Entities.Horario?> GetByIdAsync(Guid id) => Task.FromResult(Items.FirstOrDefault(h => h.Id == id));
             public Task<List<SOEA.Domain.Entities.Horario>> GetAllAsync() => Task.FromResult(Items.ToList());
+            public Task<List<SOEA.Domain.Entities.Horario>> GetAllBySemestreAsync(string semestre) => Task.FromResult(Items.Where(h => h.Semestre == semestre).ToList());
             public Task UpdateAsync(SOEA.Domain.Entities.Horario e) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) { Items.RemoveAll(h => h.Id == id); return Task.CompletedTask; }
             public Task<SOEA.Domain.Entities.Horario?> GetBySemestreAsync(string semestre) =>
@@ -45,7 +46,9 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<Sesion>> GetAllAsync() => Task.FromResult(Items.ToList());
             public Task UpdateAsync(Sesion e) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) { Items.RemoveAll(s => s.Id == id); return Task.CompletedTask; }
-            public Task<bool> ExisteAsync(Guid a, Guid d, Guid b) => Task.FromResult(false);
+            public Task DeleteRangeAsync(IEnumerable<Guid> ids) { var set = ids.ToHashSet(); Items.RemoveAll(s => set.Contains(s.Id)); return Task.CompletedTask; }
+            public Task<List<Sesion>> GetByIdsAsync(IEnumerable<Guid> ids) { var set = ids.ToHashSet(); return Task.FromResult(Items.Where(s => set.Contains(s.Id)).ToList()); }
+            public Task<bool> ExisteAsync(Guid a, Guid? d, Guid b) => Task.FromResult(false);
         }
 
         private sealed class FakeAsignacionRepo : IAsignacionSemanalRepositorio
@@ -57,6 +60,7 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<AsignacionSemanal>> GetAllAsync() => Task.FromResult(Items.ToList());
             public Task UpdateAsync(AsignacionSemanal e) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) { Items.RemoveAll(a => a.Id == id); return Task.CompletedTask; }
+            public Task DeleteBySesionIdsAsync(IEnumerable<Guid> sesionIds) { var set = sesionIds.ToHashSet(); Items.RemoveAll(a => set.Contains(a.SesionId)); return Task.CompletedTask; }
             public Task<List<AsignacionSemanal>> GetBySesionIdsAsync(IEnumerable<Guid> ids)
             {
                 var set = ids.ToHashSet();

@@ -1,3 +1,4 @@
+using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
 
 namespace SOEA.Application.Features.Espacios;
@@ -28,7 +29,7 @@ public class EspacioService
         var grupos = await _grupoRepo.GetAllAsync();
         var cantidad = grupos.Count(g => g.RequisitosEspacio.Any(r => r.EspacioId == id));
         if (cantidad > 0)
-            throw new InvalidOperationException(
+            throw new BusinessRuleViolationException(
                 $"No se puede eliminar el espacio: {cantidad} grupo(s) lo exigen como requisito de espacio. Actualice esos grupos primero.");
 
         await _repo.DeleteAsync(id);

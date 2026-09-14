@@ -7,6 +7,8 @@ using SOEA.Application.Features.Horario.Requests;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.Exceptions;
+using SOEA.Tests.Fakes;
 using Xunit;
 
 namespace SOEA.Tests.Application.Horario
@@ -18,8 +20,12 @@ namespace SOEA.Tests.Application.Horario
     /// </summary>
     public class CrearSesionManualServiceMensajesTests
     {
+        // MAN1 auditoría: id determinístico de GrillaInstitucional, no Guid.NewGuid() — el servicio
+        // indexa contra la grilla canónica para detectar solapes por span, y necesita que los ids
+        // de esta sesión existente coincidan con los que resuelve _bloques.FindByDiaHoraAsync.
         private static BloqueTiempo Bloque(DiaDeSemana dia, int hora) =>
-            new(Guid.NewGuid(), dia, new TimeOnly(hora, 0), new TimeOnly(hora + 1, 0));
+            SOEA.Domain.Services.GrillaInstitucional.GenerarBloques()
+                .First(b => b.Dia == dia && b.HoraInicio == new TimeOnly(hora, 0));
 
         [Fact]
         public async Task HCI01_DocenteYaOcupado_MensajeIdentificaAmbasAsignaturasConDiaYHora()
@@ -36,6 +42,7 @@ namespace SOEA.Tests.Application.Horario
                 new FakeBloques(bloque),
                 new FakeSesiones(sesionExistente),
                 new FakeAsignaciones(),
+                new FakeUnitOfWork(),
                 new FakeAsignaturas(
                     new Asignatura(asigExistenteId, "Física I", "COD-FIS", 1, 1, 0, Guid.NewGuid()),
                     new Asignatura(asigNuevaId, "Cálculo I", "COD-CALC", 1, 1, 0, Guid.NewGuid())));
@@ -51,7 +58,7 @@ namespace SOEA.Tests.Application.Horario
                 EsVirtual = true
             };
 
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => svc.EjecutarAsync(req));
+            var ex = await Assert.ThrowsAsync<BusinessRuleViolationException>(() => svc.EjecutarAsync(req));
 
             Assert.Contains("HC-I01", ex.Message);
             Assert.Contains("Sesión 1", ex.Message);
@@ -79,6 +86,7 @@ namespace SOEA.Tests.Application.Horario
                 new FakeBloques(bloque),
                 new FakeSesiones(sesionExistente),
                 new FakeAsignaciones(asigExistente),
+                new FakeUnitOfWork(),
                 new FakeAsignaturas(
                     new Asignatura(asigExistenteId, "Física I", "COD-FIS", 1, 1, 0, Guid.NewGuid()),
                     new Asignatura(asigNuevaId, "Cálculo I", "COD-CALC", 1, 1, 0, Guid.NewGuid())));
@@ -94,7 +102,7 @@ namespace SOEA.Tests.Application.Horario
                 TipoFlujo = "Laboratorio"
             };
 
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => svc.EjecutarAsync(req));
+            var ex = await Assert.ThrowsAsync<BusinessRuleViolationException>(() => svc.EjecutarAsync(req));
 
             Assert.Contains("HC-S01", ex.Message);
             Assert.Contains("Sesión 1", ex.Message);
@@ -126,11 +134,13 @@ namespace SOEA.Tests.Application.Horario
             public FakeSesiones(params Sesion[] sesiones) => _store.AddRange(sesiones);
             public Task AddAsync(Sesion e) { _store.Add(e); return Task.CompletedTask; }
             public Task AddRangeAsync(IEnumerable<Sesion> sesiones) { _store.AddRange(sesiones); return Task.CompletedTask; }
-            public Task<bool> ExisteAsync(Guid asignaturaId, Guid docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
+            public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
             public Task<Sesion?> GetByIdAsync(Guid id) => Task.FromResult(_store.FirstOrDefault(s => s.Id == id));
             public Task<List<Sesion>> GetAllAsync() => Task.FromResult(_store.ToList());
             public Task UpdateAsync(Sesion e) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
+            public Task DeleteRangeAsync(IEnumerable<Guid> ids) => Task.CompletedTask;
+            public Task<List<Sesion>> GetByIdsAsync(IEnumerable<Guid> ids) { var set = ids.ToHashSet(); return Task.FromResult(_store.Where(s => set.Contains(s.Id)).ToList()); }
         }
 
         private sealed class FakeAsignaciones : IAsignacionSemanalRepositorio
@@ -145,6 +155,7 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<AsignacionSemanal>> GetAllAsync() => Task.FromResult(_store.ToList());
             public Task UpdateAsync(AsignacionSemanal e) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
+            public Task DeleteBySesionIdsAsync(IEnumerable<Guid> sesionIds) => Task.CompletedTask;
         }
 
         private sealed class FakeAsignaturas : IAsignaturaRepositorio

@@ -317,6 +317,41 @@ namespace SOEA.Engine.ConstraintProg
 
             foreach (var sesion in sesiones)
             {
+                // VAL3 auditoría: una sesión del horario base SIEMPRE debe quedar fijada por
+                // igualdad — antes, si caía en cualquiera de las guardas de abajo (Estado ≠
+                // Asignada, bloque sin resolver, o span que no cabe en el día), el `continue`
+                // la dejaba SIN igualdad y SIN dominio (la exime la sección de HC-G01/HC-VH más
+                // abajo, a propósito — regla 8: es dato de entrada, no algo que HC-G01/HC-VH deban
+                // validar). El resultado era una variable libre sobre toda la grilla, capaz de
+                // cruzar la medianoche institucional sin que nada lo impidiera ni lo reportara.
+                // Ahora se trata aparte: se fija siempre, o se reporta el motivo por el que no se
+                // puede fijar — nunca se pierde en silencio.
+                if (sesionesFijasIds.Contains(sesion.Id))
+                {
+                    if (sesion.BloqueTiempoId == Guid.Empty || !bloqueIndex.TryGetValue(sesion.BloqueTiempoId, out var idxFija))
+                    {
+                        var msg = $"La sesión fija del horario base de '{NombreGrupo(sesion.GrupoId)}' no tiene un " +
+                                  "bloque de tiempo resoluble en la grilla institucional.";
+                        _logger.LogError(msg);
+                        return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Otro);
+                    }
+
+                    if (sesion.ParejaAlternanciaId is Guid parejaIdFija && hintDePareja.TryGetValue(parejaIdFija, out var idxParejaFija))
+                        idxFija = idxParejaFija;
+
+                    if (!BloquesPlanner.CabeEnDia(idxFija, duraciones[sesion.Id], rangosPorDia, diaPorIdx))
+                    {
+                        var msg = $"La sesión fija del horario base de '{NombreGrupo(sesion.GrupoId)}' " +
+                                  $"({duraciones[sesion.Id]}h) no cabe en su día sin cruzar la medianoche " +
+                                  "del horario institucional. Revise su hora de inicio y duración.";
+                        _logger.LogError(msg);
+                        return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Otro);
+                    }
+
+                    model.Add(startVars[sesion.Id] == idxFija);
+                    continue;
+                }
+
                 if (sesion.Estado != EstadoSesion.Asignada) continue;
                 if (sesion.BloqueTiempoId == Guid.Empty) continue;
                 if (!bloqueIndex.TryGetValue(sesion.BloqueTiempoId, out var idx)) continue;
@@ -327,23 +362,15 @@ namespace SOEA.Engine.ConstraintProg
                 int dur = duraciones[sesion.Id];
                 if (!BloquesPlanner.CabeEnDia(idx, dur, rangosPorDia, diaPorIdx)) continue;
 
-                if (sesionesFijasIds.Contains(sesion.Id))
-                {
-                    // Sesión del horario base: igualdad estricta — CP-SAT no puede moverla.
-                    model.Add(startVars[sesion.Id] == idx);
-                }
-                else
-                {
-                    // Fase 1 warm-start: pista, el solver puede sobreescribirla.
-                    model.AddHint(startVars[sesion.Id], idx);
+                // Fase 1 warm-start: pista, el solver puede sobreescribirla.
+                model.AddHint(startVars[sesion.Id], idx);
 
-                    // Si Fase 1 ya trae espacio asignado, hintear también spaceVars:
-                    // si esa asignación es factible, CP-SAT la valida casi al instante.
-                    if (sesion.EspacioId is Guid espacioHint &&
-                        espacioIndex.TryGetValue(espacioHint, out var espIdx) &&
-                        spaceVars.TryGetValue(sesion.Id, out var spaceVar))
-                        model.AddHint(spaceVar, espIdx);
-                }
+                // Si Fase 1 ya trae espacio asignado, hintear también spaceVars:
+                // si esa asignación es factible, CP-SAT la valida casi al instante.
+                if (sesion.EspacioId is Guid espacioHint &&
+                    espacioIndex.TryGetValue(espacioHint, out var espIdx) &&
+                    spaceVars.TryGetValue(sesion.Id, out var spaceVar))
+                    model.AddHint(spaceVar, espIdx);
             }
 
             // ── HC-G01 + "No cruzar día": dominio de start por sesión y semana ────────────
@@ -464,11 +491,13 @@ namespace SOEA.Engine.ConstraintProg
                 {
                     if (!spaceVars.ContainsKey(sesion.Id)) continue;
 
-                    // M8: EspacioId fijo de la sesión que no está entre los espacios de esta corrida
-                    // (p. ej. borrado del catálogo) hace que CalculadorEspaciosSesion.Candidatos caiga
-                    // al filtro genérico por tipo/requisito de grupo en vez de fallar — antes, en
-                    // silencio. Advertirlo aquí en vez de en el Domain (SOEA.Domain no puede depender
-                    // de ILogger — regla 2 de arquitectura).
+                    // M8/VAL2: EspacioId fijo de la sesión que no está entre los espacios de esta
+                    // corrida (p. ej. borrado del catálogo) hace que CalculadorEspaciosSesion.Candidatos
+                    // no devuelva NINGÚN candidato — antes caía en silencio al filtro genérico por
+                    // tipo/requisito de grupo y podía asignar un aula distinta de la exigida. Ahora
+                    // "sin candidatos" cae en el `if (lista.Count == 0)` de abajo con el mensaje de
+                    // infactibilidad correspondiente; se advierte aquí además porque SOEA.Domain no
+                    // puede depender de ILogger (regla 2 de arquitectura).
                     if (sesion.EspacioId is Guid espacioSesionFijo && !espacioIndex.ContainsKey(espacioSesionFijo))
                         _logger.LogWarning(
                             "Sesión {SesionId}: el espacio fijo {EspacioId} no está entre los espacios de esta " +
@@ -577,6 +606,7 @@ namespace SOEA.Engine.ConstraintProg
             var solver = new CpSolver();
             solver.StringParameters =
                 $"max_time_in_seconds:{_options.TimeoutSegundos}" +
+                $",random_seed:{_options.RandomSeed}" +
                 (_options.NumWorkers > 0 ? $",num_search_workers:{_options.NumWorkers}" : "");
 
             _logger.LogInformation("Resolviendo modelo CP-SAT (timeout: {T}s)...", _options.TimeoutSegundos);

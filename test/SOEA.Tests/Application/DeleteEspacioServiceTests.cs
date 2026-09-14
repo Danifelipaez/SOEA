@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using SOEA.Application.Features.Espacios;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
+using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.ValueObjects;
 using Xunit;
@@ -57,7 +58,7 @@ namespace SOEA.Tests.Application
         }
 
         [Fact]
-        public async Task LanzaInvalidOperation_ConConteo_SiAlgunGrupoLoExigeComoRequisito()
+        public async Task LanzaBusinessRuleViolation_ConConteo_SiAlgunGrupoLoExigeComoRequisito()
         {
             var espacio = Existente(Guid.NewGuid());
             var espacioRepo = new FakeEspacioRepo(espacio);
@@ -67,7 +68,7 @@ namespace SOEA.Tests.Application
                 GrupoConRequisito(Guid.NewGuid())); // otro espacio, no cuenta
             var service = new EspacioService(espacioRepo, grupoRepo);
 
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            var ex = await Assert.ThrowsAsync<BusinessRuleViolationException>(
                 () => service.DeleteAsync(espacio.Id));
 
             Assert.Contains("2", ex.Message);

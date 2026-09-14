@@ -64,7 +64,12 @@ namespace SOEA.Domain.Services
         {
             if (a.Id == b.Id)                     return MotivoRechazoPareja.MismaSesion;
             if (a.AsignaturaId == b.AsignaturaId) return MotivoRechazoPareja.MismaAsignatura;
-            if (a.GrupoId == b.GrupoId)           return MotivoRechazoPareja.MismoGrupo;
+            // H7 auditoría: GrupoId es Guid? — sin el HasValue, `a.GrupoId == b.GrupoId` es `true`
+            // para DOS sesiones sin grupo (null == null), así que dos candidatas sin grupo nunca
+            // podían emparejarse. Emparejar es el ÚNICO mecanismo que libera capacidad (regla 10,
+            // CLAUDE.md); esto reportaba infactibilidad por falta de aulas que el emparejamiento sí
+            // habría resuelto.
+            if (a.GrupoId.HasValue && a.GrupoId == b.GrupoId) return MotivoRechazoPareja.MismoGrupo;
             if (a.DuracionHoras != b.DuracionHoras) return MotivoRechazoPareja.DuracionDistinta;
 
             if (!RequisitosCompatibles(a, b, grupoPorId)) return MotivoRechazoPareja.RequisitoIncompatible;

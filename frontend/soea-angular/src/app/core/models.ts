@@ -101,7 +101,8 @@ export interface ConfiguracionAlgoritmo {
   pesoBalanceSemanas?: number;
   /** SC-PRES informativo: pondera la métrica reportada, no afecta el ranking del GA. Sin UI propia todavía. */
   pesoPresencialFirst?: number;
-  /** Semilla del RNG. Ausente = aleatoria (producción). Sin UI propia todavía. */
+  /** Semilla del RNG. Ausente = el backend usa una semilla fija por defecto (reproducible — REP1
+   *  auditoría). Sin UI propia todavía. */
   semilla?: number;
 }
 

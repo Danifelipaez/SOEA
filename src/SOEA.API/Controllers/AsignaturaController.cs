@@ -13,6 +13,12 @@ namespace SOEA.API.Controllers
 
         public AsignaturasController(AsignaturaService service) => _service = service;
 
+        // ERR2 auditoría: sin catch — GlobalExceptionHandler es el único traductor de excepción a
+        // HTTP (ArgumentException→400, KeyNotFoundException→404, BusinessRuleViolationException→409).
+        // Antes este controller y AsignaturaService no siempre usaban el mismo tipo para "no
+        // encontrada" (aquí InvalidOperationException→404, en otro método KeyNotFoundException→404
+        // en Delete), así que "asignatura no encontrada" era 404 o 409 según el endpoint.
+
         [HttpPost]
         public async Task<ActionResult<AsignaturaResponse>> CreateAsignatura(
             [FromBody] CreateAsignaturaRequest request)
@@ -20,39 +26,20 @@ namespace SOEA.API.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            try
-            {
-                var response = await _service.CreateAsync(request);
-                return CreatedAtAction(nameof(GetAsignatura), new { id = response.Id }, response);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
+            var response = await _service.CreateAsync(request);
+            return CreatedAtAction(nameof(GetAsignatura), new { id = response.Id }, response);
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<AsignaturaResponse>> GetAsignatura(Guid id)
         {
-            try
-            {
-                var response = await _service.GetByIdAsync(id);
-                return Ok(response);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return NotFound(ex.Message);
-            }
+            var response = await _service.GetByIdAsync(id);
+            return Ok(response);
         }
 
         [HttpGet]
         public async Task<ActionResult<List<AsignaturaResponse>>> GetAllAsignaturas()
         {
-            // Bug (auditoría de limpieza, hallazgo 1.8): catch-all que filtraba ex.Message crudo
-            // al cliente en un 500 — cualquier excepción no relacionada con la petición (un fallo
-            // de conexión a BD, por ejemplo) exponía detalle interno en vez del ProblemDetails
-            // genérico. GlobalExceptionHandler ya cubre esto; el resto de este controller (y
-            // HorarioController/ImportController) no lleva catch-all a propósito, por la misma razón.
             var responses = await _service.GetAllAsync();
             return Ok(responses);
         }
@@ -68,37 +55,15 @@ namespace SOEA.API.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            try
-            {
-                var response = await _service.UpdateAsync(id, request);
-                return Ok(response);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return NotFound(ex.Message);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
+            var response = await _service.UpdateAsync(id, request);
+            return Ok(response);
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteAsignatura(Guid id)
         {
-            try
-            {
-                await _service.DeleteAsync(id);
-                return NoContent();
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ex.Message);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Conflict(ex.Message);
-            }
+            await _service.DeleteAsync(id);
+            return NoContent();
         }
 
         /// <summary>
@@ -110,15 +75,8 @@ namespace SOEA.API.Controllers
         public async Task<IActionResult> UpdateElegibilidadAlternancia(Guid id, [FromBody] UpdateElegibilidadAlternanciaDto dto)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
-            try
-            {
-                await _service.UpdateElegibilidadAlternanciaAsync(id, dto.Elegible);
-                return NoContent();
-            }
-            catch (InvalidOperationException ex)
-            {
-                return NotFound(ex.Message);
-            }
+            await _service.UpdateElegibilidadAlternanciaAsync(id, dto.Elegible);
+            return NoContent();
         }
     }
 

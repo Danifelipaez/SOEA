@@ -55,6 +55,30 @@ namespace SOEA.Domain.ValueObjects
             return Desde(crudo);
         }
 
+        /// <summary>
+        /// True si <paramref name="json"/> parsea sin error (o está ausente). H3 auditoría:
+        /// <see cref="DesdeJson"/> traga cualquier JSON malformado y cae a
+        /// <see cref="SinRestriccion"/> en silencio — comportamiento a prueba de fallos correcto
+        /// para los muchos llamadores del pipeline que solo necesitan "algo usable", pero eso hace
+        /// indistinguible "el grupo no declaró disponibilidad" de "la disponibilidad declarada
+        /// llegó corrupta y se ignoró entera". SOEA.Domain no puede depender de ILogger (regla 2 de
+        /// arquitectura), así que este helper solo informa; el llamador (GenerarHorarioService, que
+        /// sí tiene logs) decide si lo reporta como advertencia.
+        /// </summary>
+        public static bool JsonEsValido(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return true;
+            try
+            {
+                JsonSerializer.Deserialize<Dictionary<string, DiaEntradaCruda>>(json, JsonOptions);
+                return true;
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
+
         public static DisponibilidadSemanal Desde(IReadOnlyDictionary<string, DiaEntradaCruda>? porDia)
         {
             if (porDia is null || porDia.Count == 0) return SinRestriccion;
@@ -120,12 +144,19 @@ namespace SOEA.Domain.ValueObjects
                 return (desdeEspecifico, hastaEspecifico);
             }
 
-            // Franja general: el prefijo de la etiqueta decide la ventana fija.
+            // DUP6 auditoría: el prefijo de la etiqueta decide la ventana fija — y esta ventana
+            // debe coincidir con la que el frontend le mostró al docente al elegirla
+            // (FRANJAS_DEFECTO en disponibilidad-editor.component.ts: Matutino 06:00–12:00,
+            // Vespertino 12:00–18:00, Nocturno 18:00–22:00). Antes Matutino/Vespertino tenían aquí
+            // 06:00–13:00/13:00–20:00 — un docente que eligió "Matutino (06:00–12:00)" quedaba
+            // disponible para HC-G01/CP-SAT/GA hasta la 13:00, una hora más de lo que el label le
+            // prometió. DocenteService (que solo renderiza la etiqueta de vuelta a la UI) ya usaba
+            // los límites correctos; esta es la fuente que de verdad aplica la restricción dura.
             var franja = entrada.FranjaGeneral ?? string.Empty;
             if (franja.StartsWith("Matutino", StringComparison.OrdinalIgnoreCase))
-                return (new TimeOnly(6, 0), new TimeOnly(13, 0));
+                return (new TimeOnly(6, 0), new TimeOnly(12, 0));
             if (franja.StartsWith("Vespertino", StringComparison.OrdinalIgnoreCase))
-                return (new TimeOnly(13, 0), new TimeOnly(20, 0));
+                return (new TimeOnly(12, 0), new TimeOnly(18, 0));
             if (franja.StartsWith("Nocturno", StringComparison.OrdinalIgnoreCase))
                 return (new TimeOnly(18, 0), new TimeOnly(22, 0));
 
