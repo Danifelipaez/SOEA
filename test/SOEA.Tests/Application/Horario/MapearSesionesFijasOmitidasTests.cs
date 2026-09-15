@@ -141,6 +141,70 @@ namespace SOEA.Tests.Application.Horario
             new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(),
             new FakeGrupoRepo(), new FakeCriterioCesionRepo(), new FakeUow());
 
+        private static readonly string GrupoId = Guid.NewGuid().ToString();
+
+        /// <summary>Toda sesión fija necesita un grupo incluido en la generación (P0-3).</summary>
+        private static List<GrupoDto> UnGrupo() => new() { new() { Id = GrupoId, Nombre = "G1" } };
+
+        /// <summary>
+        /// P0-3 auditoría: sin un grupo del request la fija se omite con aviso. Antes recibía un
+        /// GrupoId inventado que la FK de Sesiones rechazaba al persistir (409 en toda generación con base).
+        /// </summary>
+        [Fact]
+        public async Task SesionFijaSinGrupoDelRequest_SeOmiteConAviso()
+        {
+            var asigId = Guid.NewGuid().ToString();
+            var request = new GenerarHorarioRequest
+            {
+                Semestre = "2026-1",
+                Grupos = UnGrupo(),
+                SesionesFijas = new List<SesionFijaDto>
+                {
+                    new() { GrupoId = GrupoId, AsignaturaId = asigId, Dia = "martes", HoraInicio = "07:00", Virtual = true },
+                    new() { AsignaturaId = asigId, Virtual = true },
+                    new() { GrupoId = Guid.NewGuid().ToString(), AsignaturaId = asigId, Dia = "miercoles", Virtual = true }
+                }
+            };
+
+            var r = await CrearServicio().EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.Equal(2, r.SesionesFijasOmitidas);
+            Assert.Equal(GrupoId, Assert.Single(r.Sesiones).GrupoId);
+        }
+
+        /// <summary>
+        /// P0-3 auditoría: la fija ocupa el lugar de una sesión del mismo grupo, asignatura y tipo — el
+        /// generador planifica el resto alrededor (regla 8). Antes se sumaba: 2 semanales + 1 fija = 3.
+        /// </summary>
+        [Fact]
+        public async Task SesionFija_ReemplazaUnaSesionDelMismoGrupoAsignaturaYTipo()
+        {
+            var asigId = Guid.NewGuid().ToString();
+            var request = new GenerarHorarioRequest
+            {
+                Semestre = "2026-1",
+                Asignaturas = new List<AsignaturaDto>
+                {
+                    new() { Id = asigId, Nombre = "Cálculo I", SesionesTeoriaVirtualSemana = 2, HorasTeoriaVirtual = 2 }
+                },
+                Grupos = new List<GrupoDto> { new() { Id = GrupoId, Nombre = "G1", AsignaturaId = asigId } },
+                SesionesFijas = new List<SesionFijaDto>
+                {
+                    new()
+                    {
+                        GrupoId = GrupoId, AsignaturaId = asigId, Dia = "lunes", HoraInicio = "07:00",
+                        DuracionHoras = 2m, Virtual = true, TipoFlujo = "AulaVirtual"
+                    }
+                }
+            };
+
+            var r = await CrearServicio().EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.Equal(2, r.Sesiones.Count);
+        }
+
         [Fact]
         public async Task SesionFijaConDiaQueNoExisteEnLaGrilla_SeOmiteConAvisoYSeCuenta()
         {
@@ -150,16 +214,16 @@ namespace SOEA.Tests.Application.Horario
                 Semestre = "2026-1",
                 Asignaturas = new List<AsignaturaDto>(),
                 Espacios = new List<EspacioDto>(),
-                Grupos = new List<GrupoDto>(),
+                Grupos = UnGrupo(),
                 Docentes = new List<DocenteDto>(),
                 SesionesFijas = new List<SesionFijaDto>
                 {
                     // Válida: "lunes"/"07:00" son los valores por defecto del DTO — coinciden con
                     // un bloque real de GrillaInstitucional. Virtual=true evita tener que declarar
                     // un espacio para que la sesión sea válida.
-                    new() { AsignaturaId = asigId, Virtual = true },
+                    new() { GrupoId = GrupoId, AsignaturaId =asigId, Virtual = true },
                     // Inválida: "domingo" no existe en la grilla canónica (Lunes..Sábado).
-                    new() { AsignaturaId = asigId, Dia = "domingo", HoraInicio = "07:00", Virtual = true },
+                    new() { GrupoId = GrupoId, AsignaturaId =asigId, Dia = "domingo", HoraInicio = "07:00", Virtual = true },
                 }
             };
 
@@ -190,11 +254,11 @@ namespace SOEA.Tests.Application.Horario
                 Semestre = "2026-1",
                 Asignaturas = new List<AsignaturaDto>(),
                 Espacios = new List<EspacioDto>(),
-                Grupos = new List<GrupoDto>(),
+                Grupos = UnGrupo(),
                 Docentes = new List<DocenteDto>(),
                 SesionesFijas = new List<SesionFijaDto>
                 {
-                    new() { AsignaturaId = asigId, DocenteId = docenteId.ToString(), Virtual = true }
+                    new() { GrupoId = GrupoId, AsignaturaId =asigId, DocenteId = docenteId.ToString(), Virtual = true }
                 }
             };
 
@@ -221,14 +285,14 @@ namespace SOEA.Tests.Application.Horario
                 Semestre = "2026-1",
                 Asignaturas = new List<AsignaturaDto>(),
                 Espacios = new List<EspacioDto>(),
-                Grupos = new List<GrupoDto>(),
+                Grupos = UnGrupo(),
                 Docentes = new List<DocenteDto>(),
                 SesionesFijas = new List<SesionFijaDto>
                 {
                     // Válida, en un slot distinto — solo para que el Horario resultante no quede
                     // vacío (regla de dominio ajena a este bug: un Horario exige ≥1 sesión).
-                    new() { AsignaturaId = asigValidaId, Dia = "martes", HoraInicio = "07:00", Virtual = true },
-                    new() { AsignaturaId = "no-es-un-guid", Virtual = true }
+                    new() { GrupoId = GrupoId, AsignaturaId =asigValidaId, Dia = "martes", HoraInicio = "07:00", Virtual = true },
+                    new() { GrupoId = GrupoId, AsignaturaId ="no-es-un-guid", Virtual = true }
                 }
             };
 

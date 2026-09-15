@@ -13,8 +13,7 @@ function sesion(overrides: Partial<Sesion> = {}): Sesion {
 
 /**
  * FE5/FE16/FE17 auditoría: estas reglas vivían duplicadas —con divergencias reales— entre
- * CrearSesionDialogComponent, EditarSesionDialogComponent y SesionFijaDialogComponent. Aquí se
- * prueban una vez, en la fuente única.
+ * los diálogos de crear, editar y fijar sesión. Aquí se prueban una vez, en la fuente única.
  */
 describe('seSolapanHorarios', () => {
   it('detecta solape cuando los spans se cruzan', () => {
@@ -47,10 +46,11 @@ describe('nuncaCoexisteEnSemana', () => {
 });
 
 describe('finDeJornadaOk', () => {
-  it('sábado se acota a las 13:00', () => {
+  it('sábado se acota a las 14:00 (espejo de GrillaInstitucional.cs)', () => {
     const startIdx = HORAS.indexOf('12:00');
-    expect(finDeJornadaOk('sabado', startIdx + 2, HORAS)).toBe(false); // terminaría 14:00
-    expect(finDeJornadaOk('sabado', startIdx + 1, HORAS)).toBe(true); // termina 13:00
+    expect(finDeJornadaOk('sabado', startIdx + 2, HORAS)).toBe(true); // 12:00-14:00, dentro
+    const startIdx2 = HORAS.indexOf('13:00');
+    expect(finDeJornadaOk('sabado', startIdx2 + 2, HORAS)).toBe(false); // 13:00-15:00, fuera
   });
   it('FE16: un día L-V que se pasa del final de la grilla se rechaza (antes daba fin = inicio)', () => {
     const startIdx = HORAS.indexOf('20:00');

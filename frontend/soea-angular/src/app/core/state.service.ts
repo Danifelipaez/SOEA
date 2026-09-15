@@ -1,5 +1,5 @@
 import { Injectable, signal, computed } from '@angular/core';
-import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, ConfiguracionAlgoritmo, CONFIGURACION_DEFECTO, HorarioBase } from './models';
+import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, HorarioBase } from './models';
 import { nuevoId } from './id.util';
 
 @Injectable({
@@ -106,10 +106,6 @@ export class StateService {
   }
   /** Reemplaza el listado completo (útil para importación masiva desde Excel). */
   setAsignaturas(list: Asignatura[]) { this.asignaturas.set(list); }
-
-  // ── Configuración del algoritmo (Developer Dashboard) ───────────────────────
-  configuracionAlgoritmo = signal<ConfiguracionAlgoritmo>(CONFIGURACION_DEFECTO);
-  setConfiguracionAlgoritmo(c: ConfiguracionAlgoritmo) { this.configuracionAlgoritmo.set(c); }
 
   // ── Sesiones y Logs (resultado del algoritmo) ──────────────────────────────
   executionLogs = signal<string[]>([]);

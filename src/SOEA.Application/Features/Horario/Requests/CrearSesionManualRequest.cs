@@ -6,6 +6,8 @@ namespace SOEA.Application.Features.Horario.Requests
     /// </summary>
     public class CrearSesionManualRequest
     {
+        /// <summary>Horario vigente al que se agrega la sesión (el que devolvieron /generar o /actual).</summary>
+        public Guid    HorarioId     { get; set; }
         public Guid    AsignaturaId  { get; set; }
         /// <summary>
         /// DOC1 auditoría: nullable — CR-02/CR-08 permiten sesiones sin docente

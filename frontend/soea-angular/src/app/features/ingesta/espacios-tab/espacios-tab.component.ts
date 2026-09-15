@@ -48,8 +48,8 @@ type TipoEspacio = 'Salón' | 'Laboratorio' | 'Auditorio';
               <td>{{ e.capacidad }}</td>
               <td>{{ e.edificio || '—' }}</td>
               <td>
-                <span class="material-icons ic-edit" (click)="openDialog(e)" title="Editar">edit</span>
-                <span class="material-icons ic-del" (click)="delete(e)" title="Eliminar">delete</span>
+                <button type="button" class="material-icons ic-edit" (click)="openDialog(e)" [attr.aria-label]="'Editar ' + e.nombre">edit</button>
+                <button type="button" class="material-icons ic-del" (click)="delete(e)" [attr.aria-label]="'Eliminar ' + e.nombre">delete</button>
               </td>
             </tr>
           }
@@ -103,7 +103,7 @@ export class EspaciosTabComponent {
       const entidad: Espacio = espacio ? { ...espacio, ...result } : { id: nuevoId(), ...result };
       this.catalogo.guardar('espacio', entidad).subscribe({
         next: () => this.snackBar.open(espacio ? 'Espacio actualizado' : 'Espacio agregado', '', { duration: 2500 }),
-        error: (err) => this.snackBar.open(`Error al guardar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 4000 })
+        error: (err) => this.snackBar.open(`Error al guardar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
       });
     });
   }
@@ -115,24 +115,24 @@ export class EspaciosTabComponent {
       data: {
         title: 'Eliminar espacio',
         message: enBd
-          ? `Se eliminará "${espacio.nombre}" de la base de datos. Esta acción es irreversible.`
-          : `Se eliminará "${espacio.nombre}" (aún no está guardado en la BD).`
+          ? `Se eliminará "${espacio.nombre}" definitivamente.`
+          : `Se descartará "${espacio.nombre}", que aún no se había guardado.`
       }
     });
     ref.afterClosed().subscribe(confirmado => {
       if (!confirmado) return;
       if (!enBd) {
         this.state.deleteEspacio(espacio.id);
-        this.snackBar.open('Espacio eliminado localmente.', '', { duration: 2500 });
+        this.snackBar.open('Espacio eliminado.', '', { duration: 2500 });
         return;
       }
       // FE10 auditoría: antes borraba a mano en vez de pasar por CatalogoService.eliminar.
       this.catalogo.eliminar('espacio', espacio.id).subscribe({
         next: () => {
-          this.catalogo.cargarTodo().subscribe({ error: () => this.snackBar.open('Se eliminó, pero no se pudo refrescar el catálogo. Recarga la página.', 'Cerrar', { duration: 6000 }) });
-          this.snackBar.open('Espacio eliminado de la BD.', '', { duration: 2500 });
+          this.catalogo.cargarTodo().subscribe({ error: () => this.snackBar.open('Se eliminó, pero la lista no se actualizó. Recargue la página.', 'Cerrar', { duration: 6000 }) });
+          this.snackBar.open('Espacio eliminado.', '', { duration: 2500 });
         },
-        error: (err) => this.snackBar.open(`Error al eliminar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
+        error: (err) => this.snackBar.open(`Error al eliminar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000, panelClass: ['snack-error'] })
       });
     });
   }
@@ -145,7 +145,7 @@ export class EspaciosTabComponent {
   standalone: true,
   imports: [CommonModule, ReactiveFormsModule, MatDialogModule],
   template: `
-    <div class="pophd">{{ data ? 'Editar espacio' : 'Nuevo espacio' }} <i (click)="ref.close()">✕</i></div>
+    <div class="pophd">{{ data ? 'Editar espacio' : 'Nuevo espacio' }} <button type="button" class="pop-close" (click)="ref.close()" aria-label="Cerrar">✕</button></div>
     <form class="popbd" [formGroup]="form">
       <div class="dfield"><label>Nombre <span class="rq">*</span></label>
         <input class="input" formControlName="nombre"></div>

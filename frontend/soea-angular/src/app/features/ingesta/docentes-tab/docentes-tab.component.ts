@@ -31,7 +31,7 @@ import { DisponibilidadEditorComponent, FranjaOption } from '../../../shared/dis
 
       <table class="table">
         <thead><tr>
-          <th style="width:26%">Docente</th><th>Disponibilidad declarada</th><th>Asignaturas</th><th style="width:110px">Máx. hrs</th><th style="width:60px"></th>
+          <th style="width:26%">Docente</th><th>Disponibilidad declarada</th><th>Asignaturas</th><th style="width:110px">Máx. horas/sem</th><th style="width:60px"></th>
         </tr></thead>
         <tbody>
           @for (d of filtered(); track d.id) {
@@ -44,8 +44,8 @@ import { DisponibilidadEditorComponent, FranjaOption } from '../../../shared/dis
               <td class="text-muted">{{ asignaturasDe(d.id) || '—' }}</td>
               <td><span class="dpill" [ngClass]="d.maxHoras ? 'ok' : ''">{{ d.maxHoras || '—' }}</span></td>
               <td>
-                <span class="material-icons ic-edit" (click)="openDialog(d)" title="Editar">edit</span>
-                <span class="material-icons ic-del" (click)="delete(d)" title="Eliminar">delete</span>
+                <button type="button" class="material-icons ic-edit" (click)="openDialog(d)" [attr.aria-label]="'Editar ' + d.nombre">edit</button>
+                <button type="button" class="material-icons ic-del" (click)="delete(d)" [attr.aria-label]="'Eliminar ' + d.nombre">delete</button>
               </td>
             </tr>
           }
@@ -113,7 +113,7 @@ export class DocentesTabComponent {
       const entidad: Docente = docente ? { ...docente, ...result } : { id: nuevoId(), ...result };
       this.catalogo.guardar('docente', entidad).subscribe({
         next: () => this.snackBar.open(docente ? 'Docente actualizado' : 'Docente agregado', '', { duration: 2500 }),
-        error: (err) => this.snackBar.open(`Error al guardar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 4000 })
+        error: (err) => this.snackBar.open(`Error al guardar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
       });
     });
   }
@@ -125,24 +125,24 @@ export class DocentesTabComponent {
       data: {
         title: 'Eliminar docente',
         message: enBd
-          ? `Se eliminará "${docente.nombre}" de la base de datos. Esta acción es irreversible.`
-          : `Se eliminará "${docente.nombre}" (aún no está guardado en la BD).`
+          ? `Se eliminará "${docente.nombre}" definitivamente.`
+          : `Se descartará "${docente.nombre}", que aún no se había guardado.`
       }
     });
     ref.afterClosed().subscribe(confirmado => {
       if (!confirmado) return;
       if (!enBd) {
         this.state.deleteDocente(docente.id);
-        this.snackBar.open('Docente eliminado localmente.', '', { duration: 2500 });
+        this.snackBar.open('Docente eliminado.', '', { duration: 2500 });
         return;
       }
       // FE10 auditoría: antes borraba a mano en vez de pasar por CatalogoService.eliminar.
       this.catalogo.eliminar('docente', docente.id).subscribe({
         next: () => {
-          this.catalogo.cargarTodo().subscribe({ error: () => this.snackBar.open('Se eliminó, pero no se pudo refrescar el catálogo. Recarga la página.', 'Cerrar', { duration: 6000 }) });
-          this.snackBar.open('Docente eliminado de la BD.', '', { duration: 2500 });
+          this.catalogo.cargarTodo().subscribe({ error: () => this.snackBar.open('Se eliminó, pero la lista no se actualizó. Recargue la página.', 'Cerrar', { duration: 6000 }) });
+          this.snackBar.open('Docente eliminado.', '', { duration: 2500 });
         },
-        error: (err) => this.snackBar.open(`Error al eliminar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
+        error: (err) => this.snackBar.open(`Error al eliminar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000, panelClass: ['snack-error'] })
       });
     });
   }
@@ -156,7 +156,7 @@ export class DocentesTabComponent {
         const ref = this.dialog.open(FusionDocentesDialogComponent, { width: '380px', maxWidth: '95vw', data: { grupos } });
         ref.afterClosed().subscribe((huboFusion) => { if (huboFusion) this.cargarDesdeBD(); });
       },
-      error: () => { this.saving.set(false); this.snackBar.open('Error al detectar duplicados.', 'Cerrar', { duration: 4000 }); }
+      error: () => { this.saving.set(false); this.snackBar.open('No se pudo revisar repetidos. Intente de nuevo.', 'Cerrar', { duration: 4000, panelClass: ['snack-error'] }); }
     });
   }
 
@@ -164,7 +164,7 @@ export class DocentesTabComponent {
     this.saving.set(true);
     this.catalogo.cargarTodo().subscribe({
       next: (resumen) => { this.saving.set(false); this.snackBar.open(`${resumen.docentes} docente(s) cargados.`, '', { duration: 3000 }); },
-      error: () => { this.saving.set(false); this.snackBar.open('Error al cargar desde la BD.', 'Cerrar', { duration: 4000 }); }
+      error: () => { this.saving.set(false); this.snackBar.open('No se pudo actualizar la lista.', 'Cerrar', { duration: 4000, panelClass: ['snack-error'] }); }
     });
   }
 }
@@ -175,14 +175,14 @@ export class DocentesTabComponent {
   standalone: true,
   imports: [CommonModule, FormsModule, ReactiveFormsModule, MatDialogModule, DisponibilidadEditorComponent],
   template: `
-    <div class="pophd">{{ data ? 'Editar docente' : 'Nuevo docente' }} <i (click)="ref.close()">✕</i></div>
+    <div class="pophd">{{ data ? 'Editar docente' : 'Nuevo docente' }} <button type="button" class="pop-close" (click)="ref.close()" aria-label="Cerrar">✕</button></div>
     <div class="popbd" style="max-height:74vh;overflow:auto">
       <form [formGroup]="form" style="display:flex;gap:8px">
         <div class="dfield" style="flex:1.4"><label>Nombre <span class="rq">*</span></label>
           <input class="input" formControlName="nombre"></div>
         <div class="dfield" style="flex:1"><label>Cédula</label>
           <input class="input" formControlName="cedula"></div>
-        <div class="dfield" style="width:96px"><label>Máx. hrs <span class="rq">*</span></label>
+        <div class="dfield" style="width:96px"><label>Máx. horas por semana <span class="rq">*</span></label>
           <input class="input" type="number" min="1" formControlName="maxHoras"></div>
       </form>
 
@@ -240,24 +240,24 @@ export class DocenteDialogComponent {
   standalone: true,
   imports: [CommonModule, FormsModule, MatDialogModule],
   template: `
-    <div class="pophd">Revisar y fusionar <i (click)="ref.close(huboFusion)">✕</i></div>
+    <div class="pophd">Unificar docentes repetidos <button type="button" class="pop-close" (click)="ref.close(huboFusion)" aria-label="Cerrar">✕</button></div>
     <div class="popbd" style="max-height:74vh;overflow:auto">
-      <span class="text-muted" style="font-size:12px">Elige el registro principal de cada grupo; los demás se absorben (asignaturas reasignadas, duplicados borrados).</span>
+      <span class="text-muted" style="font-size:12px">Elija el nombre correcto en cada caso; los demás se eliminarán y sus grupos pasarán al elegido.</span>
 
       <div *ngFor="let grupo of data.grupos; let gi = index" class="grupo" [class.done]="done.has(gi)">
         <div class="grupo-head">
-          <span class="sec">Grupo {{ gi + 1 }}</span>
-          <span *ngIf="done.has(gi)" class="okb" style="padding:2px 8px">✓ Fusionado</span>
+          <span class="sec">Posible repetido {{ gi + 1 }}</span>
+          <span *ngIf="done.has(gi)" class="okb" style="padding:2px 8px">✓ Unificado</span>
         </div>
         <label *ngFor="let d of grupo" class="radio">
           <input type="radio" [name]="'canon-'+gi" [value]="d.id" [(ngModel)]="canonico[gi]" [disabled]="done.has(gi)">
           <span class="dot"></span>
           {{ d.nombre }}
           <span class="text-muted" style="font-size:11px">· {{ d.maxHoras }}h</span>
-          <span *ngIf="canonico[gi] === d.id" class="text-muted" style="font-size:11px">(principal)</span>
+          <span *ngIf="canonico[gi] === d.id" class="text-muted" style="font-size:11px">(se conserva)</span>
         </label>
         <div *ngIf="!done.has(gi)" class="popfoot" style="margin-top:6px">
-          <button class="btn btn-primary" (click)="fusionar(gi)" [disabled]="busy()">Fusionar</button>
+          <button class="btn btn-primary" (click)="fusionar(gi)" [disabled]="busy()">Unificar</button>
         </div>
       </div>
 
@@ -293,7 +293,7 @@ export class FusionDocentesDialogComponent {
     this.persistencia.fusionarDocentes(canonicoId, duplicadosIds).subscribe({
       next: (r) => {
         this.busy.set(false); this.done.add(gi); this.huboFusion = true;
-        this.snackBar.open(`Fusionados ${r.docentesEliminados} docente(s); ${r.gruposReasignados} grupo(s) reasignado(s).`, '', { duration: 4000 });
+        this.snackBar.open(`Unificados: se eliminaron ${r.docentesEliminados} docente(s) repetido(s) y se reasignaron ${r.gruposReasignados} grupo(s).`, '', { duration: 4000 });
       },
       error: (err) => { this.busy.set(false); this.snackBar.open(`Error al fusionar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000, panelClass: ['snack-error'] }); }
     });

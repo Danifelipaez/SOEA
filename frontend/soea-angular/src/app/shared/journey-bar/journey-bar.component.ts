@@ -24,7 +24,7 @@ const STEPS: JourneyStep[] = [
   standalone: true,
   imports: [CommonModule, RouterModule],
   template: `
-    <nav class="journey-bar">
+    <nav class="journey-bar" aria-label="Pasos del proceso">
       <span class="brand">SOEA</span>
       <div class="steps">
         @for (step of steps(); track step.path; let last = $last) {
@@ -32,6 +32,9 @@ const STEPS: JourneyStep[] = [
              [class.active]="step.active"
              [class.done]="step.done"
              [class.disabled]="step.disabled"
+             [attr.aria-current]="step.active ? 'page' : null"
+             [attr.aria-disabled]="step.disabled ? 'true' : null"
+             [title]="step.disabled ? 'Disponible cuando el sistema permita publicar horarios' : ''"
              [routerLink]="step.disabled ? null : step.path">
             <span class="jbadge">{{ step.done ? '✓' : step.badge }}</span>
             <span class="jname">{{ step.label }}</span>

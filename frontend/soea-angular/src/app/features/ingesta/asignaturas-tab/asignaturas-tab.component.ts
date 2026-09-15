@@ -45,7 +45,7 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
       <table class="table">
         <thead><tr>
           <th style="width:26px"></th>
-          <th style="width:26%">Asignatura</th><th>Código</th><th>Ses/sem</th><th>Programa</th><th style="width:80px">Grupos</th><th style="width:60px"></th>
+          <th style="width:26%">Asignatura</th><th>Código</th><th>Sesiones por semana</th><th>Programa</th><th style="width:80px">Grupos</th><th style="width:60px"></th>
         </tr></thead>
         <tbody>
           @for (a of filtered(); track a.id) {
@@ -61,8 +61,8 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
               <td>{{ programaNombre(a.programaId) }}</td>
               <td>{{ state.getGruposByAsignatura(a.id).length }}</td>
               <td>
-                <span class="material-icons ic-edit" (click)="openDialog(a); $event.stopPropagation()" title="Editar">edit</span>
-                <span class="material-icons ic-del" (click)="delete(a); $event.stopPropagation()" title="Eliminar">delete</span>
+                <button type="button" class="material-icons ic-edit" (click)="openDialog(a); $event.stopPropagation()" [attr.aria-label]="'Editar ' + a.nombre">edit</button>
+                <button type="button" class="material-icons ic-del" (click)="delete(a); $event.stopPropagation()" [attr.aria-label]="'Eliminar ' + a.nombre">delete</button>
               </td>
             </tr>
             @if (expandidos().has(a.id)) {
@@ -76,10 +76,10 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
                       @for (g of state.getGruposByAsignatura(a.id); track g.id) {
                         <tr [class.row-incompleto]="grupoIncompleto(g)" [class.row-conflicto]="grupoEnConflicto(g)" [title]="tituloGrupo(g)">
                           <td>{{ g.nombre }}</td>
-                          <td [class.text-error]="!g.requisitosEspacio?.length" [class.text-muted]="!!g.requisitosEspacio?.length">{{ requisitosResumen(g) }}</td>
+                          <td class="text-muted">{{ requisitosResumen(g) }}</td>
                           <td>
                             @if (g.docenteId) { {{ docenteNombre(g.docenteId) }} }
-                            @else { <span style="color:var(--err-bd);font-size:12.5px">Sin docente</span> }
+                            @else { <span class="text-muted" style="font-size:12.5px">Se asigna al generar</span> }
                           </td>
                           <td>{{ g.estudiantesInscritos }}</td>
                           <td>
@@ -88,8 +88,8 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
                             } @else { <span style="color:var(--err-bd);font-size:12.5px">Sin declarar</span> }
                           </td>
                           <td>
-                            <span class="material-icons ic-edit" (click)="openGrupoDialog(a, g)" title="Editar">edit</span>
-                            <span class="material-icons ic-del" (click)="deleteGrupo(g)" title="Eliminar">delete</span>
+                            <button type="button" class="material-icons ic-edit" (click)="openGrupoDialog(a, g)" [attr.aria-label]="'Editar grupo ' + g.nombre">edit</button>
+                            <button type="button" class="material-icons ic-del" (click)="deleteGrupo(g)" [attr.aria-label]="'Eliminar grupo ' + g.nombre">delete</button>
                           </td>
                         </tr>
                       }
@@ -110,17 +110,16 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
       </table>
 
       @if (state.gruposHuerfanos().length > 0) {
-        <h3 class="sec" style="margin-top:18px">⚠ {{ state.gruposHuerfanos().length }} grupo(s) sin asignatura válida</h3>
+        <h3 class="sec" style="margin-top:18px">⚠ {{ state.gruposHuerfanos().length }} grupo(s) cuya asignatura fue eliminada</h3>
         <table class="table subtable tabla-huerfanos">
-          <thead><tr><th>Grupo</th><th>Id</th><th style="width:60px"></th></tr></thead>
+          <thead><tr><th>Grupo</th><th style="width:60px"></th></tr></thead>
           <tbody>
             @for (g of state.gruposHuerfanos(); track g.id) {
               <tr>
                 <td>{{ g.nombre }}</td>
-                <td class="text-muted" style="font-size:11px">{{ g.id.slice(0, 8) }}…</td>
                 <td>
-                  <span class="material-icons ic-edit" (click)="openGrupoDialog(undefined, g)" title="Editar">edit</span>
-                  <span class="material-icons ic-del" (click)="deleteGrupo(g)" title="Eliminar">delete</span>
+                  <button type="button" class="material-icons ic-edit" (click)="openGrupoDialog(undefined, g)" [attr.aria-label]="'Editar grupo ' + g.nombre">edit</button>
+                  <button type="button" class="material-icons ic-del" (click)="deleteGrupo(g)" [attr.aria-label]="'Eliminar grupo ' + g.nombre">delete</button>
                 </td>
               </tr>
             }
@@ -186,12 +185,16 @@ export class AsignaturasTabComponent {
   /** Resumen del requisito de espacio de un grupo (petición 4). '—' si usa la regla por defecto. */
   requisitosResumen(g: Grupo): string {
     const reqs = g.requisitosEspacio ?? [];
-    if (!reqs.length) return '—';
+    if (!reqs.length) return 'Cualquier aula';
     return reqs.map(r => {
-      const label = r.tipoSesion === 'Laboratorio' ? 'Lab' : 'Pres.';
-      const detalle = r.espacioId ? (this.state.espacioById().get(r.espacioId)?.nombre ?? '—') : r.tipoEspacio;
+      const label = r.tipoSesion === 'Laboratorio' ? 'Laboratorio' : 'Teoría';
+      const detalle = r.espacioId ? (this.state.espacioById().get(r.espacioId)?.nombre ?? '—') : this.tipoEspacioLabel(r.tipoEspacio);
       return `${label}: ${detalle}`;
     }).join(' · ');
+  }
+
+  private tipoEspacioLabel(tipo?: string): string {
+    return tipo === 'Salon' ? 'cualquier salón' : tipo === 'Laboratorio' ? 'cualquier laboratorio' : tipo === 'Auditorio' ? 'cualquier auditorio' : (tipo ?? '—');
   }
 
   dispResumenGrupo(g: Grupo): string {
@@ -237,7 +240,7 @@ export class AsignaturasTabComponent {
   /** Motivo concreto del borde rojo de un grupo — el borde solo no dice qué falta. '' si está completo. */
   private motivoIncompleto(g: Grupo): string {
     const motivos: string[] = [];
-    if (!g.requisitosEspacio?.length) motivos.push('sin requisito de espacio declarado (se usará la regla por defecto)');
+    if (!g.requisitosEspacio?.length) motivos.push('no indicó qué aula necesita (se usará salón para teoría y laboratorio para prácticas)');
     if (!g.disponibilidadUiJson) motivos.push('sin disponibilidad horaria declarada');
     else if (this.diasDisponibles(g) === 0) motivos.push('sin ningún día habilitado en su disponibilidad horaria');
     return motivos.length ? `Datos incompletos: ${motivos.join('; ')}.` : '';
@@ -246,7 +249,7 @@ export class AsignaturasTabComponent {
   /** Motivo concreto del parpadeo de un grupo. '' si no está en conflicto. */
   private motivoConflicto(g: Grupo): string {
     return this.grupoEnConflicto(g)
-      ? 'El sistema señaló este grupo como responsable de que el último intento de generar el horario fallara — revise si comparte un espacio fijo con otro grupo o si su disponibilidad es demasiado restrictiva, y vuelva a generar.'
+      ? 'Este grupo impidió generar el horario. Revise si comparte un aula obligatoria con otro grupo o si su disponibilidad es demasiado limitada, y vuelva a generar.'
       : '';
   }
 
@@ -292,17 +295,17 @@ export class AsignaturasTabComponent {
       data: {
         title: 'Eliminar grupo',
         message: enBd
-          ? `Se eliminará "${grupo.nombre}" de la base de datos. Esta acción es irreversible.`
-          : `Se eliminará "${grupo.nombre}" (aún no está guardado en la BD).`
+          ? `Se eliminará "${grupo.nombre}" definitivamente.`
+          : `Se descartará "${grupo.nombre}", que aún no se había guardado.`
       }
     });
     ref.afterClosed().subscribe(confirmado => {
       if (!confirmado) return;
-      if (!enBd) { this.state.deleteGrupo(grupo.id); this.snackBar.open('Grupo eliminado localmente.', '', { duration: 2500 }); return; }
+      if (!enBd) { this.state.deleteGrupo(grupo.id); this.snackBar.open('Grupo eliminado.', '', { duration: 2500 }); return; }
       // FE10 auditoría: antes borraba a mano (persistencia + quitarDeBd + state) en vez de pasar
       // por el único camino documentado (CatalogoService.eliminar).
       this.catalogo.eliminar('grupo', grupo.id).subscribe({
-        next: () => this.snackBar.open('Grupo eliminado de la BD.', '', { duration: 2500 }),
+        next: () => this.snackBar.open('Grupo eliminado.', '', { duration: 2500 }),
         error: (err) => this.snackBar.open(`Error al eliminar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
       });
     });
@@ -397,20 +400,20 @@ export class AsignaturasTabComponent {
       data: {
         title: 'Eliminar asignatura',
         message: enBd
-          ? `Se eliminará "${asignatura.nombre}" de la base de datos.${avisoGrupos} Esta acción es irreversible.`
-          : `Se eliminará "${asignatura.nombre}" (aún no está guardada en la BD).${avisoGrupos}`
+          ? `Se eliminará "${asignatura.nombre}" definitivamente.${avisoGrupos}`
+          : `Se descartará "${asignatura.nombre}", que aún no se había guardado.${avisoGrupos}`
       }
     });
     ref.afterClosed().subscribe(confirmado => {
       if (!confirmado) return;
-      if (!enBd) { this.state.deleteAsignatura(asignatura.id); this.snackBar.open('Asignatura eliminada localmente.', '', { duration: 2500 }); return; }
+      if (!enBd) { this.state.deleteAsignatura(asignatura.id); this.snackBar.open('Asignatura eliminada.', '', { duration: 2500 }); return; }
       // FE10 auditoría: antes borraba a mano en vez de pasar por CatalogoService.eliminar; se
       // conserva el cargarTodo() posterior — el backend cascadea a los grupos de la asignatura y
       // el estado local necesita refrescarse para reflejarlo.
       this.catalogo.eliminar('asignatura', asignatura.id).subscribe({
         next: () => {
-          this.catalogo.cargarTodo().subscribe({ error: () => this.snackBar.open('Se eliminó, pero no se pudo refrescar el catálogo. Recarga la página.', 'Cerrar', { duration: 6000 }) });
-          this.snackBar.open('Asignatura eliminada de la BD.', '', { duration: 2500 });
+          this.catalogo.cargarTodo().subscribe({ error: () => this.snackBar.open('Se eliminó, pero la lista no se actualizó. Recargue la página.', 'Cerrar', { duration: 6000 }) });
+          this.snackBar.open('Asignatura eliminada.', '', { duration: 2500 });
         },
         error: (err) => this.snackBar.open(`Error al eliminar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 })
       });
@@ -421,7 +424,7 @@ export class AsignaturasTabComponent {
     this.saving.set(true);
     this.catalogo.cargarTodo().subscribe({
       next: (resumen) => { this.saving.set(false); this.snackBar.open(`${resumen.asignaturas} asignatura(s) · ${resumen.docentes} docente(s) cargados.`, '', { duration: 3500 }); },
-      error: () => { this.saving.set(false); this.snackBar.open('Error al cargar desde la BD.', 'Cerrar', { duration: 4000 }); }
+      error: () => { this.saving.set(false); this.snackBar.open('No se pudo actualizar la lista.', 'Cerrar', { duration: 4000 }); }
     });
   }
 }
@@ -443,7 +446,7 @@ function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors
   standalone: true,
   imports: [CommonModule, FormsModule, ReactiveFormsModule, MatDialogModule, SearchableSelectComponent, DisponibilidadEditorComponent, RequisitosEspacioComponent],
   template: `
-    <div class="pophd">{{ data ? 'Editar asignatura' : 'Nueva asignatura' }} <i (click)="ref.close()">✕</i></div>
+    <div class="pophd">{{ data ? 'Editar asignatura' : 'Nueva asignatura' }} <button type="button" class="pop-close" (click)="ref.close()" aria-label="Cerrar">✕</button></div>
     <form class="popbd" [formGroup]="form" style="max-height:74vh;overflow:auto">
 
       <div style="display:flex;gap:8px">
@@ -469,9 +472,9 @@ function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors
       </div>
 
       <div style="display:flex;gap:8px;align-items:flex-end">
-        <div class="dfield" style="width:140px"><label>Ventana desde</label><input class="input" type="time" formControlName="horaInicioMin"></div>
-        <div class="dfield" style="width:140px"><label>Ventana hasta</label><input class="input" type="time" formControlName="horaFinMax"></div>
-        <p class="text-muted" style="font-size:11px;margin:0 0 9px">Opcional — acota el horario en que puede programarse esta asignatura (HC-VH, Secretaría Académica).</p>
+        <div class="dfield" style="width:140px"><label>No antes de</label><input class="input" type="time" formControlName="horaInicioMin"></div>
+        <div class="dfield" style="width:140px"><label>No después de</label><input class="input" type="time" formControlName="horaFinMax"></div>
+        <p class="text-muted" style="font-size:11px;margin:0 0 9px">Opcional. Hora más temprana y más tardía en que puede dictarse esta asignatura (definido por Secretaría Académica).</p>
       </div>
 
       <div style="display:flex;gap:8px;align-items:flex-end">
@@ -489,7 +492,7 @@ function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors
           <button type="button" class="btn btn-secondary step-btn" (click)="inc('presencial')">+</button>
         </div>
         @if (sesiones().presencial > 0) {
-          <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasTeoriaPresencial"></div>
+          <div class="dfield" style="width:96px"><label>Horas por sesión</label><input class="input" type="number" min="1" formControlName="horasTeoriaPresencial"></div>
         }
       </div>
       <div class="track">
@@ -500,7 +503,7 @@ function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors
           <button type="button" class="btn btn-secondary step-btn" (click)="inc('virtual')">+</button>
         </div>
         @if (sesiones().virtual > 0) {
-          <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasTeoriaVirtual"></div>
+          <div class="dfield" style="width:96px"><label>Horas por sesión</label><input class="input" type="number" min="1" formControlName="horasTeoriaVirtual"></div>
         }
       </div>
       <div class="track">
@@ -511,7 +514,7 @@ function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors
           <button type="button" class="btn btn-secondary step-btn" (click)="inc('lab')">+</button>
         </div>
         @if (sesiones().lab > 0) {
-          <div class="dfield" style="width:96px"><label>Horas/ses</label><input class="input" type="number" min="1" formControlName="horasLaboratorio"></div>
+          <div class="dfield" style="width:96px"><label>Horas por sesión</label><input class="input" type="number" min="1" formControlName="horasLaboratorio"></div>
         }
       </div>
       <p class="text-muted" style="font-size:11px;margin:0">Asignadas: {{ sesiones().presencial + sesiones().virtual + sesiones().lab }} / {{ sesionesPorSemana() }}</p>
@@ -528,7 +531,7 @@ function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors
           <span class="text-muted" style="flex:1;font-size:12px">
             {{ g.estudiantesInscritos }} estudiantes @if (g.docenteId) { · {{ nombreDocente(g.docenteId) }} }
           </span>
-          <span class="material-icons ic-del" (click)="quitarGrupoPendiente(i)" title="Quitar">delete</span>
+          <button type="button" class="material-icons ic-del" (click)="quitarGrupoPendiente(i)" [attr.aria-label]="'Quitar grupo ' + g.nombre">delete</button>
         </div>
       }
       @if (agregandoGrupo()) {

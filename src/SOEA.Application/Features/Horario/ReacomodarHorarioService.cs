@@ -218,21 +218,10 @@ namespace SOEA.Application.Features.Horario
             // movimiento que el detector de choques de arriba no cubre (p. ej. HC-VH, HC-G01,
             // HC-CAP, HC-S03) se persistía igual con EsFactible=true.
             var sesionPorId = sesiones.ToDictionary(s => s.Id);
-            var contextoValidacion = new ContextoValidacion(
-                Bloques: bloquesGrid,
-                VentanaPorAsignatura: ventanaPorAsig,
-                // VAL5 auditoría: gruposMotor viene de _grupoRepo.GetAllAsync() (PK única) — sin
-                // ids repetidos, no hace falta el GroupBy(...).First() defensivo.
-                DisponibilidadPorGrupo: gruposMotor.ToDictionary(g => g.Id, g => g.ObtenerDisponibilidadSemanal()),
-                EstudiantesPorGrupo: gruposMotor.ToDictionary(g => g.Id, g => g.EstudiantesInscritos),
-                EspacioPorId: espacios.ToDictionary(e => e.Id),
-                // VAL5 auditoría: antes se omitía — el post-chequeo evaluaba HC-VH/HC-C01 sobre las
-                // sesiones del horario base como si no lo fueran (ValidadorRestriccionesDuras las
-                // exime explícitamente cuando SesionesFijas las identifica).
-                SesionesFijas: sesiones.Where(s => s.Bloqueada).Select(s => s.Id).ToHashSet(),
-                RequisitosPorGrupo: gruposMotor.ToDictionary(g => g.Id, g => g.RequisitosEspacio),
-                NombrePorAsignatura: asignaturas.ToDictionary(a => a.Id, a => a.Nombre),
-                NombrePorGrupo: gruposMotor.ToDictionary(g => g.Id, g => g.Nombre));
+            // VAL5 auditoría: SesionesFijas identifica las del horario base, que el validador exime
+            // de HC-VH/HC-G01 igual que CP-SAT.
+            var contextoValidacion = ContextoValidacion.DesdeCatalogo(bloquesGrid, asignaturas, gruposMotor, espacios,
+                sesiones.Where(s => s.Bloqueada).Select(s => s.Id).ToHashSet());
 
             var conflictos = ValidadorRestriccionesDuras.Validar(
                 asignacionesFinal, sesionPorId, idxPorBloque, contextoValidacion);

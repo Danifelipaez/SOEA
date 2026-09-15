@@ -106,12 +106,6 @@ export interface ConfiguracionAlgoritmo {
   semilla?: number;
 }
 
-export const CONFIGURACION_DEFECTO: ConfiguracionAlgoritmo = {
-  pobSize: 50, mutRate: 0.05, crossRate: 0.80, maxGen: 200,
-  pesoErgo: 3, pesoTiempos: 2, pesoAlm: 1,
-  pesoBalanceSemanas: 2, pesoPresencialFirst: 4,
-};
-
 /** Fila de la lista ordenada/activable de criterios de cesión a alternancia por saturación de
  *  espacio. Catálogo fijo de 2 filas de sistema. */
 export interface CriterioCesionAlternancia {

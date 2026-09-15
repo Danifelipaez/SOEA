@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.7" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.8" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="NetArchTest.Rules" Version="1.3.2" />
@@ -21,6 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\SOEA.API\SOEA.API.csproj" />
     <ProjectReference Include="..\..\src\SOEA.Application\SOEA.Application.csproj" />
     <ProjectReference Include="..\..\src\SOEA.Engine.GraphColoring\SOEA.Engine.GraphColoring.csproj" />
     <ProjectReference Include="..\..\src\SOEA.Engine.ConstraintProg\SOEA.Engine.ConstraintProg.csproj" />

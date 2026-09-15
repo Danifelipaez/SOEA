@@ -55,8 +55,8 @@ export class IngestaComponent implements OnInit {
     // haya dejado otra vista en el StateService (p. ej. asignaturas sin facultades).
     this.catalogo.cargarTodo().subscribe({
       error: () => this.snackBar.open(
-        'No se pudieron cargar los datos desde la BD. Verifica que la API esté activa.',
-        'Cerrar', { duration: 5000 }
+        'No se pudieron cargar los datos. Revise su conexión e intente de nuevo.',
+        'Cerrar', { duration: 5000, panelClass: ['snack-error'] }
       )
     });
   }

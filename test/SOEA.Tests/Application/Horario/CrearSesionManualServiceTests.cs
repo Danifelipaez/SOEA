@@ -6,7 +6,7 @@ using SOEA.Application.Features.Horario;
 using SOEA.Application.Features.Horario.Requests;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
-using SOEA.Domain.Interfaces;
+using SOEA.Domain.Services;
 using SOEA.Tests.Fakes;
 using Xunit;
 
@@ -14,28 +14,40 @@ namespace SOEA.Tests.Application.Horario
 {
     /// <summary>
     /// Cubre la creación manual de sesión para los 3 tipos (laboratorio con alternancia,
-    /// teoría virtual fija, teoría presencial). TeoriaVirtual_AmbasSemanasVirtualesSinEspacio
-    /// es guarda de regresión del fix de ModalidadSemanal: antes del desglose por tipo, el
-    /// switch local duplicado en CrearAsignaciones habría dejado ambas semanas en Presencial
-    /// con espacio no nulo para una sesión que debía ser virtual en ambas.
+    /// teoría virtual fija, teoría presencial). TeoriaVirtual_UnaFilaVirtualSinEspacio es guarda de
+    /// regresión del fix de ModalidadSemanal: sin él la fila quedaba presencial y con espacio.
     /// </summary>
     public class CrearSesionManualServiceTests
     {
-        private static CrearSesionManualService Crear() =>
-            new(new FakeBloques(), new FakeSesiones(), new FakeAsignaciones(), new FakeUnitOfWork());
+        private static readonly Guid Lab = Guid.NewGuid();
+        private static readonly Guid Salon = Guid.NewGuid();
+
+        private static (CrearSesionManualService svc, SOEA.Domain.Entities.Horario horario) Crear()
+        {
+            // Un Horario exige ≥1 sesión: un id sin fila basta, no participa en ningún chequeo.
+            var horario = new SOEA.Domain.Entities.Horario(Guid.NewGuid(), "2026-1", new List<Guid> { Guid.NewGuid() });
+            var svc = new CrearSesionManualService(
+                new FakeBloqueRepo(GrillaInstitucional.GenerarBloques().ToArray()),
+                new FakeHorarioRepo(horario), new FakeSesionRepo(), new FakeAsignacionRepo(),
+                new FakeAsignaturaRepo(), new FakeGrupoRepo(),
+                new FakeEspacioRepo(
+                    new Espacio(Lab, "Lab 1", TipoEspacio.Laboratorio, 30),
+                    new Espacio(Salon, "Salón 1", TipoEspacio.Salon, 30)),
+                new FakeUnitOfWork());
+            return (svc, horario);
+        }
 
         [Fact]
         public async Task Laboratorio_ConAlternanciaTipoA_GeneraUnaFilaPresencialEnSemanaA()
         {
-            var asigId = Guid.NewGuid();
-            var espacioId = Guid.NewGuid();
-            var svc = Crear();
+            var (svc, horario) = Crear();
 
             var resultado = await svc.EjecutarAsync(new CrearSesionManualRequest
             {
-                AsignaturaId = asigId,
+                HorarioId = horario.Id,
+                AsignaturaId = Guid.NewGuid(),
                 DocenteId = Guid.NewGuid(),
-                EspacioId = espacioId,
+                EspacioId = Lab,
                 Dia = "lunes",
                 HoraInicio = "07:00",
                 DuracionHoras = 2m,
@@ -48,18 +60,18 @@ namespace SOEA.Tests.Application.Horario
             var a = Assert.Single(resultado);
             Assert.Equal("A", a.Semana);
             Assert.False(a.Virtual);
-            Assert.Equal(espacioId.ToString(), a.EspacioId);
+            Assert.Equal(Lab.ToString(), a.EspacioId);
         }
 
         [Fact]
         public async Task TeoriaVirtual_UnaFilaVirtualSinEspacio()
         {
-            var asigId = Guid.NewGuid();
-            var svc = Crear();
+            var (svc, horario) = Crear();
 
             var resultado = await svc.EjecutarAsync(new CrearSesionManualRequest
             {
-                AsignaturaId = asigId,
+                HorarioId = horario.Id,
+                AsignaturaId = Guid.NewGuid(),
                 DocenteId = Guid.NewGuid(),
                 EspacioId = null,
                 Dia = "martes",
@@ -70,25 +82,21 @@ namespace SOEA.Tests.Application.Horario
             });
 
             var unica = Assert.Single(resultado);
-            Assert.All(resultado, r =>
-            {
-                Assert.True(r.Virtual);
-                Assert.Null(r.EspacioId);
-            });
+            Assert.True(unica.Virtual);
+            Assert.Null(unica.EspacioId);
         }
 
         [Fact]
         public async Task TeoriaPresencial_IgnoraAlternanciaDelRequest()
         {
-            var asigId = Guid.NewGuid();
-            var espacioId = Guid.NewGuid();
-            var svc = Crear();
+            var (svc, horario) = Crear();
 
             var resultado = await svc.EjecutarAsync(new CrearSesionManualRequest
             {
-                AsignaturaId = asigId,
+                HorarioId = horario.Id,
+                AsignaturaId = Guid.NewGuid(),
                 DocenteId = Guid.NewGuid(),
-                EspacioId = espacioId,
+                EspacioId = Salon,
                 Dia = "miercoles",
                 HoraInicio = "09:00",
                 DuracionHoras = 2m,
@@ -97,60 +105,47 @@ namespace SOEA.Tests.Application.Horario
                 EsVirtual = false
             });
 
-            Assert.Single(resultado);
-            Assert.All(resultado, r =>
+            var unica = Assert.Single(resultado);
+            Assert.Equal("SinAlternancia", unica.Alternancia);
+            Assert.False(unica.Virtual);
+            Assert.Equal(Salon.ToString(), unica.EspacioId);
+        }
+
+        /// <summary>P0-5 auditoría: antes la sesión no entraba en ningún horario y desaparecía al recargar.</summary>
+        [Fact]
+        public async Task SesionCreada_QuedaEnElHorarioVigente()
+        {
+            var (svc, horario) = Crear();
+
+            var resultado = await svc.EjecutarAsync(new CrearSesionManualRequest
             {
-                Assert.Equal("SinAlternancia", r.Alternancia);
-                Assert.False(r.Virtual);
-                Assert.Equal(espacioId.ToString(), r.EspacioId);
+                HorarioId = horario.Id,
+                AsignaturaId = Guid.NewGuid(),
+                Dia = "jueves",
+                HoraInicio = "10:00",
+                DuracionHoras = 2m,
+                TipoFlujo = "AulaVirtual",
+                EsVirtual = true
             });
+
+            Assert.Contains(Guid.Parse(Assert.Single(resultado).Id), horario.SesioneIds);
         }
 
-        // ── Fakes ────────────────────────────────────────────────────────────────
-
-        private sealed class FakeBloques : IBloqueTiempoRepositorio
+        [Fact]
+        public async Task HorarioInexistente_LanzaKeyNotFound()
         {
-            // MAN1 auditoría: devuelve el bloque CANÓNICO (id determinístico de GrillaInstitucional),
-            // no uno fabricado con Guid.NewGuid() — el servicio ahora indexa contra la grilla
-            // canónica para detectar solapes por span, y necesita que los ids coincidan, igual que
-            // en producción (BloqueTiempoSeeder siembra exactamente esos ids).
-            public Task<BloqueTiempo?> FindByDiaHoraAsync(DiaDeSemana dia, TimeOnly horaInicio) =>
-                Task.FromResult(SOEA.Domain.Services.GrillaInstitucional.GenerarBloques()
-                    .FirstOrDefault(b => b.Dia == dia && b.HoraInicio == horaInicio));
-            public Task<bool> ExisteAlgunoAsync() => Task.FromResult(true);
-            public Task AddAsync(BloqueTiempo entity) => Task.CompletedTask;
-            public Task<BloqueTiempo?> GetByIdAsync(Guid id) => Task.FromResult<BloqueTiempo?>(null);
-            public Task<List<BloqueTiempo>> GetAllAsync() => Task.FromResult(new List<BloqueTiempo>());
-            public Task UpdateAsync(BloqueTiempo entity) => Task.CompletedTask;
-            public Task DeleteAsync(Guid id) => Task.CompletedTask;
-        }
+            var (svc, _) = Crear();
 
-        private sealed class FakeSesiones : ISesionRepositorio
-        {
-            private readonly List<Sesion> _store = new();
-            public Task AddAsync(Sesion e) { _store.Add(e); return Task.CompletedTask; }
-            public Task AddRangeAsync(IEnumerable<Sesion> sesiones) { _store.AddRange(sesiones); return Task.CompletedTask; }
-            public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
-            public Task<Sesion?> GetByIdAsync(Guid id) => Task.FromResult(_store.FirstOrDefault(s => s.Id == id));
-            public Task<List<Sesion>> GetAllAsync() => Task.FromResult(_store.ToList());
-            public Task UpdateAsync(Sesion e) => Task.CompletedTask;
-            public Task DeleteAsync(Guid id) => Task.CompletedTask;
-            public Task DeleteRangeAsync(IEnumerable<Guid> ids) => Task.CompletedTask;
-            public Task<List<Sesion>> GetByIdsAsync(IEnumerable<Guid> ids) { var set = ids.ToHashSet(); return Task.FromResult(_store.Where(s => set.Contains(s.Id)).ToList()); }
-        }
-
-        private sealed class FakeAsignaciones : IAsignacionSemanalRepositorio
-        {
-            private readonly List<AsignacionSemanal> _store = new();
-            public Task AddAsync(AsignacionSemanal e) { _store.Add(e); return Task.CompletedTask; }
-            public Task AddRangeAsync(IEnumerable<AsignacionSemanal> asignaciones) { _store.AddRange(asignaciones); return Task.CompletedTask; }
-            public Task<List<AsignacionSemanal>> GetBySesionIdsAsync(IEnumerable<Guid> sesionIds) =>
-                Task.FromResult(_store.Where(a => sesionIds.Contains(a.SesionId)).ToList());
-            public Task<AsignacionSemanal?> GetByIdAsync(Guid id) => Task.FromResult(_store.FirstOrDefault(a => a.Id == id));
-            public Task<List<AsignacionSemanal>> GetAllAsync() => Task.FromResult(_store.ToList());
-            public Task UpdateAsync(AsignacionSemanal e) => Task.CompletedTask;
-            public Task DeleteAsync(Guid id) => Task.CompletedTask;
-            public Task DeleteBySesionIdsAsync(IEnumerable<Guid> sesionIds) => Task.CompletedTask;
+            await Assert.ThrowsAsync<KeyNotFoundException>(() => svc.EjecutarAsync(new CrearSesionManualRequest
+            {
+                HorarioId = Guid.NewGuid(),
+                AsignaturaId = Guid.NewGuid(),
+                Dia = "jueves",
+                HoraInicio = "10:00",
+                DuracionHoras = 2m,
+                TipoFlujo = "AulaVirtual",
+                EsVirtual = true
+            }));
         }
     }
 }

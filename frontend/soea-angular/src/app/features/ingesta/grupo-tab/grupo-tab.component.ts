@@ -27,7 +27,7 @@ export interface GrupoDialogData {
   standalone: true,
   imports: [CommonModule, FormsModule, ReactiveFormsModule, SearchableSelectComponent, RequisitosEspacioComponent, DisponibilidadEditorComponent],
   template: `
-    <div class="pophd">{{ data?.grupo ? 'Editar grupo' : 'Nuevo grupo' }} <i (click)="ref.close()">✕</i></div>
+    <div class="pophd">{{ data?.grupo ? 'Editar grupo' : 'Nuevo grupo' }} <button type="button" class="pop-close" (click)="ref.close()" aria-label="Cerrar">✕</button></div>
     <div class="popbd" style="max-height:74vh;overflow:auto">
       <form [formGroup]="form" style="display:flex;flex-direction:column;gap:10px">
         @if (asignaturaFija) {

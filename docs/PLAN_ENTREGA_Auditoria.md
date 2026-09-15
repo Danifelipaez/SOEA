@@ -10,6 +10,23 @@
 
 Etiquetas de evidencia: **[vivo]** = reproducido contra la app corriendo · **[código]** = por lectura, sin reproducir.
 
+## Estado (2026-09-14)
+
+| Ítem | Estado |
+|---|---|
+| 0.1 Commit del working tree | ✅ `282ca0b` |
+| 0.2 Tests de integración contra Postgres | ✅ `test/SOEA.Tests/Integracion/` — API real (`WebApplicationFactory`) sobre una BD desechable del Postgres local (no hay Docker; `SOEA_TEST_DB` para CI). Sin servidor se omiten. |
+| 0.3 Consulta de huérfanos en producción | ⏳ Pendiente: requiere acceso a la BD de prod |
+| P0-1 … P0-5 | ✅ Corregidos; cada uno con test de integración que falló antes del fix (P0-4, además, con test unitario determinista) |
+
+Cómo quedó cada bloqueante:
+
+- **P0-1** M14 sanea antes de crear las FK: borra sesiones fuera de todo horario y las que no tienen asignatura o bloque, alinea `Sesion.bloque_tiempo_id` con su asignación y pone en NULL las referencias opcionales rotas. Verificado sobre una copia de la BD local real: el API arranca y quedan 0 huérfanos. `Migrate()` al arrancar sigue ahí (OPS-1, Fase 5).
+- **P0-2** El import ya no persiste las filas día/hora del Excel como sesiones (nadie las leía); solo alimentan el requisito de aula del grupo. Desaparece el `EspacioId` temporal.
+- **P0-3** La sesión fija exige un grupo del request, ocupa el lugar de una sesión del mismo grupo/asignatura/tipo y siempre recibe id nuevo. En el front, "Sesión fija" usa el mismo diálogo que "Crear sesión" (grupo, tipo y duración de la asignatura; docente opcional).
+- **P0-4** La sesión manual valida contra las asignaciones reales del horario con `ValidadorRestriccionesDuras` (más HC-I01); ahora también cubre HC-C01, HC-S03, HC-CAP, HC-VH y HC-G01. La generación alinea `Sesion.BloqueTiempoId` con la asignación final.
+- **P0-5** La sesión manual exige `horarioId` y se agrega a `Horario.SesioneIds`; las que no pertenecen al horario vigente ya no bloquean.
+
 ## Veredicto
 
 Los tests en verde no cubren lo que un revisor senior va a probar primero. Hay **5 bloqueantes reproducidos en vivo** y comparten dos causas raíz:
@@ -164,7 +181,9 @@ union all select 'sesiones.espacio', count(*) from "Sesiones" s where espacio_id
 union all select 'sesiones.docente', count(*) from "Sesiones" s where docente_id is not null and not exists(select 1 from "Docentes" x where x.id=s.docente_id)
 union all select 'asignaturas.programa', count(*) from "Asignaturas" a where not exists(select 1 from "Programas" x where x.id=a.programa_id)
 union all select 'programas.facultad', count(*) from "Programas" p where not exists(select 1 from "Facultades" x where x.id=p.facultad_id)
-union all select 'sesiones_fantasma', count(*) from "Sesiones" s where not exists(select 1 from "AsignacionesSemanales" a where a.sesion_id=s.id);
+union all select 'sesiones_fantasma', count(*) from "Sesiones" s where not exists(select 1 from "AsignacionesSemanales" a where a.sesion_id=s.id)
+union all select 'grupos.programa (M14 no lo sanea)', count(*) from "Grupos" g where not exists(select 1 from "Programas" x where x.id=g.programa_id)
+union all select 'sesiones_fuera_de_horario (M14 las borra)', count(*) from "Sesiones" s where not exists(select 1 from "Horarios" h, jsonb_array_elements_text(h.sesion_ids::jsonb) e where e = s.id::text);
 ```
 
 Borrar la copia cuando ya no sirva: `dropdb SOEAdb_audit`.

@@ -21,10 +21,14 @@ import { mensajeInfactibilidadAmigable } from '../horario/horario.component';
     @if (mensajeConflicto()) {
       <div class="blueprint elev-md conflict-banner">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-        <b>⚠ El último intento de generar el horario no fue factible.</b>
+        <b>⚠ No se pudo generar el horario en el último intento.</b>
         <p>{{ mensajeConflicto() }}</p>
         <a class="btn btn-secondary" routerLink="/horario">Ir a Horario para ajustar y reintentar</a>
       </div>
+    }
+
+    @if (cargaError()) {
+      <div class="soft" style="margin-bottom:18px">No se pudieron cargar los datos. Revise su conexión e intente de nuevo.</div>
     }
 
     @if (state.sesiones().length === 0) {
@@ -49,16 +53,16 @@ import { mensajeInfactibilidadAmigable } from '../horario/horario.component';
         </div>
         <div class="blueprint kpi">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-          <span class="klabel">Horas-aula libres</span>
+          <span class="klabel">Horas de aula sin usar</span>
           <span class="kval warn">{{ franjasOciosas() }}</span>
-          <span class="text-muted knote">sin reservar en toda la semana (incluye noches y días sin clase)</span>
+          <span class="text-muted knote">en toda la semana (incluye noches y días sin clase)</span>
         </div>
       </div>
 
       <!-- Carga docente -->
       <div class="blueprint carga">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-        <div class="carga-head"><h3 class="sec">Carga docente</h3><span class="text-muted">rango de color según carga vs. máximo declarado</span></div>
+        <div class="carga-head"><h3 class="sec">Carga docente</h3><span class="text-muted">el color indica qué tan cerca está cada docente de su máximo de horas</span></div>
         @if (docentesData().length === 0) {
           <p class="text-muted" style="margin:0">Sin docentes asignados a sesiones.</p>
         }
@@ -120,8 +124,12 @@ export class DashboardAdminComponent implements OnInit {
   state = inject(StateService);
   catalogo = inject(CatalogoService);
 
+  cargaError = signal(false);
+
   ngOnInit() {
-    if (this.state.espacios().length === 0) this.catalogo.cargarTodo().subscribe({ error: () => {} });
+    if (this.state.espacios().length === 0) {
+      this.catalogo.cargarTodo().subscribe({ error: () => this.cargaError.set(true) });
+    }
   }
 
   /** M6 auditoría: mismo texto accionable que el banner de /horario, pero leído de StateService

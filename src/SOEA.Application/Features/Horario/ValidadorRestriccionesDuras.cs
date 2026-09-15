@@ -25,7 +25,28 @@ namespace SOEA.Application.Features.Horario
         // identifiquen a un coordinador académico, no a un GUID. Ausente = los mensajes
         // degradan a "sin nombre" — nunca vuelven a mostrar el Id crudo.
         IReadOnlyDictionary<Guid, string>? NombrePorAsignatura = null,
-        IReadOnlyDictionary<Guid, string>? NombrePorGrupo = null);
+        IReadOnlyDictionary<Guid, string>? NombrePorGrupo = null)
+    {
+        /// <summary>
+        /// Contexto armado desde el catálogo persistido, para las ediciones puntuales sobre un horario
+        /// ya generado (/reacomodar y la sesión manual), que validan contra lo guardado en BD.
+        /// </summary>
+        public static ContextoValidacion DesdeCatalogo(
+            IReadOnlyList<BloqueTiempo> bloques,
+            IReadOnlyCollection<Asignatura> asignaturas,
+            IReadOnlyCollection<Grupo> grupos,
+            IEnumerable<Espacio> espacios,
+            IReadOnlySet<Guid>? sesionesFijas = null) => new(
+                Bloques: bloques,
+                VentanaPorAsignatura: asignaturas.ToDictionary(a => a.Id, a => ((TimeOnly?)a.HoraInicioMin, (TimeOnly?)a.HoraFinMax)),
+                DisponibilidadPorGrupo: grupos.ToDictionary(g => g.Id, g => g.ObtenerDisponibilidadSemanal()),
+                EstudiantesPorGrupo: grupos.ToDictionary(g => g.Id, g => g.EstudiantesInscritos),
+                EspacioPorId: espacios.ToDictionary(e => e.Id),
+                SesionesFijas: sesionesFijas,
+                RequisitosPorGrupo: grupos.ToDictionary(g => g.Id, g => g.RequisitosEspacio),
+                NombrePorAsignatura: asignaturas.ToDictionary(a => a.Id, a => a.Nombre),
+                NombrePorGrupo: grupos.ToDictionary(g => g.Id, g => g.Nombre));
+    }
 
     /// <summary>
     /// Validador post-generación de restricciones duras (P0.3 auditoría).

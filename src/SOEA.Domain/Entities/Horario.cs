@@ -36,6 +36,12 @@ namespace SOEA.Domain.Entities
         }
 
         /// <summary>
+        /// Incorpora una sesión creada a mano. Lista nueva (no Add): el ValueComparer de EF compara por
+        /// contenido, pero así el cambio también es visible para quien compare por referencia.
+        /// </summary>
+        public void AgregarSesion(Guid sesionId) => SesioneIds = [.. SesioneIds, sesionId];
+
+        /// <summary>
         /// Marca el horario como publicado.
         /// </summary>
         public void MarcarComoPublicado()

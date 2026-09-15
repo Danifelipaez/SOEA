@@ -224,8 +224,10 @@ export class PersistenciaService {
   }
 
   crearSesionManual(payload: {
+    /** Horario vigente al que se agrega la sesión. */
+    horarioId: string;
     asignaturaId: string;
-    docenteId: string;
+    docenteId: string | null;
     espacioId: string | null;
     // R2 auditoría: el diálogo de creación manual ya obliga a elegir un grupo, pero el dato se
     // descartaba antes de llegar aquí — sin él, HC-SEP se evaluaba sobre TODAS las cohortes
@@ -263,8 +265,9 @@ export interface ImportExcelStatsDto {
   asignaturasCreadas: number;
   asignaturasActualizadas: number;
   gruposCreados: number;
-  sesionesPersistidas: number;
-  asignaturasSinDocente: number;
+  /** Bug FE (auditoría UI 2026-09): el DTO decía `asignaturasSinDocente` pero el backend envía
+   *  `gruposSinDocente` (ImportDtos.cs) — el campo nunca coincidía y esta fila nunca se mostraba. */
+  gruposSinDocente: number;
   advertencias: string[];
 }
 

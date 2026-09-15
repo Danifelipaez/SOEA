@@ -85,7 +85,6 @@ namespace SOEA.API.Controllers
                 AsignaturasCreadas      = stats.AsignaturasCreadas,
                 AsignaturasActualizadas = stats.AsignaturasActualizadas,
                 GruposCreados           = stats.GruposCreados,
-                SesionesPersistidas     = stats.SesionesPersistidas,
                 GruposSinDocente   = stats.GruposSinDocente,
                 Advertencias            = stats.Advertencias
             });

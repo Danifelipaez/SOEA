@@ -4,6 +4,7 @@ import { Observable, of, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion } from './models';
 import { environment } from '../../environments/environment';
+import { mensajeErrorHttp } from './http-error.util';
 
 // ── Tipos del contrato con la API ──────────────────────────────────────────────
 
@@ -23,8 +24,9 @@ export interface ConfiguracionAlgoritmoApiDto {
 }
 
 export interface SesionFijaApiDto {
-  id?: string;
   asignaturaId: string;
+  /** Grupo dueño de la sesión: el backend omite la fija si no viene. */
+  grupoId?: string;
   docenteId?: string;
   espacioId?: string;
   dia: string;
@@ -159,9 +161,11 @@ export class HorarioApiService {
     base?: HorarioBase,
     grupos?: Grupo[]
   ): Observable<GenerarHorarioResponse> {
-    const sesionesFijas: SesionFijaApiDto[] | undefined = base?.sesiones.map(s => ({
-      id:           s.id,
+    // La contraparte virtual de una sesión que alterna es una fila derivada, no una sesión propia:
+    // fijarla también duplicaría la sesión.
+    const sesionesFijas: SesionFijaApiDto[] | undefined = base?.sesiones.filter(s => !s.esContraparteVirtual).map(s => ({
       asignaturaId: s.asignaturaId,
+      grupoId:      s.grupoId,
       docenteId:    s.docenteId,
       espacioId:    s.espacioId,
       dia:          s.dia,
@@ -283,21 +287,20 @@ export class HorarioApiService {
     // primero caía en la rama de abajo y se reenviaba el ProgressEvent crudo como si fuera el
     // payload 422 real, indistinguible en el componente de un 422 mal formado.
     if (err.status === 0) {
-      return throwError(() => new Error('No se pudo conectar con el servidor. Verifique su conexión o que el backend esté disponible.'));
+      return throwError(() => new Error(mensajeErrorHttp(err)));
     }
     if (err.status === 400) {
       const errors = err.error?.errors;
       if (errors && typeof errors === 'object') {
         const msgs = (Object.values(errors) as string[][]).flat().join('; ');
-        return throwError(() => new Error(msgs || 'Datos inválidos enviados al servidor.'));
+        return throwError(() => new Error(msgs || mensajeErrorHttp(err)));
       }
-      const title = err.error?.title ?? err.error?.message ?? 'Solicitud inválida (400).';
-      return throwError(() => new Error(title));
+      return throwError(() => new Error(mensajeErrorHttp(err)));
     }
     // 422: backend devolvió GenerarHorarioResponse con EsFactible=false
     if (err.error && typeof err.error === 'object') {
       return throwError(() => err.error);
     }
-    return throwError(() => new Error(err.message ?? 'Error desconocido al conectar con el API.'));
+    return throwError(() => new Error(mensajeErrorHttp(err)));
   }
 }

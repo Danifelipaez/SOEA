@@ -125,7 +125,7 @@ describe('AsignaturasTabComponent — tooltip explicando el aviso (title)', () =
   });
 
   it('el tooltip de un grupo sin requisito de espacio lo menciona explícitamente', () => {
-    expect(component.tituloGrupo(grupo({ requisitosEspacio: [] }))).toMatch(/espacio/i);
+    expect(component.tituloGrupo(grupo({ requisitosEspacio: [] }))).toMatch(/aula/i);
   });
 
   it('el tooltip de un grupo sin disponibilidad declarada lo menciona explícitamente', () => {
@@ -142,7 +142,7 @@ describe('AsignaturasTabComponent — tooltip explicando el aviso (title)', () =
     const g = grupo({ id: 'g9', requisitosEspacio: [] });
     state.setGruposEnConflicto(['g9']);
     const titulo = component.tituloGrupo(g);
-    expect(titulo).toMatch(/espacio/i);
+    expect(titulo).toMatch(/aula/i);
     expect(titulo).toMatch(/generar|horario|conflicto/i);
   });
 
@@ -197,7 +197,7 @@ describe('AsignaturasTabComponent — sección de grupos sin asignatura', () => 
     state.grupos.set([grupo({ id: 'g1', asignaturaId: 'a-borrada', nombre: 'Huérfano 1' })]);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('1 grupo(s) sin asignatura válida');
+    expect(fixture.nativeElement.textContent).toContain('1 grupo(s) cuya asignatura fue eliminada');
     expect(fixture.nativeElement.textContent).toContain('Huérfano 1');
   });
 

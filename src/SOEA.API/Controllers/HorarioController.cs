@@ -107,17 +107,16 @@ namespace SOEA.API.Controllers
         }
 
         /// <summary>
-        /// Crea una sesión manualmente sin re-ejecutar el modelo de optimización.
-        /// Valida HC-I01, HC-S01 y HC-S05 antes de persistir.
-        /// Devuelve los DTOs de la sesión creada (1 ó 2 filas: semana A + semana B).
+        /// Agrega una sesión manual al horario vigente sin re-ejecutar el modelo de optimización.
+        /// Valida las restricciones duras contra las asignaciones reales de ese horario antes de
+        /// persistir. Devuelve la fila de la sesión creada.
         /// </summary>
-        // ERR1/ERR2 auditoría: sin catch — GlobalExceptionHandler traduce ArgumentException a 400
-        // y BusinessRuleViolationException (violación de HC-I01/HC-S01/HC-S05/HC-SEP) a 409. Antes
-        // este endpoint era el único que devolvía 422 para una violación de restricción dura —
-        // SesionesController y el resto del backend ya usaban 409 para el mismo caso.
+        // ERR1/ERR2 auditoría: sin catch — GlobalExceptionHandler traduce ArgumentException a 400,
+        // KeyNotFoundException (horario inexistente) a 404 y BusinessRuleViolationException a 409.
         [HttpPost("sesion-manual")]
         [ProducesResponseType(typeof(List<SesionGeneradaDto>), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> CrearSesionManual([FromBody] CrearSesionManualRequest request)
         {

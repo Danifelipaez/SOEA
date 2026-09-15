@@ -26,14 +26,14 @@ import { Espacio, RequisitoEspacio, TipoSesionUi } from '../../core/models';
       <div class="track">
         <span class="tlabel">{{ etiqueta(tipo) }}</span>
         <select class="input" style="width:170px" [ngModel]="tipoEspacioDe(tipo)" (ngModelChange)="setTipoEspacio(tipo, $event)">
-          <option value="">Cualquiera (regla por defecto)</option>
+          <option value="">Cualquier aula adecuada</option>
           <option value="Salon">Solo salón</option>
           <option value="Laboratorio">Solo laboratorio</option>
           <option value="Auditorio">Solo auditorio</option>
         </select>
         <div class="dfield" style="flex:1;margin:0">
           <app-searchable-select [ngModel]="espacioIdDe(tipo)" (ngModelChange)="setEspacioId(tipo, $event)"
-            [options]="espacioOptions(tipo)" placeholder="Ninguno (usar tipo)"></app-searchable-select>
+            [options]="espacioOptions(tipo)" placeholder="Cualquiera de ese tipo"></app-searchable-select>
         </div>
       </div>
     }
@@ -67,7 +67,7 @@ export class RequisitosEspacioComponent implements ControlValueAccessor {
     const lista = filtroTipo
       ? this.espacios().filter(e => e.tipo === this.aTipoEspacioLabel(filtroTipo))
       : this.espacios();
-    return [{ value: '', label: 'Ninguno (usar tipo)' }, ...lista.map(e => ({ value: e.id, label: e.nombre, sub: e.edificio }))];
+    return [{ value: '', label: 'Cualquiera de ese tipo' }, ...lista.map(e => ({ value: e.id, label: e.nombre, sub: e.edificio }))];
   }
 
   setTipoEspacio(tipo: TipoSesionUi, tipoEspacio: string) {

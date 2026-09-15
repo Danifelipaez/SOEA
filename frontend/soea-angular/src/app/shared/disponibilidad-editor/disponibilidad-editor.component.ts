@@ -34,7 +34,7 @@ export const FRANJAS_DEFECTO: FranjaOption[] = [
   template: `
     <div class="disp-table">
       <div class="disp-row hd">
-        <span class="c-dia">Día</span><span class="c-nd">No disp.</span><span class="c-tipo">Franja</span><span class="c-times">Horario</span>
+        <span class="c-dia">Día</span><span class="c-nd">No disponible</span><span class="c-tipo">Franja</span><span class="c-times">Horario</span>
       </div>
       @for (dia of dias; track dia) {
         <div class="disp-row">

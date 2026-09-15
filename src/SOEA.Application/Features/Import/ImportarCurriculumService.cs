@@ -12,7 +12,7 @@ namespace SOEA.Application.Features.Import
 {
     /// <summary>
     /// Persiste un <see cref="CurriculumExcelResult"/> completo dentro de una transacción:
-    /// facultades → programas → docentes → espacios → asignaturas → grupos → sesiones predefinidas.
+    /// facultades → programas → docentes → espacios → asignaturas → grupos.
     /// Ambos endpoints de importación (Excel y JSON) delegan en este servicio.
     /// </summary>
     public class ImportarCurriculumService
@@ -24,7 +24,6 @@ namespace SOEA.Application.Features.Import
         private readonly IEspacioRepositorio _espacios;
         private readonly IAsignaturaRepositorio _asignaturas;
         private readonly IGrupoRepositorio _grupos;
-        private readonly ISesionRepositorio _sesiones;
         private readonly IBloqueTiempoRepositorio _bloques;
 
         public ImportarCurriculumService(
@@ -35,7 +34,6 @@ namespace SOEA.Application.Features.Import
             IEspacioRepositorio espacios,
             IAsignaturaRepositorio asignaturas,
             IGrupoRepositorio grupos,
-            ISesionRepositorio sesiones,
             IBloqueTiempoRepositorio bloques)
         {
             _uow        = uow;
@@ -45,7 +43,6 @@ namespace SOEA.Application.Features.Import
             _espacios   = espacios;
             _asignaturas = asignaturas;
             _grupos     = grupos;
-            _sesiones   = sesiones;
             _bloques    = bloques;
         }
 
@@ -434,52 +431,11 @@ namespace SOEA.Application.Features.Import
                 // commit; sin él, todo lo de arriba se habría descartado en silencio.
                 await _uow.SaveAsync();
 
-                // ── Sesiones predefinidas ─────────────────────────────────────────────
-                foreach (var s in resultado.SesionesPredefinidas)
-                {
-                    // M9 auditoría: estos dos `continue` descartaban filas del Excel con un problema
-                    // real de datos (sin bloque resuelto, o asignatura que no llegó a crearse) sin
-                    // dejar rastro — la respuesta reportaba menos sesiones que filas sin explicar por
-                    // qué. El `continue` de más abajo (ExisteAsync) es deduplicación intencional y no
-                    // se reporta: reimportar el mismo Excel no es un problema de datos.
-                    if (s.BloqueTiempoId == Guid.Empty)
-                    {
-                        stats.Advertencias.Add(
-                            $"Sesión de la asignatura '{s.AsignaturaId}' descartada: no se pudo resolver su bloque de tiempo (día/hora fuera de la grilla o vacío).");
-                        continue;
-                    }
-
-                    var asigRealId = asignaturaIdMap.TryGetValue(s.AsignaturaId, out var asid) ? asid : s.AsignaturaId;
-                    // CR-02: Sesion.DocenteId es nullable; las sesiones del curriculum traen docente.
-                    // DOC1/H8 auditoría: el "sin docente" caía a Guid.Empty, que Sesion persistía
-                    // como si fuera un docente real (ahora el constructor de Sesion lo rechaza).
-                    // null se propaga correctamente porque ExisteAsync ya acepta Guid? (H8).
-                    var docRealId  = s.DocenteId is Guid did
-                        ? (docenteIdMap.TryGetValue(did, out var sdid) ? sdid : did)
-                        : (Guid?)null;
-
-                    if (await _asignaturas.GetByIdAsync(asigRealId) == null)
-                    {
-                        stats.Advertencias.Add(
-                            $"Sesión descartada: la asignatura '{s.AsignaturaId}' no existe (referencia rota tras el mapeo de ids).");
-                        continue;
-                    }
-                    if (await _sesiones.ExisteAsync(asigRealId, docRealId, s.BloqueTiempoId)) continue;
-
-                    var grupoRealId = s.GrupoId.HasValue && grupoIdMap.TryGetValue(s.GrupoId.Value, out var gid)
-                        ? gid : s.GrupoId;
-
-                    _uow.Track(new Sesion(
-                        Guid.NewGuid(), asigRealId, docRealId,
-                        s.BloqueTiempoId, s.EspacioId, grupoRealId,
-                        s.Alternancia, Modalidad.Presencial, s.DuracionHoras,
-                        esBloque: false, estaDividida: false));
-                    stats.SesionesPersistidas++;
-                    // Mismo motivo que las secciones de arriba: ExisteAsync consulta la BD, así
-                    // que dos filas idénticas del Excel se duplicarían sin este flush.
-                    await _uow.SaveAsync();
-                }
-
+                // P0-2/P0-5 auditoría: las filas día/hora del Excel ya no se persisten como Sesiones.
+                // Ningún horario las contenía, así que ninguna pantalla las mostraba, pero bloqueaban
+                // docentes y guardaban el EspacioId temporal del lector (409 con la FK de M14, que
+                // revertía el import completo). Solo alimentan el requisito de aula de cada grupo
+                // (espacioPorAsignatura, arriba).
                 await _uow.CommitAsync();
             }
             catch

@@ -129,19 +129,22 @@ namespace SOEA.Application.Features.Horario
             logs.Add($"[INFO] Sesiones creadas a partir de grupos: {sesiones.Count}.");
 
             // ── 1b. Sesiones fijas (horario base) — se añaden con bloque pre-asignado ──
-            // BASE1 auditoría: SesionFijaDto no trae un GrupoId real todavía (el frontend no lo
-            // captura para el horario base), así que cada fija recibe un GrupoId SINTÉTICO PROPIO
-            // (uno por sesión, no compartido). Antes todas compartían un único id sintético: HC-C01
-            // es NoOverlap por (grupo, semana), así que un horario base con clases simultáneas de
-            // cohortes distintas — el caso normal — quedaba mutuamente excluyente consigo mismo y
-            // CP-SAT lo declaraba infactible. Con un grupo propio por fija, ese eje deja de
-            // interferir entre ellas; los conflictos reales de aula los sigue cubriendo HC-S01
-            // (por espacio, no por grupo).
+            // P0-3 auditoría: cada fija pertenece a un grupo real del request. Antes recibía un GrupoId
+            // sintético que la FK de Sesiones rechazaba, así que generar con horario base respondía
+            // siempre 409. Y ocupa el lugar de una sesión del mismo grupo, asignatura y tipo: el
+            // generador planifica el resto alrededor (regla 8), no la suma a la demanda del grupo.
             var sesionesFijasIds = new HashSet<Guid>();
             int sesionesFijasOmitidas = 0;
             if (request.SesionesFijas is { Count: > 0 })
             {
-                var (fijas, omitidas) = MapearSesionesFijas(request.SesionesFijas, bloques);
+                var (fijas, omitidas) = MapearSesionesFijas(request.SesionesFijas, bloques, grupos);
+                foreach (var fija in fijas)
+                {
+                    var reemplazada = sesiones.FirstOrDefault(s =>
+                        s.GrupoId == fija.GrupoId && s.AsignaturaId == fija.AsignaturaId &&
+                        CalculadorEspaciosSesion.TipoSesionDe(s) == CalculadorEspaciosSesion.TipoSesionDe(fija));
+                    if (reemplazada is not null) sesiones.Remove(reemplazada);
+                }
                 sesionesFijasIds = fijas.Select(s => s.Id).ToHashSet();
                 sesionesFijasOmitidas = omitidas.Count;
                 sesiones.AddRange(fijas);
@@ -433,6 +436,13 @@ namespace SOEA.Application.Features.Horario
             }
             logs.Add("[INFO] Post-chequeo OK: 0 violaciones de restricciones duras.");
 
+            // P0-4 auditoría: Sesion.BloqueTiempoId seguía guardando la pista de Fase 1, y quien lo leía
+            // después (sesión manual, avisos al asignar docente) veía otra franja. Se alinea con la
+            // asignación final antes de persistir (una fila por sesión, ALT-05).
+            foreach (var a in asignaciones)
+                if (sesionPorIdValidacion.TryGetValue(a.SesionId, out var sesionAsignada))
+                    sesionAsignada.AsignarBloqueTiempo(a.BloqueTiempoId);
+
             // ── 5. Persistir sesiones lógicas, Horario y asignaciones semanales ─
             // Las tres escrituras comparten el mismo DbContext (scoped), así que van en UNA
             // transacción: si la última falla, no quedan sesiones ni horario huérfanos sin
@@ -455,7 +465,7 @@ namespace SOEA.Application.Features.Horario
                 // sí NO se borra (auditoría de corridas — IHorarioRepositorio.GetAllAsync), pero sus
                 // sesiones y asignaciones son datos regenerables (regla 8, CLAUDE.md) y sí se limpian
                 // antes de escribir la corrida nueva. Las sesiones manuales (CrearSesionManualService)
-                // nunca pertenecen a un Horario.SesioneIds, así que sobreviven intactas.
+                // pertenecen al horario donde se crearon, así que se reemplazan igual que el resto.
                 // Limpieza de sesión de limpieza: esto ANTES no filtraba por semestre — regenerar
                 // "2026-2" borraba también las sesiones vivas de "2026-1", dejando su Horario con
                 // SesioneIds colgando (ObtenerActualAsync empezaba a devolver 404 para ese semestre
@@ -514,13 +524,15 @@ namespace SOEA.Application.Features.Horario
         /// <summary>
         /// Mapea las sesiones del horario base a entidades de dominio con el BloqueTiempo ya
         /// pre-asignado (buscando el bloque por día+horaInicio en la grilla canónica).
-        /// Si no se encuentra un bloque coincidente, la sesión se omite y el motivo se reporta
-        /// en <c>omitidas</c> (antes se descartaba en silencio).
+        /// Sin bloque coincidente, asignatura válida o grupo del request, la sesión se omite y el
+        /// motivo se reporta en <c>omitidas</c>.
         /// </summary>
         private static (List<Sesion> fijas, List<string> omitidas) MapearSesionesFijas(
             List<SesionFijaDto> dtos,
-            List<BloqueTiempo> bloques)
+            List<BloqueTiempo> bloques,
+            List<Grupo> grupos)
         {
+            var grupoIds = grupos.Select(g => g.Id).ToHashSet();
             // Índice rápido: (dia, horaInicio) → BloqueTiempo
             var bloqueDict = bloques.ToDictionary(
                 b => (DiaToString(b.Dia), b.HoraInicio.ToString("HH:mm")));
@@ -543,6 +555,11 @@ namespace SOEA.Application.Features.Horario
                     omitidas.Add($"AsignaturaId '{dto.AsignaturaId}' no es un identificador válido ({dto.Dia} {dto.HoraInicio}).");
                     continue;
                 }
+                if (!Guid.TryParse(dto.GrupoId, out var grupoId) || !grupoIds.Contains(grupoId))
+                {
+                    omitidas.Add($"asignatura {dto.AsignaturaId}, {dto.Dia} {dto.HoraInicio}: no indica un grupo de los incluidos en la generación.");
+                    continue;
+                }
                 Guid? espId = Guid.TryParse(dto.EspacioId, out var eid) ? eid : null;
                 // Bug: docenteId: null se ignoraba el docente aunque el frontend sí lo manda —
                 // regenerar con horario base borraba el docente de todas sus sesiones fijas.
@@ -550,17 +567,14 @@ namespace SOEA.Application.Features.Horario
 
                 var alternancia = ParseTipoAlternancia(dto.Alternancia);
 
-                var id = Guid.TryParse(dto.Id, out var sid) ? sid : Guid.NewGuid();
-                // BASE1: grupo sintético PROPIO de esta fija (no compartido) — ver comentario en el
-                // llamador. Evita que HC-C01 (NoOverlap por grupo) trate a todas las sesiones del
-                // horario base como una sola cohorte que no puede tener dos clases a la vez.
+                // Id siempre nuevo: la base puede venir de una corrida cuyas sesiones siguen en BD.
                 var sesion = new Sesion(
-                    id: id,
+                    id: Guid.NewGuid(),
                     asignaturaId: asigId,
                     docenteId: docId,
                     bloqueId: bloque.Id,
                     espacioId: espId,
-                    grupoId: Guid.NewGuid(),
+                    grupoId: grupoId,
                     alternancia: alternancia,
                     modalidad: dto.Virtual ? Modalidad.Virtual : Modalidad.Presencial,
                     duracionHoras: dto.DuracionHoras > 0 ? dto.DuracionHoras : 2m,

@@ -58,7 +58,7 @@ describe('EditarSesionDialogComponent — reacomodar sin horarioId', () => {
     component.guardar();
 
     expect(horarioApi.reacomodar).not.toHaveBeenCalled();
-    expect(component.errorServidor()).toMatch(/genera el horario de nuevo|no hay un horario/i);
+    expect(component.errorServidor()).toMatch(/genere el horario/i);
     expect(component.guardando()).toBe(false);
   });
 

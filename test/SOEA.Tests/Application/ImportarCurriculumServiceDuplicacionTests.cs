@@ -63,7 +63,6 @@ namespace SOEA.Tests.Application
                 new EspacioRepositorio(db),
                 new AsignaturaRepository(db),
                 new GrupoRepositorio(db),
-                new SesionRepositorio(db),
                 new BloqueTiempoRepositorio(db));
             return (svc, db);
         }

@@ -13,8 +13,7 @@ import { RouterModule } from '@angular/router';
       <div class="lock">🔒</div>
       <h1 class="title">Publicar</h1>
       <p class="desc">
-        Esta acción todavía no está disponible: el backend no tiene implementado el servicio de
-        publicación de horarios. El lugar en el flujo queda reservado para cuando exista.
+        La publicación del horario estará disponible próximamente.
       </p>
       <a class="btn btn-secondary" routerLink="/revisar">← Volver a Revisar</a>
     </div>

@@ -10,6 +10,49 @@ namespace SOEA.Infrastructure.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // Saneamiento previo a las FK (P0-1, auditoría 2026-09-14). Con datos huérfanos el ADD
+            // CONSTRAINT falla y, como Program.cs migra al arrancar, el API no llega a levantar.
+            // Corre dentro de la transacción de la migración: si algo falla no queda nada a medias.
+            //  1. Sesiones fuera de todo Horario.sesion_ids: filas del import de Excel y sesiones
+            //     manuales anteriores al fix P0-5. Ninguna pantalla las mostraba, pero bloqueaban docentes.
+            //  2. Sesion.bloque_tiempo_id guardaba la pista de Fase 1, no el bloque final (P0-4): se
+            //     alinea con su asignación.
+            //  3. Sesiones sin asignatura o bloque existente (columnas NOT NULL, nada que conservar) y
+            //     asignaciones sin sesión.
+            //  4. Referencias opcionales rotas → NULL.
+            // Grupos.programa_id (NOT NULL) no se toca: un huérfano ahí hay que corregirlo a mano, y la
+            // FK lo reporta por nombre.
+            migrationBuilder.Sql("""
+                DELETE FROM "Sesiones" s
+                WHERE NOT EXISTS (SELECT 1 FROM "Horarios" h, jsonb_array_elements_text(h.sesion_ids::jsonb) e
+                                  WHERE e = s.id::text);
+
+                UPDATE "Sesiones" s SET bloque_tiempo_id = a.bloque_tiempo_id
+                FROM "AsignacionesSemanales" a
+                WHERE a.sesion_id = s.id AND a.bloque_tiempo_id <> s.bloque_tiempo_id
+                  AND EXISTS (SELECT 1 FROM "BloqueTiempos" b WHERE b.id = a.bloque_tiempo_id);
+
+                DELETE FROM "Sesiones" s
+                WHERE NOT EXISTS (SELECT 1 FROM "Asignaturas" x WHERE x.id = s.asignatura_id)
+                   OR NOT EXISTS (SELECT 1 FROM "BloqueTiempos" x WHERE x.id = s.bloque_tiempo_id);
+
+                DELETE FROM "AsignacionesSemanales" a
+                WHERE NOT EXISTS (SELECT 1 FROM "Sesiones" s WHERE s.id = a.sesion_id);
+
+                UPDATE "Sesiones" s SET grupo_id = NULL
+                WHERE grupo_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "Grupos" x WHERE x.id = s.grupo_id);
+                UPDATE "Sesiones" s SET espacio_id = NULL
+                WHERE espacio_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "Espacios" x WHERE x.id = s.espacio_id);
+                UPDATE "Sesiones" s SET docente_id = NULL
+                WHERE docente_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "Docentes" x WHERE x.id = s.docente_id);
+                UPDATE "Grupos" g SET facultad_id = NULL
+                WHERE facultad_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "Facultades" x WHERE x.id = g.facultad_id);
+                UPDATE "Grupos" g SET asignatura_id = NULL
+                WHERE asignatura_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "Asignaturas" x WHERE x.id = g.asignatura_id);
+                UPDATE "Grupos" g SET docente_id = NULL
+                WHERE docente_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "Docentes" x WHERE x.id = g.docente_id);
+                """);
+
             migrationBuilder.CreateIndex(
                 name: "IX_Sesiones_grupo_id",
                 table: "Sesiones",
