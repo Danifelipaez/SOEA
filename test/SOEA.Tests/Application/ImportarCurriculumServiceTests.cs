@@ -303,6 +303,8 @@ namespace SOEA.Tests.Application
                 _tracked[t][entity.Id] = entity;
             }
 
+            public void AttachUnchanged<T>(T entity) where T : EntidadBase => Track(entity);
+
             public T? Find<T>(Guid id) where T : EntidadBase
                 => _tracked.TryGetValue(typeof(T), out var store)
                     ? store.TryGetValue(id, out var e) ? (T)e : null
