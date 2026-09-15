@@ -3,6 +3,7 @@ using SOEA.Domain.Interfaces;
 using SOEA.Application.Features.Asignaturas.Requests;
 using SOEA.Application.Features.Asignaturas.Responses;
 using SOEA.Application.Features.Horario;
+using SOEA.Application.Features.Sesiones;
 
 namespace SOEA.Application.Features.Asignaturas;
 
@@ -10,12 +11,18 @@ public class AsignaturaService
 {
     private readonly IAsignaturaRepositorio _repository;
     private readonly IGrupoRepositorio _grupoRepository;
+    private readonly SesionCascadeService _sesionCascade;
     private readonly IUnitOfWork _uow;
 
-    public AsignaturaService(IAsignaturaRepositorio repository, IGrupoRepositorio grupoRepository, IUnitOfWork uow)
+    public AsignaturaService(
+        IAsignaturaRepositorio repository,
+        IGrupoRepositorio grupoRepository,
+        SesionCascadeService sesionCascade,
+        IUnitOfWork uow)
     {
         _repository = repository;
         _grupoRepository = grupoRepository;
+        _sesionCascade = sesionCascade;
         _uow = uow;
     }
 
@@ -95,9 +102,16 @@ public class AsignaturaService
         await _uow.BeginTransactionAsync();
         try
         {
+            // Sesion.AsignaturaId/GrupoId son FK Restrict — sin purgar primero las sesiones
+            // generadas, el borrado de abajo falla con un 409 genérico. Son datos regenerables
+            // de una corrida, no catálogo: catálogo nunca debe bloquearse por ellas.
             foreach (var grupo in gruposAsociados)
+            {
+                await _sesionCascade.EliminarPorGrupoAsync(grupo.Id);
                 await _grupoRepository.DeleteAsync(grupo.Id);
+            }
 
+            await _sesionCascade.EliminarPorAsignaturaAsync(id);
             await _repository.DeleteAsync(id);
             await _uow.CommitAsync();
         }

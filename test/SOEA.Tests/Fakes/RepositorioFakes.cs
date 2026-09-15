@@ -110,6 +110,15 @@ namespace SOEA.Tests.Fakes
         public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) =>
             Task.FromResult(Store.Values.Any(s =>
                 s.AsignaturaId == asignaturaId && s.DocenteId == docenteId && s.BloqueTiempoId == bloqueTiempoId));
+
+        public Task<List<Guid>> GetIdsByGrupoIdAsync(Guid grupoId) =>
+            Task.FromResult(Store.Values.Where(s => s.GrupoId == grupoId).Select(s => s.Id).ToList());
+
+        public Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId) =>
+            Task.FromResult(Store.Values.Where(s => s.AsignaturaId == asignaturaId).Select(s => s.Id).ToList());
+
+        public Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId) =>
+            Task.FromResult(Store.Values.Where(s => s.EspacioId == espacioId).Select(s => s.Id).ToList());
     }
 
     public sealed class FakeAsignacionRepo : FakeRepositorio<AsignacionSemanal>, IAsignacionSemanalRepositorio

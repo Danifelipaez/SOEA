@@ -42,6 +42,9 @@ namespace SOEA.Tests.Application.Horario
             public Task DeleteRangeAsync(IEnumerable<Guid> ids) => Task.CompletedTask;
             public Task<List<Sesion>> GetByIdsAsync(IEnumerable<Guid> ids) => Task.FromResult(new List<Sesion>());
             public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
+            public Task<List<Guid>> GetIdsByGrupoIdAsync(Guid grupoId) => Task.FromResult(new List<Guid>());
+            public Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId) => Task.FromResult(new List<Guid>());
+            public Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId) => Task.FromResult(new List<Guid>());
         }
 
         private sealed class FakeAsignacionRepo : IAsignacionSemanalRepositorio

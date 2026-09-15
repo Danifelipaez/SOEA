@@ -38,5 +38,14 @@ namespace SOEA.Infrastructure.Data.Repositories
             if (idSet.Count == 0) return new List<Sesion>();
             return await _dbSet.AsNoTracking().Where(s => idSet.Contains(s.Id)).ToListAsync();
         }
+
+        public async Task<List<Guid>> GetIdsByGrupoIdAsync(Guid grupoId)
+            => await _dbSet.AsNoTracking().Where(s => s.GrupoId == grupoId).Select(s => s.Id).ToListAsync();
+
+        public async Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId)
+            => await _dbSet.AsNoTracking().Where(s => s.AsignaturaId == asignaturaId).Select(s => s.Id).ToListAsync();
+
+        public async Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId)
+            => await _dbSet.AsNoTracking().Where(s => s.EspacioId == espacioId).Select(s => s.Id).ToListAsync();
     }
 }

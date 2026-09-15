@@ -21,5 +21,17 @@ namespace SOEA.Domain.Interfaces
         /// llamar DeleteAsync una vez por id (un SELECT + un DELETE cada uno).
         /// </summary>
         Task DeleteRangeAsync(IEnumerable<Guid> ids);
+
+        /// <summary>
+        /// Ids de las sesiones generadas para un grupo — usado para purgarlas en cascada al
+        /// borrar el grupo del catálogo (son datos regenerables, no catálogo).
+        /// </summary>
+        Task<List<Guid>> GetIdsByGrupoIdAsync(Guid grupoId);
+
+        /// <summary>Idem <see cref="GetIdsByGrupoIdAsync"/> pero por asignatura.</summary>
+        Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId);
+
+        /// <summary>Idem <see cref="GetIdsByGrupoIdAsync"/> pero por espacio.</summary>
+        Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId);
     }
 }

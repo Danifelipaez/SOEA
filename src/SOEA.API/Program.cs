@@ -5,7 +5,9 @@ using SOEA.Application.Features.Asignaturas;
 using SOEA.Application.Features.CriteriosCesionAlternancia;
 using SOEA.Application.Features.Docentes;
 using SOEA.Application.Features.Espacios;
+using SOEA.Application.Features.Grupos;
 using SOEA.Application.Features.Horario;
+using SOEA.Application.Features.Sesiones;
 using SOEA.Domain.Interfaces;
 using SOEA.Engine.ConstraintProg;
 using SOEA.Engine.Genetic;
@@ -93,9 +95,13 @@ builder.Services.AddConstraintProgEngine(opts =>
 builder.Services.AddGeneticEngine();
 
 // ── Application services ──────────────────────────────────────────────────────
+// Purga en cascada de sesiones generadas al borrar catálogo (Asignatura/Grupo/Espacio)
+builder.Services.AddScoped<SesionCascadeService>();
 // CRUD Asignaturas
 builder.Services.AddScoped<AsignaturaService>();
 builder.Services.AddScoped<CrearSesionManualService>();
+// CRUD Grupos
+builder.Services.AddScoped<GrupoService>();
 // CRUD Docentes
 builder.Services.AddScoped<DocenteService>();
 builder.Services.AddScoped<FusionDocentesService>();

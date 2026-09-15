@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using SOEA.Application.Features.Asignaturas;
+using SOEA.Application.Features.Sesiones;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
@@ -27,7 +28,7 @@ namespace SOEA.Tests.Application
         public async Task GetByIdAsync_AsignaturaExistente_DevuelveResponse()
         {
             var asig = Existente(Guid.NewGuid());
-            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepo(), new FakeUnitOfWork());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepo(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
 
             var response = await service.GetByIdAsync(asig.Id);
 
@@ -38,7 +39,7 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task GetByIdAsync_NoExiste_LanzaKeyNotFound()
         {
-            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepo(), new FakeUnitOfWork());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepo(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
 
             await Assert.ThrowsAsync<KeyNotFoundException>(
                 () => service.GetByIdAsync(Guid.NewGuid()));
@@ -47,7 +48,7 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task GetAllAsync_ListaVacia_DevuelveListaVaciaNoNull()
         {
-            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepo(), new FakeUnitOfWork());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepo(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
 
             var response = await service.GetAllAsync();
 
@@ -60,7 +61,7 @@ namespace SOEA.Tests.Application
         {
             var a1 = Existente(Guid.NewGuid(), "Bioquímica");
             var a2 = Existente(Guid.NewGuid(), "Cálculo I");
-            var service = new AsignaturaService(new FakeAsignaturaRepo(a1, a2), new FakeGrupoRepo(), new FakeUnitOfWork());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(a1, a2), new FakeGrupoRepo(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
 
             var response = await service.GetAllAsync();
 
@@ -75,7 +76,7 @@ namespace SOEA.Tests.Application
             var asig = Existente(Guid.NewGuid());
             asig.EstablecerAlternancia(TipoAlternancia.TipoA);
             var repo = new FakeAsignaturaRepo(asig);
-            var service = new AsignaturaService(repo, new FakeGrupoRepo(), new FakeUnitOfWork());
+            var service = new AsignaturaService(repo, new FakeGrupoRepo(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
 
             await service.UpdateElegibilidadAlternanciaAsync(asig.Id, true);
 
@@ -89,7 +90,7 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task UpdateElegibilidadAlternanciaAsync_NoExiste_LanzaKeyNotFound()
         {
-            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepo(), new FakeUnitOfWork());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepo(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
 
             await Assert.ThrowsAsync<KeyNotFoundException>(
                 () => service.UpdateElegibilidadAlternanciaAsync(Guid.NewGuid(), true));

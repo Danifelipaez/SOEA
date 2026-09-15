@@ -89,6 +89,12 @@ namespace SOEA.Tests.Application
             public Task AddRangeAsync(IEnumerable<Sesion> sesiones) { foreach (var s in sesiones) _store[s.Id] = s; return Task.CompletedTask; }
             public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) =>
                 Task.FromResult(_store.Values.Any(s => s.AsignaturaId == asignaturaId && s.DocenteId == docenteId && s.BloqueTiempoId == bloqueTiempoId));
+            public Task<List<Guid>> GetIdsByGrupoIdAsync(Guid grupoId) =>
+                Task.FromResult(_store.Values.Where(s => s.GrupoId == grupoId).Select(s => s.Id).ToList());
+            public Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId) =>
+                Task.FromResult(_store.Values.Where(s => s.AsignaturaId == asignaturaId).Select(s => s.Id).ToList());
+            public Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId) =>
+                Task.FromResult(_store.Values.Where(s => s.EspacioId == espacioId).Select(s => s.Id).ToList());
         }
 
         private sealed class FakeAsignacionRepo : IAsignacionSemanalRepositorio

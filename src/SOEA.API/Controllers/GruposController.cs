@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using SOEA.Application.Features.Grupos;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
@@ -45,13 +46,13 @@ namespace SOEA.API.Controllers
     {
         private readonly IGrupoRepositorio _repo;
         private readonly IAsignaturaRepositorio _asignaturas;
-        private readonly ISesionRepositorio _sesiones;
+        private readonly GrupoService _service;
 
-        public GruposController(IGrupoRepositorio repo, IAsignaturaRepositorio asignaturas, ISesionRepositorio sesiones)
+        public GruposController(IGrupoRepositorio repo, IAsignaturaRepositorio asignaturas, GrupoService service)
         {
             _repo = repo;
             _asignaturas = asignaturas;
-            _sesiones = sesiones;
+            _service = service;
         }
 
         [HttpGet]
@@ -147,25 +148,14 @@ namespace SOEA.API.Controllers
             return Ok(MapToDto(grupo));
         }
 
+        // ERR2 auditoría: sin catch — GlobalExceptionHandler traduce KeyNotFoundException a 404.
+        // Antes este endpoint bloqueaba el borrado con 409 si el grupo tenía sesiones generadas
+        // (M14 auditoría) — el catálogo no debe bloquearse por datos de una corrida, que son
+        // regenerables. GrupoService.DeleteAsync purga esas sesiones en cascada.
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            var grupo = await _repo.GetByIdAsync(id);
-            if (grupo is null) return NotFound($"Grupo con Id {id} no encontrado.");
-
-            // M14 auditoría: antes no había ninguna comprobación — Sesiones.grupo_id no tenía FK,
-            // así que borrar un grupo con sesiones generadas dejaba esas sesiones apuntando a
-            // nada (HC-C01 dejaba de aplicárseles en silencio). Con la FK Restrict ya en su lugar,
-            // esto además evita el 409 genérico de EF y da un mensaje que nombra la causa.
-            var sesionesDelGrupo = (await _sesiones.GetAllAsync()).Count(s => s.GrupoId == id);
-            if (sesionesDelGrupo > 0)
-                return Conflict(new
-                {
-                    error = $"No se puede eliminar el grupo: tiene {sesionesDelGrupo} sesión(es) generada(s). " +
-                             "Regenere el horario sin este grupo, o elimínelo primero de la corrida vigente."
-                });
-
-            await _repo.DeleteAsync(id);
+            await _service.DeleteAsync(id);
             return NoContent();
         }
 
