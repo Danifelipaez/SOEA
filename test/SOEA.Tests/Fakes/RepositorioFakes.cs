@@ -246,6 +246,7 @@ namespace SOEA.Tests.Fakes
         public Task CommitAsync() { Commits++; return Task.CompletedTask; }
         public Task RollbackAsync() { Rollbacks++; return Task.CompletedTask; }
         public void Track<T>(T entity) where T : EntidadBase => Rastreadas.Add(entity);
+        public void AttachUnchanged<T>(T entity) where T : EntidadBase => Rastreadas.Add(entity);
         public void Dispose() { }
     }
 }

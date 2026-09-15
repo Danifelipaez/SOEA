@@ -18,5 +18,12 @@ namespace SOEA.Domain.Interfaces
         Task RollbackAsync();
         /// <summary>Registra la entidad en el change tracker sin guardar en BD todavía.</summary>
         void Track<T>(T entity) where T : EntidadBase;
+        /// <summary>
+        /// Adjunta una entidad YA EXISTENTE (y su grafo, p.ej. colecciones many-to-many) como
+        /// Unchanged. A diferencia de Track/Update (que reintentan INSERT en relaciones many-to-many
+        /// ya persistidas de un grafo desconectado), esto permite mutar la entidad después y que el
+        /// change tracker detecte solo lo realmente nuevo.
+        /// </summary>
+        void AttachUnchanged<T>(T entity) where T : EntidadBase;
     }
 }

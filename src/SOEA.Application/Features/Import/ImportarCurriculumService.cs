@@ -124,23 +124,25 @@ namespace SOEA.Application.Features.Import
                     .GroupBy(x => NormalizadorTexto.Normalizar(x.Nombre))
                     .ToDictionary(g => g.Key, g => g.First());
                 // IMP1 auditoría: distingue un docente que YA estaba en BD (detached, necesita
-                // UpdateAsync para emitir el UPDATE) de uno creado por una fila ANTERIOR de este
-                // mismo import (todavía Added/sin guardar vía _uow.Track — llamar UpdateAsync sobre
-                // él intentaría actualizar una fila que aún no existe y falla).
+                // adjuntarse para que sus mutaciones se guarden) de uno creado por una fila
+                // ANTERIOR de este mismo import (todavía Added/sin guardar vía _uow.Track — ya se
+                // guarda solo, sin necesitar adjuntarse de nuevo).
                 var docentesCreadosEsteRun = new HashSet<Guid>();
+                // Un docente puede aparecer en varias filas del Excel (dicta varias asignaturas);
+                // se adjunta una sola vez por docente en esta corrida (ver AttachUnchanged abajo).
+                var docentesActualizadosEsteRun = new HashSet<Guid>();
                 // PERF2 auditoría: sin esto, un Excel con 400 docentes × 15 bloques de
-                // disponibilidad hacía hasta 6000 GetByIdAsync — EF ya cachea por id tras el primer
-                // FindAsync (identity map), pero seguía siendo una llamada async por fila. La
-                // grilla tiene ~90 bloques únicos; con este caché la 91ª consulta en adelante ya no
-                // ni pasa por el repositorio.
-                var bloquesCache = new Dictionary<Guid, BloqueTiempo?>();
-                async Task<BloqueTiempo?> ResolverBloqueAsync(Guid id)
-                {
-                    if (bloquesCache.TryGetValue(id, out var cacheado)) return cacheado;
-                    var bloque = await _bloques.GetByIdAsync(id);
-                    bloquesCache[id] = bloque;
-                    return bloque;
-                }
+                // disponibilidad hacía hasta 6000 GetByIdAsync. La grilla tiene ~90 bloques únicos:
+                // una sola carga AsNoTracking cubre todo, sin ida y vuelta por fila.
+                // BUG auditoría (import Excel con catálogo vacío, InvalidOperationException "cannot
+                // be tracked... already being tracked"): GetByIdAsync (FindAsync) SÍ trackea la
+                // entidad en el DbContext. Docente.BloquesDisponibles se carga AsNoTracking (abajo),
+                // así que adjuntar ese grafo detached (AttachUnchanged) chocaba con la instancia de
+                // BloqueTiempo YA trackeada por una resolución anterior con la MISMA Id. Con
+                // AsNoTracking acá no queda ninguna instancia trackeada de BloqueTiempo con la que
+                // colisionar.
+                var bloquesPorId = (await _bloques.GetAllAsync()).ToDictionary(b => b.Id);
+                BloqueTiempo? ResolverBloque(Guid id) => bloquesPorId.GetValueOrDefault(id);
 
                 foreach (var d in resultado.Docentes)
                 {
@@ -162,8 +164,8 @@ namespace SOEA.Application.Features.Import
                         // Adjuntar bloques del catálogo (real BloqueTiempoId ya resuelto por el lector)
                         foreach (var bloque in d.BloquesDisponibles)
                         {
-                            var bloqueTracked = await ResolverBloqueAsync(bloque.Id);
-                            if (bloqueTracked != null) nuevo.AgregarBloqueDisponibilidad(bloqueTracked);
+                            var bloqueResuelto = ResolverBloque(bloque.Id);
+                            if (bloqueResuelto != null) nuevo.AgregarBloqueDisponibilidad(bloqueResuelto);
                         }
 
                         if (d.CedulaIdentidad != null)
@@ -177,6 +179,27 @@ namespace SOEA.Application.Features.Import
                     }
                     else
                     {
+                        // IPM1 auditoría: `existe` viene de _docentes.GetAllAsync(), el único
+                        // lookup de este método que usa AsNoTracking() (DocenteRepositorio.cs) —
+                        // mutarlo sin decírselo al DbContext no emitía ningún UPDATE. La respuesta
+                        // reportaba "N docentes actualizados" y la fila en BD quedaba intacta.
+                        // BUG auditoría (import Excel con catálogo vacío, 409 "ya existe un
+                        // registro"): la solución anterior llamaba _docentes.UpdateAsync(existe),
+                        // que hace _dbSet.Update() — reconecta TODO el grafo desconectado (incluida
+                        // BloquesDisponibles, colección many-to-many) como Modified/Added. Sobre un
+                        // grafo AsNoTracking, EF no tiene forma de saber que una relación
+                        // Docente↔BloqueTiempo YA existía en BD, así que reintentaba el INSERT de
+                        // TODAS las filas de DisponibilidadDocente ya persistidas → 23505 duplicate
+                        // key, incluso cuando el dedup de abajo evitaba correctamente re-agregar el
+                        // bloque a la colección en memoria. AttachUnchanged adjunta el grafo tal cual
+                        // está en BD (Unchanged) ANTES de mutar, así el change tracker solo marca
+                        // como Added las relaciones realmente nuevas que se agreguen después.
+                        // Se adjunta una sola vez por docente en esta corrida — reintentar Attach()
+                        // sobre una entidad ya trackeada por este mismo contexto no hace falta.
+                        if (!docentesCreadosEsteRun.Contains(existe.Id) &&
+                            docentesActualizadosEsteRun.Add(existe.Id))
+                            _uow.AttachUnchanged(existe);
+
                         // Actualizar datos editables (nombre, apellido, máx. horas). El correo solo se
                         // sobreescribe si el import trae uno real (no pisamos el existente con el dummy).
                         var correoActualizado = string.IsNullOrWhiteSpace(d.Correo) ? existe.Correo : d.Correo;
@@ -187,23 +210,12 @@ namespace SOEA.Application.Features.Import
                         {
                             if (!existe.BloquesDisponibles.Any(b => b.Id == bloque.Id))
                             {
-                                var bloqueTracked = await ResolverBloqueAsync(bloque.Id);
-                                if (bloqueTracked != null) existe.AgregarBloqueDisponibilidad(bloqueTracked);
+                                var bloqueResuelto = ResolverBloque(bloque.Id);
+                                if (bloqueResuelto != null) existe.AgregarBloqueDisponibilidad(bloqueResuelto);
                             }
                         }
                         if (d.CedulaIdentidad != null)
                             existe.ActualizarPersistenciaUi(d.CedulaIdentidad, existe.DisponibilidadUiJson);
-
-                        // IMP1 auditoría: `existe` viene de _docentes.GetAllAsync(), el único
-                        // lookup de este método que usa AsNoTracking() (DocenteRepositorio.cs) —
-                        // mutarlo sin decírselo al DbContext no emitía ningún UPDATE. La respuesta
-                        // reportaba "N docentes actualizados" y la fila en BD quedaba intacta.
-                        // Salvo que `existe` sea un docente recién creado por una fila anterior de
-                        // ESTE MISMO import: ese sigue Added (aún no guardado) y ya se actualiza
-                        // solo, sin necesidad de UpdateAsync — llamarlo fallaría (no hay fila en BD
-                        // todavía contra la cual emitir el UPDATE).
-                        if (!docentesCreadosEsteRun.Contains(existe.Id))
-                            await _docentes.UpdateAsync(existe);
 
                         docenteIdMap[d.Id] = existe.Id;
                         stats.DocentesActualizados++;
