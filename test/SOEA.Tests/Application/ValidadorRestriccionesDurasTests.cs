@@ -107,16 +107,43 @@ namespace SOEA.Tests.Application
             Assert.Contains(conflictos, c => c.StartsWith("HC-S01"));
         }
 
+        // HC-S01 se evalúa sobre las semanas que la sesión OCUPA el aula, no sobre la semana de
+        // su fila. Una sesión que no alterna la ocupa en las dos, así que choca con un TipoB aunque
+        // las filas digan semanas distintas. Es justo el caso que el índice único de BD
+        // (espacio_id, semana, bloque_tiempo_id) NO puede ver: la garantía vive aquí.
         [Fact]
-        public void MismoEspacio_DistintaSemana_NoEsConflicto()
+        public void NoPareadaEnSemanaA_YMiembroTipoBEnSemanaB_MismoBloqueYAula_EsConflicto()
         {
             var (bloques, indice) = CrearGrilla(5);
             var espacio = Guid.NewGuid();
-            var s1 = CrearSesion(Guid.NewGuid(), 1m);
-            var s2 = CrearSesion(Guid.NewGuid(), 1m);
+            var fija  = CrearSesion(Guid.NewGuid(), 1m);   // SinAlternancia: ocupa el aula en A y B
+            var tipoB = CrearSesion(Guid.NewGuid(), 1m);
+            tipoB.AplicarAlternancia(TipoAlternancia.TipoB);
+            var sesiones = new Dictionary<Guid, Sesion> { [fija.Id] = fija, [tipoB.Id] = tipoB };
+
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), fija.Id, SemanaAcademica.A, bloques[0].Id, espacio, Modalidad.Presencial),
+                new AsignacionSemanal(Guid.NewGuid(), tipoB.Id, SemanaAcademica.B, bloques[0].Id, espacio, Modalidad.Presencial),
+            };
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice);
+
+            Assert.Contains(conflictos, c => c.StartsWith("HC-S01"));
+        }
+
+        // El recíproco: una pareja TipoA/TipoB comparte aula y bloque a propósito — cada una la
+        // ocupa en una semana distinta, así que no es conflicto.
+        [Fact]
+        public void ParejaTipoATipoB_MismoBloqueYAula_NoEsConflicto()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var espacio = Guid.NewGuid();
+            var pareja = Guid.NewGuid();
+            var s1 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoA, pareja, TipoAlternancia.TipoA);
+            var s2 = CrearSesionAlternancia(TipoAlternanciaConfig.IdTipoB, pareja, TipoAlternancia.TipoB);
             var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2 };
 
-            // Mismo espacio y bloque pero semanas distintas → el modelo bi-semanal lo permite.
             var asignaciones = new[]
             {
                 new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, espacio, Modalidad.Presencial),
@@ -125,7 +152,7 @@ namespace SOEA.Tests.Application
 
             var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice);
 
-            Assert.Empty(conflictos);
+            Assert.DoesNotContain(conflictos, c => c.StartsWith("HC-S01"));
         }
 
         // ── Reglas con ContextoValidacion (asimetría GA↔CP-SAT cerrada) ─────────────
@@ -537,11 +564,8 @@ namespace SOEA.Tests.Application
             var salonB = Guid.NewGuid();
             var asignaciones = new[]
             {
-                // s1 presencial en semana A (salonA); s2 virtual en A.
+                // s1 presencial en semana A (salonA); s2 presencial en B pero en un salón DISTINTO.
                 new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, salonA, Modalidad.Presencial),
-                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
-                // s1 virtual en semana B; s2 presencial en B pero en un salón DISTINTO.
-                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.B, bloques[0].Id, null, Modalidad.Virtual),
                 new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.B, bloques[0].Id, salonB, Modalidad.Presencial),
             };
 
@@ -562,8 +586,6 @@ namespace SOEA.Tests.Application
             var asignaciones = new[]
             {
                 new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, salon, Modalidad.Presencial),
-                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
-                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.B, bloques[0].Id, null, Modalidad.Virtual),
                 new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.B, bloques[0].Id, salon, Modalidad.Presencial),
             };
 

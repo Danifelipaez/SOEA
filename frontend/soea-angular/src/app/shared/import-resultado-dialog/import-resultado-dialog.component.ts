@@ -12,21 +12,20 @@ import { ImportExcelStatsDto } from '../../core/persistencia.service';
   standalone: true,
   imports: [CommonModule, MatDialogModule],
   template: `
-    <div class="pophd">Importar Excel — resultado <i (click)="ref.close()">✕</i></div>
+    <div class="pophd">Importar Excel — resultado <button type="button" class="pop-close" (click)="ref.close()" aria-label="Cerrar">✕</button></div>
     <div class="popbd">
-      <div class="okb">✓ Importado <span style="opacity:.8">(detección automática de modo)</span></div>
+      <div class="okb">✓ Importación terminada</div>
 
       <div class="grid">
         <span>Facultades</span><span><b>{{ data.facultadesCreadas }}</b> creadas</span>
         <span>Programas</span><span><b>{{ data.programasCreados }}</b> creados</span>
-        <span>Asignaturas</span><span><b>{{ data.asignaturasCreadas }}</b> creadas · {{ data.asignaturasActualizadas }} act.</span>
-        <span>Docentes</span><span><b>{{ data.docentesCreados }}</b> creados · {{ data.docentesActualizados }} act.</span>
-        <span>Espacios</span><span><b>{{ data.espaciosCreados }}</b> creados · {{ data.espaciosActualizados }} act.</span>
+        <span>Asignaturas</span><span><b>{{ data.asignaturasCreadas }}</b> creadas · {{ data.asignaturasActualizadas }} actualizadas</span>
+        <span>Docentes</span><span><b>{{ data.docentesCreados }}</b> creados · {{ data.docentesActualizados }} actualizados</span>
+        <span>Espacios</span><span><b>{{ data.espaciosCreados }}</b> creados · {{ data.espaciosActualizados }} actualizados</span>
         <span>Grupos</span><span><b>{{ data.gruposCreados }}</b> creados</span>
-        <span>Sesiones persistidas</span><span><b>{{ data.sesionesPersistidas }}</b></span>
-        <ng-container *ngIf="data.asignaturasSinDocente > 0">
-          <span style="color:var(--err-bd)">Sin docente</span>
-          <span style="color:var(--err-bd)"><b>{{ data.asignaturasSinDocente }}</b></span>
+        <ng-container *ngIf="data.gruposSinDocente > 0">
+          <span style="color:var(--err-bd)">Grupos sin docente</span>
+          <span style="color:var(--err-bd)"><b>{{ data.gruposSinDocente }}</b></span>
         </ng-container>
       </div>
 

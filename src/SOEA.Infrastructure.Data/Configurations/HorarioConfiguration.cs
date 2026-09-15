@@ -38,6 +38,13 @@ namespace SOEA.Infrastructure.Data.Configurations
                     v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
                     v => System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new())
                 .IsRequired();
+            // M16 auditoría: sin ValueComparer, EF solo detecta cambios en esta lista por
+            // reasignación de referencia (hoy funciona porque todo mutador asigna lista nueva).
+            builder.Property(h => h.SesioneIds).Metadata.SetValueComparer(
+                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<Guid>>(
+                    (a, b) => (a ?? new()).SequenceEqual(b ?? new()),
+                    v => (v ?? new()).Aggregate(0, (hash, id) => HashCode.Combine(hash, id)),
+                    v => (v ?? new()).ToList()));
 
             builder.Property(h => h.ViolacionesRestriccionesDuras)
                 .HasColumnName("hard_constraint_violations")

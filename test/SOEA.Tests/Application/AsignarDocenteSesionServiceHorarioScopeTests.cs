@@ -97,6 +97,45 @@ namespace SOEA.Tests.Application
             Assert.Contains(res.Advertencias, a => a.Contains("máximo de horas"));
         }
 
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.4): `IdsDeOtrosHorariosAsync` calculaba
+        /// `propio` (el Horario al que pertenece la sesión editada) y excluía todo lo que NO
+        /// fuera `propio`. Cuando la sesión editada no pertenece a ningún horario (una sesión
+        /// manual, como aquí), `propio` es null — y `h.Id != propio?.Id` es cierto para
+        /// CUALQUIER Guid real (no hay Guid que sea igual a null), así que la comparación
+        /// excluía TODOS los horarios existentes del chequeo, no ninguno. El síntoma: asignar
+        /// docente a una sesión manual nunca detectaba solape ni carga contra sesiones generadas
+        /// por el pipeline. Habría fallado antes del fix (0 advertencias en vez de 1).
+        /// </summary>
+        [Fact]
+        public async Task SesionEditadaSinHorario_NoExcluyeSesionesDeHorariosExistentes()
+        {
+            var docente = CrearDocente(maxHoras: 3m);
+            var bloqueGenerado = Bloque(DiaDeSemana.Lunes, 7);
+            var bloqueManual = Bloque(DiaDeSemana.Martes, 7);
+
+            // Sesión generada por el pipeline, con Horario propio, mismo docente, 2h.
+            var sesionGenerada = CrearSesion(bloqueGenerado.Id, 2m, docente.Id);
+            var horarioGenerado = new SOEA.Domain.Entities.Horario(
+                Guid.NewGuid(), "2026-1", new List<Guid> { sesionGenerada.Id });
+
+            // La sesión que se está editando NO pertenece a ningún Horario (creada a mano).
+            var sesionManual = CrearSesion(bloqueManual.Id, 2m, docenteId: null);
+            var asigManual = Asig(sesionManual.Id, bloqueManual.Id);
+
+            var svc = new AsignarDocenteSesionService(
+                new FakeSesionRepo(sesionGenerada, sesionManual),
+                new FakeAsignacionRepo(asigManual),
+                new FakeBloqueRepo(bloqueGenerado, bloqueManual),
+                new FakeDocenteRepo(docente),
+                new FakeHorarioRepo(horarioGenerado));
+
+            var res = await svc.EjecutarAsync(new AsignarDocenteRequest { SesionId = sesionManual.Id, DocenteId = docente.Id });
+
+            // 2h (generada) + 2h (manual) = 4h > 3h máximo del docente → debe advertir.
+            Assert.Contains(res.Advertencias, a => a.Contains("máximo de horas"));
+        }
+
         [Fact]
         public async Task SinRepositorioDeHorarios_CaeAlComportamientoAnterior_SinAcotar()
         {
@@ -130,9 +169,17 @@ namespace SOEA.Tests.Application
             public Task<List<Sesion>> GetAllAsync() => Task.FromResult(_store.Values.ToList());
             public Task UpdateAsync(Sesion e) { _store[e.Id] = e; return Task.CompletedTask; }
             public Task DeleteAsync(Guid id) { _store.Remove(id); return Task.CompletedTask; }
+            public Task DeleteRangeAsync(IEnumerable<Guid> ids) { foreach (var id in ids) _store.Remove(id); return Task.CompletedTask; }
+            public Task<List<Sesion>> GetByIdsAsync(IEnumerable<Guid> ids) { var set = ids.ToHashSet(); return Task.FromResult(_store.Values.Where(s => set.Contains(s.Id)).ToList()); }
             public Task AddRangeAsync(IEnumerable<Sesion> sesiones) { foreach (var s in sesiones) _store[s.Id] = s; return Task.CompletedTask; }
-            public Task<bool> ExisteAsync(Guid asignaturaId, Guid docenteId, Guid bloqueTiempoId) =>
+            public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) =>
                 Task.FromResult(_store.Values.Any(s => s.AsignaturaId == asignaturaId && s.DocenteId == docenteId && s.BloqueTiempoId == bloqueTiempoId));
+            public Task<List<Guid>> GetIdsByGrupoIdAsync(Guid grupoId) =>
+                Task.FromResult(_store.Values.Where(s => s.GrupoId == grupoId).Select(s => s.Id).ToList());
+            public Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId) =>
+                Task.FromResult(_store.Values.Where(s => s.AsignaturaId == asignaturaId).Select(s => s.Id).ToList());
+            public Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId) =>
+                Task.FromResult(_store.Values.Where(s => s.EspacioId == espacioId).Select(s => s.Id).ToList());
         }
 
         private sealed class FakeAsignacionRepo : IAsignacionSemanalRepositorio
@@ -144,6 +191,7 @@ namespace SOEA.Tests.Application
             public Task<List<AsignacionSemanal>> GetAllAsync() => Task.FromResult(_store.ToList());
             public Task UpdateAsync(AsignacionSemanal e) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) { _store.RemoveAll(a => a.Id == id); return Task.CompletedTask; }
+            public Task DeleteBySesionIdsAsync(IEnumerable<Guid> sesionIds) { var set = sesionIds.ToHashSet(); _store.RemoveAll(a => set.Contains(a.SesionId)); return Task.CompletedTask; }
             public Task AddRangeAsync(IEnumerable<AsignacionSemanal> asigs) { _store.AddRange(asigs); return Task.CompletedTask; }
             public Task<List<AsignacionSemanal>> GetBySesionIdsAsync(IEnumerable<Guid> ids)
             {
@@ -189,6 +237,7 @@ namespace SOEA.Tests.Application
             public Task<SOEA.Domain.Entities.Horario?> GetByIdAsync(Guid id) => Task.FromResult(_store.FirstOrDefault(h => h.Id == id));
             public Task<SOEA.Domain.Entities.Horario?> GetBySemestreAsync(string semestre) => Task.FromResult(_store.FirstOrDefault(h => h.Semestre == semestre));
             public Task<List<SOEA.Domain.Entities.Horario>> GetAllAsync() => Task.FromResult(_store.ToList());
+            public Task<List<SOEA.Domain.Entities.Horario>> GetAllBySemestreAsync(string semestre) => Task.FromResult(_store.Where(h => h.Semestre == semestre).ToList());
             public Task AddAsync(SOEA.Domain.Entities.Horario horario) { _store.Add(horario); return Task.CompletedTask; }
             public Task UpdateAsync(SOEA.Domain.Entities.Horario horario) => Task.CompletedTask;
         }

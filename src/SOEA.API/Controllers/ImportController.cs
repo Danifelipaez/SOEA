@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using SOEA.Application.Features.Import;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
@@ -20,15 +21,18 @@ namespace SOEA.API.Controllers
         private readonly ImportarCurriculumService _importService;
         private readonly ILectorExcel _lectorExcel;
         private readonly IBloqueTiempoRepositorio _bloques;
+        private readonly ILogger<ImportController> _logger;
 
         public ImportController(
             ImportarCurriculumService importService,
             ILectorExcel lectorExcel,
-            IBloqueTiempoRepositorio bloques)
+            IBloqueTiempoRepositorio bloques,
+            ILogger<ImportController> logger)
         {
             _importService = importService;
             _lectorExcel   = lectorExcel;
             _bloques       = bloques;
+            _logger        = logger;
         }
 
         /// <summary>
@@ -59,7 +63,11 @@ namespace SOEA.API.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest($"Error al leer el Excel: {ex.Message}");
+                // M5 auditoría: antes se le atribuía CUALQUIER falla (incluidos bugs internos del
+                // lector) al archivo del usuario, y se devolvía ex.Message crudo en el body. Se
+                // registra el detalle real en el log del servidor y se responde un mensaje genérico.
+                _logger.LogWarning(ex, "No se pudo leer el archivo de importación.");
+                return BadRequest("No se pudo leer el archivo. Verifica que sea un Excel (.xlsx/.xls) válido y no esté dañado.");
             }
 
             // B3 auditoría: sin catch-all aquí — GlobalExceptionHandler (A1) cubre lo demás sin
@@ -77,8 +85,7 @@ namespace SOEA.API.Controllers
                 AsignaturasCreadas      = stats.AsignaturasCreadas,
                 AsignaturasActualizadas = stats.AsignaturasActualizadas,
                 GruposCreados           = stats.GruposCreados,
-                SesionesPersistidas     = stats.SesionesPersistidas,
-                AsignaturasSinDocente   = stats.AsignaturasSinDocente,
+                GruposSinDocente   = stats.GruposSinDocente,
                 Advertencias            = stats.Advertencias
             });
         }
@@ -105,7 +112,7 @@ namespace SOEA.API.Controllers
             var espacios    = MapEspaciosDto(dto.Espacios);
             var asignaturas = MapAsignaturasDto(dto.Asignaturas, progStrGuid, asigStrGuid);
             var grupos      = MapGruposDeAsignaturas(dto.Asignaturas, progStrGuid, asigStrGuid, docStrGuid, grupoStrGuid);
-            var sesiones    = MapSesionesDto(dto.SesionesPredefinidas);
+            var sesiones    = MapSesionesDto(dto.SesionesPredefinidas, espacios);
 
             var resultado = new CurriculumExcelResult(
                 facultades, programas, asignaturas, docentes,
@@ -180,7 +187,10 @@ namespace SOEA.API.Controllers
             {
                 if (string.IsNullOrWhiteSpace(d.Nombre)) continue;
                 var id     = Guid.TryParse(d.Id, out var dg) && dg != Guid.Empty ? dg : Guid.NewGuid();
-                var correo = $"{NormalizadorTexto.Normalizar(d.Nombre).Replace(" ", ".")}@soea.local";
+                // DUP auditoría: NormalizadorTexto.CorreoSintetico (misma fórmula que
+                // ImportarCurriculumService) — antes dos docentes homónimos por esta ruta y la del
+                // Excel sintetizaban el mismo correo y chocaban contra el índice único.
+                var correo = NormalizadorTexto.CorreoSintetico(d.Nombre, id);
                 var docente = new Docente(id, d.Nombre, "", correo, (decimal)d.MaxHoras,
                     new List<FranjaHoraria> { FranjaHoraria.Matutino, FranjaHoraria.Vespertino });
                 if (!string.IsNullOrWhiteSpace(d.Cedula))
@@ -287,18 +297,28 @@ namespace SOEA.API.Controllers
             return result;
         }
 
-        private static List<Sesion> MapSesionesDto(IEnumerable<SesionImportDto>? dtos)
+        private static List<Sesion> MapSesionesDto(IEnumerable<SesionImportDto>? dtos, IReadOnlyList<Espacio> espacios)
         {
+            // IMP2 auditoría: TipoFlujo se omitía por completo — el default del constructor de
+            // Sesion es Laboratorio, así que TODA sesión de teoría importada por JSON quedaba
+            // marcada como laboratorio. Se deriva del tipo del espacio asignado (misma regla que el
+            // lector de Excel); el formato JSON no trae TipoFlujo explícito.
+            var espacioPorId = espacios.ToDictionary(e => e.Id);
+
             var result = new List<Sesion>();
             foreach (var s in dtos ?? Enumerable.Empty<SesionImportDto>())
             {
                 if (s.BloqueTiempoId == Guid.Empty) continue;
                 var alt = Enum.TryParse<TipoAlternancia>(s.Alternancia, out var parsed)
                     ? parsed : TipoAlternancia.SinAlternancia;
+                var tipoFlujo = s.EspacioId.HasValue &&
+                    espacioPorId.TryGetValue(s.EspacioId.Value, out var espacio) &&
+                    espacio.Tipo == TipoEspacio.Laboratorio
+                    ? TipoFlujo.Laboratorio : TipoFlujo.AulaVirtual;
                 result.Add(new Sesion(Guid.NewGuid(), s.AsignaturaId, s.DocenteId,
                     s.BloqueTiempoId, s.EspacioId, s.GrupoId,
                     alt, Modalidad.Presencial, s.DuracionHoras,
-                    esBloque: false, estaDividida: false));
+                    esBloque: false, estaDividida: false, tipoFlujo: tipoFlujo));
             }
             return result;
         }

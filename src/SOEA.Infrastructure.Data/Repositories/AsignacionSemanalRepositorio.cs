@@ -27,5 +27,12 @@ namespace SOEA.Infrastructure.Data.Repositories
                 .Where(a => ids.Contains(a.SesionId))
                 .ToListAsync();
         }
+
+        public async Task DeleteBySesionIdsAsync(IEnumerable<Guid> sesionIds)
+        {
+            var ids = sesionIds.ToList();
+            if (ids.Count == 0) return;
+            await _dbSet.Where(a => ids.Contains(a.SesionId)).ExecuteDeleteAsync();
+        }
     }
 }

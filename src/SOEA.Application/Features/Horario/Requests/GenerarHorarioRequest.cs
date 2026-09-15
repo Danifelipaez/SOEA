@@ -37,14 +37,13 @@ namespace SOEA.Application.Features.Horario.Requests
 
     public class SesionFijaDto
     {
-        /// <summary>Id de la sesión de origen (p. ej. una editada en la vista de horario). Vacío/no-guid → se genera uno nuevo.</summary>
-        public string? Id           { get; set; }
         public string  AsignaturaId { get; set; } = string.Empty;
+        /// <summary>Grupo dueño de la sesión; debe venir en <see cref="GenerarHorarioRequest.Grupos"/>. Sin él la fija se omite.</summary>
+        public string? GrupoId      { get; set; }
         public string  DocenteId    { get; set; } = string.Empty;
         public string? EspacioId    { get; set; }
         public string  Dia          { get; set; } = "lunes";
         public string  HoraInicio   { get; set; } = "07:00";
-        public string  HoraFin      { get; set; } = "09:00";
         public decimal DuracionHoras { get; set; } = 2m;
         public string? Alternancia  { get; set; }
         public bool    Virtual      { get; set; }
@@ -76,7 +75,6 @@ namespace SOEA.Application.Features.Horario.Requests
     {
         public string Id           { get; set; } = string.Empty;
         public string Nombre       { get; set; } = string.Empty;
-        public string? DocenteId   { get; set; }
         /// <summary>Sesiones de teoría presencial por semana.</summary>
         public int SesionesTeoriaPresencialSemana { get; set; }
         /// <summary>Duración en horas de cada sesión de teoría presencial.</summary>

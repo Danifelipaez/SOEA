@@ -6,10 +6,26 @@ namespace SOEA.Application.Features.Horario.Requests
     /// </summary>
     public class CrearSesionManualRequest
     {
+        /// <summary>Horario vigente al que se agrega la sesión (el que devolvieron /generar o /actual).</summary>
+        public Guid    HorarioId     { get; set; }
         public Guid    AsignaturaId  { get; set; }
-        public Guid    DocenteId     { get; set; }
+        /// <summary>
+        /// DOC1 auditoría: nullable — CR-02/CR-08 permiten sesiones sin docente
+        /// (presencial-first: el docente se asigna después de generar). Antes era Guid no-nullable:
+        /// al omitirlo, el binder deserializaba Guid.Empty y se persistía como si fuera un docente
+        /// real (ahora Sesion rechaza Guid.Empty en el constructor).
+        /// </summary>
+        public Guid?   DocenteId     { get; set; }
         /// <summary>null para la fila virtual de sesiones con alternancia.</summary>
         public Guid?   EspacioId     { get; set; }
+        /// <summary>
+        /// Grupo/cohorte de la sesión. R2 auditoría: el diálogo de creación manual del frontend ya
+        /// obliga a elegir un grupo, pero el dato se descartaba (el request no lo traía) — sin él,
+        /// HC-SEP se evaluaba por (asignatura, tipo) sobre TODAS las cohortes (rechazaba la sesión
+        /// del lunes del grupo B porque el grupo A ya tenía una el lunes) y HC-S05 (aula fija del
+        /// grupo) no se podía aplicar en absoluto.
+        /// </summary>
+        public Guid?   GrupoId       { get; set; }
         /// <summary>Día en minúsculas: "lunes", "martes", "miercoles", "jueves", "viernes", "sabado".</summary>
         public string  Dia           { get; set; } = string.Empty;
         /// <summary>Hora de inicio en formato "HH:mm".</summary>

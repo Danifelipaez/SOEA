@@ -14,11 +14,13 @@ namespace SOEA.Engine.ConstraintProg
     /// <summary>
     /// Implementación CP-SAT de <see cref="IAsignadorEspaciosExacto"/>. Con los inicios ya
     /// fijados por el GA, el sub-modelo solo necesita variables 'space' + NoOverlap por espacio —
-    /// mismo patrón que el bloque de espacios de <see cref="MotorConstraintProgramming"/>
-    /// (líneas ~400-497), adaptado a intervalos de inicio FIJO en vez de variable. También cierra
-    /// un gap que el greedy anterior nunca cubrió: HC-ALT exige que una pareja de alternancia
-    /// comparta el MISMO espacio físico entre sus semanas presenciales — el greedy procesaba
-    /// semana A y B de forma completamente independiente y no lo garantizaba.
+    /// mismo patrón que el bloque de espacios de <see cref="MotorConstraintProgramming"/>,
+    /// adaptado a intervalos de inicio FIJO en vez de variable.
+    ///
+    /// Una sesión tiene UN aula para todo el semestre. Lo que decide la semana es en qué NoOverlap
+    /// entra ese aula (<see cref="ModalidadSemanal.SemanasQueOcupanEspacio"/>): lo que no alterna
+    /// entra en las dos semanas, un TipoA solo en A y un TipoB solo en B. Por eso una pareja de
+    /// alternancia puede compartir aula y bloque, y por eso emparejar libera capacidad.
     /// </summary>
     public class AsignadorEspaciosExactoCpSat : IAsignadorEspaciosExacto
     {
@@ -30,44 +32,40 @@ namespace SOEA.Engine.ConstraintProg
         // esperado; si algún día hace falta afinarlo, promover a CpSatOptions (igual que Fase 2).
         private const int TimeoutSegundos = 10;
 
+        // REP1 auditoría: mismo motivo que MotorConstraintProgramming.RandomSeed — sin semilla fija,
+        // dos resoluciones del mismo sub-modelo podían elegir aulas distintas.
+        private const int RandomSeed = 1;
+
         public AsignadorEspaciosExactoCpSat(ILogger<AsignadorEspaciosExactoCpSat> logger)
         {
             _logger = logger;
         }
 
-        public Dictionary<(Guid sesionId, SemanaAcademica semana), Guid>? Asignar(
+        public Dictionary<Guid, Guid>? Asignar(
             IReadOnlyList<Sesion> sesiones,
-            int[] startAPorSesion,
-            int[] startBPorSesion,
+            int[] startPorSesion,
             int[] duracionPorSesion,
             IReadOnlyList<Espacio> espacios,
             DiaDeSemana[] diaPorIdx,
             IReadOnlyDictionary<Guid, int>? estudiantesPorGrupo = null,
             IReadOnlyDictionary<Guid, List<RequisitoEspacio>>? requisitosPorGrupo = null)
         {
-            var presenciales = new List<(int idx, SemanaAcademica semana, int start, int dur)>();
+            var ocupanAula = new List<int>();
             for (int i = 0; i < sesiones.Count; i++)
-                foreach (var semana in Semanas)
-                {
-                    if (ModalidadSemanal.Derivar(sesiones[i], semana) != Modalidad.Presencial) continue;
-                    int start = semana == SemanaAcademica.A ? startAPorSesion[i] : startBPorSesion[i];
-                    presenciales.Add((i, semana, start, duracionPorSesion[i]));
-                }
+                if (ModalidadSemanal.SemanasQueOcupanEspacio(sesiones[i]).Count > 0)
+                    ocupanAula.Add(i);
 
-            if (presenciales.Count == 0) return new Dictionary<(Guid, SemanaAcademica), Guid>();
+            if (ocupanAula.Count == 0) return new Dictionary<Guid, Guid>();
             if (espacios.Count == 0) return null; // hay presenciales pero ningún espacio: infactible
 
             var model = new CpModel();
-            var spaceVars = new Dictionary<(int idx, SemanaAcademica semana), IntVar>();
-            // Un slot de un espacio puede reusarse en semanas distintas (mismo criterio que
-            // MotorConstraintProgramming:460-464): NoOverlap independiente por (espacio, semana),
-            // NUNCA pooleado entre A y B.
+            var spaceVars = new Dictionary<int, IntVar>();
             var optIntervalsPorEspacioSemana = new Dictionary<(int espacio, SemanaAcademica semana), List<IntervalVar>>();
             for (int e = 0; e < espacios.Count; e++)
                 foreach (var semana in Semanas)
                     optIntervalsPorEspacioSemana[(e, semana)] = new List<IntervalVar>();
 
-            foreach (var (idx, semana, start, dur) in presenciales)
+            foreach (var idx in ocupanAula)
             {
                 var sesion = sesiones[idx];
                 int estudiantes = sesion.GrupoId.HasValue && estudiantesPorGrupo != null &&
@@ -82,25 +80,28 @@ namespace SOEA.Engine.ConstraintProg
                     .ToList();
                 if (candidatos.Count == 0) return null; // sin candidato: infactible (mismo criterio que el greedy)
 
-                var spaceVar = model.NewIntVar(0, espacios.Count - 1, $"space_{idx}_{semana}");
-                spaceVars[(idx, semana)] = spaceVar;
+                var spaceVar = model.NewIntVar(0, espacios.Count - 1, $"space_{idx}");
+                spaceVars[idx] = spaceVar;
 
-                var startConst = model.NewConstant(start);
+                var startConst = model.NewConstant(startPorSesion[idx]);
+                var semanasOcupadas = ModalidadSemanal.SemanasQueOcupanEspacio(sesion);
                 var literales = new List<ILiteral>();
                 foreach (var e in candidatos)
                 {
-                    var lit = model.NewBoolVar($"sel_{idx}_{semana}_{e}");
+                    var lit = model.NewBoolVar($"sel_{idx}_{e}");
                     literales.Add(lit);
                     model.Add(spaceVar == e).OnlyEnforceIf(lit);
 
-                    var interval = model.NewOptionalFixedSizeIntervalVar(startConst, dur, lit, $"int_{idx}_{semana}_{e}");
-                    optIntervalsPorEspacioSemana[(e, semana)].Add(interval);
+                    var interval = model.NewOptionalFixedSizeIntervalVar(
+                        startConst, duracionPorSesion[idx], lit, $"int_{idx}_{e}");
+                    foreach (var semana in semanasOcupadas)
+                        optIntervalsPorEspacioSemana[(e, semana)].Add(interval);
                 }
                 model.AddExactlyOne(literales);
             }
 
-            // HC-ALT: una pareja de alternancia comparte el MISMO espacio físico entre sus dos
-            // semanas presenciales (mismo criterio que MotorConstraintProgramming:241-259).
+            // HC-ALT: una pareja de alternancia comparte el MISMO aula. Que no colisionen lo
+            // garantiza el reparto por semana de arriba (una entra solo en A, la otra solo en B).
             foreach (var pareja in sesiones
                          .Select((s, i) => (s, i))
                          .Where(x => x.s.ParejaAlternanciaId.HasValue)
@@ -108,14 +109,9 @@ namespace SOEA.Engine.ConstraintProg
                          .Where(g => g.Count() == 2))
             {
                 var miembros = pareja.ToList();
-                var i1 = miembros[0].i;
-                var i2 = miembros[1].i;
-                if (spaceVars.TryGetValue((i1, SemanaAcademica.A), out var sv1A) &&
-                    spaceVars.TryGetValue((i2, SemanaAcademica.B), out var sv2B))
-                    model.Add(sv1A == sv2B);
-                else if (spaceVars.TryGetValue((i1, SemanaAcademica.B), out var sv1B) &&
-                         spaceVars.TryGetValue((i2, SemanaAcademica.A), out var sv2A))
-                    model.Add(sv1B == sv2A);
+                if (spaceVars.TryGetValue(miembros[0].i, out var sv1) &&
+                    spaceVars.TryGetValue(miembros[1].i, out var sv2))
+                    model.Add(sv1 == sv2);
             }
 
             foreach (var lista in optIntervalsPorEspacioSemana.Values)
@@ -123,7 +119,7 @@ namespace SOEA.Engine.ConstraintProg
                     model.AddNoOverlap(lista);
 
             var solver = new CpSolver();
-            solver.StringParameters = $"max_time_in_seconds:{TimeoutSegundos}";
+            solver.StringParameters = $"max_time_in_seconds:{TimeoutSegundos},random_seed:{RandomSeed}";
             var status = solver.Solve(model);
 
             if (status != CpSolverStatus.Feasible && status != CpSolverStatus.Optimal)
@@ -134,12 +130,9 @@ namespace SOEA.Engine.ConstraintProg
                 return null;
             }
 
-            var resultado = new Dictionary<(Guid, SemanaAcademica), Guid>();
-            foreach (var (idx, semana, _, _) in presenciales)
-            {
-                var espacioIdx = (int)solver.Value(spaceVars[(idx, semana)]);
-                resultado[(sesiones[idx].Id, semana)] = espacios[espacioIdx].Id;
-            }
+            var resultado = new Dictionary<Guid, Guid>();
+            foreach (var idx in ocupanAula)
+                resultado[sesiones[idx].Id] = espacios[(int)solver.Value(spaceVars[idx])].Id;
             return resultado;
         }
     }

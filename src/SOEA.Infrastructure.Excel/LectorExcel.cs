@@ -121,6 +121,11 @@ namespace SOEA.Infrastructure.Excel
             // conteo de grupos por (asig_norm, programaId) para numerar secuencialmente
             var gruposContador  = new Dictionary<(string AsigNorm, Guid ProgramaId), int>();
             var advertencias    = new List<string>();
+            // Ventana [Día → mín(Hora), máx(Final)] por grupo (HC-G01): la Hora/Final de cada fila
+            // es cuándo SE REÚNE ese grupo, no la disponibilidad personal del docente que lo dicta
+            // — un docente puede estar libre fuera de las horas en que este Excel lo muestra dictando
+            // clase. Se acumula aquí y se aplica al Grupo (no al Docente) después del loop principal.
+            var disponibilidadPorGrupo = new Dictionary<Guid, Dictionary<DiaDeSemana, (TimeOnly Desde, TimeOnly Hasta)>>();
 
             for (int fila = 2; fila <= totalFilas; fila++)
             {
@@ -173,14 +178,25 @@ namespace SOEA.Infrastructure.Excel
                 }
 
                 // Duración
-                int duracion = int.TryParse(txtDuracion, out var d) && d > 0 ? d : 2;
+                // H11 auditoría: se parseaba como int — "1.5" (columna Reales [h] con decimales
+                // reales) fallaba el TryParse y caía al default 2 en silencio, y el redondeo de un
+                // rango de horas usaba Math.Round bancario (2.5 → 2, no 3). DuracionHoras es un dato
+                // de entrada fijo (regla 6, CLAUDE.md) y Asignatura.HorasTeoriaPresencial es int
+                // (limitación del modelo actual, no se cambia aquí), así que se parsea como decimal
+                // y se redondea explícitamente away-from-zero, avisando cuando el redondeo cambió
+                // el valor en vez de perderlo en silencio.
+                decimal duracionDecimal = decimal.TryParse(txtDuracion, out var dDec) && dDec > 0 ? dDec : 2m;
+                int duracion = (int)Math.Round(duracionDecimal, MidpointRounding.AwayFromZero);
+                if (duracion != duracionDecimal)
+                    advertencias.Add($"Fila {fila}: duración {duracionDecimal:0.##}h redondeada a {duracion}h " +
+                                      "(el modelo actual solo admite horas enteras por sesión).");
                 if (string.IsNullOrWhiteSpace(txtDuracion) && !string.IsNullOrWhiteSpace(txtHora) &&
                     (txtHora.Contains('-') || txtHora.Contains('–') || txtHora.Contains('—')))
                 {
                     if (TryParseRangoHora(txtHora, 2, out var hIni, out var hFin))
                     {
                         var dif = (hFin - hIni).TotalHours;
-                        if (dif > 0) duracion = (int)Math.Round(dif);
+                        if (dif > 0) duracion = (int)Math.Round(dif, MidpointRounding.AwayFromZero);
                     }
                 }
 
@@ -211,8 +227,15 @@ namespace SOEA.Infrastructure.Excel
                     var espNorm = NormalizadorTexto.Normalizar(txtEspNombre);
                     if (!espaciosDict.TryGetValue(espNorm, out var espacio))
                     {
+                        // DUP auditoría: antes esta comprobación solo distinguía Laboratorio/Salon —
+                        // un espacio marcado "Auditorio" en el Excel se creaba como Salon, a
+                        // diferencia de los demás parsers de TipoEspacio del código, que sí lo
+                        // reconocen.
                         var tipo = txtTipoEspacio.Contains("Laboratorio", StringComparison.OrdinalIgnoreCase)
-                            ? TipoEspacio.Laboratorio : TipoEspacio.Salon;
+                            ? TipoEspacio.Laboratorio
+                            : txtTipoEspacio.Contains("Auditorio", StringComparison.OrdinalIgnoreCase)
+                                ? TipoEspacio.Auditorio
+                                : TipoEspacio.Salon;
                         espacio = new Espacio(Guid.NewGuid(), txtEspNombre, tipo, 30, "", null);
                         espaciosDict[espNorm] = espacio;
                     }
@@ -261,7 +284,7 @@ namespace SOEA.Infrastructure.Excel
                         gruposDict[claveGrupo] = grupoDocente;
                     }
 
-                    // Disponibilidad del docente: expandir rango en bloques de 1h
+                    // Bloque de la sesión (para la sesión predefinida) + ventana del grupo (HC-G01)
                     Guid bloqueIdParaSesion = Guid.Empty;
                     if (!string.IsNullOrWhiteSpace(txtDia) && !string.IsNullOrWhiteSpace(txtHora))
                     {
@@ -286,34 +309,25 @@ namespace SOEA.Infrastructure.Excel
                         {
                             var horaIni = horaIniParaBloque;
                             var horaFin = horaFinParaBloque;
-                            // Expandir rango en slots de 1h y agregar a disponibilidad del docente
-                            var horaActual = horaIni;
-                            bool esPrimerBloque = true;
-                            while (horaActual < horaFin)
+
+                            // Ampliar la ventana [Desde,Hasta] de ese día para el GRUPO de esta fila.
+                            if (!disponibilidadPorGrupo.TryGetValue(grupoDocente.Id, out var ventanasGrupo))
                             {
-                                var horaNext = horaActual.AddHours(1);
-                                var bloqueKey = (diaSemana, horaActual);
-                                BloqueTiempo? bloque;
-
-                                if (catalogoBloques != null && catalogoBloques.TryGetValue(bloqueKey, out var bloqueSeeded))
-                                {
-                                    bloque = bloqueSeeded;
-                                }
-                                else
-                                {
-                                    bloque = new BloqueTiempo(Guid.NewGuid(), diaSemana, horaActual, horaNext);
-                                }
-
-                                docente.AgregarBloqueDisponibilidad(bloque);
-
-                                if (esPrimerBloque)
-                                {
-                                    bloqueIdParaSesion = bloque.Id;
-                                    esPrimerBloque = false;
-                                }
-
-                                horaActual = horaNext;
+                                ventanasGrupo = new Dictionary<DiaDeSemana, (TimeOnly Desde, TimeOnly Hasta)>();
+                                disponibilidadPorGrupo[grupoDocente.Id] = ventanasGrupo;
                             }
+                            ventanasGrupo[diaSemana] = ventanasGrupo.TryGetValue(diaSemana, out var ventanaActual)
+                                ? (horaIni < ventanaActual.Desde ? horaIni : ventanaActual.Desde,
+                                   horaFin > ventanaActual.Hasta ? horaFin : ventanaActual.Hasta)
+                                : (horaIni, horaFin);
+
+                            // Resolver el bloque de 1h de inicio contra el catálogo canónico, para que
+                            // la sesión predefinida referencie un BloqueTiempoId real y persistible.
+                            var bloqueKey = (diaSemana, horaIni);
+                            BloqueTiempo bloque = catalogoBloques != null && catalogoBloques.TryGetValue(bloqueKey, out var bloqueSeeded)
+                                ? bloqueSeeded
+                                : new BloqueTiempo(Guid.NewGuid(), diaSemana, horaIni, horaIni.AddHours(1));
+                            bloqueIdParaSesion = bloque.Id;
                         }
                         else
                         {
@@ -324,6 +338,14 @@ namespace SOEA.Infrastructure.Excel
                     {
                         advertencias.Add($"Fila {fila}: docente '{txtDocente}' sin Día/Hora. Sesión creada sin bloque.");
                     }
+
+                    // IMP2 auditoría: TipoFlujo se omitía por completo — el default del constructor
+                    // de Sesion es Laboratorio, así que TODA sesión de teoría importada por Excel
+                    // quedaba marcada como laboratorio (satura los pocos laboratorios reales y hace
+                    // infactible la generación). Se deriva del tipo de espacio asignado, la única
+                    // señal que este formato de Excel sí tiene.
+                    var tipoFlujoFila = espacioAsignado?.Tipo == TipoEspacio.Laboratorio
+                        ? TipoFlujo.Laboratorio : TipoFlujo.AulaVirtual;
 
                     // Sesión predefinida (solo una por fila, referencia el bloque de inicio del slot)
                     var sesion = new Sesion(
@@ -337,7 +359,8 @@ namespace SOEA.Infrastructure.Excel
                         modalidad: Modalidad.Presencial,
                         duracionHoras: duracion,
                         esBloque: false,
-                        estaDividida: false
+                        estaDividida: false,
+                        tipoFlujo: tipoFlujoFila
                     );
                     sesionesPredefinidas.Add(sesion);
                 }
@@ -345,6 +368,25 @@ namespace SOEA.Infrastructure.Excel
                 {
                     advertencias.Add($"Fila {fila}: asignatura '{txtAsignatura}' sin docente asignado.");
                 }
+            }
+
+            // Aplicar la ventana acumulada de cada grupo como su DisponibilidadUiJson (HC-G01).
+            // Días sin ninguna fila para ese grupo quedan sin entrada = sin restricción (no se cierran
+            // por falta de evidencia — ver DisponibilidadSemanal.PermiteBloque).
+            foreach (var grupo in grupos)
+            {
+                if (!disponibilidadPorGrupo.TryGetValue(grupo.Id, out var ventanas) || ventanas.Count == 0)
+                    continue;
+
+                var porDia = ventanas.ToDictionary(
+                    kv => kv.Key.ToString(),
+                    kv => new DisponibilidadSemanal.DiaEntradaCruda(
+                        NoDisponible: false,
+                        Tipo: "Franja específica",
+                        FranjaGeneral: null,
+                        Desde: kv.Value.Desde.ToString("HH:mm"),
+                        Hasta: kv.Value.Hasta.ToString("HH:mm")));
+                grupo.ActualizarDisponibilidadUi(System.Text.Json.JsonSerializer.Serialize(porDia));
             }
 
             var resultado = new CurriculumExcelResult(
@@ -471,8 +513,10 @@ namespace SOEA.Infrastructure.Excel
             dia = DiaDeSemana.Lunes;
             if (string.IsNullOrWhiteSpace(texto)) return false;
 
-            // Normalizar: quitar tildes y pasar a minúsculas
-            var normalizado = NormalizarTexto(texto);
+            // DUP auditoría: antes usaba una copia local (sin trim ni colapso de espacios repetidos,
+            // a diferencia de la canónica) — un "  Lunes " con espacios extra en el Excel no
+            // matcheaba ningún caso del switch de abajo.
+            var normalizado = NormalizadorTexto.Normalizar(texto);
 
             dia = normalizado switch
             {
@@ -507,7 +551,13 @@ namespace SOEA.Infrastructure.Excel
             }
             else
             {
-                horaFin = horaInicio.AddHours(duracionFallback);
+                // M11 auditoría: TimeOnly.AddHours envuelve el reloj de 24h — "20:00" + 6h de
+                // duracionFallback daba "02:00", una hora de fin ANTERIOR a la de inicio. Eso
+                // invertía la ventana resultante (Hasta < Desde) y DisponibilidadSemanal.PermiteBloque
+                // rechazaba entonces TODOS los bloques de ese día, sin ningún error visible. Se acota
+                // a la medianoche en vez de envolver.
+                var totalHoras = horaInicio.ToTimeSpan().TotalHours + duracionFallback;
+                horaFin = totalHoras >= 24 ? new TimeOnly(23, 59) : horaInicio.AddHours(duracionFallback);
             }
 
             return true;
@@ -533,270 +583,5 @@ namespace SOEA.Infrastructure.Excel
             return false;
         }
 
-        private static string NormalizarTexto(string texto)
-        {
-            var normalizado = texto.ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
-            return new string(normalizado.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark).ToArray());
-        }
-
-        public async Task<CurriculumExcelResult> LeerAsignaturasModo2Async(Stream excelStream)
-        {
-            _logger.LogInformation("Iniciando lectura de Asignaturas (Modo 2).");
-            var facultadesDict = new Dictionary<string, Facultad>(StringComparer.OrdinalIgnoreCase);
-            var programasDict = new Dictionary<string, Programa>(StringComparer.OrdinalIgnoreCase);
-            var asignaturasDict = new Dictionary<(string nombre, Guid programaId), Asignatura>();
-            var docentesDict = new Dictionary<string, Docente>(StringComparer.OrdinalIgnoreCase);
-            var espaciosDict = new Dictionary<string, Espacio>(StringComparer.OrdinalIgnoreCase);
-            var sesionesPredefinidas = new List<Sesion>();
-            var gruposDict = new Dictionary<(string nombre, Guid programaId), List<Grupo>>();
-            var grupos = new List<Grupo>();
-
-            using var paquete = new ExcelPackage();
-            await paquete.LoadAsync(excelStream);
-
-            var hoja = paquete.Workbook.Worksheets[0];
-            var totalFilas = hoja.Dimension?.Rows ?? 0;
-
-            for (int fila = 2; fila <= totalFilas; fila++)
-            {
-                var txtFacultad   = hoja.Cells[fila, 1].Text.Trim();
-                var txtPrograma   = hoja.Cells[fila, 2].Text.Trim();
-                var txtAsignatura = hoja.Cells[fila, 3].Text.Trim();
-                var txtCodigo     = hoja.Cells[fila, 4].Text.Trim();
-                var txtTipoEspacio= hoja.Cells[fila, 5].Text.Trim();
-                var txtEspacio    = hoja.Cells[fila, 6].Text.Trim();
-                var txtDuracion   = hoja.Cells[fila, 7].Text.Trim();
-                var txtDocente    = hoja.Cells[fila, 8].Text.Trim();
-
-                if (string.IsNullOrWhiteSpace(txtFacultad) || string.IsNullOrWhiteSpace(txtPrograma) || string.IsNullOrWhiteSpace(txtAsignatura))
-                    continue;
-
-                // 1. Facultad
-                if (!facultadesDict.TryGetValue(txtFacultad, out var facultad))
-                {
-                    facultad = new Facultad(Guid.NewGuid(), txtFacultad);
-                    facultadesDict[txtFacultad] = facultad;
-                }
-
-                // 2. Programa
-                var clavePrograma = $"{txtFacultad}|{txtPrograma}";
-                if (!programasDict.TryGetValue(clavePrograma, out var programa))
-                {
-                    programa = new Programa(Guid.NewGuid(), txtPrograma, facultad.Id);
-                    programasDict[clavePrograma] = programa;
-                }
-
-                // 3. Asignatura
-                int duracion = int.TryParse(txtDuracion, out var d) && d > 0 ? d : 2;
-                var claveAsignatura = (txtAsignatura.ToUpperInvariant(), programa.Id);
-                if (!asignaturasDict.ContainsKey(claveAsignatura))
-                {
-                    var asignatura = new Asignatura(Guid.NewGuid(), txtAsignatura, txtCodigo, duracion, 2, 0, programa.Id);
-                    asignaturasDict[claveAsignatura] = asignatura;
-                }
-
-                // Crear un Grupo incremental por cada fila (aunque la asignatura sea única)
-                if (!gruposDict.TryGetValue(claveAsignatura, out var listaGrupos))
-                {
-                    listaGrupos = new List<Grupo>();
-                    gruposDict[claveAsignatura] = listaGrupos;
-                }
-                var asignaturaParaGrupo = asignaturasDict[claveAsignatura];
-                var numeroGrupo = listaGrupos.Count + 1;
-                var nombreGrupo = $"{txtAsignatura} - Grupo {numeroGrupo}";
-                var nuevoGrupo = new Grupo(Guid.NewGuid(), nombreGrupo, programa.Id, 30, asignaturaParaGrupo.Alternancia,
-                    asignaturaId: asignaturaParaGrupo.Id);
-                listaGrupos.Add(nuevoGrupo);
-                grupos.Add(nuevoGrupo);
-
-                // 4. Docente (Solo creación básica, la disponibilidad se cargará con el Excel 3).
-                //    El docente vive en el GRUPO, no en la asignatura.
-                if (!string.IsNullOrWhiteSpace(txtDocente))
-                {
-                    if (!docentesDict.TryGetValue(txtDocente, out var docente))
-                    {
-                        docente = new Docente(Guid.NewGuid(), txtDocente, "", "", 40m, new List<FranjaHoraria> { FranjaHoraria.Matutino });
-                        docentesDict[txtDocente] = docente;
-                    }
-                    nuevoGrupo.AsignarDocente(docente.Id);
-                }
-
-                // 5. Espacio
-                Espacio? espacioAsignado = null;
-                if (!string.IsNullOrWhiteSpace(txtEspacio))
-                {
-                    if (!espaciosDict.TryGetValue(txtEspacio, out var espacio))
-                    {
-                        var tipo = txtTipoEspacio.Contains("Laboratorio", StringComparison.OrdinalIgnoreCase) ? TipoEspacio.Laboratorio : TipoEspacio.Salon;
-                        espacio = new Espacio(Guid.NewGuid(), txtEspacio, tipo, 30, "", null);
-                        espaciosDict[txtEspacio] = espacio;
-                    }
-                    espacioAsignado = espacio;
-                }
-
-                // 6. Sesión
-                if (!string.IsNullOrWhiteSpace(txtDocente) && docentesDict.TryGetValue(txtDocente, out var docenteFinal))
-                {
-                    var asignaturaFinal = asignaturasDict[claveAsignatura];
-                    var sesion = new Sesion(
-                        Guid.NewGuid(), asignaturaFinal.Id, docenteFinal.Id, Guid.Empty, espacioAsignado?.Id,
-                        nuevoGrupo.Id, asignaturaFinal.Alternancia, Modalidad.Presencial, duracion, false, false);
-                    sesionesPredefinidas.Add(sesion);
-                }
-            }
-
-            return new CurriculumExcelResult(
-                facultadesDict.Values.ToList().AsReadOnly(),
-                programasDict.Values.ToList().AsReadOnly(),
-                asignaturasDict.Values.ToList().AsReadOnly(),
-                docentesDict.Values.ToList().AsReadOnly(),
-                sesionesPredefinidas.AsReadOnly(),
-                espaciosDict.Values.ToList().AsReadOnly(),
-                grupos.AsReadOnly()
-            );
-        }
-
-        public async Task<IEnumerable<Docente>> LeerDisponibilidadDocentesAsync(Stream excelStream, IEnumerable<Docente> docentesExistentes)
-        {
-            _logger.LogInformation("Iniciando lectura del Excel secundario de disponibilidad de docentes.");
-            var docentes = new List<Docente>();
-            var docentesDict = docentesExistentes.ToDictionary(d => d.Nombre, StringComparer.OrdinalIgnoreCase);
-
-            using var paquete = new ExcelPackage();
-            await paquete.LoadAsync(excelStream);
-
-            var hoja = paquete.Workbook.Worksheets[0];
-            var totalFilas = hoja.Dimension?.Rows ?? 0;
-
-            for (int fila = 2; fila <= totalFilas; fila++)
-            {
-                var txtDocente    = hoja.Cells[fila, 1].Text.Trim();
-                var correo        = hoja.Cells[fila, 2].Text.Trim();
-                var txtMaxHoras   = hoja.Cells[fila, 3].Text.Trim();
-                var txtDias       = hoja.Cells[fila, 4].Text.Trim();
-                var txtFranjas    = hoja.Cells[fila, 5].Text.Trim();
-
-                if (string.IsNullOrWhiteSpace(txtDocente)) continue;
-
-                // Parsear Dias
-                var diasDocente = new List<DiaDeSemana>();
-                if (!string.IsNullOrWhiteSpace(txtDias))
-                {
-                    var partesDias = txtDias.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                    foreach (var pd in partesDias)
-                    {
-                        if (TryParseDia(pd, out var d)) diasDocente.Add(d);
-                    }
-                }
-                if (!diasDocente.Any()) 
-                {
-                    // Si no especifica, asume toda la semana hábil
-                    diasDocente.AddRange(new[] { DiaDeSemana.Lunes, DiaDeSemana.Martes, DiaDeSemana.Miercoles, DiaDeSemana.Jueves, DiaDeSemana.Viernes });
-                }
-
-                // Parsear Franjas
-                var franjasDocente = new List<FranjaHoraria>();
-                if (!string.IsNullOrWhiteSpace(txtFranjas))
-                {
-                    var partesFranjas = txtFranjas.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                    foreach (var pf in partesFranjas)
-                    {
-                        if (Enum.TryParse<FranjaHoraria>(pf, true, out var f)) franjasDocente.Add(f);
-                    }
-                }
-                if (!franjasDocente.Any())
-                {
-                    // Si no especifica, asume Matutino
-                    franjasDocente.Add(FranjaHoraria.Matutino);
-                }
-
-                decimal maxHoras = decimal.TryParse(txtMaxHoras, out var m) ? m : 40m;
-
-                // Validación simple de correo para no reventar la entidad
-                string correoFinal = "";
-                if (!string.IsNullOrWhiteSpace(correo))
-                {
-                    try { var addr = new System.Net.Mail.MailAddress(correo); correoFinal = addr.Address == correo ? correo : ""; }
-                    catch { correoFinal = ""; }
-                }
-
-                if (!docentesDict.TryGetValue(txtDocente, out var docente))
-                {
-                    // Si el docente no existía en la carga de asignaturas, se crea (aunque no dicte nada)
-                    docente = new Docente(Guid.NewGuid(), txtDocente, "", correoFinal, maxHoras, franjasDocente);
-                    docentesDict[txtDocente] = docente;
-                    docentes.Add(docente);
-                }
-                else
-                {
-                    // Actualizamos correo y horas si están vacíos
-                    docente.ActualizarDatos(docente.Nombre, docente.Apellido, string.IsNullOrWhiteSpace(docente.Correo) ? correoFinal : docente.Correo, maxHoras);
-                    
-                    // Acumulamos las franjas si hay múltiples filas para el mismo docente
-                    var franjasAcumuladas = docente.Disponibilidad.Union(franjasDocente).Distinct().ToList();
-                    docente.ActualizarDisponibilidad(franjasAcumuladas);
-
-                    if (!docentes.Contains(docente)) docentes.Add(docente);
-                }
-
-                // Generar Bloques de Tiempo Ficticios para las Franjas/Días indicados para alimentar a Welsh-Powell
-                // Matutino: 6 a 12 | Vespertino: 12 a 18 (Sábado solo hasta 14:00)
-                foreach(var dia in diasDocente)
-                {
-                    var horaLimiteDia = dia == DiaDeSemana.Sábado ? new TimeOnly(14, 0) : new TimeOnly(22, 0);
-
-                    if (franjasDocente.Contains(FranjaHoraria.Matutino))
-                    {
-                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(6,0), new TimeOnly(8,0)));
-                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(8,0), new TimeOnly(10,0)));
-                        docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(10,0), new TimeOnly(12,0)));
-                    }
-                    if (franjasDocente.Contains(FranjaHoraria.Vespertino))
-                    {
-                        if (new TimeOnly(14,0) <= horaLimiteDia)
-                            docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(12,0), new TimeOnly(14,0)));
-                        if (new TimeOnly(16,0) <= horaLimiteDia)
-                            docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(14,0), new TimeOnly(16,0)));
-                        if (new TimeOnly(18,0) <= horaLimiteDia)
-                            docente.AgregarBloqueDisponibilidad(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(16,0), new TimeOnly(18,0)));
-                    }
-                }
-            }
-
-            _logger.LogInformation("Lectura finalizada. Se procesaron {Cantidad} docentes.", docentes.Count);
-            return docentesDict.Values;
-        }
-
-        public async Task<IEnumerable<Espacio>> LeerInventarioEspaciosAsync(Stream excelStream)
-        {
-            _logger.LogInformation("Iniciando lectura del inventario de espacios físicos.");
-            var espacios = new List<Espacio>();
-
-            using var paquete = new ExcelPackage();
-            await paquete.LoadAsync(excelStream);
-
-            var hoja = paquete.Workbook.Worksheets[0];
-            var totalFilas = hoja.Dimension?.Rows ?? 0;
-
-            for (int fila = 2; fila <= totalFilas; fila++)
-            {
-                var nombre      = hoja.Cells[fila, 1].Text.Trim();
-                var tipoTexto   = hoja.Cells[fila, 2].Text.Trim();
-                var capacidad   = hoja.Cells[fila, 3].Text.Trim();
-                var edificio    = hoja.Cells[fila, 4].Text.Trim();
-                var pisoTexto   = hoja.Cells[fila, 5].Text.Trim();
-
-                if (string.IsNullOrWhiteSpace(nombre)) continue;
-
-                int cap = int.TryParse(capacidad, out var c) ? c : 30;
-                int? piso = int.TryParse(pisoTexto, out var p) ? p : null;
-                TipoEspacio tipo = Enum.TryParse<TipoEspacio>(tipoTexto, true, out var t) ? t : TipoEspacio.Salon;
-
-                espacios.Add(new Espacio(Guid.NewGuid(), nombre, tipo, cap, edificio, piso));
-            }
-
-            _logger.LogInformation("Lectura finalizada. Se encontraron {Cantidad} espacios.", espacios.Count);
-            return espacios;
-        }
     }
 }

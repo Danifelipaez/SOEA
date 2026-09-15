@@ -22,5 +22,10 @@ namespace SOEA.Infrastructure.Data.Repositories
                 .OrderByDescending(h => h.GeneradoEn)
                 .FirstOrDefaultAsync();
         }
+
+        // PERF4 auditoría: consulta acotada por semestre en la BD, en vez de GetAllAsync() (tabla
+        // Horarios completa, todas las corridas de todos los semestres) filtrado en memoria.
+        public async Task<List<Horario>> GetAllBySemestreAsync(string semestre)
+            => await _dbSet.Where(h => h.Semestre == semestre).ToListAsync();
     }
 }

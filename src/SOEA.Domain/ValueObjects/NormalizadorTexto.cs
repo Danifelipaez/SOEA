@@ -25,5 +25,17 @@ namespace SOEA.Domain.ValueObjects
 
             return s;
         }
+
+        /// <summary>
+        /// Correo sintético para un docente sin correo real (import Excel/JSON). DUP auditoría:
+        /// antes esta fórmula vivía duplicada en ImportarCurriculumService y en
+        /// ImportController.MapDocentesDto, solo con el nombre normalizado — dos docentes reales
+        /// con el mismo nombre (un homónimo, el caso que DetectorDocentesDuplicados existe para
+        /// atender) sintetizaban el MISMO correo y chocaban contra el índice único de Docente.Correo.
+        /// Se agrega un fragmento del Id (único por construcción) para eliminar la colisión sin
+        /// perder la legibilidad del nombre.
+        /// </summary>
+        public static string CorreoSintetico(string nombre, Guid id) =>
+            $"{Normalizar(nombre).Replace(" ", ".")}.{id:N}@soea.local";
     }
 }

@@ -25,6 +25,15 @@ namespace SOEA.Engine.ConstraintProg
         public int NumWorkers { get; set; } = 0;
 
         /// <summary>
+        /// REP1 auditoría: sin esto, dos solves con la MISMA entrada podían devolver horarios
+        /// distintos (sin garantías de reproducibilidad de CP-SAT) — un reporte de conflicto no se
+        /// podía reproducir. Con NumWorkers=1 esto hace el solve determinista; en portfolio
+        /// paralelo (NumWorkers &gt; 1) ayuda pero no lo garantiza al 100% — la carrera entre hilos
+        /// sigue dependiendo del scheduler del SO.
+        /// </summary>
+        public int RandomSeed { get; set; } = 1;
+
+        /// <summary>
         /// Si es true, ante una infactibilidad SIN causa explicada por ningún pre-check (el
         /// catch-all final tras un solve CP-SAT genuinamente INFEASIBLE), reintenta el solve una
         /// vez por grupo excluyéndolo, para reportar cuáles grupos son responsables. Default false:
@@ -36,5 +45,19 @@ namespace SOEA.Engine.ConstraintProg
         /// <summary>Tope de grupos candidatos para el barrido de <see cref="SweepGrupos"/> — evita
         /// un costo O(N) descontrolado en runs con muchos grupos.</summary>
         public int SweepGruposMaximo { get; set; } = 20;
+
+        /// <summary>
+        /// Ante una infactibilidad que ningún pre-check explicó, reintenta el solve UNA vez sin las
+        /// restricciones de aula. Si esa relajación es factible, la causa son los espacios y el
+        /// motivo se reporta como <c>Espacio</c> en vez de <c>Otro</c>.
+        ///
+        /// Es lo que permite que la Semana B se active de forma reactiva: el pre-check agregado de
+        /// demanda vs capacidad solo ve el total semanal, no los cuellos de botella por bloque (p.
+        /// ej. todos los grupos con disponibilidad que choca el martes a las 08:00). Sin esta
+        /// clasificación esos casos devolverían <c>Otro</c>, el bucle de cesión de
+        /// GenerarHorarioService no cedería nunca, y un horario que sí tiene solución con alternancia
+        /// fallaría. Default true: un único solve extra, y solo en el camino de fallo.
+        /// </summary>
+        public bool ClasificarInfactibilidadEspacio { get; set; } = true;
     }
 }

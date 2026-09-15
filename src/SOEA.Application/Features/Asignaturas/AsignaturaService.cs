@@ -2,6 +2,8 @@ using SOEA.Domain.Entities;
 using SOEA.Domain.Interfaces;
 using SOEA.Application.Features.Asignaturas.Requests;
 using SOEA.Application.Features.Asignaturas.Responses;
+using SOEA.Application.Features.Horario;
+using SOEA.Application.Features.Sesiones;
 
 namespace SOEA.Application.Features.Asignaturas;
 
@@ -9,11 +11,19 @@ public class AsignaturaService
 {
     private readonly IAsignaturaRepositorio _repository;
     private readonly IGrupoRepositorio _grupoRepository;
+    private readonly SesionCascadeService _sesionCascade;
+    private readonly IUnitOfWork _uow;
 
-    public AsignaturaService(IAsignaturaRepositorio repository, IGrupoRepositorio grupoRepository)
+    public AsignaturaService(
+        IAsignaturaRepositorio repository,
+        IGrupoRepositorio grupoRepository,
+        SesionCascadeService sesionCascade,
+        IUnitOfWork uow)
     {
         _repository = repository;
         _grupoRepository = grupoRepository;
+        _sesionCascade = sesionCascade;
+        _uow = uow;
     }
 
     public async Task<AsignaturaResponse> CreateAsync(CreateAsignaturaRequest request)
@@ -31,8 +41,8 @@ public class AsignaturaService
             sesionesLaboratorioSemestre: request.SesionesLaboratorioSemestre,
             programaId: request.ProgramaId,
             categoria: request.Categoria ?? Domain.Enums.CategoriaAsignatura.Obligatoria,
-            horaInicioMin: ParseHora(request.HoraInicioMin),
-            horaFinMax: ParseHora(request.HoraFinMax));
+            horaInicioMin: GenerarHorarioService.ParseHora(request.HoraInicioMin),
+            horaFinMax: GenerarHorarioService.ParseHora(request.HoraFinMax));
 
         if (request.Alternancia.HasValue)
             asignatura.EstablecerAlternancia(request.Alternancia.Value);
@@ -44,7 +54,7 @@ public class AsignaturaService
     public async Task<AsignaturaResponse> GetByIdAsync(Guid id)
     {
         var asignatura = await _repository.GetByIdAsync(id)
-            ?? throw new InvalidOperationException($"Asignatura con ID {id} no encontrada.");
+            ?? throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
         return AsignaturaResponse.FromEntity(asignatura);
     }
 
@@ -57,7 +67,7 @@ public class AsignaturaService
     public async Task<AsignaturaResponse> UpdateAsync(Guid id, UpdateAsignaturaRequest request)
     {
         var asignatura = await _repository.GetByIdAsync(id)
-            ?? throw new InvalidOperationException($"Asignatura con ID {id} no encontrada.");
+            ?? throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
 
         asignatura.ActualizarDatos(
             request.Nombre,
@@ -72,29 +82,44 @@ public class AsignaturaService
             programaId: request.ProgramaId,
             alternanciaExplicita: request.Alternancia,
             categoria: request.Categoria,
-            horaInicioMin: ParseHora(request.HoraInicioMin),
-            horaFinMax: ParseHora(request.HoraFinMax));
+            horaInicioMin: GenerarHorarioService.ParseHora(request.HoraInicioMin),
+            horaFinMax: GenerarHorarioService.ParseHora(request.HoraFinMax));
 
         await _repository.UpdateAsync(asignatura);
         return AsignaturaResponse.FromEntity(asignatura);
     }
-
-    // Mismo criterio que GenerarHorarioService.ParseHora — TimeOnly.TryParse acepta "HH:mm".
-    private static TimeOnly? ParseHora(string? hhmm) =>
-        !string.IsNullOrWhiteSpace(hhmm) && TimeOnly.TryParse(hhmm, out var t) ? t : null;
 
     public async Task DeleteAsync(Guid id)
     {
         if (await _repository.GetByIdAsync(id) is null)
             throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
 
-        var gruposAsociados = await _grupoRepository.GetByAsignaturaIdAsync(id);
-        var cantidad = gruposAsociados.Count();
-        if (cantidad > 0)
-            throw new InvalidOperationException(
-                $"No se puede eliminar la asignatura: tiene {cantidad} grupo(s) asociado(s). Elimínelos o reasígnelos primero.");
+        var gruposAsociados = (await _grupoRepository.GetByAsignaturaIdAsync(id)).ToList();
 
-        await _repository.DeleteAsync(id);
+        // H5 auditoría: antes cada DeleteAsync confirmaba por su cuenta (SaveChanges propio) — si
+        // el borrado de la Asignatura fallaba después de borrar sus Grupos, esos Grupos quedaban
+        // borrados sin ninguna forma de recuperarlos. Una sola transacción para las dos escrituras.
+        await _uow.BeginTransactionAsync();
+        try
+        {
+            // Sesion.AsignaturaId/GrupoId son FK Restrict — sin purgar primero las sesiones
+            // generadas, el borrado de abajo falla con un 409 genérico. Son datos regenerables
+            // de una corrida, no catálogo: catálogo nunca debe bloquearse por ellas.
+            foreach (var grupo in gruposAsociados)
+            {
+                await _sesionCascade.EliminarPorGrupoAsync(grupo.Id);
+                await _grupoRepository.DeleteAsync(grupo.Id);
+            }
+
+            await _sesionCascade.EliminarPorAsignaturaAsync(id);
+            await _repository.DeleteAsync(id);
+            await _uow.CommitAsync();
+        }
+        catch
+        {
+            await _uow.RollbackAsync();
+            throw;
+        }
     }
 
     /// <summary>
@@ -104,7 +129,7 @@ public class AsignaturaService
     public async Task UpdateElegibilidadAlternanciaAsync(Guid id, bool elegible)
     {
         var asignatura = await _repository.GetByIdAsync(id)
-            ?? throw new InvalidOperationException($"Asignatura con ID {id} no encontrada.");
+            ?? throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
         asignatura.EstablecerElegibilidadAlternancia(elegible);
         await _repository.UpdateAsync(asignatura);
     }

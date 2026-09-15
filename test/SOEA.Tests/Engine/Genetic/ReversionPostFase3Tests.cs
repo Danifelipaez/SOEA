@@ -46,12 +46,13 @@ namespace SOEA.Tests.Engine.Genetic
         {
             var lista = new List<AsignacionSemanal>();
             for (int i = 0; i < sesiones.Count; i++)
-                foreach (var w in new[] { SemanaAcademica.A, SemanaAcademica.B })
-                {
-                    var modalidad = ModalidadSemanal.Derivar(sesiones[i], w);
-                    Guid? esp = modalidad == Modalidad.Presencial && espacios.Count > 0 ? espacios[0].Id : null;
-                    lista.Add(new AsignacionSemanal(Guid.NewGuid(), sesiones[i].Id, w, bloques[inicio[i]].Id, esp, modalidad));
-                }
+            {
+                var modalidad = ModalidadSemanal.ModalidadCanonica(sesiones[i]);
+                Guid? esp = modalidad == Modalidad.Presencial && espacios.Count > 0 ? espacios[0].Id : null;
+                lista.Add(new AsignacionSemanal(
+                    Guid.NewGuid(), sesiones[i].Id, ModalidadSemanal.SemanaCanonica(sesiones[i]),
+                    bloques[inicio[i]].Id, esp, modalidad));
+            }
             return lista;
         }
 
@@ -72,20 +73,19 @@ namespace SOEA.Tests.Engine.Genetic
             };
             var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios,
                 config: Cfg(), sesionesCedidasParaRevertir: new List<Guid> { s1.Id });
 
             Assert.False(r.UsoFallback);
             Assert.NotNull(r.SesionesRevertidasIds);
             Assert.Contains(s1.Id, r.SesionesRevertidasIds!);
 
-            // Ambas semanas quedan presenciales con aula asignada (revertido, ya no alterna).
-            var a = r.AsignacionesOptimizadas.Single(x => x.SesionId == s1.Id && x.Semana == SemanaAcademica.A);
-            var b = r.AsignacionesOptimizadas.Single(x => x.SesionId == s1.Id && x.Semana == SemanaAcademica.B);
-            Assert.Equal(Modalidad.Presencial, a.Modalidad);
-            Assert.Equal(Modalidad.Presencial, b.Modalidad);
-            Assert.NotNull(a.EspacioId);
-            Assert.NotNull(b.EspacioId);
+            // Revertida: una sola fila presencial con aula, que ya aplica a todas las semanas.
+            var fila = Assert.Single(r.AsignacionesOptimizadas, x => x.SesionId == s1.Id);
+            Assert.Equal(SemanaAcademica.A, fila.Semana);
+            Assert.Equal(Modalidad.Presencial, fila.Modalidad);
+            Assert.NotNull(fila.EspacioId);
+            Assert.Equal(TipoAlternancia.SinAlternancia, s1.Alternancia);
         }
 
         [Fact]
@@ -102,16 +102,17 @@ namespace SOEA.Tests.Engine.Genetic
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Lab1", TipoEspacio.Laboratorio, 30) };
             var fase2 = Fase2(sesiones, new[] { 0, 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios,
                 config: Cfg(), sesionesCedidasParaRevertir: new List<Guid> { s1.Id });
 
             Assert.False(r.UsoFallback);
             Assert.True(r.SesionesRevertidasIds is null || !r.SesionesRevertidasIds.Contains(s1.Id));
 
-            // s1 sigue alternando: presencial en A, virtual en B (rollback exacto, no estado roto).
-            var b = r.AsignacionesOptimizadas.Single(x => x.SesionId == s1.Id && x.Semana == SemanaAcademica.B);
-            Assert.Equal(Modalidad.Virtual, b.Modalidad);
-            Assert.Null(b.EspacioId);
+            // s1 sigue alternando (rollback exacto, no estado roto): su fila sigue en la semana A
+            // y conserva el tipo TipoA, así que libera el aula en la B para su pareja.
+            var fila = Assert.Single(r.AsignacionesOptimizadas, x => x.SesionId == s1.Id);
+            Assert.Equal(TipoAlternancia.TipoA, s1.Alternancia);
+            Assert.Equal(SemanaAcademica.A, fila.Semana);
         }
 
         [Fact]
@@ -126,7 +127,7 @@ namespace SOEA.Tests.Engine.Genetic
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Lab1", TipoEspacio.Laboratorio, 30) };
             var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios,
                 config: Cfg(), sesionesCedidasParaRevertir: new List<Guid> { s1.Id });
 
             Assert.False(r.UsoFallback);
@@ -144,7 +145,7 @@ namespace SOEA.Tests.Engine.Genetic
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Lab1", TipoEspacio.Laboratorio, 30) };
             var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(), config: Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, config: Cfg());
 
             Assert.False(r.UsoFallback);
             Assert.Null(r.SesionesRevertidasIds);

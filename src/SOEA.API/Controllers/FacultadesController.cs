@@ -25,20 +25,14 @@ namespace SOEA.API.Controllers
             return Ok(list.OrderBy(f => f.Nombre).Select(MapToDto));
         }
 
+        // ERR2 auditoría: sin catch — GlobalExceptionHandler traduce ArgumentException a 400.
         [HttpPost]
         public async Task<ActionResult<FacultadCrudDto>> Create([FromBody] FacultadCrudDto dto)
         {
             var id = dto.Id == Guid.Empty ? Guid.NewGuid() : dto.Id;
-            try
-            {
-                var facultad = new Facultad(id, dto.Nombre);
-                await _repo.AddAsync(facultad);
-                return StatusCode(StatusCodes.Status201Created, MapToDto(facultad));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
+            var facultad = new Facultad(id, dto.Nombre);
+            await _repo.AddAsync(facultad);
+            return StatusCode(StatusCodes.Status201Created, MapToDto(facultad));
         }
 
         [HttpPut("{id}")]
@@ -46,16 +40,9 @@ namespace SOEA.API.Controllers
         {
             var existing = await _repo.GetByIdAsync(id);
             if (existing is null) return NotFound();
-            try
-            {
-                existing.ActualizarNombre(dto.Nombre);
-                await _repo.UpdateAsync(existing);
-                return Ok(MapToDto(existing));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
+            existing.ActualizarNombre(dto.Nombre);
+            await _repo.UpdateAsync(existing);
+            return Ok(MapToDto(existing));
         }
 
         [HttpDelete("{id}")]

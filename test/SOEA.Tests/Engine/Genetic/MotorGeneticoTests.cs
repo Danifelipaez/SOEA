@@ -39,26 +39,20 @@ namespace SOEA.Tests.Engine.Genetic
             new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), null, null, alt, modalidad, dur, false, false,
                 tipoFlujo: tipoFlujo);
 
-        private static Docente Doc(Guid id, IEnumerable<BloqueTiempo> bloques)
-        {
-            var d = new Docente(id, "Doc", "", $"doc-{id}@soea.edu", 40m,
-                new List<FranjaHoraria> { FranjaHoraria.Matutino });
-            foreach (var b in bloques) d.AgregarBloqueDisponibilidad(b);
-            return d;
-        }
 
-        // Construye una solución de Fase 2 (dos asignaciones por sesión) con inicios dados.
+        // Construye una solución de Fase 2: UNA asignación por sesión, en su semana canónica.
         private static List<AsignacionSemanal> Fase2(
             List<Sesion> sesiones, int[] inicio, List<BloqueTiempo> bloques, List<Espacio> espacios)
         {
             var lista = new List<AsignacionSemanal>();
             for (int i = 0; i < sesiones.Count; i++)
-                foreach (var w in new[] { SemanaAcademica.A, SemanaAcademica.B })
-                {
-                    var modalidad = ModalidadSemanal.Derivar(sesiones[i], w);
-                    Guid? esp = modalidad == Modalidad.Presencial && espacios.Count > 0 ? espacios[0].Id : null;
-                    lista.Add(new AsignacionSemanal(Guid.NewGuid(), sesiones[i].Id, w, bloques[inicio[i]].Id, esp, modalidad));
-                }
+            {
+                var modalidad = ModalidadSemanal.ModalidadCanonica(sesiones[i]);
+                Guid? esp = modalidad == Modalidad.Presencial && espacios.Count > 0 ? espacios[0].Id : null;
+                lista.Add(new AsignacionSemanal(
+                    Guid.NewGuid(), sesiones[i].Id, ModalidadSemanal.SemanaCanonica(sesiones[i]),
+                    bloques[inicio[i]].Id, esp, modalidad));
+            }
             return lista;
         }
 
@@ -66,20 +60,19 @@ namespace SOEA.Tests.Engine.Genetic
             new(TamañoPoblacion: 10, MaxGeneraciones: 30, Semilla: semilla);
 
         [Fact]
-        public async Task DosVirtuales_ProduceCuatroAsignaciones_SinFallback()
+        public async Task DosVirtuales_ProduceUnaAsignacionPorSesion_SinFallback()
         {
             var docId = Guid.NewGuid();
             var sesiones = new List<Sesion> { Sesion(docId, TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m),
                                               Sesion(docId, TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m) };
             var bloques  = Grilla(8);
-            var docentes = new List<Docente> { Doc(docId, bloques) };
             var espacios = new List<Espacio>();
             var fase2 = Fase2(sesiones, new[] { 0, 2 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, config: Cfg());
 
             Assert.False(r.UsoFallback);
-            Assert.Equal(4, r.AsignacionesOptimizadas.Count);
+            Assert.Equal(2, r.AsignacionesOptimizadas.Count);
             Assert.All(r.AsignacionesOptimizadas, a =>
             {
                 Assert.Equal(Modalidad.Virtual, a.Modalidad);
@@ -88,53 +81,41 @@ namespace SOEA.Tests.Engine.Genetic
         }
 
         [Fact]
-        public async Task TipoA_Presencial_TieneAulaSoloEnSemanaA()
+        public async Task TipoA_Presencial_ProduceUnaFilaConAulaEnSemanaA()
         {
             var docId = Guid.NewGuid();
             var sesiones = new List<Sesion> { Sesion(docId, TipoAlternancia.TipoA, Modalidad.Presencial, 1m) };
             var bloques  = Grilla(6);
-            var docentes = new List<Docente> { Doc(docId, bloques) };
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 30) };
             var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, config: Cfg());
 
             Assert.False(r.UsoFallback);
-            var a = r.AsignacionesOptimizadas.Single(x => x.Semana == SemanaAcademica.A);
-            var b = r.AsignacionesOptimizadas.Single(x => x.Semana == SemanaAcademica.B);
+            // Una sola fila: la contraparte virtual de la semana B no reserva aula y no se persiste.
+            var a = Assert.Single(r.AsignacionesOptimizadas);
+            Assert.Equal(SemanaAcademica.A, a.Semana);
             Assert.Equal(Modalidad.Presencial, a.Modalidad);
             Assert.NotNull(a.EspacioId);
-            Assert.Equal(Modalidad.Virtual, b.Modalidad);
-            Assert.Null(b.EspacioId);
-            // Regla 9: misma franja en ambas semanas.
-            Assert.Equal(a.BloqueTiempoId, b.BloqueTiempoId);
         }
 
         [Fact]
-        public async Task SinAlternancia_PuedeTenerFranjaDistintaEntreSemanaAYB()
+        public async Task SinAlternancia_ProduceUnaSolaFila_QueAplicaATodasLasSemanas()
         {
-            // Contraste con TipoA_Presencial_TieneAulaSoloEnSemanaA: para SinAlternancia (ALT-06)
-            // el Incremento 2 permite que la franja de Semana B difiera de la de Semana A.
+            // Contrario de lo que afirmaba "ALT-06": una sesión que no alterna no puede caer en
+            // franjas distintas según la semana, porque solo tiene una franja.
             var docId = Guid.NewGuid();
             var sesiones = new List<Sesion> { Sesion(docId, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m) };
-            var bloques  = Grilla(6); // un solo día (Lunes), bloques 0..5
-            var docentes = new List<Docente> { Doc(docId, bloques) };
+            var bloques  = Grilla(6);
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 30) };
+            var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            // Fase 2 ya trae franjas distintas entre semanas para esta sesión (a diferencia del
-            // helper Fase2(), que siempre las siembra iguales).
-            var fase2 = new List<AsignacionSemanal>
-            {
-                new(Guid.NewGuid(), sesiones[0].Id, SemanaAcademica.A, bloques[0].Id, espacios[0].Id, Modalidad.Presencial),
-                new(Guid.NewGuid(), sesiones[0].Id, SemanaAcademica.B, bloques[3].Id, espacios[0].Id, Modalidad.Presencial),
-            };
-
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, config: Cfg());
 
             Assert.False(r.UsoFallback);
-            var a = r.AsignacionesOptimizadas.Single(x => x.Semana == SemanaAcademica.A);
-            var b = r.AsignacionesOptimizadas.Single(x => x.Semana == SemanaAcademica.B);
-            Assert.NotEqual(a.BloqueTiempoId, b.BloqueTiempoId);
+            var fila = Assert.Single(r.AsignacionesOptimizadas);
+            Assert.Equal(SemanaAcademica.A, fila.Semana);
+            Assert.Equal(Modalidad.Presencial, fila.Modalidad);
         }
 
         [Fact]
@@ -144,12 +125,11 @@ namespace SOEA.Tests.Engine.Genetic
             var sesiones = Enumerable.Range(0, 3)
                 .Select(_ => Sesion(docId, TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m)).ToList();
             var bloques  = Grilla(8);
-            var docentes = new List<Docente> { Doc(docId, bloques) };
             var espacios = new List<Espacio>();
             var fase2 = Fase2(sesiones, new[] { 0, 1, 2 }, bloques, espacios);
 
-            var r1 = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg(99));
-            var r2 = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg(99));
+            var r1 = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, config: Cfg(99));
+            var r2 = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, config: Cfg(99));
 
             Assert.Equal(r1.PuntajeFitness, r2.PuntajeFitness);
             Assert.Equal(
@@ -169,11 +149,10 @@ namespace SOEA.Tests.Engine.Genetic
                 Sesion(d1, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m),
                 Sesion(d2, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m)
             };
-            var docentes = new List<Docente> { Doc(d1, bloques), Doc(d2, bloques) };
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Aula", TipoEspacio.Salon, 30) };
             var fase2 = Fase2(sesiones, new[] { 0, 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, config: Cfg());
 
             Assert.True(r.UsoFallback);
             Assert.Equal(fase2.Count, r.AsignacionesOptimizadas.Count);
@@ -188,11 +167,10 @@ namespace SOEA.Tests.Engine.Genetic
             var sesiones = new List<Sesion> { Sesion(docId, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m,
                 tipoFlujo: TipoFlujo.Laboratorio) };
             var bloques  = Grilla(6);
-            var docentes = new List<Docente> { Doc(docId, bloques) };
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Salon", TipoEspacio.Salon, 30) };
             var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, config: Cfg());
 
             Assert.True(r.UsoFallback);
         }
@@ -208,11 +186,10 @@ namespace SOEA.Tests.Engine.Genetic
             var sesiones = new List<Sesion> { Sesion(docId, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m,
                 tipoFlujo: TipoFlujo.AulaVirtual) };
             var bloques  = Grilla(6);
-            var docentes = new List<Docente> { Doc(docId, bloques) };
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Salon", TipoEspacio.Salon, 30) };
             var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, docentes, config: Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, config: Cfg());
 
             Assert.False(r.UsoFallback);
             Assert.All(r.AsignacionesOptimizadas.Where(a => a.Modalidad == Modalidad.Presencial),
@@ -240,7 +217,7 @@ namespace SOEA.Tests.Engine.Genetic
                 new(Guid.NewGuid(), sesion.Id, SemanaAcademica.B, bloques[0].Id, espacioB.Id, Modalidad.Presencial),
             };
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(), config: Cfg());
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, config: Cfg());
 
             Assert.False(r.UsoFallback);
             Assert.All(r.AsignacionesOptimizadas.Where(a => a.Modalidad == Modalidad.Presencial),
@@ -263,7 +240,7 @@ namespace SOEA.Tests.Engine.Genetic
             var sesiones = new List<Sesion> { sesion };
             var fase2 = Fase2(sesiones, new[] { 0 }, bloques, espacios);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios,
                 grupos: new List<Grupo> { grupo }, config: Cfg());
 
             Assert.True(r.UsoFallback);
@@ -291,9 +268,9 @@ namespace SOEA.Tests.Engine.Genetic
             ConfiguracionOptimizacion Cfg(int maxGen) => new(
                 TamañoPoblacion: 20, MaxGeneraciones: maxGen, UmbralConvergencia: 1000, Semilla: 42);
 
-            var pocasGen = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+            var pocasGen = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios,
                 grupos: null, config: Cfg(1));
-            var masGen = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+            var masGen = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios,
                 grupos: null, config: Cfg(50));
 
             // T4 (auditoria de suavizado): era <= — dejaba pasar un GA completamente inerte
@@ -370,33 +347,31 @@ namespace SOEA.Tests.Engine.Genetic
             };
 
             var cfg = new ConfiguracionOptimizacion(TamañoPoblacion: 30, MaxGeneraciones: 100, Semilla: 7);
-            var evaluador = new EvaluadorFitness(sesiones, bloques, new List<Docente>(), espacios, cfg);
+            var evaluador = new EvaluadorFitness(sesiones, bloques, espacios, cfg);
             var semilla = new CromosomaHorario(
                 sesiones.Select(s => s.Id).ToArray(), sesiones.Select(s => inicio[s.Id]).ToArray());
             var fitnessSemilla = evaluador.Evaluar(semilla);
 
-            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios, new List<Docente>(),
+            var r = await Motor.OptimizarAsync(sesiones, fase2, bloques, espacios,
                 grupos: grupos, config: cfg);
 
             Assert.False(r.UsoFallback);
             Assert.True(r.PuntajeFitness < fitnessSemilla,
                 $"Fitness del GA ({r.PuntajeFitness}) no mejoró la semilla de Fase 2 ({fitnessSemilla}).");
 
-            // HC-ALT: p1 (presencial en A) y p2 (presencial en B) deben compartir el MISMO bloque.
-            var bloqueP1A = r.AsignacionesOptimizadas.Single(a => a.SesionId == p1.Id && a.Semana == SemanaAcademica.A).BloqueTiempoId;
-            var bloqueP2B = r.AsignacionesOptimizadas.Single(a => a.SesionId == p2.Id && a.Semana == SemanaAcademica.B).BloqueTiempoId;
-            Assert.Equal(bloqueP1A, bloqueP2B);
+            // HC-ALT: p1 (presencial en A) y p2 (presencial en B) comparten el MISMO bloque.
+            var bloqueP1 = Assert.Single(r.AsignacionesOptimizadas, a => a.SesionId == p1.Id).BloqueTiempoId;
+            var bloqueP2 = Assert.Single(r.AsignacionesOptimizadas, a => a.SesionId == p2.Id).BloqueTiempoId;
+            Assert.Equal(bloqueP1, bloqueP2);
 
-            // HC-SEP: y1 y y2 deben caer en días separados ≥2, en cada semana.
-            foreach (var w in new[] { SemanaAcademica.A, SemanaAcademica.B })
-            {
-                var bloqueY1 = bloques.FindIndex(b => b.Id ==
-                    r.AsignacionesOptimizadas.Single(a => a.SesionId == y1.Id && a.Semana == w).BloqueTiempoId);
-                var bloqueY2 = bloques.FindIndex(b => b.Id ==
-                    r.AsignacionesOptimizadas.Single(a => a.SesionId == y2.Id && a.Semana == w).BloqueTiempoId);
-                Assert.True(ReglasSesion.SeparacionDiasOk(diaPorIdx[bloqueY1], diaPorIdx[bloqueY2]),
-                    $"HC-SEP: y1 y y2 no están separadas ≥2 días en semana {w} ({diaPorIdx[bloqueY1]} / {diaPorIdx[bloqueY2]}).");
-            }
+            // HC-SEP: y1 y y2 caen en días separados ≥2. Es un eje temporal, independiente de la
+            // semana: la sesión cae el mismo día todas las semanas.
+            var bloqueY1 = bloques.FindIndex(b => b.Id ==
+                Assert.Single(r.AsignacionesOptimizadas, a => a.SesionId == y1.Id).BloqueTiempoId);
+            var bloqueY2 = bloques.FindIndex(b => b.Id ==
+                Assert.Single(r.AsignacionesOptimizadas, a => a.SesionId == y2.Id).BloqueTiempoId);
+            Assert.True(ReglasSesion.SeparacionDiasOk(diaPorIdx[bloqueY1], diaPorIdx[bloqueY2]),
+                $"HC-SEP: y1 y y2 no están separadas ≥2 días ({diaPorIdx[bloqueY1]} / {diaPorIdx[bloqueY2]}).");
         }
     }
 }

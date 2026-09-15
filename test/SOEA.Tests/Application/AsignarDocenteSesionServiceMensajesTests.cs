@@ -7,6 +7,7 @@ using SOEA.Application.Features.Horario.Requests;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.Exceptions;
 using Xunit;
 
 namespace SOEA.Tests.Application
@@ -58,7 +59,7 @@ namespace SOEA.Tests.Application
 
             var req = new AsignarDocenteRequest { SesionId = sesionTarget.Id, DocenteId = docente.Id };
 
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => svc.EjecutarAsync(req));
+            var ex = await Assert.ThrowsAsync<BusinessRuleViolationException>(() => svc.EjecutarAsync(req));
 
             Assert.Contains("HC-I01", ex.Message);
             Assert.Contains("Sesión 1", ex.Message);
@@ -83,9 +84,17 @@ namespace SOEA.Tests.Application
             public Task<List<Sesion>> GetAllAsync() => Task.FromResult(_store.Values.ToList());
             public Task UpdateAsync(Sesion e) { _store[e.Id] = e; return Task.CompletedTask; }
             public Task DeleteAsync(Guid id) { _store.Remove(id); return Task.CompletedTask; }
+            public Task DeleteRangeAsync(IEnumerable<Guid> ids) { foreach (var id in ids) _store.Remove(id); return Task.CompletedTask; }
+            public Task<List<Sesion>> GetByIdsAsync(IEnumerable<Guid> ids) { var set = ids.ToHashSet(); return Task.FromResult(_store.Values.Where(s => set.Contains(s.Id)).ToList()); }
             public Task AddRangeAsync(IEnumerable<Sesion> sesiones) { foreach (var s in sesiones) _store[s.Id] = s; return Task.CompletedTask; }
-            public Task<bool> ExisteAsync(Guid asignaturaId, Guid docenteId, Guid bloqueTiempoId) =>
+            public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) =>
                 Task.FromResult(_store.Values.Any(s => s.AsignaturaId == asignaturaId && s.DocenteId == docenteId && s.BloqueTiempoId == bloqueTiempoId));
+            public Task<List<Guid>> GetIdsByGrupoIdAsync(Guid grupoId) =>
+                Task.FromResult(_store.Values.Where(s => s.GrupoId == grupoId).Select(s => s.Id).ToList());
+            public Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId) =>
+                Task.FromResult(_store.Values.Where(s => s.AsignaturaId == asignaturaId).Select(s => s.Id).ToList());
+            public Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId) =>
+                Task.FromResult(_store.Values.Where(s => s.EspacioId == espacioId).Select(s => s.Id).ToList());
         }
 
         private sealed class FakeAsignacionRepo : IAsignacionSemanalRepositorio
@@ -97,6 +106,7 @@ namespace SOEA.Tests.Application
             public Task<List<AsignacionSemanal>> GetAllAsync() => Task.FromResult(_store.ToList());
             public Task UpdateAsync(AsignacionSemanal e) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) { _store.RemoveAll(a => a.Id == id); return Task.CompletedTask; }
+            public Task DeleteBySesionIdsAsync(IEnumerable<Guid> sesionIds) { var set = sesionIds.ToHashSet(); _store.RemoveAll(a => set.Contains(a.SesionId)); return Task.CompletedTask; }
             public Task AddRangeAsync(IEnumerable<AsignacionSemanal> asigs) { _store.AddRange(asigs); return Task.CompletedTask; }
             public Task<List<AsignacionSemanal>> GetBySesionIdsAsync(IEnumerable<Guid> ids)
             {

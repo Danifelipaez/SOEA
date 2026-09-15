@@ -1,5 +1,5 @@
 import { Injectable, signal, computed } from '@angular/core';
-import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, ConfiguracionAlgoritmo, CONFIGURACION_DEFECTO, HorarioBase } from './models';
+import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, HorarioBase } from './models';
 import { nuevoId } from './id.util';
 
 @Injectable({
@@ -100,32 +100,33 @@ export class StateService {
   // ── Asignaturas ──────────────────────────────────────────────────────────────
   addAsignatura(a: Asignatura)      { this.asignaturas.update(v => [...v, a]); }
   updateAsignatura(a: Asignatura)   { this.asignaturas.update(v => v.map(x => x.id === a.id ? a : x)); }
-  deleteAsignatura(id: string)      { this.asignaturas.update(v => v.filter(x => x.id !== id)); }
+  deleteAsignatura(id: string)      {
+    this.grupos.update(v => v.filter(g => g.asignaturaId !== id));
+    this.asignaturas.update(v => v.filter(x => x.id !== id));
+  }
   /** Reemplaza el listado completo (útil para importación masiva desde Excel). */
   setAsignaturas(list: Asignatura[]) { this.asignaturas.set(list); }
-
-  // ── Configuración del algoritmo (Developer Dashboard) ───────────────────────
-  configuracionAlgoritmo = signal<ConfiguracionAlgoritmo>(CONFIGURACION_DEFECTO);
-  setConfiguracionAlgoritmo(c: ConfiguracionAlgoritmo) { this.configuracionAlgoritmo.set(c); }
 
   // ── Sesiones y Logs (resultado del algoritmo) ──────────────────────────────
   executionLogs = signal<string[]>([]);
   /** Id del Horario persistido por la última generación exitosa (P5: lo necesita /reacomodar). */
   horarioId = signal<string | null>(null);
+  /** FE6/FE13 auditoría: CatalogoService.cargarTodo() intenta rehidratar el horario persistido
+   *  junto al resto del catálogo, pero un fallo ahí no debe tumbar esa carga — se guarda aquí en
+   *  vez de lanzarse, para que el componente que lo necesite (HorarioComponent) lo muestre. */
+  errorHorarioActual = signal<string | null>(null);
 
   setSesiones(s: Sesion[])       { this.sesiones.set(s); }
   /**
-   * Aplica una edición a TODAS las filas que comparten `id`. Las filas A y B de una misma
-   * sesión comparten `id` y ocupan el mismo horario (idéntico en ambas semanas; solo cambia
-   * presencial↔virtual — ver Sesion.semana en models.ts), así que día/hora/docente/alternancia
-   * se sincronizan en ambas filas. `espacioId` es la excepción: una fila virtual siempre debe
-   * quedar en null (regla 9, CLAUDE.md) aunque el usuario haya editado el espacio presencial;
-   * ese valor se refleja en `espacioIdHogar` para que la fila virtual siga apuntando al lab.
-   * `semana` NUNCA se sincroniza: es precisamente el campo que distingue una fila de la otra
-   * (en sesiones sin alternancia ambas filas son presenciales — solo `semana` las diferencia).
-   * Reemplazar con el objeto completo (como antes) colapsaba ambas filas en una sola copia
-   * idéntica, perdiendo esa distinción — la sesión "duplicada" que se veía en el grid tras
-   * mover un día/hora era esa copia corrupta.
+   * Aplica una edición a TODAS las filas que comparten `id`. Una sesión que no alterna tiene
+   * UNA sola fila; una que alterna tiene su fila presencial más la contraparte virtual derivada,
+   * y ambas comparten `id` a propósito. Día, hora, docente y alternancia se sincronizan en todas.
+   * `espacioId` es la excepción: una fila virtual siempre debe quedar en null (regla 9,
+   * CLAUDE.md) aunque el usuario haya editado el espacio presencial; ese valor se refleja en
+   * `espacioIdHogar` para que la contraparte virtual siga apuntando a su aula.
+   * `semana` NUNCA se sincroniza: es lo que distingue la fila presencial de su contraparte.
+   * Reemplazar con el objeto completo colapsaba ambas filas en una copia idéntica, perdiendo esa
+   * distinción — la sesión "duplicada" que se veía en el grid tras mover un día/hora.
    */
   updateSesion(s: Sesion) {
     this.sesiones.update(v => v.map(x => x.id !== s.id ? x : {

@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using SOEA.Application.Features.Grupos;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
@@ -46,11 +46,13 @@ namespace SOEA.API.Controllers
     {
         private readonly IGrupoRepositorio _repo;
         private readonly IAsignaturaRepositorio _asignaturas;
+        private readonly GrupoService _service;
 
-        public GruposController(IGrupoRepositorio repo, IAsignaturaRepositorio asignaturas)
+        public GruposController(IGrupoRepositorio repo, IAsignaturaRepositorio asignaturas, GrupoService service)
         {
             _repo = repo;
             _asignaturas = asignaturas;
+            _service = service;
         }
 
         [HttpGet]
@@ -91,35 +93,30 @@ namespace SOEA.API.Controllers
                 return BadRequest($"No existe la asignatura con Id '{dto.AsignaturaId}'.");
 
             var id = dto.Id == Guid.Empty ? Guid.NewGuid() : dto.Id;
-            try
-            {
-                var grupo = new Grupo(
-                    id,
-                    dto.Nombre,
-                    dto.ProgramaId,
-                    dto.EstudiantesInscritos,
-                    asignaturaId: dto.AsignaturaId,
-                    facultadId: dto.FacultadId,
-                    docenteId: dto.DocenteId,
-                    codigo: dto.Codigo);
+            // ERR2 auditoría: sin catch de ArgumentException — GlobalExceptionHandler lo traduce a 400.
+            var grupo = new Grupo(
+                id,
+                dto.Nombre,
+                dto.ProgramaId,
+                dto.EstudiantesInscritos,
+                asignaturaId: dto.AsignaturaId,
+                facultadId: dto.FacultadId,
+                docenteId: dto.DocenteId,
+                codigo: dto.Codigo);
 
-                grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
-                grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
+            grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
+            grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
 
-                await _repo.AddAsync(grupo);
-                return StatusCode(StatusCodes.Status201Created, MapToDto(grupo));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
-            catch (DbUpdateException)
-            {
-                // G6 auditoría: el índice único ix_grupo_codigo (único constraint del Grupo)
-                // lanzaba DbUpdateException sin capturar → 500 genérico. El frontend lo pintaba
-                // como "no se guarda, no crea grupo" sin decir por qué.
-                return Conflict($"Ya existe un grupo con el código '{dto.Codigo}'. Use un código distinto.");
-            }
+            // G6 auditoría: el índice único ix_grupo_codigo (único constraint del Grupo) lanzaba
+            // DbUpdateException sin capturar → 500 genérico. Bug (auditoría de limpieza, hallazgo
+            // 1.8): el catch que arreglaba eso aquí asumía que CUALQUIER DbUpdateException era el
+            // código duplicado — una violación de FK, de NOT NULL o cualquier otra restricción
+            // salía con el mismo mensaje falso. GlobalExceptionHandler ya traduce DbUpdateException
+            // a 409 con un mensaje genérico correcto ("ya existe un registro con esos datos, o hace
+            // referencia a algo que no existe"); se deja que llegue ahí en vez de afirmar una causa
+            // que este catch no puede conocer.
+            await _repo.AddAsync(grupo);
+            return StatusCode(StatusCodes.Status201Created, MapToDto(grupo));
         }
 
         [HttpPut("{id}")]
@@ -136,36 +133,29 @@ namespace SOEA.API.Controllers
             if (asignatura is null)
                 return BadRequest($"No existe la asignatura con Id '{dto.AsignaturaId}'.");
 
-            try
-            {
-                grupo.ActualizarNombre(dto.Nombre);
-                grupo.ActualizarCodigo(dto.Codigo);
-                grupo.ActualizarPrograma(dto.ProgramaId);
-                grupo.ActualizarEstudiantes(dto.EstudiantesInscritos);
-                grupo.ActualizarAsignatura(dto.AsignaturaId, dto.FacultadId ?? grupo.FacultadId);
-                grupo.AsignarDocente(dto.DocenteId);
-                grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
-                grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
+            // ERR2 auditoría: sin catch de ArgumentException — GlobalExceptionHandler lo traduce a
+            // 400. Ver comentario en Create: GlobalExceptionHandler también traduce DbUpdateException.
+            grupo.ActualizarNombre(dto.Nombre);
+            grupo.ActualizarCodigo(dto.Codigo);
+            grupo.ActualizarPrograma(dto.ProgramaId);
+            grupo.ActualizarEstudiantes(dto.EstudiantesInscritos);
+            grupo.ActualizarAsignatura(dto.AsignaturaId, dto.FacultadId ?? grupo.FacultadId);
+            grupo.AsignarDocente(dto.DocenteId);
+            grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
+            grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
 
-                await _repo.UpdateAsync(grupo);
-                return Ok(MapToDto(grupo));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ex.Message);
-            }
-            catch (DbUpdateException)
-            {
-                return Conflict($"Ya existe un grupo con el código '{dto.Codigo}'. Use un código distinto.");
-            }
+            await _repo.UpdateAsync(grupo);
+            return Ok(MapToDto(grupo));
         }
 
+        // ERR2 auditoría: sin catch — GlobalExceptionHandler traduce KeyNotFoundException a 404.
+        // Antes este endpoint bloqueaba el borrado con 409 si el grupo tenía sesiones generadas
+        // (M14 auditoría) — el catálogo no debe bloquearse por datos de una corrida, que son
+        // regenerables. GrupoService.DeleteAsync purga esas sesiones en cascada.
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            var grupo = await _repo.GetByIdAsync(id);
-            if (grupo is null) return NotFound($"Grupo con Id {id} no encontrado.");
-            await _repo.DeleteAsync(id);
+            await _service.DeleteAsync(id);
             return NoContent();
         }
 

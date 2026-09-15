@@ -1,12 +1,13 @@
 using System;
 using SOEA.Domain.Enums;
+using SOEA.Domain.Services;
 
 namespace SOEA.Domain.Entities
 {
     /// <summary>
     /// Bloque discreto de tiempo programable para sesiones académicas.
     /// Representa un intervalo de tiempo en un día específico (ej: lunes 09:00-11:00).
-    /// Validado: horaInicio < horaFin, ambas dentro de rango institucional [07:00-21:30].
+    /// Validado contra el rango institucional único de <see cref="GrillaInstitucional"/>.
     /// </summary>
     public class BloqueTiempo : EntidadBase
     {
@@ -44,11 +45,20 @@ namespace SOEA.Domain.Entities
 
         private static void Validar(DiaDeSemana dia, TimeOnly horaInicio, TimeOnly horaFin)
         {
-            var minHora = new TimeOnly(6, 00);
-            var maxHora = dia == DiaDeSemana.Sábado ? new TimeOnly(14, 00) : new TimeOnly(22, 00);
+            // Fuente única del rango institucional: GrillaInstitucional (H1 auditoría). Antes este
+            // método tenía sus propios literales (06:00–22:00 / 06:00–14:00) que ya coincidían por
+            // casualidad con la grilla actual, pero un tercer valor (06:00–13:00) vivía en
+            // GrillaInstitucional.HoraCierreSabado — la divergencia es lo que dejaba fabricar
+            // bloques fantasma en el import.
+            var minHora = dia == DiaDeSemana.Sábado
+                ? GrillaInstitucional.HoraAperturaSabado
+                : GrillaInstitucional.HoraAperturaLunesAViernes;
+            var maxHora = dia == DiaDeSemana.Sábado
+                ? GrillaInstitucional.HoraCierreSabado
+                : GrillaInstitucional.HoraCierreLunesAViernes;
 
             if (horaInicio < minHora)
-                throw new ArgumentException("La hora de inicio debe ser >= 06:00.");
+                throw new ArgumentException($"La hora de inicio debe ser >= {minHora:HH\\:mm}.");
             if (horaFin > maxHora)
                 throw new ArgumentException($"La hora de fin debe ser <= {maxHora:HH\\:mm} para el día {dia}.");
             if (horaInicio >= horaFin)

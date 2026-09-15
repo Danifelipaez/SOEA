@@ -37,12 +37,12 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var starts = new[] { 0, 1 }; // bloques 0 y 1: no se solapan (duración 1h cada una)
 
             var resultado = Asignador.Asignar(
-                new List<Sesion> { s1, s2 }, starts, starts, new[] { 1, 1 },
+                new List<Sesion> { s1, s2 }, starts, new[] { 1, 1 },
                 new[] { salon }, CuatroBloquesUnDia);
 
             Assert.NotNull(resultado);
-            Assert.Equal(salon.Id, resultado![(s1.Id, SemanaAcademica.A)]);
-            Assert.Equal(salon.Id, resultado[(s2.Id, SemanaAcademica.A)]);
+            Assert.Equal(salon.Id, resultado![s1.Id]);
+            Assert.Equal(salon.Id, resultado![s2.Id]);
         }
 
         [Fact]
@@ -54,7 +54,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var starts = new[] { 0, 0 }; // mismo bloque: solapan, sólo hay un espacio
 
             var resultado = Asignador.Asignar(
-                new List<Sesion> { s1, s2 }, starts, starts, new[] { 1, 1 },
+                new List<Sesion> { s1, s2 }, starts, new[] { 1, 1 },
                 new[] { salon }, CuatroBloquesUnDia);
 
             Assert.Null(resultado);
@@ -73,11 +73,11 @@ namespace SOEA.Tests.Engine.ConstraintProg
             };
 
             var resultado = Asignador.Asignar(
-                new List<Sesion> { s }, new[] { 0 }, new[] { 0 }, new[] { 1 },
+                new List<Sesion> { s }, new[] { 0 }, new[] { 1 },
                 new[] { otro, fijo }, CuatroBloquesUnDia, requisitosPorGrupo: requisitos);
 
             Assert.NotNull(resultado);
-            Assert.Equal(fijo.Id, resultado![(s.Id, SemanaAcademica.A)]);
+            Assert.Equal(fijo.Id, resultado![s.Id]);
         }
 
         [Fact]
@@ -89,7 +89,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var estudiantes = new Dictionary<Guid, int> { [grupoId] = 30 };
 
             var resultado = Asignador.Asignar(
-                new List<Sesion> { s }, new[] { 0 }, new[] { 0 }, new[] { 1 },
+                new List<Sesion> { s }, new[] { 0 }, new[] { 1 },
                 new[] { pequeno }, CuatroBloquesUnDia, estudiantesPorGrupo: estudiantes);
 
             Assert.Null(resultado);
@@ -120,19 +120,18 @@ namespace SOEA.Tests.Engine.ConstraintProg
             var duraciones = new[] { 2, 2 }; // [0,2) y [1,3) se solapan
 
             var resultado = Asignador.Asignar(
-                new List<Sesion> { s1, s2 }, starts, starts, duraciones,
+                new List<Sesion> { s1, s2 }, starts, duraciones,
                 new[] { a, b }, CuatroBloquesUnDia, requisitosPorGrupo: requisitos);
 
             Assert.NotNull(resultado);
-            Assert.Equal(a.Id, resultado![(s2.Id, SemanaAcademica.A)]); // s2 solo admite A
-            Assert.Equal(b.Id, resultado[(s1.Id, SemanaAcademica.A)]);  // s1 cede a B, libre
+            Assert.Equal(a.Id, resultado![s2.Id]); // s2 solo admite A
+            Assert.Equal(b.Id, resultado[s1.Id]);  // s1 cede a B, libre
         }
 
-        // ── HC-ALT: una pareja de alternancia debe compartir el MISMO espacio físico entre sus
-        // dos semanas presenciales — gap que el greedy anterior nunca cubrió (procesaba semana A
-        // y B de forma completamente independiente).
+        // ── HC-ALT: una pareja de alternancia comparte el MISMO aula; que no colisionen lo
+        // garantiza el reparto por semana (una ocupa el aula en A, la otra en B).
         [Fact]
-        public void ParejaDeAlternancia_ComparteElMismoEspacioEntreSemanas()
+        public void ParejaDeAlternancia_ComparteElMismoEspacio()
         {
             var e1 = new Espacio(Guid.NewGuid(), "E1", TipoEspacio.Salon, 30);
             var e2 = new Espacio(Guid.NewGuid(), "E2", TipoEspacio.Salon, 30);
@@ -145,18 +144,33 @@ namespace SOEA.Tests.Engine.ConstraintProg
             s1.AplicarAlternancia(TipoAlternancia.TipoA, Guid.NewGuid(), cedidaPorSaturacion: true, parejaAlternanciaId: patron);
             s2.AplicarAlternancia(TipoAlternancia.TipoB, Guid.NewGuid(), cedidaPorSaturacion: true, parejaAlternanciaId: patron);
 
-            // s1 presencial en A (start 0), virtual en B; s2 virtual en A, presencial en B (start 0).
-            var startA = new[] { 0, 0 };
-            var startB = new[] { 0, 0 };
+            // Mismo bloque para las dos: s1 ocupa el aula en la semana A, s2 en la B.
+            var starts = new[] { 0, 0 };
 
             var resultado = Asignador.Asignar(
-                new List<Sesion> { s1, s2 }, startA, startB, new[] { 1, 1 },
+                new List<Sesion> { s1, s2 }, starts, new[] { 1, 1 },
                 new[] { e1, e2 }, CuatroBloquesUnDia);
 
             Assert.NotNull(resultado);
-            var espacioS1 = resultado![(s1.Id, SemanaAcademica.A)];
-            var espacioS2 = resultado[(s2.Id, SemanaAcademica.B)];
-            Assert.Equal(espacioS1, espacioS2);
+            Assert.Equal(resultado![s1.Id], resultado[s2.Id]);
+        }
+
+        // Una sesión que NO alterna ocupa su aula en las DOS semanas, así que no puede compartirla
+        // con nadie — ni siquiera con un TipoB. Es el caso que el índice único de BD ya no ve.
+        [Fact]
+        public void NoPareada_BloqueaSuAulaEnAmbasSemanas()
+        {
+            var unico = new Espacio(Guid.NewGuid(), "Único", TipoEspacio.Salon, 30);
+
+            var fija = CrearSesionPresencial(Guid.NewGuid());
+            var tipoB = CrearSesionPresencial(Guid.NewGuid());
+            tipoB.AplicarAlternancia(TipoAlternancia.TipoB, Guid.NewGuid());
+
+            var resultado = Asignador.Asignar(
+                new List<Sesion> { fija, tipoB }, new[] { 0, 0 }, new[] { 1, 1 },
+                new[] { unico }, CuatroBloquesUnDia);
+
+            Assert.Null(resultado);
         }
     }
 }

@@ -40,10 +40,9 @@ namespace SOEA.Tests.Application
             FakeEspacioRepo espRepo,
             FakeAsignaturaRepo asigRepo,
             FakeGrupoRepo grupoRepo,
-            FakeSesionRepo sesionRepo,
             FakeBloqueTiempoRepo bloqueRepo,
             FakeUnitOfWork uow)
-            => new(uow, facRepo, progRepo, docRepo, espRepo, asigRepo, grupoRepo, sesionRepo, bloqueRepo);
+            => new(uow, facRepo, progRepo, docRepo, espRepo, asigRepo, grupoRepo, bloqueRepo);
 
         // ── Tests ────────────────────────────────────────────────────────────────
 
@@ -54,7 +53,7 @@ namespace SOEA.Tests.Application
             var facRepo  = new FakeFacultadRepo(uow);
             var service  = Crear(facRepo, new FakeProgramaRepo(uow), new FakeDocenteRepo(uow),
                 new FakeEspacioRepo(uow), new FakeAsignaturaRepo(uow), new FakeGrupoRepo(uow),
-                new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+                new FakeBloqueTiempoRepo(), uow);
 
             var facId    = Guid.NewGuid();
             var resultado = Resultado(facultades: new[] { Facultad(facId, "Facultad Ciencias") });
@@ -73,7 +72,7 @@ namespace SOEA.Tests.Application
             var facRepo = new FakeFacultadRepo(uow, Facultad(facId, "Ciencias Básicas"));
             var service = Crear(facRepo, new FakeProgramaRepo(uow), new FakeDocenteRepo(uow),
                 new FakeEspacioRepo(uow), new FakeAsignaturaRepo(uow), new FakeGrupoRepo(uow),
-                new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+                new FakeBloqueTiempoRepo(), uow);
 
             var tempFacId = Guid.NewGuid();
             var resultado = Resultado(facultades: new[] { Facultad(tempFacId, "Ciencias Básicas") });
@@ -96,7 +95,7 @@ namespace SOEA.Tests.Application
 
             var service = Crear(facRepo, progRepo, new FakeDocenteRepo(uow),
                 new FakeEspacioRepo(uow), new FakeAsignaturaRepo(uow), new FakeGrupoRepo(uow),
-                new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+                new FakeBloqueTiempoRepo(), uow);
 
             var asigTempId = Guid.NewGuid();
             var facTempId  = Guid.NewGuid();
@@ -127,7 +126,7 @@ namespace SOEA.Tests.Application
 
             var service = Crear(facRepo, progRepo, new FakeDocenteRepo(uow),
                 new FakeEspacioRepo(uow), asigRepo, new FakeGrupoRepo(uow),
-                new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+                new FakeBloqueTiempoRepo(), uow);
 
             var facTempId  = Guid.NewGuid();
             var progTempId = Guid.NewGuid();
@@ -160,7 +159,7 @@ namespace SOEA.Tests.Application
 
             var service = Crear(facRepo, progRepo, new FakeDocenteRepo(uow),
                 new FakeEspacioRepo(uow), asigRepo, new FakeGrupoRepo(uow),
-                new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+                new FakeBloqueTiempoRepo(), uow);
 
             var facTempId  = Guid.NewGuid();
             var progTempId = Guid.NewGuid();
@@ -192,7 +191,7 @@ namespace SOEA.Tests.Application
 
             var service = Crear(facRepo, progRepo, new FakeDocenteRepo(uow),
                 new FakeEspacioRepo(uow), asigRepo, new FakeGrupoRepo(uow),
-                new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+                new FakeBloqueTiempoRepo(), uow);
 
             var facTempId  = Guid.NewGuid();
             var progTempId = Guid.NewGuid();
@@ -216,7 +215,7 @@ namespace SOEA.Tests.Application
 
             var service = Crear(new FakeFacultadRepo(uow), new FakeProgramaRepo(uow),
                 new FakeDocenteRepo(uow), espRepo, new FakeAsignaturaRepo(uow),
-                new FakeGrupoRepo(uow), new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+                new FakeGrupoRepo(uow), new FakeBloqueTiempoRepo(), uow);
 
             var resultado = Resultado(
                 espacios: new[] { new Espacio(Guid.NewGuid(), "Lab Química 1", TipoEspacio.Laboratorio, 35, "Bloque A", 2) });
@@ -239,7 +238,7 @@ namespace SOEA.Tests.Application
 
             var service = Crear(new FakeFacultadRepo(uow), new FakeProgramaRepo(uow),
                 docRepo, new FakeEspacioRepo(uow), new FakeAsignaturaRepo(uow),
-                new FakeGrupoRepo(uow), new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+                new FakeGrupoRepo(uow), new FakeBloqueTiempoRepo(), uow);
 
             var entrante = new Docente(Guid.NewGuid(), "Juan Pérez", "", "juan.perez@unimag.edu.co", 20m,
                 new List<FranjaHoraria> { FranjaHoraria.Matutino });
@@ -258,13 +257,12 @@ namespace SOEA.Tests.Application
             var uow     = new FakeUnitOfWork();
             var service = Crear(new FakeFacultadRepo(uow), new FakeProgramaRepo(uow),
                 new FakeDocenteRepo(uow), new FakeEspacioRepo(uow), new FakeAsignaturaRepo(uow),
-                new FakeGrupoRepo(uow), new FakeSesionRepo(), new FakeBloqueTiempoRepo(), uow);
+                new FakeGrupoRepo(uow), new FakeBloqueTiempoRepo(), uow);
 
             var stats = await service.EjecutarAsync(Resultado());
 
             Assert.Equal(0, stats.FacultadesCreadas);
             Assert.Equal(0, stats.AsignaturasCreadas);
-            Assert.Equal(0, stats.SesionesPersistidas);
         }
 
         // ── Resultado vacío helper ───────────────────────────────────────────────
@@ -499,29 +497,6 @@ namespace SOEA.Tests.Application
                 Task.FromResult<IEnumerable<Grupo>>(_store.Values.Where(x => x.AsignaturaId == asignaturaId).ToList());
             public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) =>
                 Task.FromResult<IEnumerable<Grupo>>(_store.Values.Where(x => x.DocenteId == docenteId).ToList());
-        }
-
-        private sealed class FakeSesionRepo : ISesionRepositorio
-        {
-            private readonly Dictionary<Guid, Sesion> _store = new();
-
-            public Task AddRangeAsync(IEnumerable<Sesion> sesiones)
-            {
-                foreach (var s in sesiones) _store[s.Id] = s;
-                return Task.CompletedTask;
-            }
-
-            public Task<bool> ExisteAsync(Guid asignaturaId, Guid docenteId, Guid bloqueTiempoId) =>
-                Task.FromResult(_store.Values.Any(x =>
-                    x.AsignaturaId   == asignaturaId  &&
-                    x.DocenteId      == docenteId     &&
-                    x.BloqueTiempoId == bloqueTiempoId));
-
-            public Task<Sesion?> GetByIdAsync(Guid id) => Task.FromResult(_store.GetValueOrDefault(id));
-            public Task<List<Sesion>> GetAllAsync() => Task.FromResult(_store.Values.ToList());
-            public Task AddAsync(Sesion e) { _store[e.Id] = e; return Task.CompletedTask; }
-            public Task UpdateAsync(Sesion e) { _store[e.Id] = e; return Task.CompletedTask; }
-            public Task DeleteAsync(Guid id) { _store.Remove(id); return Task.CompletedTask; }
         }
 
         private sealed class FakeBloqueTiempoRepo : IBloqueTiempoRepositorio

@@ -68,7 +68,9 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 new[] { grupoA, grupoB });
 
             Assert.False(resultado.EsFactible);
-            Assert.Equal(MotivoInfactibilidad.Otro, resultado.Motivo);
+            // Dos grupos peleando por el mismo espacio fijo ES un problema de aulas: el motivo
+            // dice QUÉ hacer (emparejar / añadir aulas) y el barrido dice A QUIÉN mirar.
+            Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
             Assert.Contains(grupoA.Nombre, resultado.MensajeError);
             Assert.Contains(grupoB.Nombre, resultado.MensajeError);
         }
@@ -92,7 +94,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 new[] { grupoA, grupoB });
 
             Assert.False(resultado.EsFactible);
-            Assert.Equal(MotivoInfactibilidad.Otro, resultado.Motivo);
+            Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
             Assert.DoesNotContain(grupoA.Nombre, resultado.MensajeError);
             Assert.DoesNotContain(grupoB.Nombre, resultado.MensajeError);
         }

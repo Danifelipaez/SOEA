@@ -29,6 +29,7 @@ namespace SOEA.Tests.Application.Horario
             public Task<SOEA.Domain.Entities.Horario?> GetByIdAsync(Guid id) => Task.FromResult<SOEA.Domain.Entities.Horario?>(null);
             public Task<SOEA.Domain.Entities.Horario?> GetBySemestreAsync(string semestre) => Task.FromResult<SOEA.Domain.Entities.Horario?>(null);
             public Task<List<SOEA.Domain.Entities.Horario>> GetAllAsync() => Task.FromResult(new List<SOEA.Domain.Entities.Horario>());
+            public Task<List<SOEA.Domain.Entities.Horario>> GetAllBySemestreAsync(string semestre) => Task.FromResult(new List<SOEA.Domain.Entities.Horario>());
             public Task AddAsync(SOEA.Domain.Entities.Horario horario) => Task.CompletedTask;
             public Task UpdateAsync(SOEA.Domain.Entities.Horario horario) => Task.CompletedTask;
         }
@@ -41,7 +42,12 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<Sesion>> GetAllAsync() => Task.FromResult(new List<Sesion>());
             public Task UpdateAsync(Sesion entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
-            public Task<bool> ExisteAsync(Guid asignaturaId, Guid docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
+            public Task DeleteRangeAsync(IEnumerable<Guid> ids) => Task.CompletedTask;
+            public Task<List<Sesion>> GetByIdsAsync(IEnumerable<Guid> ids) => Task.FromResult(new List<Sesion>());
+            public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
+            public Task<List<Guid>> GetIdsByGrupoIdAsync(Guid grupoId) => Task.FromResult(new List<Guid>());
+            public Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId) => Task.FromResult(new List<Guid>());
+            public Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId) => Task.FromResult(new List<Guid>());
         }
 
         private sealed class FakeAsignacionRepo : IAsignacionSemanalRepositorio
@@ -52,6 +58,7 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<AsignacionSemanal>> GetAllAsync() => Task.FromResult(new List<AsignacionSemanal>());
             public Task UpdateAsync(AsignacionSemanal entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
+            public Task DeleteBySesionIdsAsync(IEnumerable<Guid> sesionIds) => Task.CompletedTask;
             public Task<List<AsignacionSemanal>> GetBySesionIdsAsync(IEnumerable<Guid> sesionIds) =>
                 Task.FromResult(new List<AsignacionSemanal>());
         }

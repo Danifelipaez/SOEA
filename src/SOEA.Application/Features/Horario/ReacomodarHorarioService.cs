@@ -1,6 +1,7 @@
 using SOEA.Application.Features.Horario.Requests;
 using SOEA.Application.Features.Horario.Responses;
 using SOEA.Domain.Entities;
+using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.Services;
 
@@ -54,12 +55,9 @@ namespace SOEA.Application.Features.Horario
             var horario = await _horarioRepo.GetByIdAsync(req.HorarioId)
                 ?? throw new KeyNotFoundException("No se encontró el horario indicado. Puede haber sido regenerado — recargue la vista de horario.");
 
-            var sesiones = new List<Sesion>();
-            foreach (var id in horario.SesioneIds)
-            {
-                var s = await _sesionRepo.GetByIdAsync(id);
-                if (s != null) sesiones.Add(s);
-            }
+            // PERF4 auditoría: antes un GetByIdAsync por sesión del horario (N round trips) —
+            // mismo patrón masivo que ya usa GetBySesionIdsAsync más abajo.
+            var sesiones = await _sesionRepo.GetByIdsAsync(horario.SesioneIds);
 
             var sesionEditada = sesiones.FirstOrDefault(s => s.Id == req.SesionEditadaId)
                 ?? throw new KeyNotFoundException("La sesión editada no pertenece al horario actual. Puede haber sido regenerado — recargue la vista de horario.");
@@ -83,13 +81,53 @@ namespace SOEA.Application.Features.Horario
                 ?? throw new ArgumentException($"({req.Dia} {req.HoraInicio}) no coincide con ningún bloque de la grilla canónica.");
             var inicioEditada = idxPorBloque[bloqueNuevo.Id];
 
+            // VAL4 auditoría: sin este chequeo, mover una sesión a una hora tarde (p. ej. viernes
+            // 21:00 con 3h de duración) generaba un span que cruzaba a sábado en la indexación
+            // plana de la grilla — Solapa() más abajo y el sweep de ValidadorRestriccionesDuras
+            // asumen que dos spans que no cruzan día y se solapan numéricamente están en el MISMO
+            // día; romper esa premisa producía falsos positivos/negativos de conflicto.
+            {
+                int durParaCabeEnDia = Math.Max(1, (int)Math.Ceiling(sesionEditada.DuracionHoras));
+                var rangosPorDia = BloquesPlanner.RangosPorDia(bloquesGrid);
+                var diaPorIdxGrid = BloquesPlanner.DiaPorBloqueIdx(bloquesGrid);
+                if (!BloquesPlanner.CabeEnDia(inicioEditada, durParaCabeEnDia, rangosPorDia, diaPorIdxGrid))
+                    throw new ArgumentException(
+                        $"La sesión no cabe en la jornada de {req.Dia} a partir de las {req.HoraInicio} " +
+                        "sin cruzar la medianoche del horario institucional.");
+            }
+
             var asignacionesActuales = await _asignacionRepo.GetBySesionIdsAsync(sesiones.Select(s => s.Id));
             var asignPorSesion = asignacionesActuales.GroupBy(a => a.SesionId).ToDictionary(g => g.Key, g => g.ToList());
+
+            // Se cargan una sola vez y sin condición: antes espacios/gruposMotor/asignaturas solo
+            // se pedían dentro de la rama "hay choque" (para CP-SAT), y `grupos` se volvía a pedir
+            // al final para la respuesta — dos round-trips a `_grupoRepo` en el camino con choque.
+            // Ahora también alimentan el post-chequeo (ver más abajo), que necesita las tres listas
+            // sin importar qué rama se tome.
+            var espacios    = await _espacioRepo.GetAllAsync();
+            var gruposMotor = await _grupoRepo.GetAllAsync();
+            var asignaturas = await _asignaturaRepo.GetAllAsync();
+            var ventanaPorAsig = asignaturas.ToDictionary(
+                a => a.Id, a => ((TimeOnly?)a.HoraInicioMin, (TimeOnly?)a.HoraFinMax));
 
             // ── Detectar SOLO las sesiones que ahora chocan con la editada en su nuevo slot ──
             int duracionEditada = Math.Max(1, (int)Math.Ceiling(sesionEditada.DuracionHoras));
             int finEditada = inicioEditada + duracionEditada;
             bool Solapa(int inicio, int duracion) => inicio < finEditada && inicioEditada < inicio + duracion;
+
+            // El espacio que la sesión editada va a OCUPAR tras este movimiento: el nuevo si la
+            // petición trae uno, o el que YA TENÍA ASIGNADO si "EspacioId vacío" significa "no
+            // tocarlo" (ver comentario arriba). Ese "ya tenía" vive en su AsignacionSemanal
+            // actual — NO en Sesion.EspacioId, que es el requisito de aula FIJA (HC-S05, casi
+            // siempre null) y no el aula que CP-SAT le asignó al generar.
+            // Bug (1/2): comparar solo contra `espacioNuevo` significaba que mover una sesión de
+            // hora sin especificar espacio nunca comprobaba si SU PROPIO espacio actual ya estaba
+            // ocupado por otra sesión en la franja de destino — "reacomodar" podía aterrizar dos
+            // sesiones en la misma aula a la misma hora y devolver EsFactible=true igual.
+            var espacioActualEditada = asignPorSesion.TryGetValue(sesionEditada.Id, out var asigsEditadaActual)
+                ? asigsEditadaActual.FirstOrDefault(a => a.EspacioId.HasValue)?.EspacioId
+                : null;
+            var espacioParaChoque = espacioNuevo ?? espacioActualEditada;
 
             var freedIds = new HashSet<Guid>();
             foreach (var s in sesiones.Where(s => s.Id != sesionEditada.Id))
@@ -99,8 +137,13 @@ namespace SOEA.Application.Features.Horario
                 bool choca = asigs.Any(a =>
                     idxPorBloque.TryGetValue(a.BloqueTiempoId, out var inicio) &&
                     Solapa(inicio, dur) &&
+                    // Cohorte: independiente de la semana (la sesión ocupa el tiempo del grupo
+                    // todas las semanas, presencial o virtualmente).
                     ((s.GrupoId.HasValue && s.GrupoId == sesionEditada.GrupoId) ||
-                     (espacioNuevo.HasValue && a.EspacioId == espacioNuevo)));
+                     // Aula: solo si ambas la ocupan alguna semana en común. Una pareja de
+                     // alternancia comparte aula y bloque a propósito y no es conflicto.
+                     (espacioParaChoque.HasValue && a.EspacioId == espacioParaChoque &&
+                      ModalidadSemanal.CompartenSemanaDeEspacio(s, sesionEditada))));
                 if (choca) freedIds.Add(s.Id);
             }
 
@@ -112,18 +155,22 @@ namespace SOEA.Application.Features.Horario
 
             if (freedIds.Count == 0)
             {
-                // Camino común: nada choca, no hace falta invocar CP-SAT — se reconstruyen
-                // directamente las 2 filas (semana A/B) de la editada, igual que una sesión manual.
-                nuevasAsignaciones = CrearSesionManualService.CrearAsignaciones(sesionEditada, bloqueNuevo.Id);
+                // Camino común: nada choca, no hace falta invocar CP-SAT — se reconstruye
+                // directamente la fila de la editada. NO se delega en
+                // CrearSesionManualService.CrearAsignaciones: esa construye el aula desde
+                // Sesion.EspacioId, que es el REQUISITO fijo de aula (casi siempre null salvo
+                // HC-S05), no el aula que la sesión ya tenía asignada — esa vive únicamente en su
+                // AsignacionSemanal actual. Usarlo aquí borraba el aula en silencio cada vez que
+                // se movía una sesión de hora sin volver a especificar espacio explícitamente.
+                var modalidadEditada = ModalidadSemanal.ModalidadCanonica(sesionEditada);
+                nuevasAsignaciones = new List<AsignacionSemanal>
+                {
+                    new(Guid.NewGuid(), sesionEditada.Id, ModalidadSemanal.SemanaCanonica(sesionEditada), bloqueNuevo.Id,
+                        modalidadEditada == Modalidad.Presencial ? espacioParaChoque : null, modalidadEditada)
+                };
             }
             else
             {
-                var espacios    = await _espacioRepo.GetAllAsync();
-                var gruposMotor = await _grupoRepo.GetAllAsync();
-                var asignaturas = await _asignaturaRepo.GetAllAsync();
-                var ventanaPorAsig = asignaturas.ToDictionary(
-                    a => a.Id, a => ((TimeOnly?)a.HoraInicioMin, (TimeOnly?)a.HoraFinMax));
-
                 // Regla 8 (horario base): todo lo que NO chocó queda fijo por igualdad — CP-SAT
                 // resuelve casi al instante porque solo las liberadas tienen dominio real.
                 var sesionesFijasIds = sesiones.Select(s => s.Id).Where(id => !freedIds.Contains(id)).ToHashSet();
@@ -159,20 +206,41 @@ namespace SOEA.Application.Features.Horario
                 advertencias.Add($"{freedIds.Count} sesión(es) en conflicto se reubicaron automáticamente.");
             }
 
-            // ── Persistir: reemplazar solo las filas de la editada + liberadas ──
             var idsAReemplazar = new HashSet<Guid>(freedIds) { sesionEditada.Id };
-            var asignacionesViejasAEliminar = asignacionesActuales.Where(a => idsAReemplazar.Contains(a.SesionId)).ToList();
+            var asignacionesFinal = asignacionesActuales
+                .Where(a => !idsAReemplazar.Contains(a.SesionId))
+                .Concat(nuevasAsignaciones)
+                .ToList();
 
+            // ── Post-chequeo de restricciones duras — ANTES de persistir ────────────────
+            // Ésta es la única ruta de edición que conduce directamente una persona (a diferencia
+            // de GenerarHorarioService, que sí valida su salida antes de publicar): sin esto, un
+            // movimiento que el detector de choques de arriba no cubre (p. ej. HC-VH, HC-G01,
+            // HC-CAP, HC-S03) se persistía igual con EsFactible=true.
+            var sesionPorId = sesiones.ToDictionary(s => s.Id);
+            // VAL5 auditoría: SesionesFijas identifica las del horario base, que el validador exime
+            // de HC-VH/HC-G01 igual que CP-SAT.
+            var contextoValidacion = ContextoValidacion.DesdeCatalogo(bloquesGrid, asignaturas, gruposMotor, espacios,
+                sesiones.Where(s => s.Bloqueada).Select(s => s.Id).ToHashSet());
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(
+                asignacionesFinal, sesionPorId, idxPorBloque, contextoValidacion);
+            if (conflictos.Count > 0)
+                return new ReacomodarHorarioResponse
+                {
+                    EsFactible   = false,
+                    MensajeError = $"El movimiento produce {conflictos.Count} violación(es) de restricción(es) dura(s) " +
+                                   "y no se aplicó. " + string.Join(" ", conflictos.Take(5))
+                };
+
+            // ── Persistir: reemplazar solo las filas de la editada + liberadas ──
             await _uow.BeginTransactionAsync();
             try
             {
-                // B4 auditoría: delete uno por uno en vez de un DeleteRangeAsync — ineficiencia, no
-                // bug (misma transacción, y freedIds es siempre un puñado de sesiones en conflicto,
-                // nunca la tabla completa). No se agrega DeleteRangeAsync a IAsignacionSemanalRepositorio
-                // solo para esto: el costo de tocar los 11 fakes de test que implementan la interfaz
-                // no se justifica para este volumen.
-                foreach (var vieja in asignacionesViejasAEliminar)
-                    await _asignacionRepo.DeleteAsync(vieja.Id);
+                // B4/PERF3 auditoría: el DeleteBySesionIdsAsync añadido para GenerarHorarioService
+                // (ver ahí) ya resuelve el bloqueo que citaba este comentario ("no vale la pena
+                // tocar los 11 fakes de test para esto") — un único DELETE en vez de uno por fila.
+                await _asignacionRepo.DeleteBySesionIdsAsync(idsAReemplazar);
                 await _asignacionRepo.AddRangeAsync(nuevasAsignaciones);
 
                 await _sesionRepo.UpdateAsync(sesionEditada);
@@ -188,17 +256,11 @@ namespace SOEA.Application.Features.Horario
             }
 
             // ── Respuesta: horario completo refrescado (fijas intactas + las que se movieron) ──
-            var grupos = await _grupoRepo.GetAllAsync();
-            var asignacionesFinal = asignacionesActuales
-                .Where(a => !idsAReemplazar.Contains(a.SesionId))
-                .Concat(nuevasAsignaciones)
-                .ToList();
-
             return new ReacomodarHorarioResponse
             {
                 EsFactible   = true,
                 Advertencias = advertencias,
-                Sesiones     = GenerarHorarioService.ConstruirSesionesDto(sesiones, asignacionesFinal, grupos, bloquesGrid)
+                Sesiones     = GenerarHorarioService.ConstruirSesionesDto(sesiones, asignacionesFinal, gruposMotor, bloquesGrid)
             };
         }
     }

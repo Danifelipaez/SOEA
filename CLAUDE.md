@@ -17,15 +17,16 @@ SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanale
 7. Las asignaturas Tipo A (8+8) son hard constraint — el algoritmo NO puede alterar su distribución.
 8. El horario se genera desde cero en cada ejecución. Un horario base es un conjunto de restricciones de entrada (sesiones con franja/espacio predefinidos) que CP-SAT trata como hard constraints de igualdad — el algoritmo no itera sobre ellas sino que planifica el resto alrededor.
 9. Sesión virtual = sincrónica online; se registra con la misma franja que su contraparte presencial. `EspacioId = null` en BD.
+10. **Semana A es EL horario** (ALT-05): la franja y el aula de una sesión aplican a todas las semanas del semestre; solo la modalidad puede variar. La Semana B únicamente existe cuando la alternancia se activa, de forma reactiva, tras comprobar que no hay configuración válida por falta de aulas; contiene solo las sesiones emparejadas. Emparejar es el ÚNICO mecanismo que libera capacidad: una sesión que no alterna ocupa su aula en las dos semanas. Fuente única: `ModalidadSemanal`. Se persiste UNA fila `AsignacionSemanal` por sesión; la contraparte virtual se deriva al construir el DTO.
 
 ## 3 — Estado actual del proyecto
 
 **Backend**
 - [x] Entidades de dominio: `Asignatura`, `BloqueTiempo`, `Docente`, `Espacio`, `Facultad`, `Grupo`, `Horario`, `Programa`, `Sesion`
 - [x] Interfaces de repositorio: `IAsignaturaRepositorio`, `IDocenteRepositorio`, `IEspacioRepositorio`, `IGrupoRepositorio`, `IHorarioRepositorio`, `ISesionRepositorio`, `IRepositorio<T>`
-- [x] Interfaces de motor: `IMotorColoracionGrafo`, `IMotorConstraintProgramming`, `IMotorGenetico`, `IMotorOptimizacion`
-- [x] Enums: `TipoAlternancia`, `TipoEspacio`, `Modalidad`, `DiaDeSemana`, `EstadoHorario`, `EstadoSesion`, `FranjaHoraria`, `TipoRestriccion`, `SemanaAcademica`, `PatronBaseAlternancia`, `TipoFlujo`, `CategoriaAsignatura`
-- [x] Value Objects: `CodigoCohorte`, `CodigoEspacio`, `IntervaloTiempo`
+- [x] Interfaces de motor: `IMotorColoracionGrafo`, `IMotorConstraintProgramming`, `IMotorGenetico` — corrección: `IMotorOptimizacion` no existe en el código
+- [x] Enums: `TipoAlternancia`, `TipoEspacio`, `TipoSesion`, `Modalidad`, `DiaDeSemana`, `EstadoHorario`, `EstadoSesion`, `FranjaHoraria`, `SemanaAcademica`, `PatronBaseAlternancia`, `TipoFlujo`, `CategoriaAsignatura`, `CriterioElegibilidadAlternancia`
+- [x] Value Objects: `DisponibilidadSemanal`, `NormalizadorTexto`, `RequisitoEspacio` — corrección: `CodigoCohorte`/`CodigoEspacio`/`TipoRestriccion` (D5 auditoría, sin ninguna referencia) e `IntervaloTiempo` (nunca existió) se eliminaron
 - [x] Presencial-First Etapa 1 (datos) + lógica de motor (completada, ya no pendiente): `Sesion.TipoFlujo`/`PatronAlternanciaId?`/`Bloqueada`, `Asignatura.Categoria`/`HoraInicioMin?`/`HoraFinMax?` + migración `EtapaInicialPresencialFirst`. La lógica que los consume (`GenerarHorarioService.AplicarPrioridadPresencial`/`CederSiguienteCandidatoLab`, reversión post-Fase 3) está implementada — ver `docs/algorithms.md` sección Presencial-First
 - [x] Presencial-First Etapa 2 (CR-02): `Sesion.DocenteId` nullable (docente opcional) + null-guards en motores/validador + migración `Etapa2DocenteOpcional`. **HC-I02 degradada**: la disponibilidad docente ya no es hard constraint de generación (Fase 2/Fase 3); solo preferencia blanda (SC-06)
 - [x] Presencial-First Etapa 3 (CR-08 cerrado): **grupo/cohorte como eje** de conflicto y optimización. Cohorte implícita (un run = un grupo; `GrupoId` sintético por run). Fase 1 arista por `GrupoId`; Fase 2 **HC-C01** NoOverlap por `(grupo, semana)`; Fase 3 ergonomía por cohorte. HC-I01/HC-I03 fuera de generación; **docente fuera del pipeline** (se asigna después de generar). Sin migración (`grupo_id` ya existía). HU-04 (editar sesión) y multi-cohorte → etapas posteriores

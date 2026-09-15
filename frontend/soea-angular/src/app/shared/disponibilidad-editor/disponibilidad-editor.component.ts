@@ -34,7 +34,7 @@ export const FRANJAS_DEFECTO: FranjaOption[] = [
   template: `
     <div class="disp-table">
       <div class="disp-row hd">
-        <span class="c-dia">Día</span><span class="c-nd">No disp.</span><span class="c-tipo">Franja</span><span class="c-times">Horario</span>
+        <span class="c-dia">Día</span><span class="c-nd">No disponible</span><span class="c-tipo">Franja</span><span class="c-times">Horario</span>
       </div>
       @for (dia of dias; track dia) {
         <div class="disp-row">
@@ -100,6 +100,15 @@ export class DisponibilidadEditorComponent implements ControlValueAccessor {
         : tipoRaw;
       this.disp[dia] = { noDisponible: d.noDisponible ?? this.defaultNoDisponible(), tipo, desde: d.desde ?? '06:00', hasta: d.hasta ?? '22:00' };
     });
+    // FE2 auditoría: writeValue solo normalizaba `disp` en memoria — nunca llamaba a onChange.
+    // Si el usuario aceptaba los valores por defecto sin tocar ningún día, el FormControl del
+    // padre se quedaba con el valor ORIGINAL (null/{} para un docente nuevo), y Guardar persistía
+    // eso en vez de la disponibilidad normalizada que la tabla mostraba en pantalla — un docente
+    // nuevo se guardaba "sin disponibilidad declarada" aunque la UI mostrara los seis días.
+    // Sin onTouched(): esto es Angular escribiéndole un valor al componente, no una interacción
+    // del usuario, y marcarlo touched mostraría errores de validación antes de que el usuario
+    // haga nada.
+    this.onChange(this.construirValor());
   }
   registerOnChange(fn: any): void { this.onChange = fn; }
   registerOnTouched(fn: any): void { this.onTouched = fn; }
@@ -123,7 +132,7 @@ export class DisponibilidadEditorComponent implements ControlValueAccessor {
       ?? 'todo';
   }
 
-  private emitir(): void {
+  private construirValor(): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     this.dias.forEach(dia => {
       const d = this.disp[dia];
@@ -134,7 +143,11 @@ export class DisponibilidadEditorComponent implements ControlValueAccessor {
         out[dia] = { noDisponible: false, tipo: 'Franja general', franjaGeneral: label };
       }
     });
-    this.onChange(out);
+    return out;
+  }
+
+  private emitir(): void {
+    this.onChange(this.construirValor());
     this.onTouched();
   }
 }

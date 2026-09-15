@@ -22,28 +22,28 @@ interface AsignaturaFila {
 
       <!-- Candidatas a alternancia -->
       <section>
-        <h3 class="sec">Candidatas a alternancia</h3>
+        <h3 class="sec">Puede alternar</h3>
         <p class="text-muted" style="font-size:12.5px;margin:2px 0 10px">
-          Marca qué asignaturas puede ceder el algoritmo a alternancia cuando el espacio físico no alcanza.
+          Marque las asignaturas que pueden alternar (una semana presencial y otra virtual) si no alcanzan las aulas.
         </p>
 
         <div class="toolbar">
           <input class="input search" type="text" placeholder="🔍 Filtrar por nombre o docente…"
                  [ngModel]="filtro()" (ngModelChange)="filtro.set($event)">
           <div class="resumen">
-            <span class="chip"><span class="dot" style="background:var(--color-accent)"></span>{{ countCandidatas() }} candidatas de {{ totalAsignaturas() }} asignaturas</span>
+            <span class="chip"><span class="dot" style="background:var(--color-accent)"></span>{{ countCandidatas() }} pueden alternar de {{ totalAsignaturas() }} asignaturas</span>
           </div>
         </div>
 
         @if (filasFiltradas().length === 0) {
-          <div class="empty">No hay asignaturas cargadas. Impórtalas desde la pestaña <strong>Asignaturas</strong> primero.</div>
+          <div class="empty">No hay asignaturas cargadas. Impórtelas desde la pestaña <strong>Asignaturas</strong> primero.</div>
         }
 
         @for (grupo of gruposFiltrados(); track grupo.programa) {
           <div class="prog-group">
             <div class="prog-head"><span>{{ grupo.programa }}</span><span class="text-muted">{{ grupo.filas.length }} asignatura(s)</span></div>
             <table class="table">
-              <thead><tr><th style="width:44%">Asignatura</th><th>Docentes (grupos)</th><th style="width:150px">Candidata a alternancia</th><th style="width:70px">Estado</th></tr></thead>
+              <thead><tr><th style="width:44%">Asignatura</th><th>Docentes (grupos)</th><th style="width:150px">Puede alternar</th><th style="width:70px">Estado</th></tr></thead>
               <tbody>
                 @for (fila of grupo.filas; track fila.asignatura.id) {
                   <tr [class.guardando]="fila.guardando">
@@ -52,7 +52,7 @@ interface AsignaturaFila {
                     <td style="text-align:center">
                       <input type="checkbox" [ngModel]="fila.asignatura.esCandidataAlternancia ?? false"
                              (ngModelChange)="cambiarCandidatura(fila, $event)" [disabled]="fila.guardando"
-                             title="Candidata a ceder a alternancia si el algoritmo agota el espacio físico">
+                             title="Si faltan aulas, esta asignatura puede alternar semanas">
                     </td>
                     <td style="text-align:center">
                       @if (fila.guardando) { <span style="color:var(--color-accent);font-size:12px">Guardando…</span> }
@@ -69,16 +69,16 @@ interface AsignaturaFila {
 
       <!-- Orden de cesión a alternancia -->
       <section>
-        <h3 class="sec">Orden de cesión a alternancia</h3>
+        <h3 class="sec">Prioridad para alternar</h3>
         <p class="text-muted" style="font-size:12.5px;margin:2px 0 10px">
-          Cuando el algoritmo agota el espacio físico disponible, cede sesiones a alternancia siguiendo
-          este orden. Desactiva un criterio para excluirlo por completo de la cesión.
+          Si faltan aulas, el sistema pondrá a alternar primero las asignaturas del primer renglón, luego
+          las del segundo. Desmarque un renglón para no usarlo nunca.
         </p>
         @if (cargandoCriterios()) {
           <p class="text-muted">Cargando…</p>
         } @else {
           <table class="table" style="max-width:480px">
-            <thead><tr><th style="width:60px">Orden</th><th>Criterio</th><th style="width:90px">Activo</th><th style="width:70px"></th></tr></thead>
+            <thead><tr><th style="width:60px">Orden</th><th>Tipo de asignatura</th><th style="width:90px">Activo</th><th style="width:70px"></th></tr></thead>
             <tbody>
               @for (c of criterios(); track c.id; let i = $index) {
                 <tr>
@@ -86,17 +86,17 @@ interface AsignaturaFila {
                   <td>{{ etiquetaCriterio(c.criterio) }}
                     @if (c.criterio === 'MultiplesSesiones') {
                       <span class="material-icons" style="font-size:15px;vertical-align:-3px;color:var(--color-neutral-500)"
-                            title="No vuelve candidata a una asignatura por sí sola: solo decide qué candidata cede primero cuando varias ya califican por otro criterio.">info</span>
+                            title="Por sí sola no hace que una asignatura alterne; solo desempata entre las que ya pueden alternar.">info</span>
                     }
                   </td>
                   <td style="text-align:center">
                     <input type="checkbox" [ngModel]="c.activo" (ngModelChange)="toggleCriterioActivo(c, $event)">
                   </td>
                   <td style="text-align:right;white-space:nowrap">
-                    <span class="material-icons ic-edit" [class.disabled]="i === 0"
-                          (click)="moverCriterio(c, -1)" title="Subir prioridad">arrow_upward</span>
-                    <span class="material-icons ic-edit" [class.disabled]="i === criterios().length - 1"
-                          (click)="moverCriterio(c, 1)" title="Bajar prioridad">arrow_downward</span>
+                    <button type="button" class="material-icons ic-edit" [disabled]="i === 0"
+                          (click)="moverCriterio(c, -1)" aria-label="Subir prioridad">arrow_upward</button>
+                    <button type="button" class="material-icons ic-edit" [disabled]="i === criterios().length - 1"
+                          (click)="moverCriterio(c, 1)" aria-label="Bajar prioridad">arrow_downward</button>
                   </td>
                 </tr>
               }
@@ -116,7 +116,7 @@ interface AsignaturaFila {
     .prog-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; background: var(--color-neutral-100); border-bottom: 1px solid var(--color-divider); font: 600 13px var(--font-heading); }
     .prog-group .table th { background: transparent; }
     tr.guardando td { opacity: .7; }
-    .ic-edit.disabled { opacity: .3; pointer-events: none; }
+    .ic-edit:disabled { opacity: .3; pointer-events: none; }
   `]
 })
 export class AlternanciaTabComponent implements OnInit {
@@ -138,7 +138,7 @@ export class AlternanciaTabComponent implements OnInit {
     this.cargandoCriterios.set(true);
     this.persistencia.cargarCriteriosCesion().subscribe({
       next: (c) => { this.criterios.set(this.ordenarCriterios(c)); this.cargandoCriterios.set(false); },
-      error: () => { this.cargandoCriterios.set(false); this.snack.open('No se pudo cargar la lista de criterios de cesión.', 'Cerrar', { duration: 4000 }); }
+      error: () => { this.cargandoCriterios.set(false); this.snack.open('No se pudo cargar la prioridad para alternar.', 'Cerrar', { duration: 4000, panelClass: ['snack-error'] }); }
     });
   }
 
@@ -158,7 +158,7 @@ export class AlternanciaTabComponent implements OnInit {
   toggleCriterioActivo(c: CriterioCesionAlternancia, activo: boolean): void {
     this.persistencia.actualizarCriterioCesion(c.id, { activo }).subscribe({
       next: (lista) => this.criterios.set(this.ordenarCriterios(lista)),
-      error: (e) => this.snack.open(`Error: ${e?.error ?? 'desconocido'}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
+      error: (e) => this.snack.open(`Error: ${mensajeErrorHttp(e)}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
     });
   }
 
@@ -169,7 +169,7 @@ export class AlternanciaTabComponent implements OnInit {
     if (i < 0 || j < 0 || j >= lista.length) return;
     this.persistencia.actualizarCriterioCesion(c.id, { orden: lista[j].orden }).subscribe({
       next: (nueva) => this.criterios.set(this.ordenarCriterios(nueva)),
-      error: (e) => this.snack.open(`Error: ${e?.error ?? 'desconocido'}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
+      error: (e) => this.snack.open(`Error: ${mensajeErrorHttp(e)}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] })
     });
   }
 
@@ -182,9 +182,13 @@ export class AlternanciaTabComponent implements OnInit {
       next: () => this.guardandoSet.update(s => { const n = new Set(s); n.delete(id); return n; }),
       error: (err) => {
         this.guardandoSet.update(s => { const n = new Set(s); n.delete(id); return n; });
+        // FE8 auditoría: la escritura optimista de arriba nunca se revertía si el PATCH fallaba —
+        // la casilla quedaba marcada y countCandidatas() la seguía contando aunque el backend
+        // jamás guardó el cambio. Mismo criterio de reversión que CatalogoService.guardar().
+        this.state.updateAsignatura(fila.asignatura);
         const msg = mensajeErrorHttp(err);
         this.errorMap.update(m => { const n = new Map(m); n.set(id, msg); return n; });
-        this.snack.open(`Error: ${msg}`, 'Cerrar', { duration: 4000 });
+        this.snack.open(`Error: ${msg}`, 'Cerrar', { duration: 4000, panelClass: ['snack-error'] });
       }
     });
   }
@@ -205,7 +209,7 @@ export class AlternanciaTabComponent implements OnInit {
     const mapa = new Map<string, { programa: string; filas: AsignaturaFila[] }>();
     for (const fila of this.filasFiltradas()) {
       const progId = fila.asignatura.programaId ?? 'Sin programa';
-      const progNom = this.state.programaById().get(progId)?.nombre ?? progId;
+      const progNom = this.state.programaById().get(progId)?.nombre ?? 'Programa no encontrado';
       if (!mapa.has(progId)) mapa.set(progId, { programa: progNom, filas: [] });
       mapa.get(progId)!.filas.push(fila);
     }

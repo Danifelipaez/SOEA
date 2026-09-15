@@ -2,6 +2,7 @@ using SOEA.Application.Features.Horario.Requests;
 using SOEA.Application.Features.Horario.Responses;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
+using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
 
 namespace SOEA.Application.Features.Horario
@@ -69,15 +70,25 @@ namespace SOEA.Application.Features.Horario
             // excluyen las sesiones de horarios distintos al de esta sesión; las que no
             // pertenecen a ningún horario (p. ej. una sesión manual) siguen contando.
             var idsDeOtrosHorarios = await IdsDeOtrosHorariosAsync(sesion.Id);
+            // A3 auditoría: se busca una vez y se reutiliza en el chequeo duro y el blando de abajo
+            // (antes VerificarSolapeAsync hacía su propio fetch por separado).
+            var bloqueDict = (await _bloques.GetAllAsync()).ToDictionary(b => b.Id);
+            // PERF4 auditoría: antes _sesiones.GetAllAsync() se llamaba aquí Y otra vez dentro de
+            // VerificarSolapeAsync — misma tabla completa, dos round trips por request. Se filtra
+            // una vez (fuera de la historia de otros horarios, mismo criterio de ambos chequeos)
+            // y se reutiliza para el duro y el blando.
+            var sesionesVigentes = (await _sesiones.GetAllAsync())
+                .Where(s => !idsDeOtrosHorarios.Contains(s.Id))
+                .ToList();
 
             // HARD: solape de franja del docente en la misma semana.
-            await VerificarSolapeAsync(sesion, req.DocenteId.Value, idsDeOtrosHorarios);
+            await VerificarSolapeAsync(sesion, req.DocenteId.Value, sesionesVigentes, bloqueDict);
 
             // SOFT: disponibilidad y carga (advertencias, no rechazo).
-            var todasSesionesDocente = (await _sesiones.GetAllAsync())
-                .Where(s => s.DocenteId == req.DocenteId.Value && !idsDeOtrosHorarios.Contains(s.Id))
+            var todasSesionesDocente = sesionesVigentes
+                .Where(s => s.DocenteId == req.DocenteId.Value)
                 .ToList();
-            var advertencias = VerificarBlandas(sesion, docente, todasSesionesDocente);
+            var advertencias = VerificarBlandas(sesion, docente, todasSesionesDocente, bloqueDict);
 
             sesion.AsignarDocente(req.DocenteId.Value);
             await _sesiones.UpdateAsync(sesion);
@@ -101,20 +112,23 @@ namespace SOEA.Application.Features.Horario
             if (_horarios is null) return new HashSet<Guid>();
             var horarios = await _horarios.GetAllAsync();
             var propio = horarios.FirstOrDefault(h => h.SesioneIds.Contains(sesionId));
+            // Bug: `h.Id != propio?.Id` con propio=null evaluaba a `h.Id != null`, cierto para
+            // TODOS los horarios (Guid no es Guid?), así que una sesión sin horario propio
+            // excluía TODA la historia de corridas del chequeo — justo lo opuesto de lo que dice
+            // el docstring. Sin horario propio no hay nada que excluir.
+            if (propio is null) return new HashSet<Guid>();
             return horarios
-                .Where(h => h.Id != propio?.Id)
+                .Where(h => h.Id != propio.Id)
                 .SelectMany(h => h.SesioneIds)
                 .ToHashSet();
         }
 
         // ── Validación hard ──────────────────────────────────────────────────────
 
-        private async Task VerificarSolapeAsync(Sesion sesion, Guid docenteId, HashSet<Guid> idsDeOtrosHorarios)
+        private async Task VerificarSolapeAsync(
+            Sesion sesion, Guid docenteId, List<Sesion> sesionesVigentes, Dictionary<Guid, BloqueTiempo> bloqueDict)
         {
-            var todasSesiones = (await _sesiones.GetAllAsync())
-                .Where(s => !idsDeOtrosHorarios.Contains(s.Id))
-                .ToList();
-            var otrasDocente  = todasSesiones
+            var otrasDocente = sesionesVigentes
                 .Where(s => s.DocenteId == docenteId && s.Id != sesion.Id)
                 .ToDictionary(s => s.Id);
 
@@ -122,26 +136,21 @@ namespace SOEA.Application.Features.Horario
 
             var todosIds    = otrasDocente.Keys.Append(sesion.Id).ToList();
             var todasAsigs  = await _asignaciones.GetBySesionIdsAsync(todosIds);
-            var bloqueDict  = (await _bloques.GetAllAsync()).ToDictionary(b => b.Id);
 
-            var targetAsigs = todasAsigs
-                .Where(a => a.SesionId == sesion.Id)
-                .ToDictionary(a => a.Semana);
+            // Sin agrupar por semana: la franja de una sesión es la misma todas las semanas
+            // (ALT-05), y una que alterna sigue ocupando al docente la semana en que se dicta en
+            // línea. Agrupar por Semana dejaría de comparar una fila de la semana A contra una de
+            // la B y perdería solapes reales, devolviendo 200 en vez de 409.
+            var targetAsigs = todasAsigs.Where(a => a.SesionId == sesion.Id).ToList();
+            var otrasAsigs  = todasAsigs.Where(a => a.SesionId != sesion.Id).ToList();
 
-            var otrasAsigs  = todasAsigs
-                .Where(a => a.SesionId != sesion.Id)
-                .GroupBy(a => a.Semana)
-                .ToDictionary(g => g.Key, g => g.ToList());
-
-            foreach (var (semana, targetAsig) in targetAsigs)
+            foreach (var targetAsig in targetAsigs)
             {
                 if (!bloqueDict.TryGetValue(targetAsig.BloqueTiempoId, out var tBloque)) continue;
                 var tStart = tBloque.HoraInicio;
                 var tEnd   = tStart.AddHours((double)sesion.DuracionHoras);
 
-                if (!otrasAsigs.TryGetValue(semana, out var otrasEnSemana)) continue;
-
-                foreach (var otraAsig in otrasEnSemana)
+                foreach (var otraAsig in otrasAsigs)
                 {
                     if (!bloqueDict.TryGetValue(otraAsig.BloqueTiempoId, out var oBloque)) continue;
                     if (tBloque.Dia != oBloque.Dia) continue;
@@ -154,8 +163,8 @@ namespace SOEA.Application.Features.Horario
                     {
                         var d1 = await DescribirSesionAsync(sesion, tBloque.Dia, tStart, tEnd);
                         var d2 = await DescribirSesionAsync(oSesion, oBloque.Dia, oStart, oEnd);
-                        throw new InvalidOperationException(
-                            $"HC-I01 (edición): el docente ya tiene otra sesión en esa franja (semana {semana}). " +
+                        throw new BusinessRuleViolationException(
+                            $"HC-I01 (edición): el docente ya tiene otra sesión en esa franja. " +
                             $"Sesión 1: {d1}. Sesión 2: {d2}. " +
                             "Elija otro docente para una de las dos sesiones, o cambie el horario de una de ellas.");
                     }
@@ -186,16 +195,28 @@ namespace SOEA.Application.Features.Horario
         // ── Validaciones blandas ─────────────────────────────────────────────────
 
         private static List<string> VerificarBlandas(
-            Sesion sesion, Docente docente, List<Sesion> sesionesDocente)
+            Sesion sesion, Docente docente, List<Sesion> sesionesDocente, Dictionary<Guid, BloqueTiempo> bloqueDict)
         {
             var advertencias = new List<string>();
 
-            // HC-I02 blanda: disponibilidad por bloque (si está poblada).
-            if (docente.BloquesDisponibles.Count > 0)
+            // A3 auditoría: HC-I02 blanda comparaba solo el bloque de INICIO — un docente
+            // disponible únicamente 07:00–08:00 no recibía advertencia por una sesión de 4h a las
+            // 07:00 (07:00–11:00), mientras el chequeo DURO de este mismo archivo (VerificarSolapeAsync)
+            // sí usa la duración completa. Ahora comprueba TODA la franja de la sesión.
+            if (docente.BloquesDisponibles.Count > 0 && bloqueDict.TryGetValue(sesion.BloqueTiempoId, out var bloqueSesion))
             {
-                bool enDisponibilidad = docente.BloquesDisponibles
-                    .Any(b => b.Id == sesion.BloqueTiempoId);
-                if (!enDisponibilidad)
+                int dur = Math.Max(1, (int)Math.Ceiling(sesion.DuracionHoras));
+                bool todaLaFranjaDisponible = true;
+                for (int k = 0; k < dur; k++)
+                {
+                    var horaK = bloqueSesion.HoraInicio.AddHours(k);
+                    if (!docente.BloquesDisponibles.Any(b => b.Dia == bloqueSesion.Dia && b.HoraInicio == horaK))
+                    {
+                        todaLaFranjaDisponible = false;
+                        break;
+                    }
+                }
+                if (!todaLaFranjaDisponible)
                     advertencias.Add(
                         "La franja asignada cae fuera de la disponibilidad declarada del docente (HC-I02 degradada — solo advertencia).");
             }

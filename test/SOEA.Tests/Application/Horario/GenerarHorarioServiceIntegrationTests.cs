@@ -35,6 +35,7 @@ namespace SOEA.Tests.Application.Horario
             public Task<SOEA.Domain.Entities.Horario?> GetBySemestreAsync(string semestre) =>
                 Task.FromResult(Items.FirstOrDefault(h => h.Semestre == semestre));
             public Task<List<SOEA.Domain.Entities.Horario>> GetAllAsync() => Task.FromResult(Items.ToList());
+            public Task<List<SOEA.Domain.Entities.Horario>> GetAllBySemestreAsync(string semestre) => Task.FromResult(Items.Where(h => h.Semestre == semestre).ToList());
             public Task AddAsync(SOEA.Domain.Entities.Horario horario) { Items.Add(horario); return Task.CompletedTask; }
             public Task UpdateAsync(SOEA.Domain.Entities.Horario horario) => Task.CompletedTask;
         }
@@ -48,7 +49,12 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<Sesion>> GetAllAsync() => Task.FromResult(Items.ToList());
             public Task UpdateAsync(Sesion entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) { Items.RemoveAll(s => s.Id == id); return Task.CompletedTask; }
-            public Task<bool> ExisteAsync(Guid asignaturaId, Guid docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
+            public Task DeleteRangeAsync(IEnumerable<Guid> ids) { var set = ids.ToHashSet(); Items.RemoveAll(s => set.Contains(s.Id)); return Task.CompletedTask; }
+            public Task<List<Sesion>> GetByIdsAsync(IEnumerable<Guid> ids) { var set = ids.ToHashSet(); return Task.FromResult(Items.Where(s => set.Contains(s.Id)).ToList()); }
+            public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
+            public Task<List<Guid>> GetIdsByGrupoIdAsync(Guid grupoId) => Task.FromResult(new List<Guid>());
+            public Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId) => Task.FromResult(new List<Guid>());
+            public Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId) => Task.FromResult(new List<Guid>());
         }
 
         private sealed class FakeAsignacionRepo : IAsignacionSemanalRepositorio
@@ -60,6 +66,7 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<AsignacionSemanal>> GetAllAsync() => Task.FromResult(Items.ToList());
             public Task UpdateAsync(AsignacionSemanal entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) { Items.RemoveAll(a => a.Id == id); return Task.CompletedTask; }
+            public Task DeleteBySesionIdsAsync(IEnumerable<Guid> sesionIds) { var set = sesionIds.ToHashSet(); Items.RemoveAll(a => set.Contains(a.SesionId)); return Task.CompletedTask; }
             public Task<List<AsignacionSemanal>> GetBySesionIdsAsync(IEnumerable<Guid> sesionIds)
             {
                 var set = sesionIds.ToHashSet();
@@ -122,7 +129,6 @@ namespace SOEA.Tests.Application.Horario
                 IEnumerable<AsignacionSemanal> asignacionesFase2,
                 IEnumerable<BloqueTiempo> bloques,
                 IEnumerable<Espacio> espacios,
-                IEnumerable<Docente> docentes,
                 IEnumerable<Grupo>? grupos = null,
                 ConfiguracionOptimizacion? config = null,
                 IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,
@@ -261,8 +267,9 @@ namespace SOEA.Tests.Application.Horario
             var r = await svc.EjecutarAsync(request);
 
             Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
-            // 4 sesiones (1 lab + 2 teoría presencial + 1 teoría virtual) × 2 semanas = 8 DTOs.
-            Assert.Equal(8, r.Sesiones.Count);
+            // 4 sesiones ⇒ 4 filas persistidas, más la contraparte virtual DERIVADA del lab TipoA
+            // (la única que alterna) = 5 DTOs. Sin alternancia no hay segunda semana que dibujar.
+            Assert.Equal(5, r.Sesiones.Count);
 
             // HC-C01: cohorte sin solapes por semana.
             AssertSinSolapesDeCohorte(r.Sesiones);
@@ -290,7 +297,8 @@ namespace SOEA.Tests.Application.Horario
                     Assert.NotNull(s.EspacioId);
             }
 
-            // Regla 9 / ALT-05: el lab TipoA es presencial en A, virtual en B, misma franja.
+            // Regla 9 / ALT-05: el lab TipoA es presencial en A y su contraparte derivada es
+            // virtual en B, en la misma franja.
             var labSesiones = r.Sesiones.Where(s => s.Alternancia == nameof(TipoAlternancia.TipoA)).ToList();
             Assert.Equal(2, labSesiones.Count);
             var labA = labSesiones.Single(s => s.Semana == "A");
@@ -300,10 +308,11 @@ namespace SOEA.Tests.Application.Horario
             Assert.Equal(labA.HoraInicio, labB.HoraInicio);
             Assert.Equal(labA.Dia, labB.Dia);
 
-            // Persistencia: 4 sesiones + 1 horario + 8 asignaciones, en una transacción confirmada.
+            // Persistencia: 4 sesiones + 1 horario + 4 asignaciones (una por sesión), en una
+            // transacción confirmada.
             Assert.Equal(4, sesionRepo.Items.Count);
             Assert.Single(horarioRepo.Items);
-            Assert.Equal(8, asigRepo.Items.Count);
+            Assert.Equal(4, asigRepo.Items.Count);
             Assert.Equal(1, uow.Commits);
             Assert.Equal(0, uow.Rollbacks);
             Assert.Equal(0, horarioRepo.Items[0].ViolacionesRestriccionesDuras);
@@ -389,6 +398,48 @@ namespace SOEA.Tests.Application.Horario
             Assert.DoesNotContain(asigRepo.Items, a => idsPrimeraCorrida.Contains(a.SesionId));
             Assert.Contains(sesionRepo.Items, s => s.Id == manual.Id);
             Assert.Contains(horarioRepo.Items, h => h.Id == horarioPrimeraCorridaId);
+            Assert.Equal(2, horarioRepo.Items.Count);
+        }
+
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.2): la limpieza de "corridas anteriores"
+        /// no filtraba por semestre — regenerar el horario de "2026-2" borraba también las
+        /// sesiones vivas de "2026-1", aunque nadie las hubiera tocado, dejando el Horario de ese
+        /// semestre con SesioneIds colgando (ObtenerActualAsync pasaba a devolver null para él).
+        /// Habría fallado antes del fix: idsSemestre1 quedaba vacío tras generar "2026-2".
+        /// </summary>
+        [Fact]
+        public async Task Regenerar_OtroSemestre_NoBorraLasSesionesDeUnSemestreDistinto()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+            var svc = CrearServicio(horarioRepo, sesionRepo, asigRepo, uow);
+
+            var requestSemestre1 = RequestBase();
+            requestSemestre1.Semestre = "2026-1";
+            var r1 = await svc.EjecutarAsync(requestSemestre1);
+            Assert.True(r1.EsFactible, r1.MensajeError ?? string.Join("\n", r1.Logs));
+
+            var idsSemestre1 = sesionRepo.Items.Select(s => s.Id).ToList();
+            Assert.NotEmpty(idsSemestre1);
+
+            var requestSemestre2 = RequestBase();
+            requestSemestre2.Semestre = "2026-2";
+            var r2 = await svc.EjecutarAsync(requestSemestre2);
+            Assert.True(r2.EsFactible, r2.MensajeError ?? string.Join("\n", r2.Logs));
+
+            // Las sesiones de 2026-1 deben seguir todas ahí — regenerar 2026-2 no las tocó.
+            Assert.All(idsSemestre1, id => Assert.Contains(sesionRepo.Items, s => s.Id == id));
+            Assert.All(idsSemestre1, id => Assert.Contains(asigRepo.Items, a => a.SesionId == id));
+
+            // Y GET /horario/actual?semestre=2026-1 sigue respondiendo con su horario intacto.
+            var actualSemestre1 = await svc.ObtenerActualAsync("2026-1");
+            Assert.NotNull(actualSemestre1);
+            Assert.True(actualSemestre1!.EsFactible);
+            Assert.NotEmpty(actualSemestre1.Sesiones);
+
             Assert.Equal(2, horarioRepo.Items.Count);
         }
 
@@ -687,6 +738,27 @@ namespace SOEA.Tests.Application.Horario
             var horario1 = r1.Sesiones.Select(s => (s.AsignaturaId, s.Semana, s.Dia, s.HoraInicio, s.Virtual)).OrderBy(x => x.AsignaturaId).ThenBy(x => x.Semana).ToList();
             var horario2 = r2.Sesiones.Select(s => (s.AsignaturaId, s.Semana, s.Dia, s.HoraInicio, s.Virtual)).OrderBy(x => x.AsignaturaId).ThenBy(x => x.Semana).ToList();
             Assert.Equal(horario1, horario2);
+        }
+
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.8): categoriaPorAsig/elegiblePorAsig/
+        /// ventanaPorAsig colapsaban un AsignaturaDto.Id que no parseaba a Guid.Empty como clave.
+        /// Dos asignaturas con Id inválido en la MISMA petición chocaban en esa clave compartida
+        /// y ToDictionary lanzaba ArgumentException (500/400 con mensaje de framework en inglés)
+        /// en vez de simplemente ignorarlas, que es lo que ya hace MapearSesionesIniciales con el
+        /// mismo request.Asignaturas unas líneas más abajo en el propio servicio.
+        /// </summary>
+        [Fact]
+        public async Task DosAsignaturasConIdInvalido_NoLanzaPorClaveDuplicada()
+        {
+            var request = RequestBase();
+            request.Asignaturas.Add(new AsignaturaDto { Id = "no-es-un-guid", Nombre = "Basura 1", SesionesTeoriaPresencialSemana = 1, HorasTeoriaPresencial = 2 });
+            request.Asignaturas.Add(new AsignaturaDto { Id = "no-es-un-guid", Nombre = "Basura 2", SesionesTeoriaPresencialSemana = 1, HorasTeoriaPresencial = 2 });
+
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var r = await svc.EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
         }
     }
 }

@@ -23,19 +23,13 @@ namespace SOEA.API.Controllers
         /// Actualiza orden y/o estado activo de un criterio. Body: { "orden": 1, "activo": true }
         /// (ambos opcionales). Si el nuevo orden ya lo ocupa otro criterio, se intercambian.
         /// </summary>
+        // ERR2 auditoría: sin catch — GlobalExceptionHandler traduce KeyNotFoundException a 404.
         [HttpPatch("{id}")]
         public async Task<ActionResult<List<CriterioCesionAlternanciaDto>>> Actualizar(
             Guid id, [FromBody] ActualizarCriterioCesionDto dto)
         {
-            try
-            {
-                var lista = await _service.ActualizarAsync(id, dto.Orden, dto.Activo);
-                return Ok(lista);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return NotFound(ex.Message);
-            }
+            var lista = await _service.ActualizarAsync(id, dto.Orden, dto.Activo);
+            return Ok(lista);
         }
     }
 

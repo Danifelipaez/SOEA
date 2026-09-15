@@ -10,14 +10,10 @@ namespace SOEA.API.Controllers
     public class SesionesController : ControllerBase
     {
         private readonly AsignarDocenteSesionService _asignarService;
-        private readonly ILogger<SesionesController> _logger;
 
-        public SesionesController(
-            AsignarDocenteSesionService asignarService,
-            ILogger<SesionesController> logger)
+        public SesionesController(AsignarDocenteSesionService asignarService)
         {
             _asignarService = asignarService;
-            _logger         = logger;
         }
 
         /// <summary>
@@ -25,6 +21,11 @@ namespace SOEA.API.Controllers
         /// Presencial-first (CR-02/CR-08): el docente no participa en la generación;
         /// se asigna aquí después. Enviar { "docenteId": null } para desasignar.
         /// </summary>
+        // ERR1/ERR2 auditoría: sin catch — GlobalExceptionHandler es el único traductor
+        // (KeyNotFoundException→404, ArgumentException→400, BusinessRuleViolationException→409 para
+        // HC-I01). El catch-all que había aquí antes ya no exponía ex.Message crudo, pero seguía
+        // duplicando la traducción genérica de GlobalExceptionHandler con su propia forma de
+        // respuesta — cualquier 500 no reconocido en el resto de la API ahora responde igual.
         [HttpPatch("{id}/docente")]
         [ProducesResponseType(typeof(AsignarDocenteResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -37,31 +38,8 @@ namespace SOEA.API.Controllers
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
             request.SesionId = id;
-
-            try
-            {
-                var resultado = await _asignarService.EjecutarAsync(request);
-                return Ok(resultado);
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(new { error = ex.Message });
-            }
-            catch (InvalidOperationException ex)
-            {
-                // HC-I01 (edición): solape de franja del docente — hard constraint.
-                return Conflict(new { error = ex.Message });
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { error = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error inesperado al asignar docente a sesión {Id}.", id);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    new { error = "Error interno al asignar el docente.", detalle = ex.Message });
-            }
+            var resultado = await _asignarService.EjecutarAsync(request);
+            return Ok(resultado);
         }
     }
 }

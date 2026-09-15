@@ -36,25 +36,16 @@ namespace SOEA.Tests.Engine.Genetic
             return bloques;
         }
 
-        private static Docente CrearDocente(Guid id, IEnumerable<BloqueTiempo> bloquesDisponibles)
-        {
-            var d = new Docente(id, "Doc", "", $"doc-{id}@soea.edu", 40m,
-                new List<FranjaHoraria> { FranjaHoraria.Matutino });
-            foreach (var b in bloquesDisponibles) d.AgregarBloqueDisponibilidad(b);
-            return d;
-        }
-
         [Fact]
         public void Reparar_ConflictoCohorte_EliminaSolape()
         {
             var cohorteId = Guid.NewGuid();
             var sesiones = new List<Sesion> { CrearSesion(cohorteId, 2m), CrearSesion(cohorteId, 2m) };
             var bloques  = CrearGrilla(10);
-            var docentes = new List<Docente>();
 
             // Ambas en el bloque 0, duración 2 → solapan en los bloques 0 y 1.
             var c = new CromosomaHorario(sesiones.Select(s => s.Id).ToArray(), new[] { 0, 0 });
-            var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(42));
+            var op = new OperadoresGeneticos(sesiones, bloques, new Random(42));
             op.Reparar(c);
 
             var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
@@ -69,12 +60,11 @@ namespace SOEA.Tests.Engine.Genetic
             var sesion   = CrearSesion(docenteId, 2m);
             var sesiones = new List<Sesion> { sesion };
             var bloques  = CrearGrilla(5);
-            var docentes = new List<Docente> { CrearDocente(docenteId, bloques) };
             var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
             var rangos    = BloquesPlanner.RangosPorDia(bloques);
 
             var c  = new CromosomaHorario(new[] { sesion.Id }, new[] { 0 });
-            var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(42));
+            var op = new OperadoresGeneticos(sesiones, bloques, new Random(42));
 
             for (int i = 0; i < 200; i++)
             {
@@ -96,12 +86,11 @@ namespace SOEA.Tests.Engine.Genetic
             var sesiones = new List<Sesion> { sesion };
             var bloques  = CrearGrilla(5);             // 0..4 Lunes, 5..9 Martes
             var soloLunes = bloques.Take(5).ToList();
-            var docentes = new List<Docente> { CrearDocente(docenteId, soloLunes) };
             var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
             var rangos    = BloquesPlanner.RangosPorDia(bloques);
 
             var c  = new CromosomaHorario(new[] { sesion.Id }, new[] { 0 });
-            var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(7));
+            var op = new OperadoresGeneticos(sesiones, bloques, new Random(7));
 
             for (int i = 0; i < 200; i++)
             {
@@ -118,8 +107,7 @@ namespace SOEA.Tests.Engine.Genetic
             var docenteId = Guid.NewGuid();
             var sesiones = Enumerable.Range(0, 4).Select(_ => CrearSesion(docenteId, 2m)).ToList();
             var bloques  = CrearGrilla(8);
-            var docentes = new List<Docente> { CrearDocente(docenteId, bloques) };
-            var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(123));
+            var op = new OperadoresGeneticos(sesiones, bloques, new Random(123));
 
             var ids = sesiones.Select(s => s.Id).ToArray();
             var p1 = new CromosomaHorario(ids,
@@ -144,82 +132,6 @@ namespace SOEA.Tests.Engine.Genetic
             }
         }
 
-        [Fact]
-        public void Reparar_TipoA_SiempreIgualaStartBAStart()
-        {
-            var docenteId = Guid.NewGuid();
-            var sesiones = new List<Sesion> { CrearSesion(docenteId, 1m, alternancia: TipoAlternancia.TipoA) };
-            var bloques  = CrearGrilla(5);
-            var docentes = new List<Docente> { CrearDocente(docenteId, bloques) };
-
-            // StartB se siembra deliberadamente distinto de Start.
-            var c  = new CromosomaHorario(new[] { sesiones[0].Id }, new[] { 0 }, new[] { 3 });
-            var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(1));
-
-            op.Reparar(c);
-
-            Assert.Equal(c.Start[0], c.StartB[0]);
-        }
-
-        // Property test: tras muchos ciclos de cruce+mutación+reparación, TipoA/TipoB nunca
-        // pierden la regla 9 (StartB == Start), aunque Start sí se mueva entre ciclos.
-        [Fact]
-        public void CicloCompleto_TipoAB_MantieneStartBIgualAStart()
-        {
-            var docenteId = Guid.NewGuid();
-            var sesiones = new List<Sesion>
-            {
-                CrearSesion(docenteId, 1m, alternancia: TipoAlternancia.TipoA),
-                CrearSesion(docenteId, 1m, alternancia: TipoAlternancia.TipoB),
-            };
-            var bloques  = CrearGrilla(8);
-            var docentes = new List<Docente> { CrearDocente(docenteId, bloques) };
-            var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(123));
-
-            var ids = sesiones.Select(s => s.Id).ToArray();
-            var p1 = new CromosomaHorario(ids, new[] { 0, 1 });
-            var p2 = new CromosomaHorario(ids, new[] { 2, 3 });
-
-            for (int iter = 0; iter < 200; iter++)
-            {
-                var hijo = op.Cruce(p1, p2, 0.9);
-                op.Mutar(hijo, 0.3);
-                op.Reparar(hijo);
-                for (int i = 0; i < hijo.CantidadGenes; i++)
-                    Assert.Equal(hijo.Start[i], hijo.StartB[i]);
-                p1 = hijo;
-            }
-        }
-
-        // SinAlternancia (ALT-06): StartB puede divergir de Start, y cuando lo hace sigue siendo
-        // un inicio válido (cabe-en-día ∩ disponibilidad docente), igual que Start.
-        [Fact]
-        public void Mutar_SinAlternancia_StartBPuedeDivergirDeStartYEsValido()
-        {
-            var docenteId = Guid.NewGuid();
-            var sesion   = CrearSesion(docenteId, 2m); // SinAlternancia por defecto
-            var sesiones = new List<Sesion> { sesion };
-            var bloques  = CrearGrilla(5);
-            var docentes = new List<Docente> { CrearDocente(docenteId, bloques) };
-            var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
-            var rangos    = BloquesPlanner.RangosPorDia(bloques);
-
-            var c  = new CromosomaHorario(new[] { sesion.Id }, new[] { 0 });
-            var op = new OperadoresGeneticos(sesiones, bloques, docentes, new Random(42));
-
-            bool divergioAlgunaVez = false;
-            for (int i = 0; i < 200; i++)
-            {
-                op.Mutar(c, 1.0);
-                if (c.StartB[0] != c.Start[0]) divergioAlgunaVez = true;
-                Assert.True(BloquesPlanner.CabeEnDia(c.StartB[0], 2, rangos, diaPorIdx),
-                    $"Mutación generó StartB {c.StartB[0]} que cruza día (duración 2).");
-            }
-
-            Assert.True(divergioAlgunaVez,
-                "StartB nunca difirió de Start para una sesión SinAlternancia tras 200 mutaciones.");
-        }
-
         // HC-VH: el dominio de los operadores incluye la ventana horaria de la asignatura
         // (misma fuente que CP-SAT: CalculadorDominioSesion). Ninguna mutación puede sacar
         // la sesión de su ventana — el vacío que permitía publicar violaciones de HC-VH.
@@ -235,7 +147,7 @@ namespace SOEA.Tests.Engine.Genetic
             };
 
             var c  = new CromosomaHorario(new[] { sesion.Id }, new[] { 1 }); // 08:00, válido
-            var op = new OperadoresGeneticos(sesiones, bloques, new List<Docente>(), new Random(42),
+            var op = new OperadoresGeneticos(sesiones, bloques, new Random(42),
                 ventanaPorAsignatura: ventanas);
 
             for (int i = 0; i < 500; i++)
@@ -262,7 +174,7 @@ namespace SOEA.Tests.Engine.Genetic
                 [sesion.AsignaturaId] = (new TimeOnly(8, 0), new TimeOnly(9, 0))
             };
 
-            var op = new OperadoresGeneticos(sesiones, bloques, new List<Docente>(), new Random(42),
+            var op = new OperadoresGeneticos(sesiones, bloques, new Random(42),
                 ventanaPorAsignatura: ventanas);
 
             Assert.Empty(op.StartsValidosDe(0));
@@ -295,7 +207,7 @@ namespace SOEA.Tests.Engine.Genetic
             var s2 = CrearSesion(grupo2, 1m, alternancia: TipoAlternancia.TipoB, parejaAlternanciaId: patron);
             var sesiones = new List<Sesion> { s1, s2 };
             var bloques = CrearGrilla(6);
-            var op = new OperadoresGeneticos(sesiones, bloques, new List<Docente>(), new Random(3));
+            var op = new OperadoresGeneticos(sesiones, bloques, new Random(3));
 
             // Sembrados deliberadamente desincronizados.
             var c = new CromosomaHorario(sesiones.Select(s => s.Id).ToArray(), new[] { 0, 4 });
@@ -318,7 +230,7 @@ namespace SOEA.Tests.Engine.Genetic
             var s2 = CrearSesion(grupo2, 1m, alternancia: TipoAlternancia.TipoB, parejaAlternanciaId: patron);
             var sesiones = new List<Sesion> { s1, s2 };
             var bloques = CrearGrilla(8);
-            var op = new OperadoresGeneticos(sesiones, bloques, new List<Docente>(), new Random(11));
+            var op = new OperadoresGeneticos(sesiones, bloques, new Random(11));
 
             var ids = sesiones.Select(s => s.Id).ToArray();
             var p1 = new CromosomaHorario(ids, new[] { 0, 0 });
@@ -353,7 +265,7 @@ namespace SOEA.Tests.Engine.Genetic
                 for (int h = 0; h < 4; h++)
                     bloques.Add(new BloqueTiempo(Guid.NewGuid(), dia, new TimeOnly(7 + h, 0), new TimeOnly(8 + h, 0)));
             var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
-            var op = new OperadoresGeneticos(sesiones, bloques, new List<Docente>(), new Random(5));
+            var op = new OperadoresGeneticos(sesiones, bloques, new Random(5));
 
             // Ambas sembradas el mismo día (Lunes, bloques 0 y 1): viola HC-SEP.
             var c = new CromosomaHorario(sesiones.Select(s => s.Id).ToArray(), new[] { 0, 1 });

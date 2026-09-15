@@ -32,7 +32,7 @@ namespace SOEA.Application.Features.CriteriosCesionAlternancia
         public async Task<List<CriterioCesionAlternanciaDto>> ActualizarAsync(Guid id, int? orden, bool? activo)
         {
             var existing = await _repo.GetByIdAsync(id)
-                ?? throw new InvalidOperationException($"Criterio de cesión con ID {id} no encontrado.");
+                ?? throw new KeyNotFoundException($"Criterio de cesión con ID {id} no encontrado.");
 
             if (activo.HasValue)
                 existing.EstablecerActivo(activo.Value);

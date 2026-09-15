@@ -9,11 +9,10 @@ import { PersistenciaService } from '../../core/persistencia.service';
 import { CatalogoService } from '../../core/catalogo.service';
 
 /**
- * importarHorario() solo valida `Array.isArray(sesiones)` — nunca valida el contenido de cada
- * sesión. Una entrada con un `dia` que no existe en la grilla canónica (p. ej. "domingo") se
- * acepta igual: state.setSesiones() la incluye, y el snackbar reporta el conteo CRUDO del array,
- * no cuántas sesiones son realmente utilizables (la grilla nunca la va a poder ubicar en ninguna
- * celda — pérdida de datos silenciosa). Este test documenta el comportamiento actual.
+ * FE9 auditoría: importarHorario() ahora descarta las filas con un `dia` fuera de la grilla
+ * canónica (p. ej. "domingo") en vez de inyectarlas tal cual — antes entraban a state.sesiones()
+ * sin que la grilla pudiera ubicarlas en ninguna celda (pérdida de datos silenciosa). También
+ * limpia `horarioId`, porque las sesiones importadas no corresponden a ningún horario persistido.
  */
 function jsonFile(contenido: unknown): File {
   return new File([JSON.stringify(contenido)], 'horario.json', { type: 'application/json' });
@@ -47,7 +46,8 @@ describe('HorarioComponent.importarHorario — sesión con día inválido', () =
     state = TestBed.inject(StateService);
   });
 
-  it('una sesión con día inválido se acepta igual y se cuenta en el snackbar (sin validar contenido)', async () => {
+  it('una sesión con día inválido se descarta; la válida entra y horarioId se limpia', async () => {
+    state.horarioId.set('horario-anterior');
     const sesiones = [
       { id: 's1', asignaturaId: 'a1', dia: 'lunes', horaInicio: '08:00', horaFin: '10:00', duracionHoras: 2 },
       { id: 's2', asignaturaId: 'a1', dia: 'domingo', horaInicio: '08:00', horaFin: '10:00', duracionHoras: 2 },
@@ -60,9 +60,8 @@ describe('HorarioComponent.importarHorario — sesión con día inválido', () =
     component.importarHorario({ target: input } as unknown as Event);
     await esperarHasta(() => state.sesiones().length > 0);
 
-    // Comportamiento actual: las 2 sesiones entran a state tal cual, incluida la de "domingo"
-    // (día que no existe en la grilla canónica lunes..sábado) — sin ningún filtro ni aviso.
-    expect(state.sesiones()).toHaveLength(2);
-    expect(state.sesiones().some(s => s.dia === 'domingo')).toBe(true);
+    expect(state.sesiones()).toHaveLength(1);
+    expect(state.sesiones().some(s => s.dia === 'domingo')).toBe(false);
+    expect(state.horarioId()).toBeNull();
   });
 });

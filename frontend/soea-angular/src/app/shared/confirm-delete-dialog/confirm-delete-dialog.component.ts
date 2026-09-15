@@ -15,9 +15,9 @@ export interface ConfirmDeleteDialogData {
   standalone: true,
   imports: [CommonModule, MatDialogModule],
   template: `
-    <div class="pophd">{{ data.title || 'Confirmar eliminación' }} <i (click)="ref.close(false)">✕</i></div>
+    <div class="pophd">{{ data.title || 'Confirmar eliminación' }} <button type="button" class="pop-close" (click)="ref.close(false)" aria-label="Cerrar">✕</button></div>
     <div class="popbd">
-      <div class="errb">{{ data.message || 'Esta acción eliminará el registro.' }}</div>
+      <div class="errb">{{ data.message || 'Esta acción no se puede deshacer.' }}</div>
       <div class="popfoot">
         <button class="btn btn-secondary" (click)="ref.close(false)">{{ data.cancelText || 'Cancelar' }}</button>
         <button class="btn btn-primary" style="background:var(--err-bd);border-color:var(--err-bd)"

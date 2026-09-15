@@ -89,10 +89,16 @@ namespace SOEA.Tests.Infrastructure.Excel
             Assert.Equal(3, sesionIntro.DuracionHoras);
 
             // FINAL contradice a REALES [h] (14:00-17:00 = 3h reales vs. "2" declarado): FINAL manda
-            // sobre la disponibilidad real del docente, que debe cubrir las 3 horas, no 2.
+            // sobre la ventana de disponibilidad del GRUPO (HC-G01) — no del docente que lo dicta,
+            // que puede tener disponibilidad real distinta a las horas en que aparece dictando clase.
+            var grupo20 = resultado.Grupos.Single(g => g.Nombre.Contains("Grupo 20"));
+            var disponibilidadGrupo20 = grupo20.ObtenerDisponibilidadSemanal();
+            Assert.True(disponibilidadGrupo20.PermiteBloque(DiaDeSemana.Miercoles, new TimeOnly(14, 0), new TimeOnly(17, 0)));
+            Assert.False(disponibilidadGrupo20.PermiteBloque(DiaDeSemana.Miercoles, new TimeOnly(17, 0), new TimeOnly(18, 0)));
+
+            // El docente ya no recibe disponibilidad inferida de las horas en que dicta clase.
             var docenteLuis = resultado.Docentes.Single(d => d.Nombre == "Luis Borja Hidalgo");
-            Assert.Equal(3, docenteLuis.BloquesDisponibles.Count);
-            Assert.Contains(docenteLuis.BloquesDisponibles, b => b.HoraInicio == new TimeOnly(16, 0) && b.HoraFin == new TimeOnly(17, 0));
+            Assert.Empty(docenteLuis.BloquesDisponibles);
 
             Assert.Empty(resultado.Advertencias);
         }

@@ -19,13 +19,14 @@ namespace SOEA.Domain.Interfaces
     public interface IAsignadorEspaciosExacto
     {
         /// <returns>
-        /// Mapa (sesionId, semana) → espacioId para las semanas presenciales, o <c>null</c> si NO
-        /// existe asignación factible (el orquestador hace fallback a Fase 2).
+        /// Mapa sesionId → espacioId para las sesiones que ocupan aula, o <c>null</c> si NO existe
+        /// asignación factible (el orquestador hace fallback a Fase 2). Una sesión tiene UN aula
+        /// que aplica a todas las semanas (regla 9 / ALT-05); la semana solo decide en qué
+        /// NoOverlap entra ese aula — ver <see cref="Services.ModalidadSemanal.SemanasQueOcupanEspacio"/>.
         /// </returns>
-        Dictionary<(Guid sesionId, SemanaAcademica semana), Guid>? Asignar(
+        Dictionary<Guid, Guid>? Asignar(
             IReadOnlyList<Sesion> sesiones,
-            int[] startAPorSesion,
-            int[] startBPorSesion,
+            int[] startPorSesion,
             int[] duracionPorSesion,
             IReadOnlyList<Espacio> espacios,
             DiaDeSemana[] diaPorIdx,

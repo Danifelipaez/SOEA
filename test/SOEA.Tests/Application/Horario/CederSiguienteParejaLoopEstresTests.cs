@@ -23,13 +23,14 @@ namespace SOEA.Tests.Application.Horario
     /// (agotar TODOS los candidatos, nunca resolver por factibilidad real) con un dataset de 30
     /// grupos — y confirmar que el loop termina en un tiempo acotado, no se cuelga.
     /// </summary>
-    public class CederSiguienteCandidatoLabLoopEstresTests
+    public class CederSiguienteParejaLoopEstresTests
     {
         private sealed class FakeHorarioRepo : IHorarioRepositorio
         {
             public Task<SOEA.Domain.Entities.Horario?> GetByIdAsync(Guid id) => Task.FromResult<SOEA.Domain.Entities.Horario?>(null);
             public Task<SOEA.Domain.Entities.Horario?> GetBySemestreAsync(string semestre) => Task.FromResult<SOEA.Domain.Entities.Horario?>(null);
             public Task<List<SOEA.Domain.Entities.Horario>> GetAllAsync() => Task.FromResult(new List<SOEA.Domain.Entities.Horario>());
+            public Task<List<SOEA.Domain.Entities.Horario>> GetAllBySemestreAsync(string semestre) => Task.FromResult(new List<SOEA.Domain.Entities.Horario>());
             public Task AddAsync(SOEA.Domain.Entities.Horario horario) => Task.CompletedTask;
             public Task UpdateAsync(SOEA.Domain.Entities.Horario horario) => Task.CompletedTask;
         }
@@ -42,7 +43,12 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<Sesion>> GetAllAsync() => Task.FromResult(new List<Sesion>());
             public Task UpdateAsync(Sesion entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
-            public Task<bool> ExisteAsync(Guid asignaturaId, Guid docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
+            public Task DeleteRangeAsync(IEnumerable<Guid> ids) => Task.CompletedTask;
+            public Task<List<Sesion>> GetByIdsAsync(IEnumerable<Guid> ids) => Task.FromResult(new List<Sesion>());
+            public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
+            public Task<List<Guid>> GetIdsByGrupoIdAsync(Guid grupoId) => Task.FromResult(new List<Guid>());
+            public Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId) => Task.FromResult(new List<Guid>());
+            public Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId) => Task.FromResult(new List<Guid>());
         }
 
         private sealed class FakeAsignacionRepo : IAsignacionSemanalRepositorio
@@ -53,6 +59,7 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<AsignacionSemanal>> GetAllAsync() => Task.FromResult(new List<AsignacionSemanal>());
             public Task UpdateAsync(AsignacionSemanal entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
+            public Task DeleteBySesionIdsAsync(IEnumerable<Guid> sesionIds) => Task.CompletedTask;
             public Task<List<AsignacionSemanal>> GetBySesionIdsAsync(IEnumerable<Guid> sesionIds) =>
                 Task.FromResult(new List<AsignacionSemanal>());
         }
@@ -100,6 +107,7 @@ namespace SOEA.Tests.Application.Horario
                 IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloquesDisponibles,
                 IEnumerable<Grupo>? grupos = null,
                 IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
+                IReadOnlySet<Guid>? sesionesFijasIds = null,
                 CancellationToken ct = default) =>
                 Task.FromResult(sesiones);
         }
@@ -127,7 +135,7 @@ namespace SOEA.Tests.Application.Horario
         {
             public Task<ResultadoOptimizacion> OptimizarAsync(
                 IEnumerable<Sesion> sesiones, IEnumerable<AsignacionSemanal> asignacionesFase2,
-                IEnumerable<BloqueTiempo> bloques, IEnumerable<Espacio> espacios, IEnumerable<Docente> docentes,
+                IEnumerable<BloqueTiempo> bloques, IEnumerable<Espacio> espacios,
                 IEnumerable<Grupo>? grupos = null, ConfiguracionOptimizacion? config = null,
                 IReadOnlyDictionary<Guid, (int sesionesSemana, CategoriaAsignatura categoria)>? infoAsignatura = null,
                 IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
@@ -138,7 +146,7 @@ namespace SOEA.Tests.Application.Horario
         }
 
         [Fact]
-        public async Task LoopDeCesionDeLabs_ConMuchosPares_TerminaEnTiempoAcotado()
+        public async Task LoopDeCesion_ConMuchosPares_TerminaEnTiempoAcotado()
         {
             const int totalGrupos = 30; // 30 asignaturas×grupos con 2 sesiones de lab cada uno = 60 sesiones
             var asignaturas = new List<AsignaturaDto>();
@@ -154,7 +162,7 @@ namespace SOEA.Tests.Application.Horario
                     Nombre = $"Asig{i}",
                     SesionesLaboratorioSemana = 2,
                     HorasLaboratorio = 2,
-                    Categoria = "Electiva" // elegible para CederSiguienteCandidatoLab
+                    Categoria = "Electiva" // elegible para CederSiguientePareja
                 });
                 grupos.Add(new GrupoDto
                 {
@@ -188,12 +196,13 @@ namespace SOEA.Tests.Application.Horario
             // el loop SÍ debe terminar — no colgarse reintentando indefinidamente.
             Assert.False(r.EsFactible);
             Assert.True(cronometro.ElapsedMilliseconds < 5000,
-                $"El loop de cesión de labs tardó {cronometro.ElapsedMilliseconds}ms — sugiere que no está acotando iteraciones.");
-            // Cada iteración cede exactamente 1 par (2 sesiones) de 2 grupos distintos; con 30
-            // grupos de 2 sesiones cada uno, como máximo 15 pares antes de agotar candidatos.
-            // +1 porque Fase 2 se llama una vez más antes de que el loop detecte "sin más candidatos".
-            Assert.True(fase2.Llamadas <= totalGrupos / 2 + 1,
-                $"Fase 2 se invocó {fase2.Llamadas} veces — más de lo que los pares de laboratorio disponibles permiten.");
+                $"El loop de cesión tardó {cronometro.ElapsedMilliseconds}ms — sugiere que no está acotando iteraciones.");
+            // Cada iteración cede exactamente 1 par (2 sesiones de grupos distintos); con 60
+            // sesiones candidatas eso son 30 pares como máximo antes de agotarlas. +1 porque Fase 2
+            // se llama una vez más antes de que el loop detecte "sin más candidatos".
+            const int totalSesiones = totalGrupos * 2;
+            Assert.True(fase2.Llamadas <= totalSesiones / 2 + 1,
+                $"Fase 2 se invocó {fase2.Llamadas} veces — más de lo que los pares disponibles permiten.");
         }
     }
 }

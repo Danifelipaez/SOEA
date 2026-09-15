@@ -32,23 +32,14 @@ namespace SOEA.Tests.Engine.Genetic
             new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, dur, false, false);
 
-        private static Docente Doc(Guid id, IEnumerable<BloqueTiempo> bloques)
-        {
-            var d = new Docente(id, "Doc", "", $"doc-{id}@soea.edu", 40m,
-                new List<FranjaHoraria> { FranjaHoraria.Matutino });
-            foreach (var b in bloques) d.AgregarBloqueDisponibilidad(b);
-            return d;
-        }
-
         [Fact] // ① SC-01: un horario con hueco penaliza más que uno compacto.
         public void SC01_PenalizaHuecos()
         {
             var docId = Guid.NewGuid();
             var sesiones = new List<Sesion> { Virtual(docId, 1m), Virtual(docId, 1m) };
             var bloques  = Grilla(5);
-            var docentes = new List<Docente> { Doc(docId, bloques) };
             var cfg = new ConfiguracionOptimizacion(PesoErgo: 1, PesoTiempos: 0, PesoMaxHorasSeguidas: 0);
-            var eval = new EvaluadorFitness(sesiones, bloques, docentes, new List<Espacio>(), cfg);
+            var eval = new EvaluadorFitness(sesiones, bloques, new List<Espacio>(), cfg);
 
             var ids = sesiones.Select(s => s.Id).ToArray();
             var compacto = new CromosomaHorario(ids, new[] { 0, 1 }); // contiguas
@@ -63,9 +54,8 @@ namespace SOEA.Tests.Engine.Genetic
             var docId = Guid.NewGuid();
             var sesiones = Enumerable.Range(0, 7).Select(_ => Virtual(docId, 1m)).ToList();
             var bloques  = Grilla(8);
-            var docentes = new List<Docente> { Doc(docId, bloques) };
             var cfg = new ConfiguracionOptimizacion(PesoErgo: 0, PesoTiempos: 0, PesoMaxHorasSeguidas: 1);
-            var eval = new EvaluadorFitness(sesiones, bloques, docentes, new List<Espacio>(), cfg);
+            var eval = new EvaluadorFitness(sesiones, bloques, new List<Espacio>(), cfg);
 
             var ids = sesiones.Select(s => s.Id).ToArray();
             var contiguo = new CromosomaHorario(ids, new[] { 0, 1, 2, 3, 4, 5, 6 }); // racha de 7h
@@ -80,33 +70,14 @@ namespace SOEA.Tests.Engine.Genetic
             var docId = Guid.NewGuid();
             var sesiones = new List<Sesion> { Virtual(docId, 1m), Virtual(docId, 1m) };
             var bloques  = Grilla(4, DiaDeSemana.Lunes, DiaDeSemana.Martes); // Lunes 0-3, Martes 4-7
-            var docentes = new List<Docente> { Doc(docId, bloques) };
             var cfg = new ConfiguracionOptimizacion(PesoErgo: 0, PesoTiempos: 1, PesoMaxHorasSeguidas: 0);
-            var eval = new EvaluadorFitness(sesiones, bloques, docentes, new List<Espacio>(), cfg);
+            var eval = new EvaluadorFitness(sesiones, bloques, new List<Espacio>(), cfg);
 
             var ids = sesiones.Select(s => s.Id).ToArray();
             var concentrado = new CromosomaHorario(ids, new[] { 0, 1 }); // ambas Lunes
             var balanceado  = new CromosomaHorario(ids, new[] { 0, 4 }); // una Lunes, una Martes
 
             Assert.True(eval.Evaluar(concentrado) > eval.Evaluar(balanceado));
-        }
-
-        [Fact] // ④ SC-BAL: desbalance de carga entre Semana A y B penaliza más que carga simétrica.
-        public void SCBAL_PenalizaDesbalanceEntreSemanas()
-        {
-            var docId = Guid.NewGuid();
-            var sesiones = new List<Sesion> { Virtual(docId, 2m) }; // SinAlternancia: StartB libre
-            var bloques  = Grilla(4, DiaDeSemana.Lunes, DiaDeSemana.Martes); // Lunes 0-3, Martes 4-7
-            var docentes = new List<Docente> { Doc(docId, bloques) };
-            var cfg = new ConfiguracionOptimizacion(
-                PesoErgo: 0, PesoTiempos: 0, PesoMaxHorasSeguidas: 0, PesoBalanceSemanas: 1);
-            var eval = new EvaluadorFitness(sesiones, bloques, docentes, new List<Espacio>(), cfg);
-
-            var ids = sesiones.Select(s => s.Id).ToArray();
-            var balanceado    = new CromosomaHorario(ids, new[] { 0 }, new[] { 0 }); // misma franja A y B
-            var desbalanceado = new CromosomaHorario(ids, new[] { 0 }, new[] { 4 }); // Lunes en A, Martes en B
-
-            Assert.True(eval.Evaluar(desbalanceado) > eval.Evaluar(balanceado));
         }
 
         // ⑤ SC-PRES: ceder presencialidad (Alternancia != SinAlternancia) de una sesión única +
@@ -122,7 +93,6 @@ namespace SOEA.Tests.Engine.Genetic
             var sesion = new Sesion(Guid.NewGuid(), asig, null, Guid.NewGuid(), null, grupo,
                 TipoAlternancia.TipoA, Modalidad.Virtual, 1m, false, false);
             var bloques = Grilla(4);
-            var docentes = new List<Docente>();
             var cfg = new ConfiguracionOptimizacion(
                 PesoErgo: 0, PesoTiempos: 0, PesoMaxHorasSeguidas: 0, PesoBalanceSemanas: 0, PesoPresencialFirst: 1);
 
@@ -131,8 +101,8 @@ namespace SOEA.Tests.Engine.Genetic
             var infoBaja = new Dictionary<Guid, (int, CategoriaAsignatura)>
                 { [asig] = (2, CategoriaAsignatura.Electiva) };    // 2/sem + Electiva → menor
 
-            var evalAlta = new EvaluadorFitness(new List<Sesion> { sesion }, bloques, docentes, new List<Espacio>(), cfg, infoAlta);
-            var evalBaja = new EvaluadorFitness(new List<Sesion> { sesion }, bloques, docentes, new List<Espacio>(), cfg, infoBaja);
+            var evalAlta = new EvaluadorFitness(new List<Sesion> { sesion }, bloques, new List<Espacio>(), cfg, infoAlta);
+            var evalBaja = new EvaluadorFitness(new List<Sesion> { sesion }, bloques, new List<Espacio>(), cfg, infoBaja);
 
             Assert.True(evalAlta.PenalizacionPresencial > evalBaja.PenalizacionPresencial);
         }
@@ -156,9 +126,9 @@ namespace SOEA.Tests.Engine.Genetic
                 new(Guid.NewGuid(), "Salón 2", TipoEspacio.Salon, 30),
             }; // 2 salones, 0 laboratorios
             var cfg = new ConfiguracionOptimizacion(PesoErgo: 0, PesoTiempos: 0, PesoMaxHorasSeguidas: 0);
-            var eval = new EvaluadorFitness(new List<Sesion> { sesionLab }, bloques, new List<Docente>(), espacios, cfg);
+            var eval = new EvaluadorFitness(new List<Sesion> { sesionLab }, bloques, espacios, cfg);
 
-            var c = new CromosomaHorario(new[] { sesionLab.Id }, new[] { 0 }, new[] { 0 });
+            var c = new CromosomaHorario(new[] { sesionLab.Id }, new[] { 0 });
 
             // 0 laboratorios para 1 sesión de laboratorio ⇒ la guarda (peso fijo 1000) debe disparar
             // en ambas semanas, aunque haya 2 salones libres que esa sesión no puede usar.
@@ -179,12 +149,12 @@ namespace SOEA.Tests.Engine.Genetic
                 PesoErgo: 0, PesoTiempos: 0, PesoMaxHorasSeguidas: 0, PesoBalanceSemanas: 0, PesoPresencialFirst: 1);
             var info = new Dictionary<Guid, (int, CategoriaAsignatura)>
                 { [asig] = (1, CategoriaAsignatura.Obligatoria) };
-            var eval = new EvaluadorFitness(new List<Sesion> { sesion }, bloques, new List<Docente>(),
+            var eval = new EvaluadorFitness(new List<Sesion> { sesion }, bloques,
                 new List<Espacio>(), cfg, info);
 
             var ids = new[] { sesion.Id };
-            var a = new CromosomaHorario(ids, new[] { 0 }, new[] { 0 });
-            var b = new CromosomaHorario(ids, new[] { 2 }, new[] { 2 }); // mismo dia, otro inicio
+            var a = new CromosomaHorario(ids, new[] { 0 });
+            var b = new CromosomaHorario(ids, new[] { 2 }); // mismo dia, otro inicio
 
             Assert.True(eval.PenalizacionPresencial > 0m);
             Assert.Equal(0m, eval.Evaluar(a)); // todos los pesos que quedan en Evaluar están en 0

@@ -2,62 +2,73 @@ using SOEA.Application.Features.Horario.Requests;
 using SOEA.Application.Features.Horario.Responses;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
+using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.Services;
 
 namespace SOEA.Application.Features.Horario
 {
     /// <summary>
-    /// Crea una sesión manual sin re-ejecutar el modelo de optimización.
-    /// Valida HC-I01 (docente libre), HC-S01 (espacio libre) y HC-S05 (espacio fijo)
-    /// contra el estado actual de la BD antes de persistir.
+    /// Agrega una sesión manual al horario vigente sin re-ejecutar el modelo de optimización.
+    /// Valida contra las asignaciones reales de ese horario antes de persistir: HC-I01 (docente
+    /// libre) aquí, y el resto de restricciones duras con <see cref="ValidadorRestriccionesDuras"/>,
+    /// la misma fuente que usan la generación y /reacomodar.
     /// </summary>
     public class CrearSesionManualService
     {
-        private readonly IBloqueTiempoRepositorio     _bloques;
+        private readonly IBloqueTiempoRepositorio      _bloques;
+        private readonly IHorarioRepositorio           _horarios;
         private readonly ISesionRepositorio            _sesiones;
         private readonly IAsignacionSemanalRepositorio _asignaciones;
-        private readonly IAsignaturaRepositorio?       _asignaturas;
+        private readonly IAsignaturaRepositorio        _asignaturas;
+        private readonly IGrupoRepositorio             _grupos;
+        private readonly IEspacioRepositorio           _espacios;
+        private readonly IUnitOfWork                   _uow;
 
-        // asignaturas es opcional (default null → mensaje degradado sin nombre de asignatura)
-        // para no romper la firma del constructor en tests existentes que no la proveen.
         public CrearSesionManualService(
-            IBloqueTiempoRepositorio     bloques,
+            IBloqueTiempoRepositorio      bloques,
+            IHorarioRepositorio           horarios,
             ISesionRepositorio            sesiones,
             IAsignacionSemanalRepositorio asignaciones,
-            IAsignaturaRepositorio?       asignaturas = null)
+            IAsignaturaRepositorio        asignaturas,
+            IGrupoRepositorio             grupos,
+            IEspacioRepositorio           espacios,
+            IUnitOfWork                   uow)
         {
             _bloques      = bloques;
+            _horarios     = horarios;
             _sesiones     = sesiones;
             _asignaciones = asignaciones;
             _asignaturas  = asignaturas;
+            _grupos       = grupos;
+            _espacios     = espacios;
+            _uow          = uow;
         }
 
-        private async Task<string> NombreAsignaturaAsync(Guid asignaturaId) =>
-            _asignaturas is not null ? (await _asignaturas.GetByIdAsync(asignaturaId))?.Nombre ?? "asignatura sin nombre" : "asignatura sin nombre";
-
         /// <returns>
-        /// Las 1 o 2 filas (<see cref="SesionGeneradaDto"/>) creadas, listas para el frontend.
-        /// En caso de violación de hard constraint lanza <see cref="InvalidOperationException"/>
-        /// con mensaje descriptivo en español.
+        /// La fila (<see cref="SesionGeneradaDto"/>) creada, lista para el frontend. Violación de hard
+        /// constraint → <see cref="BusinessRuleViolationException"/> (409); request mal formado →
+        /// <see cref="ArgumentException"/> (400); horario inexistente → <see cref="KeyNotFoundException"/> (404).
         /// </returns>
         public async Task<List<SesionGeneradaDto>> EjecutarAsync(CrearSesionManualRequest req)
         {
-            // ── Mapear día ────────────────────────────────────────────────────────
+            // ── Día y bloque ──────────────────────────────────────────────────────
             var dia = MapearDia(req.Dia)
-                ?? throw new ArgumentException($"Día no reconocido: '{req.Dia}'. Use lunes, martes, miercoles, jueves, viernes o sabado.");
+                ?? throw new ArgumentException("Día no válido.");
 
-            // ── Buscar BloqueTiempo ───────────────────────────────────────────────
             if (!TimeOnly.TryParse(req.HoraInicio, out var horaInicio))
-                throw new ArgumentException($"Hora no válida: '{req.HoraInicio}'. Formato esperado HH:mm.");
+                throw new ArgumentException("Hora no válida. Use el formato 08:00.");
 
+            // ERR2 auditoría: una franja que no existe en la grilla es un problema del REQUEST (400),
+            // no un conflicto con datos ya persistidos (409).
             var bloque = await _bloques.FindByDiaHoraAsync(dia, horaInicio)
-                ?? throw new InvalidOperationException(
-                    $"No existe franja horaria para {req.Dia} a las {req.HoraInicio}. " +
-                    "Verifique que la hora esté dentro del horario académico (06:00–20:00 L-V, 06:00–13:00 Sáb).");
+                ?? throw new ArgumentException(
+                    $"Esa hora está fuera de la jornada (lunes a viernes " +
+                    $"{GrillaInstitucional.HoraAperturaLunesAViernes:HH\\:mm}–{GrillaInstitucional.HoraCierreLunesAViernes:HH\\:mm}, " +
+                    $"sábado {GrillaInstitucional.HoraAperturaSabado:HH\\:mm}–{GrillaInstitucional.HoraCierreSabado:HH\\:mm}).");
 
-            // ── Resolver tipo de sesión, modalidad y alternancia ──────────────────
-            var tipoFlujo = ParseTipoFlujo(req.TipoFlujo);
+            // ── Tipo de sesión, modalidad y alternancia ───────────────────────────
+            var tipoFlujo = CalculadorEspaciosSesion.ParseTipoFlujo(req.TipoFlujo);
             // Teoría virtual es fija e independiente de Alternancia (decisión de diseño): solo el
             // track de laboratorio alterna. Espacio nunca aplica a una sesión virtual (regla 9).
             var modalidad = tipoFlujo == TipoFlujo.AulaVirtual && req.EsVirtual
@@ -68,151 +79,96 @@ namespace SOEA.Application.Features.Horario
                 alternancia = TipoAlternancia.SinAlternancia;
             var alternanciaFinal = tipoFlujo == TipoFlujo.Laboratorio ? alternancia : TipoAlternancia.SinAlternancia;
 
-            Guid? espacioFinal = modalidad == Modalidad.Virtual ? null : req.EspacioId;
+            // P0-5 auditoría: la sesión pertenece al horario vigente. Antes no entraba en ninguno:
+            // respondía 201, desaparecía al recargar y seguía bloqueando docentes sin que nadie la viera.
+            var horario = await _horarios.GetByIdAsync(req.HorarioId)
+                ?? throw new KeyNotFoundException("El horario cambió mientras trabajaba. Recargue la página.");
 
-            // ponytail: HC-S05 (espacio fijo) se validaba aquí contra Asignatura.EspacioFijoId,
-            // eliminado — el requisito ahora vive por grupo (Grupo.RequisitosEspacio). Recuperar
-            // esta validación cuando CrearSesionManualRequest reciba GrupoId (P2/P4).
-
-            // ── HC-I01: conflicto de docente ──────────────────────────────────────
-            // Verificamos a nivel de BloqueTiempoId (slot de inicio). El frontend ya validó
-            // el rango completo; aquí hacemos la guardia de BD para el start slot.
-            var sesionesDocente = (await _sesiones.GetAllAsync())
-                .Where(s => s.DocenteId == req.DocenteId)
-                .ToList();
-
-            // Las asignaciones de esas sesiones en el mismo bloque de inicio
-            var choqueDocente = sesionesDocente.FirstOrDefault(s => s.BloqueTiempoId == bloque.Id);
-            if (choqueDocente is not null)
-            {
-                var nombreOtra = await NombreAsignaturaAsync(choqueDocente.AsignaturaId);
-                throw new InvalidOperationException(
-                    $"HC-I01: el docente ya tiene otra sesión que comienza en esa misma franja horaria " +
-                    $"({req.Dia} {req.HoraInicio}). Sesión 1: {await NombreAsignaturaAsync(req.AsignaturaId)} " +
-                    $"({req.Dia} {req.HoraInicio}). Sesión 2: {nombreOtra} ({req.Dia} {req.HoraInicio}). " +
-                    "Elija una hora diferente o cambie el docente de una de las dos sesiones.");
-            }
-
-            // ── HC-S01: conflicto de espacio (solo filas presenciales) ────────────
-            if (espacioFinal.HasValue)
-            {
-                var todas = await _sesiones.GetAllAsync();
-                var sesionesEnBloque = todas
-                    .Where(s => s.BloqueTiempoId == bloque.Id)
-                    .ToList();
-
-                // Obtener las asignaciones presenciales en ese bloque para el mismo espacio
-                if (sesionesEnBloque.Any())
-                {
-                    var asignacionesBD = await _asignaciones.GetBySesionIdsAsync(
-                        sesionesEnBloque.Select(s => s.Id));
-
-                    var ocupadaPor = asignacionesBD.FirstOrDefault(a =>
-                        a.EspacioId == espacioFinal &&
-                        a.Modalidad == Modalidad.Presencial);
-
-                    if (ocupadaPor is not null)
-                    {
-                        var sesionOcupante = sesionesEnBloque.First(s => s.Id == ocupadaPor.SesionId);
-                        var nombreOcupante = await NombreAsignaturaAsync(sesionOcupante.AsignaturaId);
-                        throw new InvalidOperationException(
-                            $"HC-S01: el espacio ya está ocupado por otra sesión presencial en esa franja horaria. " +
-                            $"Sesión 1: {await NombreAsignaturaAsync(req.AsignaturaId)} ({req.Dia} {req.HoraInicio}). " +
-                            $"Sesión 2: {nombreOcupante} ({req.Dia} {req.HoraInicio}). " +
-                            "Elija otro espacio u otra hora.");
-                    }
-                }
-            }
-
-            // ── Crear Sesion ──────────────────────────────────────────────────────
+            // Sesion.EspacioId es el aula FIJA exigida (HC-S05), no el aula elegida: esa vive solo en la
+            // asignación, igual que en las sesiones generadas.
             var sesion = new Sesion(
-                id:           Guid.NewGuid(),
-                asignaturaId: req.AsignaturaId,
-                docenteId:    req.DocenteId,
-                bloqueId:     bloque.Id,
-                espacioId:    espacioFinal,
-                grupoId:      null,
-                alternancia:  alternanciaFinal,
-                modalidad:    modalidad,
+                id:            Guid.NewGuid(),
+                asignaturaId:  req.AsignaturaId,
+                docenteId:     req.DocenteId,
+                bloqueId:      bloque.Id,
+                espacioId:     null,
+                grupoId:       req.GrupoId,
+                alternancia:   alternanciaFinal,
+                modalidad:     modalidad,
                 duracionHoras: req.DuracionHoras,
-                esBloque:     false,
-                estaDividida: false,
-                tipoFlujo:    tipoFlujo);
+                esBloque:      false,
+                estaDividida:  false,
+                tipoFlujo:     tipoFlujo);
 
-            // ── HC-SEP: separación mínima de días entre sesiones semanales (petición 11) ──
-            // ponytail: agrupa por (asignatura, tipo de sesión) — CrearSesionManualRequest no
-            // trae GrupoId todavía (mismo gap que el comentario HC-S05 de arriba). Subir a
-            // (grupo, asignatura, tipo) cuando el request lo incluya (P2/P4).
-            var tipoSesionNueva = CalculadorEspaciosSesion.TipoSesionDe(sesion);
-            var mismaAsignaturaYTipo = (await _sesiones.GetAllAsync())
-                .Where(s => s.AsignaturaId == req.AsignaturaId && CalculadorEspaciosSesion.TipoSesionDe(s) == tipoSesionNueva)
-                .ToList();
-            if (mismaAsignaturaYTipo.Count > 0)
+            // UNA fila por sesión, en su semana canónica (ALT-05).
+            var modalidadFila = ModalidadSemanal.ModalidadCanonica(sesion);
+            Guid? espacioFinal = modalidadFila == Modalidad.Presencial ? req.EspacioId : null;
+            var asignacion = new AsignacionSemanal(Guid.NewGuid(), sesion.Id, ModalidadSemanal.SemanaCanonica(sesion),
+                bloque.Id, espacioFinal, modalidadFila);
+
+            // P0-4 auditoría: los chequeos leían Sesion.BloqueTiempoId, que en las sesiones generadas era
+            // la pista de Fase 1 y no el bloque final: una sesión 1 h después de otra en la misma aula
+            // pasaba con 201. La posición real es la de la asignación, y solo cuentan las del horario.
+            var existentes   = await _sesiones.GetByIdsAsync(horario.SesioneIds);
+            var asignaciones = await _asignaciones.GetBySesionIdsAsync(existentes.Select(s => s.Id));
+            var sesionPorId  = existentes.Append(sesion).ToDictionary(s => s.Id);
+            var bloquesGrid  = GrillaInstitucional.GenerarBloques();
+            var idxPorBloque = Enumerable.Range(0, bloquesGrid.Count).ToDictionary(i => bloquesGrid[i].Id, i => i);
+            var asignaturas  = await _asignaturas.GetAllAsync();
+
+            // ── HC-I01: docente ocupado ── fuera del validador: el docente no es eje de generación (CR-08).
+            if (req.DocenteId is Guid docenteId)
             {
-                var bloquePorId = (await _bloques.GetAllAsync()).ToDictionary(b => b.Id);
-                foreach (var otra in mismaAsignaturaYTipo)
+                static int Bloques(Sesion s) => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
+                var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloquesGrid);
+                var choque = asignaciones.FirstOrDefault(a =>
+                    sesionPorId[a.SesionId].DocenteId == docenteId &&
+                    idxPorBloque.TryGetValue(a.BloqueTiempoId, out var inicioOtra) &&
+                    BloquesPlanner.Solapan(idxPorBloque[bloque.Id], Bloques(sesion), inicioOtra, Bloques(sesionPorId[a.SesionId]), diaPorIdx));
+                if (choque is not null)
                 {
-                    if (!bloquePorId.TryGetValue(otra.BloqueTiempoId, out var otroBloque)) continue;
-                    if (!ReglasSesion.SeparacionDiasOk(dia, otroBloque.Dia))
-                        throw new InvalidOperationException(
-                            $"HC-SEP: ya existe otra sesión de esta asignatura/tipo el {otroBloque.Dia}. " +
-                            "Las sesiones semanales repetidas necesitan al menos un día de separación.");
+                    string Nombre(Guid asignaturaId) => asignaturas.FirstOrDefault(x => x.Id == asignaturaId)?.Nombre ?? "asignatura sin nombre";
+                    var bloqueOtra = bloquesGrid[idxPorBloque[choque.BloqueTiempoId]];
+                    throw new BusinessRuleViolationException(
+                        "El docente ya tiene clase a esa hora — " +
+                        $"Sesión 1: {Nombre(req.AsignaturaId)} ({req.Dia} {req.HoraInicio}). " +
+                        $"Sesión 2: {Nombre(sesionPorId[choque.SesionId].AsignaturaId)} " +
+                        $"({GenerarHorarioService.DiaToString(bloqueOtra.Dia)} {bloqueOtra.HoraInicio:HH\\:mm}). " +
+                        "Elija una hora diferente o cambie el docente de una de las dos sesiones. [HC-I01]");
                 }
             }
 
-            await _sesiones.AddAsync(sesion);
+            // ── Resto de restricciones duras (HC-C01, HC-S01, HC-S03, HC-S04, HC-S05, HC-CAP, HC-VH, HC-G01, HC-SEP) ──
+            // Solo cuentan las violaciones que introduce la sesión nueva: una preexistente (p. ej. un grupo
+            // editado en el catálogo después de generar) no debe impedir agregar otra sesión.
+            var contexto = ContextoValidacion.DesdeCatalogo(bloquesGrid, asignaturas,
+                await _grupos.GetAllAsync(), await _espacios.GetAllAsync());
+            var previas = ValidadorRestriccionesDuras.Validar(asignaciones, sesionPorId, idxPorBloque, contexto).ToHashSet();
+            var nuevas = ValidadorRestriccionesDuras.Validar(asignaciones.Append(asignacion), sesionPorId, idxPorBloque, contexto)
+                .Where(c => !previas.Contains(c))
+                .ToList();
+            if (nuevas.Count > 0)
+                throw new BusinessRuleViolationException(string.Join(" ", nuevas));
 
-            // ── Crear AsignacionSemanal (1 o 2 filas según alternancia) ───────────
-            var asignacionesList = CrearAsignaciones(sesion, bloque.Id);
-            await _asignaciones.AddRangeAsync(asignacionesList);
-
-            // ── Construir respuesta ───────────────────────────────────────────────
-            var horaFin = horaInicio.AddHours((double)req.DuracionHoras).ToString("HH:mm");
-            var diaStr  = req.Dia.ToLowerInvariant();
-            var labId   = espacioFinal?.ToString();
-
-            return asignacionesList.Select(a => new SesionGeneradaDto
+            // M5 auditoría: sesión, asignación y horario en una sola transacción.
+            await _uow.BeginTransactionAsync();
+            try
             {
-                Id           = sesion.Id.ToString(),
-                AsignaturaId = sesion.AsignaturaId.ToString(),
-                DocenteId    = sesion.DocenteId?.ToString() ?? string.Empty,
-                EspacioId    = a.EspacioId?.ToString(),
-                EspacioIdHogar = labId,           // lab de origen (aunque sea virtual)
-                Dia          = diaStr,
-                HoraInicio   = req.HoraInicio,
-                HoraFin      = horaFin,
-                DuracionHoras = req.DuracionHoras,
-                Alternancia  = alternanciaFinal.ToString(),
-                Virtual      = a.Modalidad == Modalidad.Virtual,
-                Semana       = a.Semana.ToString(),
-                TipoFlujo    = sesion.TipoFlujo.ToString(),
-                MotivoConflicto = sesion.MotivoConflicto
-            }).ToList();
-        }
-
-        // ── Helpers ───────────────────────────────────────────────────────────────
-
-        private static TipoFlujo ParseTipoFlujo(string? tipoFlujo) =>
-            tipoFlujo?.Trim().ToLowerInvariant() switch
+                await _sesiones.AddAsync(sesion);
+                await _asignaciones.AddRangeAsync(new[] { asignacion });
+                horario.AgregarSesion(sesion.Id);
+                await _horarios.UpdateAsync(horario);
+                await _uow.CommitAsync();
+            }
+            catch
             {
-                "laboratorio" => TipoFlujo.Laboratorio,
-                _             => TipoFlujo.AulaVirtual   // default: teoría
-            };
+                await _uow.RollbackAsync();
+                throw;
+            }
 
-        /// <summary>internal (no private): reutilizado por <see cref="ReacomodarHorarioService"/> (P5) para reconstruir las 2 filas A/B tras mover una sesión.</summary>
-        internal static List<AsignacionSemanal> CrearAsignaciones(Sesion sesion, Guid bloqueId)
-        {
-            Modalidad ModalidadParaSemana(SemanaAcademica s) => ModalidadSemanal.Derivar(sesion, s);
-
-            return new List<AsignacionSemanal>
+            return new List<SesionGeneradaDto>
             {
-                new(Guid.NewGuid(), sesion.Id, SemanaAcademica.A, bloqueId,
-                    ModalidadParaSemana(SemanaAcademica.A) == Modalidad.Presencial ? sesion.EspacioId : null,
-                    ModalidadParaSemana(SemanaAcademica.A)),
-
-                new(Guid.NewGuid(), sesion.Id, SemanaAcademica.B, bloqueId,
-                    ModalidadParaSemana(SemanaAcademica.B) == Modalidad.Presencial ? sesion.EspacioId : null,
-                    ModalidadParaSemana(SemanaAcademica.B))
+                GenerarHorarioService.MapearSesionDto(asignacion, sesion, bloquesGrid.ToDictionary(b => b.Id), espacioFinal?.ToString())
             };
         }
 

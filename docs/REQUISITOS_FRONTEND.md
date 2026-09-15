@@ -105,7 +105,7 @@ Backend de referencia: **9 controllers** (`AsignaturaController`, `CriteriosCesi
 | GET | `/api/facultades` | — | `{ id, nombre }[]` | |
 | GET | `/api/programas` | — | `{ id, nombre, facultadId }[]` | |
 
-`ImportExcelStatsDto`: FacultadesCreadas, ProgramasCreados, DocentesCreados, DocentesActualizados, EspaciosCreados, EspaciosActualizados, AsignaturasCreadas, AsignaturasActualizadas, GruposCreados, SesionesPersistidas, AsignaturasSinDocente, Advertencias[] (todos números excepto Advertencias).
+`ImportExcelStatsDto`: FacultadesCreadas, ProgramasCreados, DocentesCreados, DocentesActualizados, EspaciosCreados, EspaciosActualizados, AsignaturasCreadas, AsignaturasActualizadas, GruposCreados, AsignaturasSinDocente, Advertencias[] (todos números excepto Advertencias).
 
 **Popup "Importar Excel":** selector de archivo (.xlsx/.xls) + botón importar → al terminar, muestra `ImportExcelStatsDto` como resumen (contadores creados/actualizados + lista de advertencias).
 

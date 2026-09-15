@@ -424,6 +424,8 @@ namespace SOEA.Infrastructure.Data.Migrations
                     b.HasIndex("DocenteId")
                         .HasDatabaseName("ix_grupo_docente_id");
 
+                    b.HasIndex("FacultadId");
+
                     b.HasIndex("Nombre")
                         .HasDatabaseName("ix_grupo_nombre");
 
@@ -609,6 +611,8 @@ namespace SOEA.Infrastructure.Data.Migrations
                     b.HasIndex("EspacioId")
                         .HasDatabaseName("ix_sesion_espacio_id");
 
+                    b.HasIndex("GrupoId");
+
                     b.HasIndex("ParejaAlternanciaId")
                         .HasDatabaseName("ix_sesion_pareja_alternancia_id");
 
@@ -712,8 +716,59 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("SOEA.Domain.Entities.Grupo", b =>
+                {
+                    b.HasOne("SOEA.Domain.Entities.Asignatura", null)
+                        .WithMany()
+                        .HasForeignKey("AsignaturaId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SOEA.Domain.Entities.Docente", null)
+                        .WithMany()
+                        .HasForeignKey("DocenteId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SOEA.Domain.Entities.Facultad", null)
+                        .WithMany()
+                        .HasForeignKey("FacultadId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("SOEA.Domain.Entities.Programa", null)
+                        .WithMany()
+                        .HasForeignKey("ProgramaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("SOEA.Domain.Entities.Sesion", b =>
                 {
+                    b.HasOne("SOEA.Domain.Entities.Asignatura", null)
+                        .WithMany()
+                        .HasForeignKey("AsignaturaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SOEA.Domain.Entities.BloqueTiempo", null)
+                        .WithMany()
+                        .HasForeignKey("BloqueTiempoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SOEA.Domain.Entities.Docente", null)
+                        .WithMany()
+                        .HasForeignKey("DocenteId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("SOEA.Domain.Entities.Espacio", null)
+                        .WithMany()
+                        .HasForeignKey("EspacioId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SOEA.Domain.Entities.Grupo", null)
+                        .WithMany()
+                        .HasForeignKey("GrupoId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SOEA.Domain.Entities.TipoAlternanciaConfig", null)
                         .WithMany()
                         .HasForeignKey("PatronAlternanciaId")

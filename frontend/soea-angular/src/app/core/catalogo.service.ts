@@ -4,6 +4,8 @@ import { Observable, forkJoin, of, throwError } from 'rxjs';
 import { map, catchError, tap } from 'rxjs/operators';
 import { PersistenciaService } from './persistencia.service';
 import { StateService } from './state.service';
+import { HorarioApiService } from './horario-api.service';
+import { mensajeErrorHttp } from './http-error.util';
 import { Asignatura, Docente, Espacio, Facultad, Grupo, Programa } from './models';
 
 export interface ResumenCatalogo {
@@ -30,6 +32,7 @@ export type EntidadCatalogo = 'asignatura' | 'docente' | 'espacio' | 'grupo' | '
 export class CatalogoService {
   private persistencia = inject(PersistenciaService);
   private state = inject(StateService);
+  private horarioApi = inject(HorarioApiService);
 
   // ── Ids que existen en la BD ─────────────────────────────────────────────────
   // Deciden si guardar/eliminar deben ir contra el backend o son solo locales.
@@ -199,9 +202,19 @@ export class CatalogoService {
       // error (backend caído, 500) debe propagarse en vez de disfrazarse de "no hay grupos".
       grupos:      this.persistencia.cargarGrupos().pipe(
         catchError((err: HttpErrorResponse) => err.status === 404 ? of([]) : throwError(() => err))
-      )
+      ),
+      // FE13 auditoría: antes solo HorarioComponent rehidrataba el horario persistido (P6), así
+      // que aterrizar directo en /revisar tras un F5 mostraba "aún no hay horario" aunque siguiera
+      // intacto en BD — el KPI dependía de por dónde había entrado el usuario a la app. Se
+      // centraliza aquí, la única fuente de hidratación del StateService. Un fallo real al
+      // traer el horario no debe tumbar la carga del catálogo (asignaturas/docentes/espacios) —
+      // se guarda en errorHorarioActual (FE6) para que quien lo necesite lo muestre.
+      horario: this.horarioApi.obtenerActual('2026-1').pipe(catchError(err => {
+        this.state.errorHorarioActual.set(mensajeErrorHttp(err));
+        return of(null);
+      }))
     }).pipe(
-      map(({ facultades, programas, asignaturas, docentes, espacios, grupos }) => {
+      map(({ facultades, programas, asignaturas, docentes, espacios, grupos, horario }) => {
         this.state.facultades.set(facultades.map((f: any) => ({ id: f.id, nombre: f.nombre })));
         this.state.programas.set(programas.map((p: any) => ({
           id: p.id, nombre: p.nombre, facultadId: p.facultadId
@@ -210,6 +223,12 @@ export class CatalogoService {
         this.state.espacios.set(espacios.map(e => this.mapEspacio(e)));
         this.state.setAsignaturas(asignaturas.map((a: any) => this.mapAsignatura(a)));
         this.state.grupos.set((grupos as any[]).map(g => this.mapGrupo(g)));
+        if (horario) {
+          this.state.errorHorarioActual.set(null);
+          this.state.setSesiones(this.horarioApi.mapearSesiones(horario.sesiones));
+          this.state.setExecutionLogs(horario.logs || []);
+          this.state.horarioId.set(horario.horarioId);
+        }
 
         this.asignaturasEnBd.set(new Set(asignaturas.map((a: any) => a.id as string)));
         this.docentesEnBd.set(new Set(docentes.map(d => d.id)));

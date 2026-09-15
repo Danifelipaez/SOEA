@@ -62,8 +62,11 @@ namespace SOEA.API.Controllers
             if (request.Asignaturas.Count == 0)
                 return BadRequest("Debe incluir al menos una asignatura en el request.");
 
-            if (request.Docentes.Count == 0)
-                return BadRequest("Debe incluir al menos un docente en el request.");
+            // M1 auditoría: CR-08 (presencial-first) sacó al docente del pipeline de generación —
+            // solo alimenta objetivos blandos del algoritmo genético, y se asigna después vía
+            // PATCH /api/sesiones/{id}/docente (SesionesController). Exigir al menos un docente
+            // aquí contradecía esa arquitectura y bloqueaba el flujo normal: cargar asignaturas y
+            // espacios, generar, y solo entonces asignar docentes.
 
             if (request.Espacios.Count == 0)
                 return BadRequest("Debe incluir al menos un espacio en el request.");
@@ -104,33 +107,23 @@ namespace SOEA.API.Controllers
         }
 
         /// <summary>
-        /// Crea una sesión manualmente sin re-ejecutar el modelo de optimización.
-        /// Valida HC-I01, HC-S01 y HC-S05 antes de persistir.
-        /// Devuelve los DTOs de la sesión creada (1 ó 2 filas: semana A + semana B).
+        /// Agrega una sesión manual al horario vigente sin re-ejecutar el modelo de optimización.
+        /// Valida las restricciones duras contra las asignaciones reales de ese horario antes de
+        /// persistir. Devuelve la fila de la sesión creada.
         /// </summary>
+        // ERR1/ERR2 auditoría: sin catch — GlobalExceptionHandler traduce ArgumentException a 400,
+        // KeyNotFoundException (horario inexistente) a 404 y BusinessRuleViolationException a 409.
         [HttpPost("sesion-manual")]
         [ProducesResponseType(typeof(List<SesionGeneradaDto>), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> CrearSesionManual([FromBody] CrearSesionManualRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            try
-            {
-                var resultado = await _sesionManualService.EjecutarAsync(request);
-                return StatusCode(StatusCodes.Status201Created, resultado);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { error = ex.Message });
-            }
-            catch (InvalidOperationException ex)
-            {
-                // Violación de hard constraint — el mensaje ya viene en español para el usuario
-                return UnprocessableEntity(new { error = ex.Message });
-            }
-            // B3 auditoría: sin catch-all aquí — GlobalExceptionHandler (A1) cubre lo demás.
+            var resultado = await _sesionManualService.EjecutarAsync(request);
+            return StatusCode(StatusCodes.Status201Created, resultado);
         }
 
         /// <summary>
@@ -143,24 +136,14 @@ namespace SOEA.API.Controllers
         [ProducesResponseType(typeof(ReacomodarHorarioResponse), StatusCodes.Status422UnprocessableEntity)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        // ERR2 auditoría: sin catch — GlobalExceptionHandler traduce KeyNotFoundException a 404 y
+        // ArgumentException a 400.
         public async Task<IActionResult> Reacomodar([FromBody] ReacomodarHorarioRequest request, CancellationToken ct)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            try
-            {
-                var resultado = await _reacomodarService.EjecutarAsync(request, ct);
-                return resultado.EsFactible ? Ok(resultado) : UnprocessableEntity(resultado);
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(new { error = ex.Message });
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { error = ex.Message });
-            }
-            // B3 auditoría: sin catch-all aquí — GlobalExceptionHandler (A1) cubre lo demás.
+            var resultado = await _reacomodarService.EjecutarAsync(request, ct);
+            return resultado.EsFactible ? Ok(resultado) : UnprocessableEntity(resultado);
         }
     }
 }

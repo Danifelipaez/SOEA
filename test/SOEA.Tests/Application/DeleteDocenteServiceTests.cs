@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using SOEA.Application.Features.Docentes;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
+using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
 using Xunit;
 
@@ -48,7 +49,7 @@ namespace SOEA.Tests.Application
         }
 
         [Fact]
-        public async Task LanzaInvalidOperation_ConConteo_SiTieneGruposAsignados()
+        public async Task LanzaBusinessRuleViolation_ConConteo_SiTieneGruposAsignados()
         {
             var docente = Existente(Guid.NewGuid());
             var docenteRepo = new FakeDocenteRepo(docente);
@@ -57,7 +58,7 @@ namespace SOEA.Tests.Application
                 new Grupo(Guid.NewGuid(), "G2", Guid.NewGuid(), 30, docenteId: docente.Id));
             var service = new DocenteService(docenteRepo, grupoRepo);
 
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            var ex = await Assert.ThrowsAsync<BusinessRuleViolationException>(
                 () => service.DeleteAsync(docente.Id));
 
             Assert.Contains("2", ex.Message);

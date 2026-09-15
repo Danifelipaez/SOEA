@@ -172,9 +172,10 @@ namespace SOEA.Tests.Engine.ConstraintProg
 
         // ── Bi-semanal (Incremento 1) ──────────────────────────────────────────────
 
-        // Cada sesión factible produce exactamente dos AsignacionSemanal (Semana A y B).
+        // Regla 9 / ALT-05: la franja es un dato único que aplica a todas las semanas, así que
+        // cada sesión produce UNA sola AsignacionSemanal, en su semana canónica.
         [Fact]
-        public async Task SesionFactible_ProduceDosAsignaciones_UnaPorSemana()
+        public async Task SesionFactible_ProduceUnaAsignacionCanonica()
         {
             var bloques = CrearBloques(3);
             var docente = CrearDocente(maxHoras: 20m, bloquesDisponibles: bloques);
@@ -184,16 +185,15 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 new[] { sesion }, bloques, Enumerable.Empty<Espacio>());
 
             Assert.True(resultado.EsFactible);
-            var delaSesion = resultado.Asignaciones.Where(a => a.SesionId == sesion.Id).ToList();
-            Assert.Equal(2, delaSesion.Count);
-            Assert.Single(delaSesion, a => a.Semana == SemanaAcademica.A);
-            Assert.Single(delaSesion, a => a.Semana == SemanaAcademica.B);
+            var fila = Assert.Single(resultado.Asignaciones, a => a.SesionId == sesion.Id);
+            // "A" para lo que no alterna significa "todas las semanas", no "solo la impar".
+            Assert.Equal(SemanaAcademica.A, fila.Semana);
         }
 
-        // Regla 9: para alternancia (TipoA/TipoB) la franja es la misma en ambas semanas
-        // (la virtual hereda la franja de la presencial mediante start[A] == start[B]).
+        // Un TipoA suelto: presencial, con aula, y su fila vive en la semana A. La contraparte
+        // virtual de la semana B no se persiste (no reserva aula): se deriva al construir el DTO.
         [Fact]
-        public async Task SesionTipoA_MismaFranjaEnAmbasSemanas_YModalidadDerivada()
+        public async Task SesionTipoA_ProduceUnaFilaPresencialEnSemanaA()
         {
             var bloques = CrearBloques(4);
             var docente = CrearDocente(maxHoras: 20m, bloquesDisponibles: bloques);
@@ -204,17 +204,28 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 new[] { sesion }, bloques, new[] { lab });
 
             Assert.True(resultado.EsFactible);
-            var a = resultado.Asignaciones.Single(x => x.SesionId == sesion.Id && x.Semana == SemanaAcademica.A);
-            var b = resultado.Asignaciones.Single(x => x.SesionId == sesion.Id && x.Semana == SemanaAcademica.B);
+            var fila = Assert.Single(resultado.Asignaciones, x => x.SesionId == sesion.Id);
+            Assert.Equal(SemanaAcademica.A, fila.Semana);
+            Assert.Equal(Modalidad.Presencial, fila.Modalidad);
+            Assert.NotNull(fila.EspacioId);
+        }
 
-            // Misma franja en ambas semanas (regla 9).
-            Assert.Equal(a.BloqueTiempoId, b.BloqueTiempoId);
+        // Lo que NO alterna ocupa su aula en las DOS semanas, así que no puede compartir bloque y
+        // aula ni siquiera con un TipoB. Es el caso que el índice único de BD ya no puede ver.
+        [Fact]
+        public async Task NoPareada_OcupaAulaEnAmbasSemanas_BloqueaAlMiembroTipoB()
+        {
+            var bloques = CrearBloques(1); // un solo bloque: obliga a competir
+            var lab = CrearLaboratorio();
+            var docente = CrearDocente(maxHoras: 20m, bloquesDisponibles: bloques);
 
-            // TipoA: presencial en A (con espacio), virtual en B (sin espacio).
-            Assert.Equal(Modalidad.Presencial, a.Modalidad);
-            Assert.NotNull(a.EspacioId);
-            Assert.Equal(Modalidad.Virtual, b.Modalidad);
-            Assert.Null(b.EspacioId);
+            var fija  = CrearSesionPresencial(docente.Id, TipoAlternancia.SinAlternancia, 1m, lab.Id);
+            var tipoB = CrearSesionPresencial(docente.Id, TipoAlternancia.TipoB, 1m, lab.Id);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { fija, tipoB }, bloques, new[] { lab });
+
+            Assert.False(resultado.EsFactible);
         }
 
         // El valor central del modelo bi-semanal: un TipoA y un TipoB pueden compartir el
@@ -521,7 +532,15 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, grupoId,
                     TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual)
             ).ToList();
-            var fija = new Sesion(Guid.NewGuid(), asigId, null, Guid.NewGuid(), null, grupoId,
+            // VAL3 auditoría: una sesión fija DEBE traer un BloqueTiempoId resoluble en la MISMA
+            // lista de bloques que recibe el solver — CP-SAT ahora reporta infactibilidad explícita
+            // si no lo trae, en vez de dejarla como variable libre en silencio (antes de VAL3, un
+            // Guid.NewGuid() aquí pasaba desapercibido porque la igualdad nunca se llegaba a fijar).
+            // Día elegido con cuidado: con 1 bloque/día y las 3 libres compartiendo grupoId con la
+            // fija, HC-C01 exige que ninguna libre caiga el mismo día que la fija. Con 5 días y
+            // separación ≥2 entre las 3 libres, {lunes, miércoles, viernes} (índices 0,2,4) es la
+            // ÚNICA terna posible — así que la fija debe caer en martes o jueves (índices 1,3).
+            var fija = new Sesion(Guid.NewGuid(), asigId, null, bloques[1].Id, null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
             var sesiones = libres.Append(fija).ToList();
 
@@ -697,14 +716,14 @@ namespace SOEA.Tests.Engine.ConstraintProg
 
             Assert.True(resultado.EsFactible, resultado.MensajeError);
 
-            var a1A = resultado.Asignaciones.Single(a => a.SesionId == s1.Id && a.Semana == SemanaAcademica.A);
-            var a2A = resultado.Asignaciones.Single(a => a.SesionId == s2.Id && a.Semana == SemanaAcademica.A);
-            Assert.Equal(a1A.BloqueTiempoId, a2A.BloqueTiempoId); // mismo horario
+            var a1 = Assert.Single(resultado.Asignaciones, a => a.SesionId == s1.Id);
+            var a2 = Assert.Single(resultado.Asignaciones, a => a.SesionId == s2.Id);
 
-            var a2B = resultado.Asignaciones.Single(a => a.SesionId == s2.Id && a.Semana == SemanaAcademica.B);
-            Assert.Equal(salon.Id, a1A.EspacioId);   // s1 presencial en semana A
-            Assert.Equal(salon.Id, a2B.EspacioId);   // s2 presencial en semana B
-            Assert.Equal(a1A.EspacioId, a2B.EspacioId); // mismo espacio entre semanas presenciales
+            Assert.Equal(a1.BloqueTiempoId, a2.BloqueTiempoId);   // mismo horario
+            Assert.Equal(salon.Id, a1.EspacioId);                 // s1 presencial en semana A
+            Assert.Equal(salon.Id, a2.EspacioId);                 // s2 presencial en semana B
+            Assert.Equal(SemanaAcademica.A, a1.Semana);
+            Assert.Equal(SemanaAcademica.B, a2.Semana);
         }
     }
 }

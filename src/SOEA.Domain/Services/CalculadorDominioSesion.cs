@@ -32,8 +32,15 @@ namespace SOEA.Domain.Services
         /// <summary>
         /// HC-G01: índices de bloque cuyo [día, horaInicio, horaFin] cae en la disponibilidad
         /// declarada del grupo (A1 — granularidad por día, no la franja Matutino/Vespertino de
-        /// antes). Null = sin restricción (disponibilidad vacía o sin coincidencias — semántica
-        /// histórica: un filtro que vaciaría el dominio se trata como "sin información").
+        /// antes). Null = sin restricción real (todo bloque permitido — disponibilidad vacía o sin
+        /// coincidencias). Un <see cref="HashSet{T}"/> VACÍO (no null) = el grupo se declaró
+        /// no-disponible TODA la semana: un dominio genuinamente vacío, no "sin información".
+        /// H3 auditoría: antes ambos casos devolvían null por igual ("un filtro que vaciaría el
+        /// dominio se trata como sin información"), así que un grupo cerrado toda la semana se
+        /// programaba a cualquier hora — lo opuesto de lo que dicen los datos. Los llamadores
+        /// (<see cref="BloquesPlanner.StartsValidos"/>) ya tratan un set no-null vacío como "ningún
+        /// inicio válido", que a su vez ya se reporta como infactibilidad clara aguas arriba — no
+        /// hace falta tocar ningún llamador para que este fix surta efecto.
         /// </summary>
         public static HashSet<int>? BloquesPermitidos(
             IReadOnlyList<BloqueTiempo> bloques,
@@ -43,7 +50,7 @@ namespace SOEA.Domain.Services
             for (int i = 0; i < bloques.Count; i++)
                 if (disponibilidad.PermiteBloque(bloques[i].Dia, bloques[i].HoraInicio, bloques[i].HoraFin))
                     permitidos.Add(i);
-            return permitidos.Count > 0 && permitidos.Count < bloques.Count ? permitidos : null;
+            return permitidos.Count == bloques.Count ? null : permitidos;
         }
 
         /// <summary>

@@ -48,8 +48,8 @@ El enum `SemanaAcademica { A, B }` identifica cada semana del ciclo. La entidad 
 | ALT-02 | Dos Tipo A **no** pueden compartir espacio/franja en la misma semana |
 | ALT-03 | Dos Tipo B **no** pueden compartir espacio/franja en la misma semana |
 | ALT-04 | Sesiones virtuales no consumen capacidad de espacio (`EspacioId = null`) |
-| ALT-05 | Para TipoA/TipoB la **franja** es la misma en ambas semanas (regla 9 — la virtual hereda el bloque de la presencial) |
-| ALT-06 | `SinAlternancia` = presencial en ambas semanas; puede diferir de franja entre A y B |
+| ALT-05 | Una sesión asignada a un día/hora aplica a **todas** las semanas del semestre. Cambia la modalidad, nunca la franja ni el aula |
+| ALT-06 | `SinAlternancia` = presencial en ambas semanas, y por eso ocupa su aula en las dos: no libera capacidad para nadie |
 
 Impacto en Fase 1 (`ConstructorGrafoConflictos.TienenConflicto`, verificado en código — corrige una versión anterior de esta nota): hay arista en el grafo de conflictos si **(a)** ambas sesiones comparten el mismo `GrupoId` (eje primario, CR-08), o **(b)** ambas comparten el mismo `EspacioId` — salvo que una sea TipoA y la otra TipoB (excepción ALT-01, nunca coinciden físicamente la misma semana). El `TipoAlternancia` **no** genera arista por sí solo si no hay grupo o espacio en común. La Fase 1 opera sobre sesiones lógicas (sin semana) — no cambia.
 
@@ -59,7 +59,11 @@ Impacto en Fase 1 (`ConstructorGrafoConflictos.TienenConflicto`, verificado en c
 
 ## Restricciones duras (hard constraints)
 
-El motor CP-SAT (Fase 2) las aplica todas **por semana** (A y B por separado). Un horario con violations > 0 no puede publicarse.
+El motor CP-SAT (Fase 2) aplica los ejes **temporales** (HC-C01, HC-SEP, HC-VH, HC-G01) de forma independiente de la semana: la sesión cae en la misma franja todas las semanas, y una que alterna sigue consumiendo el tiempo de su cohorte la semana en que se dicta en línea. Solo el eje de **aula** (HC-S01) es por semana, porque una sesión virtual libera su espacio — ver `ModalidadSemanal.SemanasQueOcupanEspacio`. Un horario con violations > 0 no puede publicarse.
+
+**Persistencia:** se guarda UNA fila `AsignacionSemanal` por sesión, en su semana canónica (la semana en que es presencial; "A" para lo que no alterna significa "todas las semanas"). La contraparte virtual de una sesión que alterna se **deriva** al construir el DTO: no reserva aula, así que guardarla sería ruido.
+
+**Límite conocido del índice único de BD.** `ux_asignacion_semanal_espacio_conflicto (espacio_id, semana, bloque_tiempo_id)` no puede ver el choque entre una sesión que no alterna (fila en A, aula ocupada también en B) y un miembro TipoB (fila en B): los valores de `semana` difieren. No se puede endurecer, porque una pareja comparte legítimamente aula y bloque entre semanas y SQL no ve `pareja_alternancia_id`. La garantía real vive en HC-S01 de `ValidadorRestriccionesDuras`, más el NoOverlap por (espacio, semana) de CP-SAT y del asignador de aulas.
 
 ### Espacio
 | ID | Regla | Evaluación |
@@ -95,7 +99,7 @@ El motor CP-SAT (Fase 2) las aplica todas **por semana** (A y B por separado). U
 |---|---|---|
 | HC-C01 | Una cohorte/grupo no puede tener dos sesiones en la misma franja (presencial o virtual) | por `(grupo, Semana)`; re-verificada en el validador post-gen |
 | HC-G01 | Si el grupo declara disponibilidad (Matutino/Vespertino), toda sesión inicia dentro de esa franja | dominio de inicios en las 3 fases (`CalculadorDominioSesion`, auditoría A1); re-verificada en el validador post-gen |
-| HC-SEP | Sesiones semanales repetidas del mismo `(grupo, asignatura, TipoSesion)` deben quedar separadas por al menos 2 posiciones de día de la semana | **implementada** (nueva, agosto 2026): CP-SAT vía `AddElement` sobre el día de cada `start`, más re-verificación en el validador post-gen |
+| HC-SEP | Cuando hay ≥2 sesiones semanales del mismo `(grupo, asignatura, TipoSesion)`, cada par debe quedar separado por al menos 2 posiciones de día de la semana (no aplica con 1 sola sesión) | **implementada** (nueva, agosto 2026): CP-SAT vía `AddElement` sobre el día de cada `start`, más re-verificación en el validador post-gen |
 | HC-ALT | Toda pareja de sesiones con el mismo `ParejaAlternanciaId` debe tener tipos opuestos (TipoA/TipoB), coincidir de bloque en su semana presencial y compartir el mismo espacio físico entre semanas | **implementada** (nueva, agosto 2026 — "alternancia por parejas"/Tipo C dinámico): CP-SAT + re-verificada en el validador post-gen. Etiquetada `VERIFICA` en el código: implementada y probada, pendiente de confirmación formal con la coordinadora académica |
 | HC-C02 | Horas totales programadas deben coincidir con la malla curricular | **no implementada** (C3 auditoría) |
 

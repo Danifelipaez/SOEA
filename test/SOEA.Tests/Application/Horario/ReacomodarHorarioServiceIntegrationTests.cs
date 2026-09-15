@@ -9,6 +9,7 @@ using SOEA.Application.Features.Horario.Requests;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.Services;
 using SOEA.Engine.ConstraintProg;
 using SOEA.Engine.Genetic;
 using SOEA.Engine.GraphColoring;
@@ -34,6 +35,7 @@ namespace SOEA.Tests.Application.Horario
             public Task<SOEA.Domain.Entities.Horario?> GetBySemestreAsync(string semestre) =>
                 Task.FromResult(Items.FirstOrDefault(h => h.Semestre == semestre));
             public Task<List<SOEA.Domain.Entities.Horario>> GetAllAsync() => Task.FromResult(Items.ToList());
+            public Task<List<SOEA.Domain.Entities.Horario>> GetAllBySemestreAsync(string semestre) => Task.FromResult(Items.Where(h => h.Semestre == semestre).ToList());
             public Task AddAsync(SOEA.Domain.Entities.Horario horario) { Items.Add(horario); return Task.CompletedTask; }
             public Task UpdateAsync(SOEA.Domain.Entities.Horario horario) => Task.CompletedTask;
         }
@@ -47,7 +49,12 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<Sesion>> GetAllAsync() => Task.FromResult(Items.ToList());
             public Task UpdateAsync(Sesion entity) { Items.RemoveAll(s => s.Id == entity.Id); Items.Add(entity); return Task.CompletedTask; }
             public Task DeleteAsync(Guid id) { Items.RemoveAll(s => s.Id == id); return Task.CompletedTask; }
-            public Task<bool> ExisteAsync(Guid asignaturaId, Guid docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
+            public Task DeleteRangeAsync(IEnumerable<Guid> ids) { var set = ids.ToHashSet(); Items.RemoveAll(s => set.Contains(s.Id)); return Task.CompletedTask; }
+            public Task<List<Sesion>> GetByIdsAsync(IEnumerable<Guid> ids) { var set = ids.ToHashSet(); return Task.FromResult(Items.Where(s => set.Contains(s.Id)).ToList()); }
+            public Task<bool> ExisteAsync(Guid asignaturaId, Guid? docenteId, Guid bloqueTiempoId) => Task.FromResult(false);
+            public Task<List<Guid>> GetIdsByGrupoIdAsync(Guid grupoId) => Task.FromResult(new List<Guid>());
+            public Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId) => Task.FromResult(new List<Guid>());
+            public Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId) => Task.FromResult(new List<Guid>());
         }
 
         private sealed class FakeAsignacionRepo : IAsignacionSemanalRepositorio
@@ -59,6 +66,7 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<AsignacionSemanal>> GetAllAsync() => Task.FromResult(Items.ToList());
             public Task UpdateAsync(AsignacionSemanal entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) { Items.RemoveAll(a => a.Id == id); return Task.CompletedTask; }
+            public Task DeleteBySesionIdsAsync(IEnumerable<Guid> sesionIds) { var set = sesionIds.ToHashSet(); Items.RemoveAll(a => set.Contains(a.SesionId)); return Task.CompletedTask; }
             public Task<List<AsignacionSemanal>> GetBySesionIdsAsync(IEnumerable<Guid> sesionIds)
             {
                 var set = sesionIds.ToHashSet();
@@ -249,7 +257,7 @@ namespace SOEA.Tests.Application.Horario
             Assert.Empty(resultado.Advertencias); // nada chocó: no hubo que invocar CP-SAT
 
             var sesionADespues = resultado.Sesiones.Where(s => s.Id == sesionA.Id.ToString()).ToList();
-            Assert.Equal(2, sesionADespues.Count); // semana A + B
+            Assert.Single(sesionADespues); // una fila: aplica a todas las semanas
             Assert.All(sesionADespues, s => Assert.Equal("viernes", s.Dia));
             Assert.All(sesionADespues, s => Assert.Equal("20:00", s.HoraInicio));
 
@@ -294,9 +302,112 @@ namespace SOEA.Tests.Application.Horario
             Assert.All(filasA, s => Assert.Equal(dtoB.EspacioId, s.EspacioId));
 
             var filasB = resultado.Sesiones.Where(s => s.Id == sesionB.Id.ToString()).ToList();
-            Assert.Equal(2, filasB.Count);
+            Assert.Single(filasB);
             // B ya no puede seguir en el mismo (día, hora, espacio) que A: eso era justo el choque.
             Assert.All(filasB, s => Assert.False(s.Dia == dtoB.Dia && s.HoraInicio == dtoB.HoraInicio && s.EspacioId == dtoB.EspacioId));
+        }
+
+        // ── Fixture directo (sin pasar por GenerarHorarioService): da control total sobre qué
+        // aula queda en la AsignacionSemanal de cada sesión frente a cuál queda en Sesion.EspacioId
+        // — la distinción exacta que estos dos bugs necesitan reproducir. Sesion.EspacioId es el
+        // requisito de aula FIJA (HC-S05); casi siempre null, incluso para una sesión presencial
+        // con aula real asignada por CP-SAT — esa vive solo en su AsignacionSemanal.
+
+        private static BloqueTiempo BloqueReal(DiaDeSemana dia, int hora) =>
+            GrillaInstitucional.GenerarBloques().Single(b => b.Dia == dia && b.HoraInicio == new TimeOnly(hora, 0));
+
+        private Sesion SesionSinAulaFija(Guid asignaturaId, Guid grupoId, Guid bloqueId) =>
+            new(Guid.NewGuid(), asignaturaId, docenteId: null, bloqueId, espacioId: null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, duracionHoras: 2m, esBloque: false, estaDividida: false,
+                tipoFlujo: TipoFlujo.AulaVirtual); // teoría presencial ⇒ cualquier Salón sirve (no exige Laboratorio)
+
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.5 — bug 1/2): mover una sesión sin volver
+        /// a especificar EspacioId en la petición ("no tocar el aula actual") reconstruía la fila
+        /// nueva desde Sesion.EspacioId en vez de desde la AsignacionSemanal actual — para
+        /// cualquier sesión sin aula FIJA (la inmensa mayoría), eso es null, así que el aula real
+        /// desaparecía en silencio con EsFactible=true. Habría fallado antes del fix
+        /// (EspacioId nulo en la respuesta en vez de Salón 1).
+        /// </summary>
+        [Fact]
+        public async Task MoverSesionSinReespecificarEspacio_ConservaElAulaQueYaTenia()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+
+            var bloqueLunes  = BloqueReal(DiaDeSemana.Lunes, 8);
+            var bloqueMartes = BloqueReal(DiaDeSemana.Martes, 8);
+
+            var sesionA = SesionSinAulaFija(_asigAId, _grupoAId, bloqueLunes.Id);
+            sesionRepo.Items.Add(sesionA);
+            asigRepo.Items.Add(new AsignacionSemanal(Guid.NewGuid(), sesionA.Id, SemanaAcademica.A, bloqueLunes.Id, _salon1Id, Modalidad.Presencial));
+            var horario = new SOEA.Domain.Entities.Horario(Guid.NewGuid(), "2026-1", new List<Guid> { sesionA.Id });
+            horarioRepo.Items.Add(horario);
+
+            var reacomodarSvc = CrearReacomodarServicio(horarioRepo, sesionRepo, asigRepo, uow);
+            var resultado = await reacomodarSvc.EjecutarAsync(new ReacomodarHorarioRequest
+            {
+                HorarioId = horario.Id,
+                SesionEditadaId = sesionA.Id,
+                Dia = "martes",
+                HoraInicio = "08:00"
+                // EspacioId se omite a propósito: "no tocar el aula actual".
+            });
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            var fila = Assert.Single(resultado.Sesiones);
+            Assert.Equal(_salon1Id.ToString(), fila.EspacioId);
+        }
+
+        /// <summary>
+        /// Regresión (auditoría de limpieza, hallazgo 1.5 — bug 2/2): el detector de choques solo
+        /// comparaba contra `espacioNuevo` (el de la petición). Si la petición no trae uno ("no
+        /// tocar el aula actual"), nunca comprobaba si la sesión editada, quedándose en SU PROPIA
+        /// aula, colisionaba con otra sesión que ya estaba ahí en la nueva franja — "reacomodar"
+        /// podía aterrizar dos sesiones en la misma aula a la misma hora con EsFactible=true.
+        /// Habría fallado antes del fix (EsFactible=true con ambas sesiones en Salón 1 el martes
+        /// a las 08:00, en vez de reubicar una o reportar infactibilidad).
+        /// </summary>
+        [Fact]
+        public async Task MoverSesionSinReespecificarEspacio_DetectaChoqueContraSuPropiaAulaActual()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+
+            var bloqueLunes  = BloqueReal(DiaDeSemana.Lunes, 8);
+            var bloqueMartes = BloqueReal(DiaDeSemana.Martes, 8);
+
+            // A y B ya comparten aula (Salón 1) hoy, pero en días distintos — sin conflicto todavía.
+            var sesionA = SesionSinAulaFija(_asigAId, _grupoAId, bloqueLunes.Id);
+            var sesionB = SesionSinAulaFija(_asigBId, _grupoBId, bloqueMartes.Id);
+            sesionRepo.Items.Add(sesionA);
+            sesionRepo.Items.Add(sesionB);
+            asigRepo.Items.Add(new AsignacionSemanal(Guid.NewGuid(), sesionA.Id, SemanaAcademica.A, bloqueLunes.Id, _salon1Id, Modalidad.Presencial));
+            asigRepo.Items.Add(new AsignacionSemanal(Guid.NewGuid(), sesionB.Id, SemanaAcademica.A, bloqueMartes.Id, _salon1Id, Modalidad.Presencial));
+            var horario = new SOEA.Domain.Entities.Horario(Guid.NewGuid(), "2026-1", new List<Guid> { sesionA.Id, sesionB.Id });
+            horarioRepo.Items.Add(horario);
+
+            var reacomodarSvc = CrearReacomodarServicio(horarioRepo, sesionRepo, asigRepo, uow);
+            // Mover A al slot de B, sin especificar EspacioId: A se queda en Salón 1 (el que ya
+            // tenía) — que es justo el aula que B ya ocupa ese día y hora.
+            var resultado = await reacomodarSvc.EjecutarAsync(new ReacomodarHorarioRequest
+            {
+                HorarioId = horario.Id,
+                SesionEditadaId = sesionA.Id,
+                Dia = "martes",
+                HoraInicio = "08:00"
+            });
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            var filasEnSalon1MartesA8 = resultado.Sesiones
+                .Where(s => s.Dia == "martes" && s.HoraInicio == "08:00" && s.EspacioId == _salon1Id.ToString())
+                .ToList();
+            // Nunca dos sesiones presenciales en la misma aula, mismo día, misma hora.
+            Assert.Single(filasEnSalon1MartesA8);
         }
     }
 }

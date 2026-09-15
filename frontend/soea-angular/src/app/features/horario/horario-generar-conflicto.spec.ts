@@ -132,6 +132,20 @@ describe('HorarioComponent.generarHorario() — banner persistente (mensajeInfac
     expect(component.mensajeInfactible()).not.toMatch(/HC-|Infeasible/i);
   });
 
+  it('un fallo con motivo/grupos estructurados llena el banner aunque el mensaje no diga "factible"', () => {
+    // Fase 1 auditoría: antes solo se traducía si el texto crudo contenía "factible"/"infeasible"
+    // — una violación de reglas post-GA (sin esas palabras) dejaba el banner vacío.
+    horarioApi.generarHorario.mockReturnValue(throwError(() => ({
+      esFactible: false, mensajeError: 'El horario viola HC-SEP.', motivoInfactibilidad: 'FranjaGrupo',
+    })));
+
+    component.generarHorario();
+
+    expect(component.mensajeInfactible()).not.toBe('');
+    expect(component.mensajeInfactible()).toMatch(/disponibilidad/i);
+    expect(component.mensajeInfactible()).not.toMatch(/HC-/i);
+  });
+
   it('una generación exitosa limpia mensajeInfactible() de un intento previo', () => {
     component.mensajeInfactible.set('mensaje viejo');
     horarioApi.generarHorario.mockReturnValue(of({
