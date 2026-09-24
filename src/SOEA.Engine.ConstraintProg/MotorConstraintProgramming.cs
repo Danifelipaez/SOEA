@@ -81,6 +81,15 @@ namespace SOEA.Engine.ConstraintProg
 
         private static IReadOnlyList<AsignacionSemanal> SinAsignaciones => Array.Empty<AsignacionSemanal>();
 
+        /// <summary>Nombre en español (para mensajes del pre-chequeo de capacidad) de un TipoEspacio.</summary>
+        private static string NombreClaseEspacio(TipoEspacio tipo) => tipo switch
+        {
+            TipoEspacio.Laboratorio => "laboratorios",
+            TipoEspacio.Salon       => "salones",
+            TipoEspacio.Auditorio   => "auditorios",
+            _                       => tipo.ToString().ToLowerInvariant()
+        };
+
         private ResultadoFactibilidad ResolverSincrono(
             List<Sesion> sesiones,
             List<BloqueTiempo> bloques,
@@ -127,16 +136,25 @@ namespace SOEA.Engine.ConstraintProg
                 return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Otro);
             }
 
+            // HC-S03/HC-S05: requisitos de espacio por grupo (A2), indexados por GrupoId. Se
+            // construye aquí (antes vivía junto a las variables del solve, más abajo) porque el
+            // pre-chequeo de capacidad que sigue también necesita el requisito por sesión, no solo
+            // su TipoSesion por defecto — ver bug M1-bis más abajo.
+            var requisitosPorGrupo = grupos
+                .Where(gr => gr.Id != Guid.Empty)
+                .GroupBy(gr => gr.Id)
+                .ToDictionary(gr => gr.Key, gr => gr.First().RequisitosEspacio);
+
             // ── Capacidad de espacios vs demanda presencial POR SEMANA Y POR CLASE ──────────
-            // M1 (auditoría): antes sumaba TODOS los espacios en una sola bolsa — un run con 20
-            // salones y 0 laboratorios pasaba este chequeo aunque toda sesión de laboratorio
-            // estuviera condenada a fallar más abajo, y el mensaje de error hablaba de "espacios"
-            // en general en vez de nombrar el tipo que realmente falta. Partición barata (no
-            // sustituye el filtrado exacto de CalculadorEspaciosSesion.Candidatos, que sí respeta
-            // el espacio fijo/tipo del requisito de grupo): Laboratorio vs el resto — las dos clases
-            // que gobierna la regla por defecto de TipoSesion. Virtuales no ocupan espacio.
-            int espaciosLab   = espacios.Count(e => e.Tipo == TipoEspacio.Laboratorio);
-            int espaciosNoLab = espacios.Count - espaciosLab;
+            // M1-bis (auditoría QA producción): clasificar solo por TipoSesion (Laboratorio vs el
+            // resto) ignoraba el RequisitoEspacio.TipoEspacio explícito de un grupo (p. ej. forzar
+            // que una Teoría Presencial solo use Laboratorio) — esa sesión caía en la bolsa
+            // "salones/auditorios" y se rechazaba aunque el laboratorio real estuviera libre y el
+            // solve de más abajo (que sí respeta el requisito vía CalculadorEspaciosSesion.Candidatos)
+            // la hubiera ubicado sin problema. Ahora cada sesión resuelve su bolsa con la MISMA
+            // prioridad que CalculadorEspaciosSesion.CumpleTipo: TipoEspacio explícito del requisito
+            // > default por TipoSesion. El espacio fijo (de sesión o de requisito) sigue fuera de
+            // este pre-chequeo rápido — gap preexistente, ya cubierto para el solve real por HC-S05.
             foreach (var semana in Semanas)
             {
                 // Fuente única de la ocupación de aula: una sesión que no alterna cuenta en las DOS
@@ -144,43 +162,81 @@ namespace SOEA.Engine.ConstraintProg
                 var presencialesSemana = sesiones
                     .Where(s => ModalidadSemanal.SemanasQueOcupanEspacio(s).Contains(semana))
                     .ToList();
-                foreach (var (esLab, nombreClase, capacidadEspacios) in new[]
-                         {
-                             (true,  "laboratorios", espaciosLab),
-                             (false, "salones/auditorios", espaciosNoLab)
-                         })
+
+                var demandaPorTipoDuro = new Dictionary<TipoEspacio, decimal>();
+                decimal demandaFlexible = 0m;
+
+                foreach (var sesionPresencial in presencialesSemana)
                 {
-                    decimal demanda = presencialesSemana
-                        .Where(s => (CalculadorEspaciosSesion.TipoSesionDe(s) == TipoSesion.Laboratorio) == esLab)
-                        .Sum(s => s.DuracionHoras);
-                    if (demanda == 0) continue;
+                    var tipoSesion = CalculadorEspaciosSesion.TipoSesionDe(sesionPresencial);
+                    RequisitoEspacio? requisito = sesionPresencial.GrupoId.HasValue &&
+                        requisitosPorGrupo.TryGetValue(sesionPresencial.GrupoId.Value, out var reqs)
+                        ? reqs.FirstOrDefault(r => r.TipoSesion == tipoSesion)
+                        : null;
 
-                    int capacidadHoras = capacidadEspacios * bloques.Count;
+                    // Espacio fijo del requisito: fuera de alcance de este pre-chequeo (gap
+                    // preexistente) — cae al default por TipoSesion, igual que antes del fix.
+                    TipoEspacio? tipoDuro = requisito?.EspacioId is Guid
+                        ? (tipoSesion == TipoSesion.Laboratorio ? TipoEspacio.Laboratorio : (TipoEspacio?)null)
+                        : requisito?.TipoEspacio ?? (tipoSesion == TipoSesion.Laboratorio ? TipoEspacio.Laboratorio : (TipoEspacio?)null);
 
+                    if (tipoDuro is TipoEspacio tipo)
+                        demandaPorTipoDuro[tipo] = demandaPorTipoDuro.GetValueOrDefault(tipo) + sesionPresencial.DuracionHoras;
+                    else
+                        demandaFlexible += sesionPresencial.DuracionHoras; // TeoriaPresencial sin override de tipo
+                }
+
+                // Chequeo compartido por bolsa: registra saturación y devuelve la infactibilidad
+                // rápida si la demanda excede la capacidad disponible de esa bolsa.
+                ResultadoFactibilidad? ChequearCapacidad(
+                    string nombreClase, decimal demanda, int capacidadEspacios,
+                    decimal capacidadHorasDisponible, string notaReserva = "")
+                {
                     _logger.LogInformation(
                         "Fase 2 (CP-SAT) Semana {W} [{Clase}]: demanda presencial={Dem}h vs capacidad={Cap}h ({E} espacios × {B} bloques).",
-                        semana, nombreClase, demanda, capacidadHoras, capacidadEspacios, bloques.Count);
+                        semana, nombreClase, demanda, capacidadHorasDisponible, capacidadEspacios, bloques.Count);
 
-                    if (capacidadHoras > 0 && demanda / capacidadHoras >= UmbralSaturacion)
+                    if (capacidadHorasDisponible > 0 && demanda / capacidadHorasDisponible >= UmbralSaturacion)
                     {
                         _logger.LogWarning(
                             "Fase 2 (CP-SAT) Semana {W} [{Clase}]: demanda al {Pct:P0} de la capacidad — el modelo es " +
                             "factible en teoría pero puede saturarse y agotar el timeout. Considere más {Clase} o " +
                             "revisar la distribución de alternancia.",
-                            semana, nombreClase, demanda / capacidadHoras, nombreClase);
+                            semana, nombreClase, demanda / capacidadHorasDisponible, nombreClase);
                     }
 
-                    if (demanda > capacidadHoras)
-                    {
-                        // Camino rápido (sin resolver) que devuelve Espacio y alimenta el bucle de
-                        // cesión de GenerarHorarioService: es la vía por la que se activa la Semana B.
-                        var msg = $"No caben las {nombreClase} en la semana {semana}: se piden {demanda}h y solo hay " +
-                                  $"{capacidadHoras}h disponibles ({capacidadEspacios} espacio(s) de ese tipo × " +
-                                  $"{bloques.Count} bloques). Añada más {nombreClase}, o marque más asignaturas como " +
-                                  "candidatas a alternancia para que puedan emparejarse y compartir aula en semanas alternas.";
-                        _logger.LogError(msg);
-                        return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio);
-                    }
+                    if (demanda <= capacidadHorasDisponible) return null;
+
+                    // Camino rápido (sin resolver) que devuelve Espacio y alimenta el bucle de
+                    // cesión de GenerarHorarioService: es la vía por la que se activa la Semana B.
+                    var msg = $"No caben las {nombreClase} en la semana {semana}: se piden {demanda}h y solo hay " +
+                              $"{capacidadHorasDisponible}h disponibles ({capacidadEspacios} espacio(s) de ese tipo × " +
+                              $"{bloques.Count} bloques{notaReserva}). Añada más {nombreClase}, o marque más " +
+                              "asignaturas como candidatas a alternancia para que puedan emparejarse y compartir " +
+                              "aula en semanas alternas.";
+                    _logger.LogError(msg);
+                    return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio);
+                }
+
+                foreach (var (tipoDuro, demanda) in demandaPorTipoDuro)
+                {
+                    if (demanda == 0) continue;
+                    int capacidadEspacios = espacios.Count(e => e.Tipo == tipoDuro);
+                    var resultado = ChequearCapacidad(NombreClaseEspacio(tipoDuro), demanda, capacidadEspacios, capacidadEspacios * bloques.Count);
+                    if (resultado is not null) return resultado;
+                }
+
+                if (demandaFlexible > 0)
+                {
+                    int capacidadSalonAuditorio = espacios.Count(e => e.Tipo == TipoEspacio.Salon || e.Tipo == TipoEspacio.Auditorio);
+                    decimal reservadoPorDuras = demandaPorTipoDuro.GetValueOrDefault(TipoEspacio.Salon)
+                                              + demandaPorTipoDuro.GetValueOrDefault(TipoEspacio.Auditorio);
+                    decimal capacidadHorasDisponible = capacidadSalonAuditorio * bloques.Count - reservadoPorDuras;
+                    var notaReserva = reservadoPorDuras > 0
+                        ? $", de las cuales {reservadoPorDuras}h ya están reservadas por requisitos de tipo específico de otras sesiones"
+                        : "";
+                    var resultado = ChequearCapacidad("salones/auditorios", demandaFlexible, capacidadSalonAuditorio, capacidadHorasDisponible, notaReserva);
+                    if (resultado is not null) return resultado;
                 }
             }
 
@@ -244,12 +300,6 @@ namespace SOEA.Engine.ConstraintProg
                 .Where(gr => gr.Id != Guid.Empty)
                 .GroupBy(gr => gr.Id)
                 .ToDictionary(gr => gr.Key, gr => gr.First().EstudiantesInscritos);
-
-            // HC-S03/HC-S05: requisitos de espacio por grupo (A2), indexados por GrupoId.
-            var requisitosPorGrupo = grupos
-                .Where(gr => gr.Id != Guid.Empty)
-                .GroupBy(gr => gr.Id)
-                .ToDictionary(gr => gr.Key, gr => gr.First().RequisitosEspacio);
 
             // ── Variables: UN intervalo de longitud DuracionHoras por sesión ────────────
             // Regla 9 / ALT-05: la franja es la misma en todas las semanas, así que no hay nada

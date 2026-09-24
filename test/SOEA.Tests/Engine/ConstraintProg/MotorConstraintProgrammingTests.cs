@@ -361,6 +361,36 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
         }
 
+        // ── M1-bis (auditoría QA producción): el pre-check de capacidad clasificaba solo por
+        // TipoSesion (Laboratorio vs el resto) e ignoraba el RequisitoEspacio.TipoEspacio explícito
+        // del grupo — una Teoría Presencial forzada a "Solo laboratorio" caía en la bolsa
+        // "salones/auditorios" (0h en este escenario) y se rechazaba aunque el laboratorio real
+        // estuviera libre y el solve de verdad la hubiera ubicado ahí sin problema. Reproduce el
+        // bug confirmado en producción: 0 espacios Salon/Auditorio, 1 Laboratorio libre.
+
+        [Fact]
+        public async Task M1bis_TeoriaPresencialConRequisitoDeLaboratorio_SinSalonesDeSobra_RetornaFactible()
+        {
+            var bloques = CrearBloques(4);
+            var grupoId = Guid.NewGuid();
+            var grupo = new Grupo(grupoId, "G", Guid.NewGuid(), 20);
+            grupo.ActualizarRequisitosEspacio(new List<RequisitoEspacio>
+            {
+                new(TipoSesion.TeoriaPresencial, null, TipoEspacio.Laboratorio, 1)
+            });
+            var laboratorio = new Espacio(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 30);
+            var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { sesion }, bloques, new[] { laboratorio },
+                grupos: new[] { grupo });
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            Assert.All(resultado.Asignaciones.Where(a => a.SesionId == sesion.Id),
+                a => Assert.Equal(laboratorio.Id, a.EspacioId));
+        }
+
         // ── HC-G01: disponibilidad declarada por grupo (P1 — antes no había ni un test que le
         // pasara a CP-SAT un grupo con disponibilidad real; la disponibilidad nunca llegaba al
         // motor). Dos grupos con disponibilidad distinta deben producir dominios de inicio
