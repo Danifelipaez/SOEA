@@ -30,7 +30,7 @@ namespace SOEA.Infrastructure.Data.Repositories
             await _context.SaveChangesAsync();
         }
 
-        public async Task<T?> GetByIdAsync(Guid id)
+        public virtual async Task<T?> GetByIdAsync(Guid id)
             => await _dbSet.FindAsync(id);
 
         // Lectura de solo lectura: sin change tracking. UpdateAsync usa _dbSet.Update()
@@ -38,7 +38,7 @@ namespace SOEA.Infrastructure.Data.Repositories
         public virtual async Task<List<T>> GetAllAsync()
             => await _dbSet.AsNoTracking().ToListAsync();
 
-        public async Task UpdateAsync(T entity)
+        public virtual async Task UpdateAsync(T entity)
         {
             _dbSet.Update(entity);
             await _context.SaveChangesAsync();

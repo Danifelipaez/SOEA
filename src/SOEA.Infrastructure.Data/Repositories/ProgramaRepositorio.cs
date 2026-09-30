@@ -13,6 +13,6 @@ namespace SOEA.Infrastructure.Data.Repositories
 
         public async Task<Programa?> GetByNombreYFacultadAsync(string nombre, Guid facultadId)
             => await _dbSet.FirstOrDefaultAsync(x =>
-                EF.Functions.ILike(x.Nombre, nombre) && x.FacultadId == facultadId);
+                x.Nombre.ToLower() == nombre.ToLower() && x.FacultadId == facultadId);
     }
 }
