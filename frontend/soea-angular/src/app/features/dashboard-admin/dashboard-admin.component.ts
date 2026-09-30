@@ -1,6 +1,7 @@
 import { Component, inject, computed, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StateService } from '../../core/state.service';
+import { HORAS_AULA_SEMANA } from '../../core/jornada';
 import { CatalogoService } from '../../core/catalogo.service';
 import { RouterModule } from '@angular/router';
 import { mensajeInfactibilidadAmigable } from '../horario/horario.component';
@@ -164,9 +165,10 @@ export class DashboardAdminComponent implements OnInit {
     return t ? Math.round((this.totalPresenciales() / t) * 100) : 0;
   });
 
-  // Ocupación en HORAS-aula, no en conteo de sesiones: 16 franjas (06:00-21:00) × 6 días × aulas.
-  // Antes dividía un conteo de filas entre un conteo de slots, dos magnitudes distintas.
-  private totalHorasAula = computed(() => this.state.espacios().length * 16 * 6);
+  // Ocupación en HORAS-aula, no en conteo de sesiones: horas semanales de una aula (88: el sábado cierra a las
+  // 14:00, ver core/jornada.ts) × aulas. Antes dividía un conteo de filas entre un conteo de slots, y luego usó
+  // 16 × 6 = 96 h contando el sábado completo (L-6).
+  private totalHorasAula = computed(() => this.state.espacios().length * HORAS_AULA_SEMANA);
   private horasPresenciales = computed(() =>
     this.sesionesUnicas().filter(s => !s.virtual).reduce((acc, s) => acc + s.horas, 0));
   ocupacionPct = computed(() => { const t = this.totalHorasAula(); return t ? Math.round((this.horasPresenciales() / t) * 100) : 0; });
