@@ -90,8 +90,7 @@ namespace SOEA.Engine.GraphColoring
                 duraciones[s.Id] = dur;
 
                 HashSet<int>? permGrupo = null;
-                if (s.GrupoId.HasValue)
-                    bloquesPermitidosPorGrupo.TryGetValue(s.GrupoId.Value, out permGrupo);
+                bloquesPermitidosPorGrupo.TryGetValue(s.GrupoId, out permGrupo);
 
                 (TimeOnly? min, TimeOnly? max) ventana = default;
                 ventanaPorAsignatura?.TryGetValue(s.AsignaturaId, out ventana);
