@@ -1,4 +1,5 @@
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.ValueObjects;
 using SOEA.Application.Features.Sesiones;
 
 namespace SOEA.Application.Features.Grupos;
@@ -20,6 +21,18 @@ public class GrupoService
         _repository = repository;
         _sesionCascade = sesionCascade;
         _uow = uow;
+    }
+
+    /// <summary>
+    /// Reglas de los datos editables de un grupo al guardarlo desde el catálogo. Una disponibilidad ilegible
+    /// (o con una franja de horas imposible) se guardaba y al generar el grupo quedaba en silencio sin
+    /// restricción. No va en el setter de la entidad: la generación tolera una disponibilidad inválida con un aviso.
+    /// </summary>
+    public static void ValidarDatos(string? disponibilidadUiJson, IEnumerable<RequisitoEspacio> requisitos)
+    {
+        DisponibilidadSemanal.ExigirValido(disponibilidadUiJson, "del grupo");
+        if (requisitos.Any(r => r.Sesiones < 0))
+            throw new ArgumentException("Las sesiones de un requisito de espacio no pueden ser negativas.");
     }
 
     public async Task DeleteAsync(Guid id)

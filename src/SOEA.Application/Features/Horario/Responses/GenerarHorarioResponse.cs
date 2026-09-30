@@ -6,7 +6,9 @@ namespace SOEA.Application.Features.Horario.Responses
     /// </summary>
     public class GenerarHorarioResponse
     {
-        public Guid   HorarioId      { get; set; }
+        /// <summary>Id del horario persistido. Null cuando la generación no produjo ninguno (infactible, plazo agotado):
+        /// NEW-10 auditoría 2026-09-28 — antes se devolvía un Guid aleatorio distinto en cada intento fallido.</summary>
+        public Guid?  HorarioId      { get; set; }
         public string Semestre       { get; set; } = string.Empty;
         public bool   EsFactible     { get; set; }
         public decimal PuntajeFitness { get; set; }

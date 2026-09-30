@@ -13,21 +13,37 @@ public class AsignaturaService
     private readonly IGrupoRepositorio _grupoRepository;
     private readonly SesionCascadeService _sesionCascade;
     private readonly IUnitOfWork _uow;
+    private readonly IProgramaRepositorio? _programaRepository;
 
+    // programaRepository es opcional (null = sin esa comprobación) para no romper la firma en los tests
+    // existentes que no lo proveen; el DI de producción siempre lo inyecta.
     public AsignaturaService(
         IAsignaturaRepositorio repository,
         IGrupoRepositorio grupoRepository,
         SesionCascadeService sesionCascade,
-        IUnitOfWork uow)
+        IUnitOfWork uow,
+        IProgramaRepositorio? programaRepository = null)
     {
         _repository = repository;
         _grupoRepository = grupoRepository;
         _sesionCascade = sesionCascade;
         _uow = uow;
+        _programaRepository = programaRepository;
+    }
+
+    /// <summary>
+    /// DB-6 auditoría 2026-09-28: un programa inexistente es un problema del REQUEST (400 con mensaje
+    /// claro), no un 409 genérico de la FK Asignaturas.programa_id ni, como antes de la FK, un 201.
+    /// </summary>
+    private async Task ExigirProgramaExisteAsync(Guid programaId)
+    {
+        if (_programaRepository is not null && await _programaRepository.GetByIdAsync(programaId) is null)
+            throw new ArgumentException("El programa indicado no existe. Elija un programa del catálogo.");
     }
 
     public async Task<AsignaturaResponse> CreateAsync(CreateAsignaturaRequest request)
     {
+        await ExigirProgramaExisteAsync(request.ProgramaId);
         var asignatura = new Asignatura(
             request.Id == Guid.Empty ? Guid.NewGuid() : request.Id,
             request.Nombre,
@@ -68,6 +84,7 @@ public class AsignaturaService
     {
         var asignatura = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
+        await ExigirProgramaExisteAsync(request.ProgramaId);
 
         asignatura.ActualizarDatos(
             request.Nombre,

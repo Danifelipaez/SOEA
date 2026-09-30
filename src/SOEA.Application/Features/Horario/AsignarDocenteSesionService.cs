@@ -179,8 +179,8 @@ namespace SOEA.Application.Features.Horario
             var asignatura = _asignaturas is not null
                 ? (await _asignaturas.GetByIdAsync(s.AsignaturaId))?.Nombre
                 : null;
-            var grupo = _grupos is not null && s.GrupoId.HasValue
-                ? (await _grupos.GetByIdAsync(s.GrupoId.Value))?.Nombre
+            var grupo = _grupos is not null
+                ? (await _grupos.GetByIdAsync(s.GrupoId))?.Nombre
                 : null;
 
             var nombre = (asignatura, grupo) switch

@@ -8,6 +8,7 @@ using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.ValueObjects;
 
 namespace SOEA.Application.Features.Docentes
 {
@@ -69,10 +70,16 @@ namespace SOEA.Application.Features.Docentes
                 (decimal)dto.MaxHoras,
                 new List<FranjaHoraria> { FranjaHoraria.Matutino, FranjaHoraria.Vespertino }
             );
-            docente.ActualizarPersistenciaUi(dto.Cedula, dto.Disponibilidad?.GetRawText());
+            var disponibilidad = dto.Disponibilidad?.GetRawText();
+            ValidarDisponibilidad(disponibilidad);
+            docente.ActualizarPersistenciaUi(dto.Cedula, disponibilidad);
             await _repo.AddAsync(docente);
             return MapToDto(docente);
         }
+
+        // Un JSON de disponibilidad que no se puede leer se aceptaba, y después bloqueaba TODA generación
+        // con un 400 que solo decía "docentes[0].disponibilidad".
+        private static void ValidarDisponibilidad(string? json) => DisponibilidadSemanal.ExigirValido(json, "del docente");
 
         public async Task<DocenteUiDto?> UpdateAsync(Guid id, DocenteUiDto dto)
         {
@@ -87,6 +94,7 @@ namespace SOEA.Application.Features.Docentes
             // DTO no trae uno propio.
             var cedulaFinal = string.IsNullOrWhiteSpace(dto.Cedula) ? existing.CedulaIdentidad : dto.Cedula;
             var disponibilidadFinal = dto.Disponibilidad?.GetRawText() ?? existing.DisponibilidadUiJson;
+            if (dto.Disponibilidad is not null) ValidarDisponibilidad(disponibilidadFinal);
             existing.ActualizarPersistenciaUi(cedulaFinal, disponibilidadFinal);
             await _repo.UpdateAsync(existing);
 

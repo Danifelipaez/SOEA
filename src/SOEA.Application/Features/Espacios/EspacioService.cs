@@ -29,6 +29,14 @@ public class EspacioService
         _uow = uow;
     }
 
+    /// <summary>Dos espacios con el mismo nombre son indistinguibles en el horario y en la importación por nombre.</summary>
+    public async Task ExigirNombreUnicoAsync(string nombre, Guid id)
+    {
+        var otro = await _repo.GetByNombreAsync((nombre ?? "").Trim());
+        if (otro is not null && otro.Id != id)
+            throw new BusinessRuleViolationException($"Ya existe un espacio llamado '{otro.Nombre}'.");
+    }
+
     public async Task DeleteAsync(Guid id)
     {
         if (await _repo.GetByIdAsync(id) is null)

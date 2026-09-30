@@ -88,8 +88,11 @@ namespace SOEA.Application.Features.Import
                 // ── Programas ─────────────────────────────────────────────────────────
                 // PERF2 auditoría: mismo cambio que Facultades — dict en memoria en vez de
                 // GetByNombreYFacultadAsync + SaveAsync por fila.
+                // GroupBy: el CRUD acepta programas con el mismo nombre y facultad, y un ToDictionary directo
+                // tumbaba TODA importación (incluso de un archivo vacío) con un error en inglés.
                 var programasPorClave = (await _programas.GetAllAsync())
-                    .ToDictionary(x => (x.Nombre.ToUpperInvariant(), x.FacultadId));
+                    .GroupBy(x => (x.Nombre.ToUpperInvariant(), x.FacultadId))
+                    .ToDictionary(g => g.Key, g => g.First());
                 foreach (var p in resultado.Programas)
                 {
                     var facRealId = facultadIdMap.TryGetValue(p.FacultadId, out var fid) ? fid : p.FacultadId;
@@ -357,32 +360,23 @@ namespace SOEA.Application.Features.Import
                 // (el UpdateAsync condicional de la rama "existe" ya evitaba el SaveAsync
                 // incondicional; solo faltaba dejar de repetir la consulta de búsqueda).
                 var gruposPorClave = (await _grupos.GetAllAsync())
-                    .ToDictionary(x => (x.Nombre.ToUpperInvariant(), x.ProgramaId));
+                    .GroupBy(x => (x.Nombre.ToUpperInvariant(), x.AsignaturaId))
+                    .ToDictionary(g => g.Key, g => g.First());
                 // IMP1-style auditoría: mismo guard que docentesCreadosEsteRun/asignaturasCreadasEsteRun.
                 var gruposCreadosEsteRun = new HashSet<Guid>();
                 foreach (var g in resultado.Grupos)
                 {
-                    var progRealId = programaIdMap.TryGetValue(g.ProgramaId, out var pid2) ? pid2 : g.ProgramaId;
-                    Guid? asigRealId = g.AsignaturaId.HasValue && asignaturaIdMap.TryGetValue(g.AsignaturaId.Value, out var garid)
-                        ? garid : g.AsignaturaId;
+                    var asigRealId = asignaturaIdMap.TryGetValue(g.AsignaturaId, out var garid) ? garid : g.AsignaturaId;
                     Guid? docRealId = g.DocenteId.HasValue && docenteIdMap.TryGetValue(g.DocenteId.Value, out var gdid)
                         ? gdid : g.DocenteId;
-                    // M14 auditoría (descubierto al investigar la migración de FK): a diferencia de
-                    // progRealId/asigRealId/docRealId, g.FacultadId se usaba SIN remapear — se
-                    // persistía el id TEMPORAL asignado durante el mapeo DTO→entidad, no el real
-                    // creado al persistir la Facultad. En la BD local esto dejó el 100% de los
-                    // Grupos con facultad_id apuntando a nada.
-                    Guid? facRealIdGrupo = g.FacultadId.HasValue && facultadIdMap.TryGetValue(g.FacultadId.Value, out var gfid)
-                        ? gfid : g.FacultadId;
+                    Guid? espacioFijoDelGrupo =
+                        espacioFijoPorAsignaturaReal.TryGetValue(asigRealId, out var espFijo) ? espFijo : null;
 
-                    Guid? espacioFijoDelGrupo = asigRealId.HasValue &&
-                        espacioFijoPorAsignaturaReal.TryGetValue(asigRealId.Value, out var espFijo) ? espFijo : null;
-
-                    var clave = (g.Nombre.ToUpperInvariant(), progRealId);
+                    var clave = (g.Nombre.ToUpperInvariant(), asigRealId);
                     if (!gruposPorClave.TryGetValue(clave, out var existe))
                     {
-                        var nuevo = new Grupo(Guid.NewGuid(), g.Nombre, progRealId, 30, g.Alternancia,
-                            asignaturaId: asigRealId, facultadId: facRealIdGrupo, docenteId: docRealId);
+                        var nuevo = new Grupo(Guid.NewGuid(), g.Nombre, asigRealId, 30, g.Alternancia,
+                            docenteId: docRealId);
                         if (!string.IsNullOrWhiteSpace(g.DisponibilidadUiJson))
                             nuevo.ActualizarDisponibilidadUi(g.DisponibilidadUiJson);
                         if (espacioFijoDelGrupo.HasValue)

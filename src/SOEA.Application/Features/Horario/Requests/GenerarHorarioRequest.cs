@@ -150,7 +150,6 @@ namespace SOEA.Application.Features.Horario.Requests
         public string  Nombre              { get; set; } = string.Empty;
         public string? Codigo              { get; set; }
         public string? AsignaturaId        { get; set; }
-        public string? FacultadId          { get; set; }
         public int     EstudiantesInscritos { get; set; } = 1;
         /// <summary>
         /// Docente que dicta la asignatura para este grupo (Fase 2: el docente vive en el grupo,
