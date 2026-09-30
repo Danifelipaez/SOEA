@@ -35,7 +35,12 @@ namespace SOEA.Domain.ValueObjects
         /// Se agrega un fragmento del Id (único por construcción) para eliminar la colisión sin
         /// perder la legibilidad del nombre.
         /// </summary>
-        public static string CorreoSintetico(string nombre, Guid id) =>
-            $"{Normalizar(nombre).Replace(" ", ".")}.{id:N}@soea.local";
+        public static string CorreoSintetico(string nombre, Guid id)
+        {
+            // Solo [a-z0-9]: "PEREZ, JUAN", "DR. LOPEZ" o "GOMEZ (VISITANTE)" dejaban comas y paréntesis en la
+            // parte local, el correo salía inválido y tumbaba la importación entera.
+            var local = Regex.Replace(Normalizar(nombre), "[^a-z0-9]+", ".").Trim('.');
+            return local.Length == 0 ? $"docente.{id:N}@soea.local" : $"{local}.{id:N}@soea.local";
+        }
     }
 }

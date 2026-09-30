@@ -7,7 +7,6 @@ namespace SOEA.Domain.Interfaces
 {
     public interface IGrupoRepositorio : IRepositorio<Grupo>
     {
-        Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId);
         Task<Grupo?> GetByCodigoAsync(string codigo);
         Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId);
         Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId);

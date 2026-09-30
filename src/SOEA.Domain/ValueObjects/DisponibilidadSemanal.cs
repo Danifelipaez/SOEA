@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using SOEA.Domain.Enums;
@@ -70,14 +71,33 @@ namespace SOEA.Domain.ValueObjects
             if (string.IsNullOrWhiteSpace(json)) return true;
             try
             {
-                JsonSerializer.Deserialize<Dictionary<string, DiaEntradaCruda>>(json, JsonOptions);
-                return true;
+                var crudo = JsonSerializer.Deserialize<Dictionary<string, DiaEntradaCruda>>(json, JsonOptions);
+                return crudo is null || crudo.Values.All(EntradaEsValida);
             }
             catch (JsonException)
             {
                 return false;
             }
         }
+
+        /// <summary>
+        /// Versión que exige: para guardar desde el catálogo (docente, grupo), donde una disponibilidad ilegible
+        /// es un error del usuario (400) y no algo que tolerar. <paramref name="sujeto"/>: "del docente", "del grupo".
+        /// </summary>
+        public static void ExigirValido(string? json, string sujeto)
+        {
+            if (!JsonEsValido(json))
+                throw new ArgumentException(
+                    $"La disponibilidad {sujeto} no tiene un formato válido (revise las horas de cada franja: " +
+                    "deben ser HH:mm y la de inicio anterior a la de fin).");
+        }
+
+        // "Franja específica" con hora ilegible ("25:00") o desde >= hasta: VentanaDe la ensancharía en
+        // silencio a "todo el día"; se reporta como inválida para no perder la restricción sin aviso.
+        private static bool EntradaEsValida(DiaEntradaCruda? e) =>
+            e is not null
+            && (e.NoDisponible || e.Tipo != "Franja específica"
+                || (TimeOnly.TryParse(e.Desde, out var desde) && TimeOnly.TryParse(e.Hasta, out var hasta) && desde < hasta));
 
         public static DisponibilidadSemanal Desde(IReadOnlyDictionary<string, DiaEntradaCruda>? porDia)
         {
