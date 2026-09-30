@@ -89,6 +89,13 @@ namespace SOEA.Infrastructure.Data.Configurations
             builder.Ignore(a => a.HorasPorSesion);
             builder.Ignore(a => a.SesionesPorSemana);
 
+            // DB-6 auditoría 2026-09-28: sin FK, POST /asignaturas con un programa inexistente
+            // respondía 201. Restrict: no se borra un programa que aún tiene asignaturas.
+            builder.HasOne<Programa>()
+                .WithMany()
+                .HasForeignKey(a => a.ProgramaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             // Indexes
             builder.HasIndex(a => new { a.Codigo, a.ProgramaId })
                 .IsUnique()
