@@ -320,8 +320,22 @@ export function mensajeInfactibilidadAmigable(
   gruposEnConflictoIds: string[] | undefined,
   grupos: Grupo[],
   totalAsignaturas: number,
-  totalEspacios: number
+  totalEspacios: number,
+  /** Solo para motivo Capacidad: catálogo con el que nombrar asignatura, programa y espacio. */
+  capacidad?: { espacioLimitanteId?: string; espacios: Espacio[]; asignaturas: Asignatura[]; programaById: Map<string, { nombre: string }> }
 ): string {
+  if (motivo === 'Capacidad') {
+    const g = grupos.find(x => x.id === gruposEnConflictoIds?.[0]);
+    const e = capacidad?.espacios.find(x => x.id === capacidad.espacioLimitanteId);
+    if (g && e) {
+      const asig = capacidad!.asignaturas.find(a => a.id === g.asignaturaId);
+      const prog = capacidad!.programaById.get(asig?.programaId ?? g.programaId);
+      return `El grupo ${g.nombre}${asig ? ` de la asignatura ${asig.nombre}` : ''}${prog ? ` del programa ${prog.nombre}` : ''} ` +
+        `tiene ${g.estudiantesInscritos} estudiantes y el ${e.tipo.toLowerCase()} ${e.nombre} (el más grande que puede usar) ` +
+        `solo tiene capacidad para ${e.capacidad}. Asígnele un espacio con más capacidad o reduzca el grupo.`;
+    }
+    return 'Un grupo tiene más estudiantes que la capacidad de los espacios que puede usar. Asígnele un espacio más grande o reduzca el grupo.';
+  }
   const nombresConflicto = (gruposEnConflictoIds ?? [])
     .map(id => grupos.find(g => g.id === id)?.nombre)
     .filter((n): n is string => !!n);
@@ -1002,12 +1016,13 @@ export class HorarioComponent implements OnInit {
           const gruposEnConflicto = Array.isArray(err.gruposEnConflicto) ? err.gruposEnConflicto : [];
           this.state.setGruposEnConflicto(gruposEnConflicto);
           this.state.setMotivoInfactibilidad(err.motivoInfactibilidad);
+          this.state.espacioLimitanteId.set(err.espacioLimitanteId);
           // Antes solo se traducía si el mensaje crudo contenía "factible"/"infeasible" — un fallo
           // distinto (p. ej. una violación de reglas post-GA) se colaba tal cual, con jerga interna.
           // Con motivo o grupos estructurados ya hay suficiente señal para traducir igual.
           const esInfeasible = !!err.motivoInfactibilidad || gruposEnConflicto.length > 0 || /factible|infeasible/i.test(mensaje);
           const texto = esInfeasible
-            ? mensajeInfactibilidadAmigable(err.motivoInfactibilidad, gruposEnConflicto, this.state.grupos(), asignaturas.length, this.state.espacios().length)
+            ? mensajeInfactibilidadAmigable(err.motivoInfactibilidad, gruposEnConflicto, this.state.grupos(), asignaturas.length, this.state.espacios().length, this.state.contextoCapacidad())
             : mensaje;
           // El banner persistente de /horario (a diferencia del snackbar) sigue visible hasta la
           // próxima generación — siempre con el mismo texto limpio, nunca vacío ni con jerga.

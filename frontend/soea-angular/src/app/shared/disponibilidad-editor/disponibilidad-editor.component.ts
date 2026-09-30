@@ -1,4 +1,4 @@
-import { Component, forwardRef, input } from '@angular/core';
+import { Component, computed, forwardRef, input, signal } from '@angular/core';
 import { CommonModule, TitleCasePipe } from '@angular/common';
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 
@@ -14,6 +14,32 @@ export const FRANJAS_DEFECTO: FranjaOption[] = [
   { value: 'vespertino', label: 'Vespertino (12:00–18:00)' },
   { value: 'nocturno', label: 'Nocturno (18:00–22:00)' },
 ];
+
+const DIAS_SEMANA = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+
+/** Mayor número de sesiones semanales de un mismo tipo (teoría presencial / virtual / laboratorio):
+ *  son las que el backend obliga a separar al menos un día entre sí (HC-SEP). */
+export function sesionesMismoTipo(a?: { sesionesTeoriaPresencialSemana?: number; sesionesTeoriaVirtualSemana?: number; sesionesLaboratorioSemana?: number }): number {
+  return a ? Math.max(a.sesionesTeoriaPresencialSemana ?? 0, a.sesionesTeoriaVirtualSemana ?? 0, a.sesionesLaboratorioSemana ?? 0) : 0;
+}
+
+/**
+ * HC-SEP en la captura: n sesiones del mismo tipo necesitan n días disponibles con al menos un
+ * día de por medio entre cada par. Devuelve el error a mostrar, o null si la disponibilidad
+ * alcanza (o no se declaró ninguna: sin disponibilidad el grupo no restringe días).
+ */
+export function errorSeparacionDias(disp: Record<string, any> | null | undefined, n: number): string | null {
+  if (n < 2 || !disp || Object.keys(disp).length === 0) return null;
+  if (n > 3) return `Con ${n} sesiones del mismo tipo por semana no hay forma de dejar un día libre entre todas (caben como máximo 3: lunes, miércoles y viernes). Reduzca las sesiones por semana de la asignatura.`;
+  // Voraz: tomar siempre el primer día disponible que respete la separación es óptimo en una línea.
+  let separados = 0, ultimo = -2;
+  DIAS_SEMANA.forEach((dia, i) => {
+    // Día sin entrada = disponible, igual que en el backend (el import de Excel solo declara días con filas).
+    if (!disp[dia]?.noDisponible && i - ultimo >= 2) { separados++; ultimo = i; }
+  });
+  return separados >= n ? null
+    : `Marque al menos ${n} días disponibles con un día libre entre ellos (por ejemplo ${n === 2 ? 'lunes y miércoles' : 'lunes, miércoles y viernes'}).`;
+}
 
 /**
  * Editor de disponibilidad por día (B2): markup + lógica que antes vivían duplicados en
@@ -32,6 +58,14 @@ export const FRANJAS_DEFECTO: FranjaOption[] = [
     multi: true
   }],
   template: `
+    @if (sesionesSeparadas() >= 2) {
+      <p class="disp-nota" [class.err]="!!errorSeparacion()">
+        Cada grupo de esta asignatura tiene {{ sesionesSeparadas() }} sesiones del mismo tipo por semana, y deben caer en
+        días distintos con al menos un día libre entre ellas (lunes y miércoles sí; lunes y martes no).
+        Por eso el grupo debe estar disponible en al menos {{ sesionesSeparadas() }} días separados así.
+        @if (errorSeparacion(); as e) { <b>{{ e }}</b> }
+      </p>
+    }
     <div class="disp-table">
       <div class="disp-row hd">
         <span class="c-dia">Día</span><span class="c-nd">No disponible</span><span class="c-tipo">Franja</span><span class="c-times">Horario</span>
@@ -65,6 +99,9 @@ export const FRANJAS_DEFECTO: FranjaOption[] = [
     </div>
   `,
   styles: [`
+    .disp-nota { font-size: 12px; margin: 0 0 8px; color: var(--color-neutral-600); }
+    .disp-nota.err { color: var(--err-bd); }
+    .disp-nota b { display: block; margin-top: 4px; }
     .disp-table { border: 1px solid var(--color-divider); }
     .disp-row { display: flex; gap: 8px; align-items: center; padding: 7px 11px; border-top: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); min-height: 44px; }
     .disp-row.hd { border-top: 0; background: var(--color-neutral-100); font: 600 10px var(--font-heading); letter-spacing: .08em; text-transform: uppercase; color: var(--color-neutral-600); min-height: 32px; }
@@ -83,8 +120,13 @@ export class DisponibilidadEditorComponent implements ControlValueAccessor {
   /** Variantes de texto legado de `franjaGeneral` (p. ej. horarios de Excel con otros límites)
    *  que ya no coinciden con el label vigente de `opciones()`. */
   legacyMap = input<Record<string, string>>({});
+  /** Sesiones semanales del mismo tipo que el grupo debe repartir con un día de por medio
+   *  (ver sesionesMismoTipo). 0/1 = sin requisito; ≥2 muestra la explicación y el error. */
+  sesionesSeparadas = input(0);
+  private valor = signal<Record<string, unknown>>({});
+  errorSeparacion = computed(() => errorSeparacionDias(this.valor(), this.sesionesSeparadas()));
 
-  dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+  dias = DIAS_SEMANA;
   disp: Record<string, { noDisponible: boolean; tipo: string; desde: string; hasta: string }> = {};
 
   private onChange: (v: Record<string, unknown>) => void = () => {};
@@ -108,7 +150,8 @@ export class DisponibilidadEditorComponent implements ControlValueAccessor {
     // Sin onTouched(): esto es Angular escribiéndole un valor al componente, no una interacción
     // del usuario, y marcarlo touched mostraría errores de validación antes de que el usuario
     // haga nada.
-    this.onChange(this.construirValor());
+    this.valor.set(this.construirValor());
+    this.onChange(this.valor());
   }
   registerOnChange(fn: any): void { this.onChange = fn; }
   registerOnTouched(fn: any): void { this.onTouched = fn; }
@@ -147,7 +190,8 @@ export class DisponibilidadEditorComponent implements ControlValueAccessor {
   }
 
   private emitir(): void {
-    this.onChange(this.construirValor());
+    this.valor.set(this.construirValor());
+    this.onChange(this.valor());
     this.onTouched();
   }
 }

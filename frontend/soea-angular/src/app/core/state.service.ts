@@ -162,6 +162,12 @@ export class StateService {
    */
   motivoInfactibilidad = signal<string | undefined>(undefined);
   setMotivoInfactibilidad(motivo: string | undefined) { this.motivoInfactibilidad.set(motivo); }
+  /** Con motivo Capacidad: el espacio de mayor aforo que el grupo en conflicto podía usar. */
+  espacioLimitanteId = signal<string | undefined>(undefined);
+  readonly contextoCapacidad = computed(() => ({
+    espacioLimitanteId: this.espacioLimitanteId(), espacios: this.espacios(),
+    asignaturas: this.asignaturas(), programaById: this.programaById()
+  }));
 
   // ── Horarios base ────────────────────────────────────────────────────────────
   horariosBases       = signal<HorarioBase[]>(this.cargarBasesLocalStorage());

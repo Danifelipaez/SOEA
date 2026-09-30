@@ -52,6 +52,18 @@ describe('mensajeInfactibilidadAmigable', () => {
     expect(msg).not.toMatch(/HC-|Infeasible|undefined/i);
   });
 
+  it('Motivo Capacidad nombra grupo, asignatura, programa, estudiantes y el espacio limitante', () => {
+    const msg = mensajeInfactibilidadAmigable('Capacidad', ['g1'], grupos, 5, 2, {
+      espacioLimitanteId: 'e1',
+      espacios: [{ id: 'e1', nombre: 'A-101', capacidad: 25, tipo: 'Salón' }],
+      asignaturas: [{ id: 'a1', nombre: 'Cálculo', programaId: 'p1' } as any],
+      programaById: new Map([['p1', { nombre: 'Ingeniería' }]])
+    });
+    expect(msg).toContain('El grupo G1 de la asignatura Cálculo del programa Ingeniería tiene 30 estudiantes');
+    expect(msg).toContain('salón A-101');
+    expect(msg).toContain('capacidad para 25');
+  });
+
   it('un Id de gruposEnConflicto que ya no existe en el catálogo no rompe el mensaje', () => {
     const msg = mensajeInfactibilidadAmigable('Otro', ['id-borrado'], grupos, 5, 2);
     expect(msg.length).toBeGreaterThan(0);

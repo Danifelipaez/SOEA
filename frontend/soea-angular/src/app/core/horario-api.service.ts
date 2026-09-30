@@ -120,6 +120,8 @@ export interface GenerarHorarioResponse {
   /** Ids de grupo señalados por el diagnóstico opcional de Fase 2 como responsables de la
    *  infactibilidad — ver GenerarHorarioResponse.GruposEnConflicto en el backend. */
   gruposEnConflicto?: string[];
+  /** Solo con motivoInfactibilidad 'Capacidad': el espacio de mayor aforo que el grupo podía usar. */
+  espacioLimitanteId?: string;
   logs?: string[];
   // alternancia y semana llegan como string desde JSON; mapearSesiones() los castea
   sesiones: (Omit<Sesion, 'alternancia' | 'semana'> & { alternancia: string; semana?: string })[];

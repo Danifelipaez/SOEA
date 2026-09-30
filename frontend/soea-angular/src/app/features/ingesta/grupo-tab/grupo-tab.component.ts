@@ -6,7 +6,7 @@ import { StateService } from '../../../core/state.service';
 import { Grupo, Programa, RequisitoEspacio, TipoSesionUi } from '../../../core/models';
 import { SearchableSelectComponent, SearchableOption } from '../../../shared/searchable-select/searchable-select.component';
 import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/requisitos-espacio.component';
-import { DisponibilidadEditorComponent } from '../../../shared/disponibilidad-editor/disponibilidad-editor.component';
+import { DisponibilidadEditorComponent, errorSeparacionDias, sesionesMismoTipo } from '../../../shared/disponibilidad-editor/disponibilidad-editor.component';
 
 // ─── Popup: Crear/Editar grupo + disponibilidad (REQUISITOS §1.4) ──────────────
 // Dos puntos de entrada, ambos en asignaturas-tab.component.ts:
@@ -62,7 +62,7 @@ export interface GrupoDialogData {
       </form>
 
       <h3 class="sec" style="margin-top:4px">Disponibilidad del grupo</h3>
-      <app-disponibilidad-editor [defaultNoDisponible]="true"
+      <app-disponibilidad-editor [defaultNoDisponible]="true" [sesionesSeparadas]="sesionesSeparadas()"
         [ngModel]="disponibilidad()" (ngModelChange)="disponibilidad.set($event)"></app-disponibilidad-editor>
 
       @if (tiposRequisito().length > 0) {
@@ -73,7 +73,7 @@ export interface GrupoDialogData {
 
       <div class="popfoot">
         <button type="button" class="btn btn-secondary" (click)="ref.close()">Cancelar</button>
-        <button type="button" class="btn btn-primary" [disabled]="form.invalid" (click)="save()">Guardar</button>
+        <button type="button" class="btn btn-primary" [disabled]="form.invalid || !!errorSeparacion()" (click)="save()">Guardar</button>
       </div>
     </div>
   `
@@ -111,6 +111,10 @@ export class GrupoDialogComponent {
   // Contexto de solo lectura mostrado en lugar de la cascada cuando la asignatura viene fijada.
   asignaturaCtx = computed(() => this.state.asignaturaById().get(this.asignaturaFija));
   programaCtxNombre = computed(() => this.state.getProgramaById(this.programaIdActual())?.nombre ?? '—');
+
+  // HC-SEP: con ≥2 sesiones del mismo tipo el grupo necesita días disponibles separados por uno libre.
+  sesionesSeparadas = computed(() => sesionesMismoTipo(this.state.asignaturaById().get(this.asignaturaIdActual())));
+  errorSeparacion = computed(() => errorSeparacionDias(this.disponibilidad(), this.sesionesSeparadas()));
 
   tiposRequisito = computed<TipoSesionUi[]>(() => {
     const asig = this.state.asignaturaById().get(this.asignaturaIdActual());
@@ -182,7 +186,7 @@ export class GrupoDialogComponent {
   }
 
   save() {
-    if (this.form.invalid) return;
+    if (this.form.invalid || this.errorSeparacion()) return;
     const v = this.form.value;
     this.ref.close({
       ...v,

@@ -16,7 +16,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { ImportExcelStatsDto } from '../../../core/persistencia.service';
 import { SearchableSelectComponent, SearchableOption } from '../../../shared/searchable-select/searchable-select.component';
 import { GrupoDialogComponent, GrupoDialogData } from '../grupo-tab/grupo-tab.component';
-import { DisponibilidadEditorComponent } from '../../../shared/disponibilidad-editor/disponibilidad-editor.component';
+import { DisponibilidadEditorComponent, errorSeparacionDias, sesionesMismoTipo } from '../../../shared/disponibilidad-editor/disponibilidad-editor.component';
 import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/requisitos-espacio.component';
 
 @Component({
@@ -441,6 +441,11 @@ function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors
   return inicio < fin ? null : { ventanaHorariaInvertida: true };
 }
 
+/** disponibilidadUiJson ilegible o ausente = sin disponibilidad declarada (sin restricción). */
+function parseJson(json: string | undefined): Record<string, any> | null {
+  try { return json ? JSON.parse(json) : null; } catch { return null; }
+}
+
 @Component({
   selector: 'app-asignatura-dialog',
   standalone: true,
@@ -518,6 +523,14 @@ function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors
         }
       </div>
       <p class="text-muted" style="font-size:11px;margin:0">Asignadas: {{ sesiones().presencial + sesiones().virtual + sesiones().lab }} / {{ sesionesPorSemana() }}</p>
+      @if (gruposSinDiasSeparados().length > 0) {
+        <p class="rq" style="font-size:12px;margin:0">
+          Con {{ sesionesSeparadasPendiente() }} sesiones del mismo tipo por semana, cada grupo debe estar disponible en al menos
+          {{ sesionesSeparadasPendiente() }} días con un día libre entre ellos (p. ej. {{ sesionesSeparadasPendiente() === 2 ? 'lunes y miércoles' : 'lunes, miércoles y viernes' }}).
+          No lo cumple{{ gruposSinDiasSeparados().length > 1 ? 'n' : '' }}: <b>{{ gruposSinDiasSeparados().join(', ') }}</b>.
+          Amplíe su disponibilidad o reduzca las sesiones.
+        </p>
+      }
 
       <p class="text-muted" style="font-size:11px;margin:0;border-top:1px dashed var(--color-neutral-300);padding-top:8px">
         El docente se asigna por <b>grupo</b>, no aquí — la misma asignatura la dictan docentes distintos en grupos distintos.
@@ -543,7 +556,7 @@ function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors
         </div>
 
         <h3 class="sec" style="margin-top:2px">Disponibilidad del grupo</h3>
-        <app-disponibilidad-editor [defaultNoDisponible]="true"
+        <app-disponibilidad-editor [defaultNoDisponible]="true" [sesionesSeparadas]="sesionesSeparadasPendiente()"
           [ngModel]="nuevoGrupoDisponibilidad()" (ngModelChange)="nuevoGrupoDisponibilidad.set($event)" [ngModelOptions]="{standalone:true}"></app-disponibilidad-editor>
 
         @if (tiposRequisitoPendiente().length > 0) {
@@ -553,7 +566,7 @@ function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors
         }
 
         <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button type="button" class="btn btn-secondary step-btn" (click)="confirmarGrupoPendiente()" [disabled]="!nuevoGrupoNombre.trim()">Agregar</button>
+          <button type="button" class="btn btn-secondary step-btn" (click)="confirmarGrupoPendiente()" [disabled]="!nuevoGrupoNombre.trim() || !!errorSeparacionPendiente()">Agregar</button>
           <button type="button" class="btn btn-secondary step-btn" (click)="cancelarGrupoPendiente()">✕</button>
         </div>
       } @else {
@@ -609,10 +622,25 @@ export class AsignaturaDialogComponent {
     ...this.state.docentes().map(d => ({ value: d.id, label: d.nombre }))
   ]);
 
+  // HC-SEP: con ≥2 sesiones del mismo tipo el grupo necesita días disponibles separados por uno libre.
+  sesionesSeparadasPendiente = computed(() => { const s = this.sesiones(); return Math.max(s.presencial, s.virtual, s.lab); });
+  errorSeparacionPendiente = computed(() => errorSeparacionDias(this.nuevoGrupoDisponibilidad(), this.sesionesSeparadasPendiente()));
+  /** Grupos que no cumplen la separación con el desglose actual: los pendientes siempre, y los ya
+   *  guardados solo si el número sube (igual que el backend — no bloquea editar datos que ya estaban así). */
+  private readonly sesionesSeparadasIniciales = sesionesMismoTipo(this.data);
+  gruposSinDiasSeparados = computed(() => {
+    const n = this.sesionesSeparadasPendiente();
+    const existentes = this.data && n > this.sesionesSeparadasIniciales
+      ? this.state.grupos().filter(g => g.asignaturaId === this.data!.id) : [];
+    return [...existentes, ...this.gruposPendientes()]
+      .filter(g => errorSeparacionDias(parseJson(g.disponibilidadUiJson), n))
+      .map(g => g.nombre ?? '');
+  });
+
   nombreDocente(id: string): string { return this.state.docentes().find(d => d.id === id)?.nombre ?? '—'; }
 
   confirmarGrupoPendiente() {
-    if (!this.nuevoGrupoNombre.trim()) return;
+    if (!this.nuevoGrupoNombre.trim() || this.errorSeparacionPendiente()) return;
     this.gruposPendientes.update(v => [...v, {
       nombre: this.nuevoGrupoNombre.trim(),
       estudiantesInscritos: Number(this.nuevoGrupoEstudiantes) || 30,
@@ -752,6 +780,7 @@ export class AsignaturaDialogComponent {
     // canSave() no consulta this.form.valid (rehace sus propios checks), así que el validador
     // del FormGroup por sí solo no bastaba para deshabilitar "Guardar".
     if (v.horaInicioMin && v.horaFinMax && v.horaInicioMin >= v.horaFinMax) return false;
+    if (this.gruposSinDiasSeparados().length > 0) return false;
     const s = this.sesiones();
     return (s.presencial + s.virtual + s.lab) > 0;
   }

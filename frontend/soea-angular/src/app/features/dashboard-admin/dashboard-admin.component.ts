@@ -141,7 +141,7 @@ export class DashboardAdminComponent implements OnInit {
     if (!motivo && gruposEnConflicto.length === 0) return '';
     return mensajeInfactibilidadAmigable(
       motivo, gruposEnConflicto, this.state.grupos(),
-      this.state.asignaturas().length, this.state.espacios().length);
+      this.state.asignaturas().length, this.state.espacios().length, this.state.contextoCapacidad());
   });
 
   /** Sesiones REALES, no filas: una que alterna aporta su fila presencial más la contraparte
