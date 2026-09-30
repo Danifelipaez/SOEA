@@ -71,8 +71,7 @@ namespace SOEA.Engine.Genetic
                 }
 
                 HashSet<int>? permGrupo = null;
-                if (sesiones[i].GrupoId.HasValue)
-                    bloquesPermitidosPorGrupo.TryGetValue(sesiones[i].GrupoId.Value, out permGrupo);
+                bloquesPermitidosPorGrupo.TryGetValue(sesiones[i].GrupoId, out permGrupo);
 
                 (TimeOnly? min, TimeOnly? max) ventana = default;
                 ventanaPorAsignatura?.TryGetValue(sesiones[i].AsignaturaId, out ventana);
@@ -190,8 +189,7 @@ namespace SOEA.Engine.Genetic
             for (int i = 0; i < starts.Length; i++)
             {
                 if (movible(i)) continue;
-                if (!_sesiones[i].GrupoId.HasValue) continue;
-                var grupo = _sesiones[i].GrupoId.Value;
+                var grupo = _sesiones[i].GrupoId;
                 ObtenerLista(colocadosPorGrupo, grupo).Add((starts[i], _duraciones[i]));
             }
 
@@ -205,10 +203,9 @@ namespace SOEA.Engine.Genetic
             {
                 if (procesado[i] || !movible(i)) continue;
                 procesado[i] = true;
-                if (!_sesiones[i].GrupoId.HasValue) continue;
 
                 int j = _parejaIdx[i];
-                if (j >= 0 && !procesado[j] && movible(j) && _sesiones[j].GrupoId.HasValue)
+                if (j >= 0 && !procesado[j] && movible(j))
                 {
                     procesado[j] = true;
                     ColocarPar(i, j, starts, colocadosPorGrupo);
@@ -227,7 +224,7 @@ namespace SOEA.Engine.Genetic
         private void ColocarIndividual(
             int i, int[] starts, Dictionary<Guid, List<(int start, int dur)>> colocadosPorGrupo)
         {
-            var grupo = _sesiones[i].GrupoId!.Value;
+            var grupo = _sesiones[i].GrupoId;
             int start = starts[i];
             int dur   = _duraciones[i];
             var lista = ObtenerLista(colocadosPorGrupo, grupo);
@@ -252,8 +249,8 @@ namespace SOEA.Engine.Genetic
         private void ColocarPar(
             int i, int j, int[] starts, Dictionary<Guid, List<(int start, int dur)>> colocadosPorGrupo)
         {
-            var grupoI = _sesiones[i].GrupoId!.Value;
-            var grupoJ = _sesiones[j].GrupoId!.Value;
+            var grupoI = _sesiones[i].GrupoId;
+            var grupoJ = _sesiones[j].GrupoId;
             var listaI = ObtenerLista(colocadosPorGrupo, grupoI);
             var listaJ = grupoJ == grupoI ? listaI : ObtenerLista(colocadosPorGrupo, grupoJ);
             int dur = _duraciones[i];
@@ -298,8 +295,7 @@ namespace SOEA.Engine.Genetic
             var porClase = new Dictionary<(Guid grupo, Guid asig, TipoSesion tipo), List<int>>();
             for (int i = 0; i < starts.Length; i++)
             {
-                if (!_sesiones[i].GrupoId.HasValue) continue;
-                var clave = (_sesiones[i].GrupoId!.Value, _sesiones[i].AsignaturaId,
+                var clave = (_sesiones[i].GrupoId, _sesiones[i].AsignaturaId,
                     CalculadorEspaciosSesion.TipoSesionDe(_sesiones[i]));
                 if (!porClase.TryGetValue(clave, out var lista)) { lista = new(); porClase[clave] = lista; }
                 lista.Add(i);
@@ -308,8 +304,7 @@ namespace SOEA.Engine.Genetic
             var colocadosPorGrupo = new Dictionary<Guid, List<(int idx, int start, int dur)>>();
             for (int i = 0; i < starts.Length; i++)
             {
-                if (!_sesiones[i].GrupoId.HasValue) continue;
-                var grupo = _sesiones[i].GrupoId.Value;
+                var grupo = _sesiones[i].GrupoId;
                 if (!colocadosPorGrupo.TryGetValue(grupo, out var l)) { l = new(); colocadosPorGrupo[grupo] = l; }
                 l.Add((i, starts[i], _duraciones[i]));
             }
@@ -330,7 +325,7 @@ namespace SOEA.Engine.Genetic
 
                     if (movible(i) && _parejaIdx[i] < 0)
                     {
-                        var ocupados = colocadosPorGrupo[_sesiones[i].GrupoId!.Value];
+                        var ocupados = colocadosPorGrupo[_sesiones[i].GrupoId];
                         ocupados.RemoveAll(p => p.idx == i);
 
                         var nuevo = BuscarStartSeparado(i, ocupados, diasColocados);

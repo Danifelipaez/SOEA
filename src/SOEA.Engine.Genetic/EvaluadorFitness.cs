@@ -135,8 +135,7 @@ namespace SOEA.Engine.Genetic
             {
                 int start = starts[i];
                 if (start < 0 || start >= _bloques.Count) continue;
-                if (!_sesiones[i].GrupoId.HasValue) continue; // CR-08: la ergonomía se mide por cohorte
-                var grupo = _sesiones[i].GrupoId.Value;
+                var grupo = _sesiones[i].GrupoId;
                 var dia = _diaPorIdx[start];
 
                 if (!mapa.TryGetValue(grupo, out var porDia)) { porDia = new(); mapa[grupo] = porDia; }
@@ -203,8 +202,7 @@ namespace SOEA.Engine.Genetic
             {
                 int start = starts[i];
                 if (start < 0 || start >= _bloques.Count) continue;
-                if (!_sesiones[i].GrupoId.HasValue) continue; // CR-08: la carga se mide por cohorte
-                var grupo = _sesiones[i].GrupoId.Value;
+                var grupo = _sesiones[i].GrupoId;
                 var dia = _diaPorIdx[start];
 
                 if (!mapa.TryGetValue(grupo, out var porDia)) { porDia = new(); mapa[grupo] = porDia; }

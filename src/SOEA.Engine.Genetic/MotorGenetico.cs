@@ -335,8 +335,7 @@ namespace SOEA.Engine.Genetic
             var porGrupo = new Dictionary<Guid, List<(int start, int dur)>>();
             for (int i = 0; i < starts.Length; i++)
             {
-                if (!sesiones[i].GrupoId.HasValue) continue;
-                var grupo = sesiones[i].GrupoId.Value;
+                var grupo = sesiones[i].GrupoId;
                 int start = starts[i], dur = duraciones[i];
                 if (!porGrupo.TryGetValue(grupo, out var lista)) { lista = new(); porGrupo[grupo] = lista; }
                 if (lista.Any(o => BloquesPlanner.Solapan(o.start, o.dur, start, dur, diaPorIdx)))
