@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;  // EPPlus 8 license
 using SOEA.API;
@@ -5,8 +6,10 @@ using SOEA.Application.Features.Asignaturas;
 using SOEA.Application.Features.CriteriosCesionAlternancia;
 using SOEA.Application.Features.Docentes;
 using SOEA.Application.Features.Espacios;
+using SOEA.Application.Features.Facultades;
 using SOEA.Application.Features.Grupos;
 using SOEA.Application.Features.Horario;
+using SOEA.Application.Features.Programas;
 using SOEA.Application.Features.Sesiones;
 using SOEA.Domain.Interfaces;
 using SOEA.Engine.ConstraintProg;
@@ -107,6 +110,9 @@ builder.Services.AddScoped<DocenteService>();
 builder.Services.AddScoped<FusionDocentesService>();
 // CRUD Espacios
 builder.Services.AddScoped<EspacioService>();
+// Borrado con guard de Facultad y Programa (DB-6)
+builder.Services.AddScoped<FacultadService>();
+builder.Services.AddScoped<ProgramaService>();
 // Lista ordenada/activable de criterios de cesión a alternancia (cesión por saturación de espacio)
 builder.Services.AddScoped<CriterioCesionAlternanciaService>();
 // Generación de horario
@@ -120,6 +126,12 @@ builder.Services.AddScoped<ReacomodarHorarioService>();
 
 // ── OpenAPI + Controladores ───────────────────────────────────────────────────
 builder.Services.AddControllers()
+    // L-11: validación de modelo en español y con el mismo formato de error que el resto (ValidacionModelo.cs).
+    .ConfigureApiBehaviorOptions(o =>
+    {
+        o.InvalidModelStateResponseFactory = ValidacionModelo.RespuestaEnEspanol;
+        ValidacionModelo.TraducirErroresCliente(o);
+    })
     .AddJsonOptions(opts =>
         opts.JsonSerializerOptions.Converters.Add(
             new System.Text.Json.Serialization.JsonStringEnumConverter()));
@@ -134,6 +146,27 @@ builder.Services.AddOpenApi();
 // escalaban a un 500 sin causa real).
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
+
+// ── Una sola generación a la vez (SEC-2 auditoría 2026-09-28) ─────────────────
+// /generar ocupa CPU (CP-SAT + GA) durante minutos en un B1ms, y el endpoint es anónimo: sin este
+// tope, N requests simultáneos lo saturaban. Antes la segunda generación concurrente respondía 200
+// y luego fallaba con un 409 genérico (L-9). Límite global (una sola partición), sin cola.
+builder.Services.AddRateLimiter(o =>
+{
+    o.AddConcurrencyLimiter("generar", c => { c.PermitLimit = 1; c.QueueLimit = 0; });
+    o.OnRejected = async (ctx, ct) =>
+    {
+        ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        await ctx.HttpContext.Response.WriteAsJsonAsync(
+            new Microsoft.AspNetCore.Mvc.ProblemDetails
+            {
+                Status = StatusCodes.Status429TooManyRequests,
+                Title = "Generación en curso",
+                Detail = "Ya hay un horario generándose. Espere a que termine e inténtelo de nuevo."
+            },
+            options: null, contentType: "application/problem+json", cancellationToken: ct);
+    };
+});
 
 var app = builder.Build();
 
@@ -155,6 +188,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowFrontend");
+app.UseRateLimiter(); // después de CORS: un 429 sin cabeceras CORS el navegador lo ve como fallo de red
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();

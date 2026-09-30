@@ -8,6 +8,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.7" />
+    <!-- SEC-1 (auditoría 2026-09-28): Microsoft.AspNetCore.OpenApi arrastra Microsoft.OpenApi 2.0.0
+         (GHSA-v5pm-xwqc-g5wc, corregido en 2.7.5). Referencia directa para subir solo esa versión;
+         se mantiene en la línea 2.x, que es la que usa AspNetCore.OpenApi 10.0. -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
