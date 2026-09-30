@@ -24,6 +24,14 @@ namespace SOEA.Domain.Entities
         public Guid? EspacioId { get; private set; }
         public Modalidad Modalidad { get; private set; }
 
+        /// <summary>
+        /// Horario (corrida de generación) al que pertenece la asignación. Acota el índice único de
+        /// aula/bloque/semana: sin él, generar el horario de otro semestre chocaba contra las
+        /// asignaciones vigentes del primero (NEW-3, auditoría 2026-09-28). Lo fija quien persiste
+        /// (<see cref="AsignarHorario"/>); nulo solo en filas anteriores a esa migración o aún sin persistir.
+        /// </summary>
+        public Guid? HorarioId { get; private set; }
+
         // Constructor privado para EF Core
         private AsignacionSemanal() : base() { }
 
@@ -42,6 +50,13 @@ namespace SOEA.Domain.Entities
             BloqueTiempoId = bloqueTiempoId;
             EspacioId = espacioId;
             Modalidad = modalidad;
+        }
+
+        public void AsignarHorario(Guid horarioId)
+        {
+            if (horarioId == Guid.Empty)
+                throw new ArgumentException("El ID del horario no puede ser vacío.", nameof(horarioId));
+            HorarioId = horarioId;
         }
 
         private static void Validar(Guid sesionId, Guid bloqueTiempoId, Guid? espacioId, Modalidad modalidad)

@@ -19,12 +19,12 @@ namespace SOEA.Domain.Entities
         public string Nombre { get; private set; } = "";
 
         // ── Relaciones ───────────────────────────────────────────────────────────
-        /// <summary>Asignatura a la que pertenece este grupo (eje del modelo presencial-first).</summary>
-        public Guid? AsignaturaId { get; private set; }
-        /// <summary>Facultad a la que pertenece; desnormalizado para acceso directo.</summary>
-        public Guid? FacultadId { get; private set; }
-        /// <summary>Programa académico del grupo (heredado del modelo anterior, se conserva).</summary>
-        public Guid ProgramaId { get; private set; }
+        /// <summary>
+        /// Asignatura a la que pertenece este grupo. Obligatoria: el programa y la facultad se
+        /// derivan de ella (Grupo → Asignatura → Programa → Facultad); el grupo no los guarda aparte
+        /// para que nunca puedan contradecir a su asignatura.
+        /// </summary>
+        public Guid AsignaturaId { get; private set; }
         /// <summary>
         /// Docente que dicta la asignatura para ESTE grupo. La relación docente↔grupo (no
         /// docente↔asignatura) es la correcta: la misma asignatura la dictan docentes distintos
@@ -64,23 +64,20 @@ namespace SOEA.Domain.Entities
         public Grupo(
             Guid id,
             string nombre,
-            Guid programaId,
+            Guid asignaturaId,
             int estudiantesInscritos,
             TipoAlternancia alternancia = TipoAlternancia.SinAlternancia,
             string? codigo = null,
-            Guid? asignaturaId = null,
-            Guid? facultadId = null,
             Guid? docenteId = null) : base(id)
         {
             Validar(nombre, estudiantesInscritos);
+            ValidarAsignatura(asignaturaId);
 
             Codigo              = codigo;
             Nombre              = nombre;
-            ProgramaId          = programaId;
             EstudiantesInscritos = estudiantesInscritos;
             Alternancia         = alternancia;
             AsignaturaId        = asignaturaId;
-            FacultadId          = facultadId;
             DocenteId           = docenteId;
         }
 
@@ -95,10 +92,10 @@ namespace SOEA.Domain.Entities
             Nombre = nuevoNombre;
         }
 
-        public void ActualizarAsignatura(Guid? asignaturaId, Guid? facultadId)
+        public void ActualizarAsignatura(Guid asignaturaId)
         {
+            ValidarAsignatura(asignaturaId);
             AsignaturaId = asignaturaId;
-            FacultadId   = facultadId;
         }
 
         public void ActualizarEstudiantes(int nuevaCantidad)
@@ -107,8 +104,6 @@ namespace SOEA.Domain.Entities
                 throw new ArgumentException("La cantidad de estudiantes debe ser un valor positivo.");
             EstudiantesInscritos = nuevaCantidad;
         }
-
-        public void ActualizarPrograma(Guid programaId) => ProgramaId = programaId;
 
         /// <summary>Asigna (o desasigna con null) el docente que dicta la asignatura para este grupo.</summary>
         public void AsignarDocente(Guid? docenteId) => DocenteId = docenteId;
@@ -131,6 +126,12 @@ namespace SOEA.Domain.Entities
         }
 
         // ── Validación ────────────────────────────────────────────────────────────
+        private static void ValidarAsignatura(Guid asignaturaId)
+        {
+            if (asignaturaId == Guid.Empty)
+                throw new ArgumentException("Todo grupo debe pertenecer a una asignatura.");
+        }
+
         private static void Validar(string nombre, int estudiantesInscritos)
         {
             if (string.IsNullOrWhiteSpace(nombre))

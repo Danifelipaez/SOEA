@@ -86,6 +86,9 @@ namespace SOEA.Domain.Entities
         /// <summary>Horas por defecto para un track que el shape legado no especifica.</summary>
         public const int HorasPorSesionPorDefecto = 2;
 
+        /// <summary>Tope de horas por sesión: el mismo de <see cref="Sesion"/> (0–8). Más allá, generar respondía 400 sin nombrar la asignatura.</summary>
+        public const int HorasMaximasPorSesion = 8;
+
         public Asignatura(
             Guid id,
             string nombre,
@@ -114,8 +117,9 @@ namespace SOEA.Domain.Entities
                 sesionesTeoriaPresencialSemana, horasTeoriaPresencial,
                 sesionesTeoriaVirtualSemana, horasTeoriaVirtual,
                 sesionesLaboratorioSemana, horasLaboratorio,
-                programaId);
+                sesionesLaboratorioSemestre, programaId);
             ValidarVentana(horaInicioMin, horaFinMax);
+            ValidarEnum(categoria, "la categoría");
 
             Nombre = nombre;
             Codigo = codigo;
@@ -161,6 +165,7 @@ namespace SOEA.Domain.Entities
 
         public void EstablecerCategoria(CategoriaAsignatura categoria)
         {
+            ValidarEnum(categoria, "la categoría");
             Categoria = categoria;
         }
 
@@ -182,6 +187,7 @@ namespace SOEA.Domain.Entities
         /// </summary>
         public void EstablecerAlternancia(TipoAlternancia tipo)
         {
+            ValidarEnum(tipo, "la alternancia");
             Alternancia = tipo;
         }
 
@@ -220,8 +226,10 @@ namespace SOEA.Domain.Entities
                 sesionesTeoriaPresencialSemana, horasTeoriaPresencial,
                 sesionesTeoriaVirtualSemana, horasTeoriaVirtual,
                 sesionesLaboratorioSemana, horasLaboratorio,
-                programaId);
+                sesionesLaboratorioSemestre, programaId);
             ValidarVentana(horaInicioMin, horaFinMax);
+            if (categoria.HasValue) ValidarEnum(categoria.Value, "la categoría");
+            if (alternanciaExplicita.HasValue) ValidarEnum(alternanciaExplicita.Value, "la alternancia");
 
             Nombre = nombre;
             Codigo = codigoFinal;
@@ -286,7 +294,7 @@ namespace SOEA.Domain.Entities
             int sesionesTeoriaPresencialSemana, int horasTeoriaPresencial,
             int sesionesTeoriaVirtualSemana, int horasTeoriaVirtual,
             int sesionesLaboratorioSemana, int horasLaboratorio,
-            Guid programaId)
+            int sesionesLaboratorioSemestre, Guid programaId)
         {
             if (string.IsNullOrWhiteSpace(nombre))
                 throw new ArgumentException("El nombre de la asignatura no puede estar vacío.");
@@ -302,8 +310,19 @@ namespace SOEA.Domain.Entities
                 throw new ArgumentException("Las horas por sesión de teoría virtual deben ser un valor positivo.");
             if (sesionesLaboratorioSemana > 0 && horasLaboratorio <= 0)
                 throw new ArgumentException("Las horas por sesión de laboratorio deben ser un valor positivo.");
+            if (horasTeoriaPresencial > HorasMaximasPorSesion || horasTeoriaVirtual > HorasMaximasPorSesion || horasLaboratorio > HorasMaximasPorSesion)
+                throw new ArgumentException($"Las horas por sesión no pueden superar {HorasMaximasPorSesion} (la duración de una sesión va de 0 a {HorasMaximasPorSesion} horas).");
+            if (sesionesLaboratorioSemestre < 0)
+                throw new ArgumentException("Las sesiones de laboratorio del semestre no pueden ser negativas.");
             if (programaId == Guid.Empty)
                 throw new ArgumentException("El ID del programa no puede ser vacío.");
+        }
+
+        /// <summary>Enum llegado por JSON numérico (p. ej. 99): se rechaza en vez de guardar un valor que después bloquea la generación.</summary>
+        private static void ValidarEnum<T>(T valor, string nombre) where T : struct, Enum
+        {
+            if (!Enum.IsDefined(valor))
+                throw new ArgumentException($"El valor de {nombre} no es válido.");
         }
 
         /// <summary>
