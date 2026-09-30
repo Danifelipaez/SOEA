@@ -68,10 +68,10 @@ namespace SOEA.Engine.ConstraintProg
             foreach (var idx in ocupanAula)
             {
                 var sesion = sesiones[idx];
-                int estudiantes = sesion.GrupoId.HasValue && estudiantesPorGrupo != null &&
-                    estudiantesPorGrupo.TryGetValue(sesion.GrupoId.Value, out var nEst) ? nEst : 0;
-                RequisitoEspacio? requisito = sesion.GrupoId.HasValue && requisitosPorGrupo != null &&
-                    requisitosPorGrupo.TryGetValue(sesion.GrupoId.Value, out var reqs)
+                int estudiantes = estudiantesPorGrupo != null &&
+                    estudiantesPorGrupo.TryGetValue(sesion.GrupoId, out var nEst) ? nEst : 0;
+                RequisitoEspacio? requisito = requisitosPorGrupo != null &&
+                    requisitosPorGrupo.TryGetValue(sesion.GrupoId, out var reqs)
                     ? reqs.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion))
                     : null;
 
