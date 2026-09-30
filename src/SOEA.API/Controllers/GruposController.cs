@@ -109,6 +109,8 @@ namespace SOEA.API.Controllers
 
             var requisitos = MapearRequisitosEspacio(dto.RequisitosEspacio);
             GrupoService.ValidarDatos(dto.DisponibilidadUiJson, requisitos);
+            if (GrupoService.ErrorDiasSeparados(dto.DisponibilidadUiJson, asignatura.SesionesMismoTipoSemana, dto.Nombre) is { } errorDias)
+                throw new ArgumentException(errorDias);
 
             var id = dto.Id == Guid.Empty ? Guid.NewGuid() : dto.Id;
             // ERR2 auditoría: sin catch de ArgumentException — GlobalExceptionHandler lo traduce a 400.
@@ -151,6 +153,8 @@ namespace SOEA.API.Controllers
 
             var requisitos = MapearRequisitosEspacio(dto.RequisitosEspacio);
             GrupoService.ValidarDatos(dto.DisponibilidadUiJson, requisitos);
+            if (GrupoService.ErrorDiasSeparados(dto.DisponibilidadUiJson, asignatura.SesionesMismoTipoSemana, dto.Nombre) is { } errorDias)
+                throw new ArgumentException(errorDias);
 
             // ERR2 auditoría: sin catch de ArgumentException — GlobalExceptionHandler lo traduce a
             // 400. Ver comentario en Create: GlobalExceptionHandler también traduce DbUpdateException.

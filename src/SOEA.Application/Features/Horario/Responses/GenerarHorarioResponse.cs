@@ -27,6 +27,8 @@ namespace SOEA.Application.Features.Horario.Responses
         /// en el catálogo sin tener que interpretar el texto libre de MensajeError.
         /// </summary>
         public List<string> GruposEnConflicto { get; set; } = new();
+        /// <summary>Solo con MotivoInfactibilidad "Capacidad": el espacio de mayor aforo que el grupo en conflicto podía usar.</summary>
+        public string? EspacioLimitanteId { get; set; }
         /// <summary>
         /// Sesiones que no cupieron en la Semana A y para las que no se encontró pareja de
         /// alternancia, con el motivo en lenguaje del coordinador (no comparten franja, no hay aula

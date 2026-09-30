@@ -22,6 +22,12 @@ namespace SOEA.Domain.Interfaces
         /// de laboratorio no ayuda contra esto, lo que ayuda es más tiempo o un run más pequeño.
         /// </summary>
         Timeout,
+        /// <summary>
+        /// HC-CAP: un grupo tiene más estudiantes que el aforo de todos los espacios que puede usar.
+        /// Aparte de <see cref="Espacio"/> porque emparejar en alternancia no agranda ningún aula:
+        /// el bucle de cesión no debe reintentar contra esto.
+        /// </summary>
+        Capacidad,
         Otro
     }
 
@@ -42,7 +48,9 @@ namespace SOEA.Domain.Interfaces
         /// modelo factible). Null si el barrido no corrió (deshabilitado, tope de candidatos
         /// superado, o la causa ya la explicó un pre-check estructural).
         /// </summary>
-        IReadOnlyList<Guid>? GruposResponsablesIds = null);
+        IReadOnlyList<Guid>? GruposResponsablesIds = null,
+        /// <summary>Solo con <see cref="MotivoInfactibilidad.Capacidad"/>: el espacio de mayor aforo que el grupo podía usar.</summary>
+        Guid? EspacioLimitanteId = null);
 
     /// <summary>
     /// Motor de Constraint Programming (Fase 2).

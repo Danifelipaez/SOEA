@@ -1,3 +1,4 @@
+using SOEA.Application.Features.Grupos;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Interfaces;
 using SOEA.Application.Features.Asignaturas.Requests;
@@ -85,6 +86,7 @@ public class AsignaturaService
         var asignatura = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException($"Asignatura con ID {id} no encontrada.");
         await ExigirProgramaExisteAsync(request.ProgramaId);
+        int sesionesMismoTipoAntes = asignatura.SesionesMismoTipoSemana;
 
         asignatura.ActualizarDatos(
             request.Nombre,
@@ -101,6 +103,22 @@ public class AsignaturaService
             categoria: request.Categoria,
             horaInicioMin: GenerarHorarioService.ParseHora(request.HoraInicioMin),
             horaFinMax: GenerarHorarioService.ParseHora(request.HoraFinMax));
+
+        // HC-SEP: subir las sesiones del mismo tipo puede dejar a grupos ya creados con disponibilidad
+        // insuficiente. Solo se revisa si el número sube: una edición cualquiera (p. ej. el nombre) no
+        // debe bloquearse por datos que ya estaban así.
+        if (asignatura.SesionesMismoTipoSemana > sesionesMismoTipoAntes)
+        {
+            var errores = (await _grupoRepository.GetByAsignaturaIdAsync(id))
+                .Select(g => GrupoService.ErrorDiasSeparados(g.DisponibilidadUiJson, asignatura.SesionesMismoTipoSemana, g.Nombre))
+                .OfType<string>()
+                .ToList();
+            if (errores.Count > 0)
+                throw new ArgumentException(
+                    $"No se puede subir a {asignatura.SesionesMismoTipoSemana} sesiones del mismo tipo por semana: " +
+                    string.Join(" ", errores.Take(3)) + (errores.Count > 3 ? $" (y {errores.Count - 3} grupo(s) más)" : "") +
+                    " Amplíe primero la disponibilidad de esos grupos.");
+        }
 
         await _repository.UpdateAsync(asignatura);
         return AsignaturaResponse.FromEntity(asignatura);

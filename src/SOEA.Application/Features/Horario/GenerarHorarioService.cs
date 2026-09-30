@@ -375,6 +375,7 @@ namespace SOEA.Application.Features.Horario
                     MensajeError  = mensaje,
                     MotivoInfactibilidad = resultadoFactibilidad.Motivo.ToString(),
                     GruposEnConflicto = resultadoFactibilidad.GruposResponsablesIds?.Select(id => id.ToString()).ToList() ?? new(),
+                    EspacioLimitanteId = resultadoFactibilidad.EspacioLimitanteId?.ToString(),
                     SesionesSinAlternanciaPosible = diagnosticoCesion,
                     Logs          = logs,
                     Sesiones      = new List<SesionGeneradaDto>()

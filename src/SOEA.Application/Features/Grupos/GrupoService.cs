@@ -35,6 +35,23 @@ public class GrupoService
             throw new ArgumentException("Las sesiones de un requisito de espacio no pueden ser negativas.");
     }
 
+    /// <summary>
+    /// HC-SEP en la captura: con n ≥ 2 sesiones del mismo tipo por semana, el grupo debe estar disponible
+    /// en n días con al menos uno libre entre ellos. Antes esto solo aparecía al generar, como un
+    /// "grupo en conflicto" sin explicación. Null = cumple. Espejo de errorSeparacionDias (frontend).
+    /// </summary>
+    public static string? ErrorDiasSeparados(string? disponibilidadUiJson, int sesionesMismoTipo, string nombreGrupo)
+    {
+        if (sesionesMismoTipo < 2) return null;
+        if (sesionesMismoTipo > 3)
+            return $"Con {sesionesMismoTipo} sesiones del mismo tipo por semana no hay forma de dejar un día libre entre " +
+                   "todas (caben como máximo 3: lunes, miércoles y viernes). Reduzca las sesiones por semana de la asignatura.";
+        if (DisponibilidadSemanal.DesdeJson(disponibilidadUiJson).DiasSeparadosDisponibles() >= sesionesMismoTipo) return null;
+        return $"El grupo '{nombreGrupo}' tiene {sesionesMismoTipo} sesiones del mismo tipo por semana, que deben ir en días " +
+               "distintos con al menos un día libre entre ellas, y su disponibilidad no lo permite. Marque al menos " +
+               $"{sesionesMismoTipo} días disponibles separados (por ejemplo {(sesionesMismoTipo == 2 ? "lunes y miércoles" : "lunes, miércoles y viernes")}).";
+    }
+
     public async Task DeleteAsync(Guid id)
     {
         if (await _repository.GetByIdAsync(id) is null)

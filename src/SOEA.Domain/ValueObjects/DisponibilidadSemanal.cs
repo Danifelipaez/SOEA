@@ -130,6 +130,23 @@ namespace SOEA.Domain.ValueObjects
         }
 
         /// <summary>
+        /// HC-SEP: cuántos días disponibles caben con al menos un día libre entre cada par (máx. 3 en
+        /// Lunes..Sábado). Día sin entrada = disponible, igual que en <see cref="PermiteBloque"/>.
+        /// Tomar siempre el primer día que respete la separación es óptimo en una línea.
+        /// </summary>
+        public int DiasSeparadosDisponibles()
+        {
+            int n = 0, ultimo = -2;
+            foreach (var dia in Enum.GetValues<DiaDeSemana>())
+            {
+                if (_diasCerrados?.Contains(dia) == true || (int)dia - ultimo < 2) continue;
+                n++;
+                ultimo = (int)dia;
+            }
+            return n;
+        }
+
+        /// <summary>
         /// Reduce la disponibilidad por día a las 2 franjas del modelo legacy
         /// (Matutino/Vespertino sobre el inicio) que todavía usa <see cref="Entities.Docente"/>
         /// (su <c>Disponibilidad</c> sigue siendo <c>List&lt;FranjaHoraria&gt;</c> — fuera del

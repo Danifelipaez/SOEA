@@ -549,12 +549,19 @@ namespace SOEA.Engine.ConstraintProg
                         var conAforo = lista.Where(e => espacios[e].Capacidad >= estudiantes).ToList();
                         if (conAforo.Count == 0)
                         {
-                            int aforoMax = lista.Max(e => espacios[e].Capacidad);
-                            var msg = $"Capacidad insuficiente: la sesión del grupo '{NombreGrupo(sesion.GrupoId)}' necesita un espacio para {estudiantes} " +
-                                      $"estudiantes, pero el aforo máximo disponible entre sus candidatos es {aforoMax}. " +
-                                      "Añada un espacio con mayor capacidad o reduzca el grupo.";
+                            var mayor = espacios[lista.MaxBy(e => espacios[e].Capacidad)];
+                            var tipoEspacio = mayor.Tipo switch
+                            {
+                                TipoEspacio.Laboratorio => "laboratorio",
+                                TipoEspacio.Auditorio => "auditorio",
+                                _ => "salón"
+                            };
+                            var msg = $"Capacidad insuficiente: el grupo '{NombreGrupo(sesion.GrupoId)}' tiene {estudiantes} estudiantes " +
+                                      $"y el espacio más grande que puede usar, el {tipoEspacio} '{mayor.Nombre}', solo tiene capacidad " +
+                                      $"para {mayor.Capacidad}. Añada un espacio con mayor capacidad o reduzca el grupo.";
                             _logger.LogError(msg);
-                            return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio);
+                            return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Capacidad,
+                                new[] { sesion.GrupoId }, mayor.Id);
                         }
                         lista = conAforo;
                     }

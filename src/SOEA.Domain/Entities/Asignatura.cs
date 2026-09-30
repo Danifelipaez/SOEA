@@ -77,6 +77,13 @@ namespace SOEA.Domain.Entities
         /// <summary>Alias legado de <see cref="SesionesTeoriaPresencialSemana"/>. Ídem <see cref="HorasPorSesion"/>.</summary>
         public int SesionesPorSemana => SesionesTeoriaPresencialSemana;
 
+        /// <summary>
+        /// HC-SEP: mayor número de sesiones semanales de un mismo tipo. Si es ≥2, cada grupo necesita
+        /// ese número de días disponibles con al menos un día libre entre ellos.
+        /// </summary>
+        public int SesionesMismoTipoSemana =>
+            Math.Max(SesionesTeoriaPresencialSemana, Math.Max(SesionesTeoriaVirtualSemana, SesionesLaboratorioSemana));
+
         // Constructor privado para EF Core
         private Asignatura() : base() { }
 
