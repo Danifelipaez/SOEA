@@ -4,28 +4,6 @@ import { Observable } from 'rxjs';
 import { Asignatura, CriterioCesionAlternancia, Docente, Espacio, Facultad, Grupo, Programa, Sesion } from './models';
 import { environment } from '../../environments/environment';
 
-export interface ImportMapping {
-  tempId: string;
-  newId: string;
-}
-
-export interface ImportSummary {
-  facultades: number;
-  programas: number;
-  asignaturas: number;
-  grupos: number;
-  docentes: number;
-}
-
-export interface ImportResult {
-  facultades: ImportMapping[];
-  programas: ImportMapping[];
-  asignaturas: ImportMapping[];
-  grupos: ImportMapping[];
-  docentes: ImportMapping[];
-  summary: ImportSummary;
-}
-
 @Injectable({ providedIn: 'root' })
 export class PersistenciaService {
   private http = inject(HttpClient);
@@ -232,8 +210,8 @@ export class PersistenciaService {
     // R2 auditoría: el diálogo de creación manual ya obliga a elegir un grupo, pero el dato se
     // descartaba antes de llegar aquí — sin él, HC-SEP se evaluaba sobre TODAS las cohortes
     // (rechazaba una sesión válida por chocar con la de otro grupo) y HC-S05 (aula fija del
-    // grupo) no se podía aplicar en absoluto.
-    grupoId: string | null;
+    // grupo) no se podía aplicar en absoluto. Obligatorio: toda sesión pertenece a un grupo de la asignatura.
+    grupoId: string;
     dia: string;
     horaInicio: string;
     duracionHoras: number;
@@ -242,10 +220,6 @@ export class PersistenciaService {
     esVirtual: boolean;
   }): Observable<Sesion[]> {
     return this.http.post<Sesion[]>(`${this.base}/horario/sesion-manual`, payload);
-  }
-
-  importarCurriculum(payload: any): Observable<ImportResult> {
-    return this.http.post<ImportResult>(`${this.base}/import/curriculum`, payload);
   }
 
   importarExcel(file: File): Observable<ImportExcelStatsDto> {

@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
-import { CatalogoService } from './catalogo.service';
+import { CatalogoService, normalizarClavesDia, normalizarClavesDiaJson } from './catalogo.service';
 import { PersistenciaService } from './persistencia.service';
 import { StateService } from './state.service';
 import { Grupo } from './models';
@@ -66,5 +66,48 @@ describe('CatalogoService — reversión en error', () => {
     catalogo.guardar('grupo', grupo({ nombre: 'Editado' })).subscribe();
 
     expect(state.grupos().find(g => g.id === 'g1')?.nombre).toBe('Editado');
+  });
+});
+
+/**
+ * L-3 (auditoría 2026-09-28): el import de Excel guarda la disponibilidad por grupo con claves
+ * "Martes"/"Miercoles"/"Sábado"; el editor y el chequeo de "sin días disponibles" leen "martes"…
+ * y con claves capitalizadas todos los días aparecían cerrados (y guardar los destruía).
+ */
+describe('CatalogoService — claves de día de la disponibilidad', () => {
+  const importado = JSON.stringify({
+    Lunes: { noDisponible: false, tipo: 'Franja específica', desde: '08:00', hasta: '10:00' },
+    'Miércoles': { noDisponible: false, tipo: 'Franja específica', desde: '08:00', hasta: '10:00' },
+    'Sábado': { noDisponible: false, tipo: 'Franja específica', desde: '07:00', hasta: '09:00' },
+  });
+
+  it('normalizarClavesDiaJson pasa a minúscula y sin tilde, conservando el contenido', () => {
+    const obj = JSON.parse(normalizarClavesDiaJson(importado)!);
+
+    expect(Object.keys(obj).sort()).toEqual(['lunes', 'miercoles', 'sabado']);
+    expect(obj.miercoles.desde).toBe('08:00');
+  });
+
+  it('no toca claves que no son un día, ni un JSON inválido, ni el vacío', () => {
+    expect(normalizarClavesDia({ Otra: 1, MARTES: 2 })).toEqual({ Otra: 1, martes: 2 });
+    expect(normalizarClavesDiaJson('no es json')).toBe('no es json');
+    expect(normalizarClavesDiaJson(undefined)).toBeUndefined();
+  });
+
+  it('un grupo que llega de la API con claves capitalizadas queda normalizado en el state', () => {
+    const persistencia = { guardarGrupo: vi.fn() };
+    TestBed.configureTestingModule({ providers: [{ provide: PersistenciaService, useValue: persistencia }] });
+    const catalogo = TestBed.inject(CatalogoService);
+    const state = TestBed.inject(StateService);
+    persistencia.guardarGrupo.mockReturnValue(of({
+      id: 'g9', asignaturaId: 'a1', nombre: 'G9', estudiantesInscritos: 20, programaId: 'p1',
+      disponibilidadUiJson: importado,
+    }));
+
+    catalogo.guardar('grupo', { id: 'g9', asignaturaId: 'a1', nombre: 'G9', estudiantesInscritos: 20, programaId: 'p1' }).subscribe();
+
+    const claves = Object.keys(JSON.parse(state.grupos().find(g => g.id === 'g9')!.disponibilidadUiJson!));
+    expect(claves).toContain('miercoles');
+    expect(claves).not.toContain('Miércoles');
   });
 });

@@ -5,6 +5,7 @@ import { catchError } from 'rxjs/operators';
 import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion } from './models';
 import { environment } from '../../environments/environment';
 import { mensajeErrorHttp } from './http-error.util';
+import { SEMESTRE_POR_DEFECTO } from './semestre';
 
 // ── Tipos del contrato con la API ──────────────────────────────────────────────
 
@@ -108,7 +109,8 @@ export interface EspacioApiDto {
 }
 
 export interface GenerarHorarioResponse {
-  horarioId: string;
+  /** null cuando la generación no produjo un horario (infactible, plazo agotado). */
+  horarioId: string | null;
   semestre: string;
   esFactible: boolean;
   puntajeFitness: number;
@@ -157,7 +159,7 @@ export class HorarioApiService {
     docentes: Docente[],
     espacios: Espacio[],
     config?: ConfiguracionAlgoritmo,
-    semestre = '2026-1',
+    semestre = SEMESTRE_POR_DEFECTO,
     base?: HorarioBase,
     grupos?: Grupo[]
   ): Observable<GenerarHorarioResponse> {
@@ -247,7 +249,7 @@ export class HorarioApiService {
    * solo vivía en memoria del navegador, así que un simple F5 lo vaciaba aunque siguiera intacto
    * en BD. null si aún no se ha generado ningún horario para ese semestre (404, no es un error).
    */
-  obtenerActual(semestre = '2026-1'): Observable<GenerarHorarioResponse | null> {
+  obtenerActual(semestre = SEMESTRE_POR_DEFECTO): Observable<GenerarHorarioResponse | null> {
     return this.http
       .get<GenerarHorarioResponse>(`${this.apiBase}/horario/actual`, { params: { semestre } })
       .pipe(catchError((err: HttpErrorResponse) => err.status === 404 ? of(null) : this.manejarError(err)));
@@ -297,8 +299,10 @@ export class HorarioApiService {
       }
       return throwError(() => new Error(mensajeErrorHttp(err)));
     }
-    // 422: backend devolvió GenerarHorarioResponse con EsFactible=false
-    if (err.error && typeof err.error === 'object') {
+    // 422: backend devolvió GenerarHorarioResponse con EsFactible=false. Solo ese cuerpo pasa tal
+    // cual: un 409/429/404/500 trae un ProblemDetails sin `mensajeError`, y reenviado crudo el
+    // componente lo mostraba como "Error desconocido" (NEW-7 auditoría 2026-09-28).
+    if (err.status === 422 && err.error && typeof err.error === 'object') {
       return throwError(() => err.error);
     }
     return throwError(() => new Error(mensajeErrorHttp(err)));

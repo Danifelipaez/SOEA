@@ -209,7 +209,7 @@ export class CatalogoService {
       // centraliza aquí, la única fuente de hidratación del StateService. Un fallo real al
       // traer el horario no debe tumbar la carga del catálogo (asignaturas/docentes/espacios) —
       // se guarda en errorHorarioActual (FE6) para que quien lo necesite lo muestre.
-      horario: this.horarioApi.obtenerActual('2026-1').pipe(catchError(err => {
+      horario: this.horarioApi.obtenerActual(this.state.semestre()).pipe(catchError(err => {
         this.state.errorHorarioActual.set(mensajeErrorHttp(err));
         return of(null);
       }))
@@ -257,7 +257,7 @@ export class CatalogoService {
       nombre: d.nombre,
       cedula: d.cedula ?? '',
       maxHoras: d.maxHoras ?? 40,
-      disponibilidad: d.disponibilidad ?? {}
+      disponibilidad: normalizarClavesDia(d.disponibilidad ?? {})
     };
   }
 
@@ -306,8 +306,41 @@ export class CatalogoService {
       facultadId: g.facultadId ?? undefined,
       docenteId: g.docenteId ?? undefined,
       codigo: g.codigo ?? undefined,
-      disponibilidadUiJson: g.disponibilidadUiJson ?? undefined,
+      disponibilidadUiJson: normalizarClavesDiaJson(g.disponibilidadUiJson) ?? undefined,
       requisitosEspacio: g.requisitosEspacio ?? []
     };
   }
+}
+
+const DIAS_CANONICOS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+
+/** Clave de día del contrato de la UI: minúscula y sin tilde ("Miércoles" → "miercoles"). */
+function claveDia(clave: string): string {
+  return clave.trim().normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
+/**
+ * L-3 auditoría 2026-09-28: el import de Excel guardó la disponibilidad por grupo con el nombre del
+ * enum del backend ("Martes", "Sábado"), pero el editor, el chequeo de "sin días disponibles" y el
+ * resto de la UI leen las claves en minúscula y sin tilde. Con claves capitalizadas todos los días
+ * aparecían cerrados y guardar el grupo destruía la disponibilidad importada. Se normalizan aquí,
+ * donde entra todo dato de la API, para no depender de que cada lector lo recuerde. Las claves que
+ * no son un día se dejan tal cual.
+ */
+export function normalizarClavesDia(disp: Record<string, any>): Record<string, any> {
+  const salida: Record<string, any> = {};
+  for (const [clave, valor] of Object.entries(disp ?? {})) {
+    const c = claveDia(clave);
+    salida[DIAS_CANONICOS.includes(c) ? c : clave] = valor;
+  }
+  return salida;
+}
+
+/** Igual que {@link normalizarClavesDia} sobre el JSON crudo de un grupo; si no parsea, se devuelve intacto. */
+export function normalizarClavesDiaJson(json: string | null | undefined): string | null | undefined {
+  if (!json) return json;
+  try {
+    const obj = JSON.parse(json);
+    return obj && typeof obj === 'object' && !Array.isArray(obj) ? JSON.stringify(normalizarClavesDia(obj)) : json;
+  } catch { return json; }
 }

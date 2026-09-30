@@ -147,6 +147,22 @@ describe('HorarioApiService — manejarError', () => {
     expect(recibido.message).not.toBe('Error desconocido al conectar con el API.');
     expect(recibido.message).toMatch(/conectar|conexión|servidor/i);
   });
+
+  // NEW-7/SEC-2: un ProblemDetails (429 "generación en curso", 409, 500) se reenviaba crudo y el
+  // componente, que solo lee mensajeError/message/error, mostraba "Error desconocido".
+  it('un 429 con ProblemDetails llega como Error con el detalle en español', () => {
+    let recibido: any;
+    service.generarHorario([], [], []).subscribe({ error: (e) => (recibido = e) });
+
+    const req = httpMock.expectOne(r => r.url.endsWith('/horario/generar'));
+    req.flush(
+      { status: 429, title: 'Generación en curso', detail: 'Ya hay un horario generándose. Espere a que termine e inténtelo de nuevo.' },
+      { status: 429, statusText: 'Too Many Requests' }
+    );
+
+    expect(recibido).toBeInstanceOf(Error);
+    expect(recibido.message).toBe('Ya hay un horario generándose. Espere a que termine e inténtelo de nuevo.');
+  });
 });
 
 /**
