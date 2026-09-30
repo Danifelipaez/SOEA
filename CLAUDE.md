@@ -34,16 +34,16 @@ SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanale
 - [x] `SOEA.Engine.GraphColoring`: `AgendadorColoracionGrafo`, `ConstructorGrafoConflictos`
 - [x] `SOEA.Engine.ConstraintProg`: `MotorConstraintProgramming` (OR-Tools CP-SAT, 120 s timeout)
 - [x] `SOEA.Engine.Genetic`: `CromosomaHorario`, `EvaluadorFitness`, `MotorGenetico`, `OperadoresGeneticos` (200 gen, pop 50, convergencia 30)
-- [x] `SOEA.Infrastructure.Data`: `SOEABdContext`, 9 configuraciones EF, 7 repositorios, **19 migraciones aplicadas** (`InitialCreate` → `FixMotivoConflictoColumnMapping`, 2026-08-07)
+- [x] `SOEA.Infrastructure.Data`: `SOEABdContext`, 9 configuraciones EF, 7 repositorios, **28 migraciones** (`InitialCreate` → `M19_JerarquiaSesionGrupoAsignatura`, 2026-09-29; se aplican solas al arrancar el API). M19: jerarquía obligatoria Sesión → Grupo → Asignatura → Programa → Facultad (`Sesion.GrupoId` y `Grupo.AsignaturaId` NOT NULL, `Grupos.programa_id`/`facultad_id` eliminados, FK compuesta `(grupo_id, asignatura_id)` en SQL)
 - [x] `SOEA.Infrastructure.Excel`: `LectorExcel` (3 modos: curriculum, modo2, disponibilidad)
 - [x] `SOEA.Application`: `AsignaturaService` (CRUD completo, un solo servicio), `CrearSesionManualService`, `DocenteService`, `FusionDocentesService`, `CriterioCesionAlternanciaService`, `GenerarHorarioService`, `ImportarCurriculumService`, `AsignarDocenteSesionService`, `ReacomodarHorarioService`
-- [x] `SOEA.API`: **9 controllers** (`AsignaturaController`, `CriteriosCesionAlternanciaController`, `DocentesController`, `EspaciosController`, `FacultadesController`, `GruposController`, `HorarioController`, `ImportController`, `ProgramasController`, `SesionesController`) — corrección: no existe `TiposAlternanciaController`; `TipoAlternanciaConfig` no tiene endpoint REST propio
-- [x] Tests: arquitectura (NetArchTest), entidades de dominio, motores, value objects (~257 métodos de prueba en 30 archivos)
+- [x] `SOEA.API`: **10 controllers** (`AsignaturaController`, `CriteriosCesionAlternanciaController`, `DocentesController`, `EspaciosController`, `FacultadesController`, `GruposController`, `HorarioController`, `ImportController`, `ProgramasController`, `SesionesController`) — corrección: no existe `TiposAlternanciaController`; `TipoAlternanciaConfig` no tiene endpoint REST propio
+- [x] Tests: arquitectura (NetArchTest), entidades de dominio, motores, value objects (~500 pruebas en ~70 archivos; unas 20 corren contra PostgreSQL real — ver `SOEA_TEST_DB` en Comandos)
 - [x] Validador post-generación de hard constraints (`ValidadorRestriccionesDuras` en Application, wired en `GenerarHorarioService` paso 4b — fallback a Fase 2 si el GA viola alguna de las **10 reglas** verificadas: HC-C01, HC-S01, HC-ALT, HC-BASE, HC-VH, HC-G01, HC-S03, HC-CAP, HC-S05, HC-SEP)
 - [x] "Grupo como eje" completado a nivel de datos (migración `P1_GrupoComoEje`, 2026-08-06): `Grupo` absorbió `DocenteId` (desde `Fase2DocenteEnGrupo`) y `RequisitosEspacio` (reemplaza `Asignatura.EspacioFijoId`, ya eliminado)
 - [x] Alternancia por parejas / "Tipo C" dinámico (migración `P2_ParejaAlternancia`, 2026-08-07): `Sesion.ParejaAlternanciaId` + hard constraint HC-ALT en CP-SAT y en el validador
 - [ ] `PublicarHorarioService` — impide publicar con violaciones > 0
-- [ ] Autenticación JWT y control de acceso por rol — sigue sin implementarse; la aplicación real (backend y frontend) es de un solo operador sin login, no de 4 roles
+- [ ] Autenticación JWT y control de acceso por rol — sigue sin implementarse; la aplicación real (backend y frontend) es de un solo operador sin login, no de 4 roles. **La API está expuesta sin autenticación:** hasta decidir cómo restringir el acceso (lista de IP o Easy Auth) y activar `httpsOnly` en la App Service, no debe tratarse como un servicio protegido (auditoría pre-producción 2026-09-28, SEC-2/SEC-3)
 
 **Frontend** (`frontend/soea-angular`)
 - [x] Rutas actuales, organizadas por journey (rediseño completo, ver `docs/DESIGN_BRIEF.md`): `/catalogo` (paso 1: preparar catálogo), `/horario` (pasos 2–3: generar y ajustar), `/revisar` (paso 4: KPIs), `/publicar` (paso 5, bloqueado). **Las rutas antiguas (`/ingesta`, `/dashboard-admin`, `/dashboard-developer`, `/horario-docente`, `/tipos-alternancia`, `/configuracion-alternancia`) ya no existen** — este archivo las listaba desactualizadas.
@@ -66,7 +66,7 @@ El agente NO debe asumir ni inventar estos valores — provienen de Rosa (coordi
 
 - **Idioma:** clases y archivos en inglés; comentarios y docs en español
 - **Enums clave:** `TipoAlternancia { TipoA, TipoB, SinAlternancia }` · `TipoEspacio { Salon, Laboratorio, Auditorio }` · `TipoFlujo { Laboratorio, AulaVirtual }` · `CategoriaAsignatura { Obligatoria, Optativa, Electiva }`
-- **Tests:** xUnit · NSubstitute para mocks · datos de prueba en `TestData/`
+- **Tests:** xUnit · dobles a mano en `test/SOEA.Tests/Fakes/RepositorioFakes.cs` (no se usa NSubstitute ni existe `TestData/`) · PostgreSQL real para las pruebas de integración (`test/SOEA.Tests/Integracion`)
 - **DI:** cada proyecto de infraestructura/motor expone `AddX()`. Application registra servicios concretos con `AddScoped<ConcreteService>()` — sin interfaz adicional.
 - **Docs:** `docs/architecture.md`, `docs/domain.md`, `docs/algorithms.md`
 
@@ -76,7 +76,10 @@ El agente NO debe asumir ni inventar estos valores — provienen de Rosa (coordi
 # Backend (raíz de la solución)
 dotnet build SOEA.sln
 dotnet run --project src/SOEA.API          # API → http://localhost:5066
-dotnet test SOEA.sln
+dotnet test SOEA.sln                        # las pruebas de Postgres se omiten si no hay servidor: define SOEA_TEST_DB
+                                           # (cadena con servidor y credenciales; crea y borra BDs soea_it_*, nunca toca SOEAdb)
+                                           # y comprueba que el resumen diga "Omitido: 0". Con SOEA_TEST_DB definida y sin
+                                           # servidor alcanzable, fallan en vez de omitirse.
 dotnet test --filter "FullyQualifiedName~Architecture"
 dotnet test --filter "DisplayName~BloqueTiempo"
 
@@ -103,10 +106,8 @@ PostgreSQL `localhost:5432`, DB `SOEAdb`. Configuraciones EF en `SOEA.Infrastruc
 
 **Motor CP-SAT:** la sección `CpSat` de configuración controla `ExportarModelo` (volcado de `cp_model_debug.txt`, default `false`) y `TimeoutSegundos` (default 120).
 
-`ILectorExcel` expone tres métodos:
+`ILectorExcel` expone un único método (los lectores de "modo 2" y de disponibilidad de docentes ya no existen):
 - `LeerCurriculumAsync` — columnas detectadas por cabecera (no por posición): Facultad, Programa, Asignatura, Código (opcional), TipoEspacio (opcional), Espacio/Curso/Salón/Aula, Duración/Horas/Reales [h], Día, Hora, Docente, Grupo (opcional, número real de grupo/sección), Final (opcional, hora de fin explícita — si no viene, se deriva de Hora+Duración). Acepta tanto el formato legado (A–J fijo) como el formato real de Rosa (Facultad, Programa, Asignatura, Grupo, Docente, Reales [h], Espacio, Dia, Hora, Final).
-- `LeerAsignaturasModo2Async` — cols A–H (sin Día/Hora).
-- `LeerDisponibilidadDocentesAsync` — cols: Docente, Correo, MaxHoras, Días, Franjas.
 
 ## Architecture tests
 
