@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SOEA.Infrastructure.Data.Context;
@@ -11,9 +12,11 @@ using SOEA.Infrastructure.Data.Context;
 namespace SOEA.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(SOEABdContext))]
-    partial class SOEABdContextModelSnapshot : ModelSnapshot
+    [Migration("20260929000606_M17_ClavesAjenasCatalogoYAsignaciones")]
+    partial class M17_ClavesAjenasCatalogoYAsignaciones
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -380,7 +383,7 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("alternancia");
 
-                    b.Property<Guid>("AsignaturaId")
+                    b.Property<Guid?>("AsignaturaId")
                         .HasColumnType("uuid")
                         .HasColumnName("asignatura_id");
 
@@ -401,11 +404,19 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("estudiantes_inscritos");
 
+                    b.Property<Guid?>("FacultadId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("facultad_id");
+
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("nombre");
+
+                    b.Property<Guid>("ProgramaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("programa_id");
 
                     b.Property<string>("RequisitosEspacio")
                         .HasColumnType("text")
@@ -424,8 +435,13 @@ namespace SOEA.Infrastructure.Data.Migrations
                     b.HasIndex("DocenteId")
                         .HasDatabaseName("ix_grupo_docente_id");
 
+                    b.HasIndex("FacultadId");
+
                     b.HasIndex("Nombre")
                         .HasDatabaseName("ix_grupo_nombre");
+
+                    b.HasIndex("ProgramaId")
+                        .HasDatabaseName("ix_grupo_programa_id");
 
                     b.ToTable("Grupos", (string)null);
                 });
@@ -563,7 +579,7 @@ namespace SOEA.Infrastructure.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("estado");
 
-                    b.Property<Guid>("GrupoId")
+                    b.Property<Guid?>("GrupoId")
                         .HasColumnType("uuid")
                         .HasColumnName("grupo_id");
 
@@ -750,13 +766,23 @@ namespace SOEA.Infrastructure.Data.Migrations
                     b.HasOne("SOEA.Domain.Entities.Asignatura", null)
                         .WithMany()
                         .HasForeignKey("AsignaturaId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("SOEA.Domain.Entities.Docente", null)
                         .WithMany()
                         .HasForeignKey("DocenteId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SOEA.Domain.Entities.Facultad", null)
+                        .WithMany()
+                        .HasForeignKey("FacultadId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("SOEA.Domain.Entities.Programa", null)
+                        .WithMany()
+                        .HasForeignKey("ProgramaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("SOEA.Domain.Entities.Programa", b =>
@@ -795,8 +821,7 @@ namespace SOEA.Infrastructure.Data.Migrations
                     b.HasOne("SOEA.Domain.Entities.Grupo", null)
                         .WithMany()
                         .HasForeignKey("GrupoId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("SOEA.Domain.Entities.TipoAlternanciaConfig", null)
                         .WithMany()
