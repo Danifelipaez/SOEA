@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using SOEA.Application.Features.Programas;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Interfaces;
 
@@ -16,8 +17,13 @@ namespace SOEA.API.Controllers
     public class ProgramasController : ControllerBase
     {
         private readonly IProgramaRepositorio _repo;
+        private readonly ProgramaService _service;
 
-        public ProgramasController(IProgramaRepositorio repo) => _repo = repo;
+        public ProgramasController(IProgramaRepositorio repo, ProgramaService service)
+        {
+            _repo = repo;
+            _service = service;
+        }
 
         [HttpGet]
         public async Task<ActionResult<List<ProgramaCrudDto>>> GetAll()
@@ -31,6 +37,7 @@ namespace SOEA.API.Controllers
         public async Task<ActionResult<ProgramaCrudDto>> Create([FromBody] ProgramaCrudDto dto)
         {
             var id = dto.Id == Guid.Empty ? Guid.NewGuid() : dto.Id;
+            await _service.ExigirNombreUnicoAsync(dto.Nombre, dto.FacultadId, id);
             var programa = new Programa(id, dto.Nombre, dto.FacultadId);
             await _repo.AddAsync(programa);
             return StatusCode(StatusCodes.Status201Created, MapToDto(programa));
@@ -40,7 +47,8 @@ namespace SOEA.API.Controllers
         public async Task<ActionResult<ProgramaCrudDto>> Update(Guid id, [FromBody] ProgramaCrudDto dto)
         {
             var existing = await _repo.GetByIdAsync(id);
-            if (existing is null) return NotFound();
+            if (existing is null) throw new KeyNotFoundException($"Programa con ID {id} no encontrado.");
+            await _service.ExigirNombreUnicoAsync(dto.Nombre, dto.FacultadId, id);
             existing.ActualizarDatos(dto.Nombre, dto.FacultadId);
             await _repo.UpdateAsync(existing);
             return Ok(MapToDto(existing));
@@ -49,9 +57,7 @@ namespace SOEA.API.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            var existing = await _repo.GetByIdAsync(id);
-            if (existing is null) return NotFound($"Programa con ID {id} no encontrado.");
-            await _repo.DeleteAsync(id);
+            await _service.DeleteAsync(id);
             return NoContent();
         }
 

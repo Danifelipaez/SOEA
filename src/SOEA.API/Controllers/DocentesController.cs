@@ -38,7 +38,7 @@ namespace SOEA.API.Controllers
         public async Task<ActionResult<DocenteUiDto>> Update(Guid id, [FromBody] DocenteUiDto dto)
         {
             var updated = await _service.UpdateAsync(id, dto);
-            if (updated is null) return NotFound();
+            if (updated is null) throw new KeyNotFoundException($"Docente con ID {id} no encontrado.");
             return Ok(updated);
         }
 
@@ -46,7 +46,7 @@ namespace SOEA.API.Controllers
         public async Task<IActionResult> Delete(Guid id)
         {
             var eliminado = await _service.DeleteAsync(id);
-            if (!eliminado) return NotFound($"Docente con ID {id} no encontrado.");
+            if (!eliminado) throw new KeyNotFoundException($"Docente con ID {id} no encontrado.");
             return NoContent();
         }
 
