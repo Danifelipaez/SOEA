@@ -27,7 +27,7 @@ namespace SOEA.Tests.Application
             new(Guid.NewGuid(), dia, new TimeOnly(hora, 0), new TimeOnly(hora + 1, 0));
 
         private static Sesion CrearSesion(Guid bloqueId, decimal duracion, Guid? docenteId) =>
-            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, bloqueId, null, null,
+            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, bloqueId, null, Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, duracion, false, false);
 
         private static Docente CrearDocente(decimal maxHoras)

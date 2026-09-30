@@ -28,7 +28,7 @@ namespace SOEA.Tests.Application
         private static Sesion CrearSesion(Guid bloqueId, decimal duracion = 2m, Guid? docenteId = null)
         {
             var s = new Sesion(
-                Guid.NewGuid(), Guid.NewGuid(), docenteId, bloqueId, null, null,
+                Guid.NewGuid(), Guid.NewGuid(), docenteId, bloqueId, null, Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, duracion, false, false);
             return s;
         }

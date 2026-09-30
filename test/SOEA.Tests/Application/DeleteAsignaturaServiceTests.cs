@@ -33,7 +33,7 @@ namespace SOEA.Tests.Application
         private static SesionCascadeService Cascade(FakeSesionRepo sesiones, FakeAsignacionRepo asignaciones) =>
             new(sesiones, asignaciones);
 
-        private static Sesion SesionDe(Guid asignaturaId, Guid? grupoId) =>
+        private static Sesion SesionDe(Guid asignaturaId, Guid grupoId) =>
             new(Guid.NewGuid(), asignaturaId, null, Guid.NewGuid(), null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false);
 
@@ -67,9 +67,9 @@ namespace SOEA.Tests.Application
         {
             var asig = Existente(Guid.NewGuid());
             var asigRepo = new FakeAsignaturaRepo(asig);
-            var grupo1 = new Grupo(Guid.NewGuid(), "G1", Guid.Empty, 30, asignaturaId: asig.Id);
-            var grupo2 = new Grupo(Guid.NewGuid(), "G2", Guid.Empty, 30, asignaturaId: asig.Id);
-            var grupoOtraAsignatura = new Grupo(Guid.NewGuid(), "G3", Guid.Empty, 30, asignaturaId: Guid.NewGuid());
+            var grupo1 = new Grupo(Guid.NewGuid(), "G1", asig.Id, 30);
+            var grupo2 = new Grupo(Guid.NewGuid(), "G2", asig.Id, 30);
+            var grupoOtraAsignatura = new Grupo(Guid.NewGuid(), "G3", Guid.NewGuid(), 30);
             var grupoRepo = new FakeGrupoRepo(grupo1, grupo2, grupoOtraAsignatura);
             var service = new AsignaturaService(
                 asigRepo, grupoRepo, Cascade(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
@@ -88,12 +88,12 @@ namespace SOEA.Tests.Application
         {
             var asig = Existente(Guid.NewGuid());
             var asigRepo = new FakeAsignaturaRepo(asig);
-            var grupo = new Grupo(Guid.NewGuid(), "G1", Guid.Empty, 30, asignaturaId: asig.Id);
+            var grupo = new Grupo(Guid.NewGuid(), "G1", asig.Id, 30);
             var grupoRepo = new FakeGrupoRepo(grupo);
 
-            // Una sesión generada por el grupo y otra directa por la asignatura (sin grupo).
+            // Una sesión del grupo y otra de la asignatura con un grupo ya borrado del catálogo.
             var sesionPorGrupo = SesionDe(asig.Id, grupo.Id);
-            var sesionDirecta = SesionDe(asig.Id, null);
+            var sesionDirecta = SesionDe(asig.Id, Guid.NewGuid());
             var sesionRepo = new FakeSesionRepo(sesionPorGrupo, sesionDirecta);
             var asignacionRepo = new FakeAsignacionRepo(
                 new AsignacionSemanal(Guid.NewGuid(), sesionPorGrupo.Id, SemanaAcademica.A, Guid.NewGuid(), null, Modalidad.Presencial),
@@ -144,8 +144,6 @@ namespace SOEA.Tests.Application
             public Task AddAsync(Grupo entity) { _grupos.Add(entity); return Task.CompletedTask; }
             public Task UpdateAsync(Grupo entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) { _grupos.RemoveAll(g => g.Id == id); return Task.CompletedTask; }
-            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) =>
-                Task.FromResult(_grupos.FirstOrDefault(g => g.Nombre == nombre && g.ProgramaId == programaId));
             public Task<Grupo?> GetByCodigoAsync(string codigo) =>
                 Task.FromResult(_grupos.FirstOrDefault(g => g.Codigo == codigo));
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) =>
