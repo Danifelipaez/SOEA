@@ -42,7 +42,7 @@ namespace SOEA.Tests.Application
         }
 
         private static Sesion SesionDelEspacio(Guid espacioId) =>
-            new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), espacioId, null,
+            new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), espacioId, Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false);
 
         private static EspacioService Servicio(FakeEspacioRepo espacioRepo, FakeGrupoRepo grupoRepo, SesionCascadeService? cascade = null) =>
@@ -131,8 +131,6 @@ namespace SOEA.Tests.Application
             public Task AddAsync(Grupo entity) { _grupos.Add(entity); return Task.CompletedTask; }
             public Task UpdateAsync(Grupo entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) { _grupos.RemoveAll(g => g.Id == id); return Task.CompletedTask; }
-            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) =>
-                Task.FromResult(_grupos.FirstOrDefault(g => g.Nombre == nombre && g.ProgramaId == programaId));
             public Task<Grupo?> GetByCodigoAsync(string codigo) =>
                 Task.FromResult(_grupos.FirstOrDefault(g => g.Codigo == codigo));
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) =>

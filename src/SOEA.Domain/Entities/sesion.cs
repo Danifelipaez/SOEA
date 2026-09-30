@@ -5,7 +5,8 @@ namespace SOEA.Domain.Entities
 {
     /// <summary>
     /// Sesión académica: ocurrencia de una asignatura para un grupo/cohorte en un bloque de tiempo.
-    /// Persistida como relación entre Asignatura, Docente, BloqueTiempo, Espacio (nullable), Grupo (nullable).
+    /// Jerarquía obligatoria: Sesión → Grupo → Asignatura → Programa → Facultad. <see cref="AsignaturaId"/>
+    /// es la del grupo (la BD lo exige con una FK compuesta (grupo_id, asignatura_id) → Grupos).
     /// </summary>
     public class Sesion : EntidadBase
     {
@@ -18,7 +19,7 @@ namespace SOEA.Domain.Entities
         public Guid? DocenteId { get; private set; }
         public Guid BloqueTiempoId { get; private set; }
         public Guid? EspacioId { get; private set; }
-        public Guid? GrupoId { get; private set; }
+        public Guid GrupoId { get; private set; }
         public TipoAlternancia Alternancia { get; private set; }
         public Modalidad Modalidad { get; private set; }
         public EstadoSesion Estado { get; private set; }
@@ -86,7 +87,7 @@ namespace SOEA.Domain.Entities
             Guid? docenteId,
             Guid bloqueId,
             Guid? espacioId,
-            Guid? grupoId,
+            Guid grupoId,
             TipoAlternancia alternancia,
             Modalidad modalidad,
             decimal duracionHoras,
@@ -104,6 +105,8 @@ namespace SOEA.Domain.Entities
             // real. Misma regla en los dos únicos puntos donde DocenteId se fija.
             if (docenteId == Guid.Empty)
                 throw new ArgumentException("El docente no puede ser un Guid vacío (use null para sesión sin docente).");
+            if (grupoId == Guid.Empty)
+                throw new ArgumentException("Toda sesión debe pertenecer a un grupo.");
 
             AsignaturaId = asignaturaId;
             DocenteId = docenteId;

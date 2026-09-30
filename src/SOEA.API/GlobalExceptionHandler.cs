@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SOEA.Domain.Exceptions;
 
 namespace SOEA.API;
@@ -27,16 +28,34 @@ public class GlobalExceptionHandler : IExceptionHandler
 
     public GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) => _logger = logger;
 
+    // Un valor demasiado largo o fuera de rango salía como "ya existe un registro con esos datos" (409),
+    // que es falso y manda a buscar un duplicado inexistente. Se distingue por el SQLSTATE de Postgres.
+    private static (int, string, string) TraducirDbUpdate(DbUpdateException ex) => (ex.InnerException as PostgresException)?.SqlState switch
+    {
+        PostgresErrorCodes.StringDataRightTruncation => (StatusCodes.Status400BadRequest, "Solicitud inválida",
+            "Un valor es demasiado largo para su campo. Acórtelo e intente de nuevo."),
+        PostgresErrorCodes.NumericValueOutOfRange => (StatusCodes.Status400BadRequest, "Solicitud inválida",
+            "Un valor numérico está fuera del rango permitido."),
+        PostgresErrorCodes.ForeignKeyViolation => (StatusCodes.Status409Conflict, "Conflicto de datos",
+            "No se pudo guardar el cambio: hace referencia a un registro que no existe (o que ya fue eliminado)."),
+        PostgresErrorCodes.UniqueViolation => (StatusCodes.Status409Conflict, "Conflicto de datos",
+            "No se pudo guardar el cambio: ya existe un registro con esos datos."),
+        _ => (StatusCodes.Status409Conflict, "Conflicto de datos",
+            "No se pudo guardar el cambio: ya existe un registro con esos datos, o hace referencia a algo que no existe.")
+    };
+
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
         var (status, title, detail) = exception switch
         {
-            DbUpdateException => (StatusCodes.Status409Conflict, "Conflicto de datos",
-                "No se pudo guardar el cambio: ya existe un registro con esos datos, o hace referencia a algo que no existe."),
+            DbUpdateException dbEx => TraducirDbUpdate(dbEx),
             KeyNotFoundException => (StatusCodes.Status404NotFound, "No encontrado", exception.Message),
             ArgumentException => (StatusCodes.Status400BadRequest, "Solicitud inválida", exception.Message),
             BusinessRuleViolationException => (StatusCodes.Status409Conflict, "Conflicto", exception.Message),
+            // L-11: un cuerpo por encima del límite de Kestrel (30 MB) llegaba con el texto técnico en inglés.
+            BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge } => (StatusCodes.Status413PayloadTooLarge,
+                "Archivo demasiado grande", "El archivo supera el tamaño máximo permitido (30 MB). Divídalo o reduzca su contenido."),
             _ => (0, "", "")
         };
 
@@ -53,7 +72,7 @@ public class GlobalExceptionHandler : IExceptionHandler
             Status = status,
             Title = title,
             Detail = detail
-        }, cancellationToken);
+        }, options: null, contentType: "application/problem+json", cancellationToken: cancellationToken);
 
         return true;
     }

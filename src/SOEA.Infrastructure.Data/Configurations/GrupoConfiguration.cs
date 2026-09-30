@@ -28,17 +28,9 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasMaxLength(100)
                 .IsRequired();
 
-            builder.Property(g => g.ProgramaId)
-                .HasColumnName("programa_id")
-                .IsRequired();
-
             builder.Property(g => g.AsignaturaId)
                 .HasColumnName("asignatura_id")
-                .IsRequired(false);
-
-            builder.Property(g => g.FacultadId)
-                .HasColumnName("facultad_id")
-                .IsRequired(false);
+                .IsRequired();
 
             builder.Property(g => g.DocenteId)
                 .HasColumnName("docente_id")
@@ -82,22 +74,14 @@ namespace SOEA.Infrastructure.Data.Configurations
                     v => (v ?? new()).Aggregate(0, (hash, r) => HashCode.Combine(hash, r.GetHashCode())),
                     v => (v ?? new()).ToList()));
 
-            // M14 auditoría (Decisión 1 del saneamiento): ProgramaId/AsignaturaId/DocenteId no
-            // tenían FK — AsignaturaService.DeleteAsync ya cascadea a Grupos a mano, y
-            // DocenteService.DeleteAsync ya bloquea el borrado si hay Grupos asociados; estas FK
-            // son la red de seguridad para cualquier otro camino de borrado que no pase por esos
-            // dos servicios. Restrict en los tres: un Grupo vivo nunca debe quedar sin su
-            // Programa/Asignatura/Docente por un borrado que no lo previó.
-            // FacultadId → SetNull: a diferencia de los otros tres, esta columna no tiene ningún
-            // invariante de negocio que dependa de ella (verificado: solo se lee para mostrarla en
-            // el catálogo) y, en la BD local, el 100% de las filas existentes tenían un valor
-            // huérfano (bug de import corregido aparte) — SetNull permite sanear esos datos sin
-            // tener que inventar una facultad "correcta" para cada fila histórica.
-            builder.HasOne<Programa>()
-                .WithMany()
-                .HasForeignKey(g => g.ProgramaId)
-                .OnDelete(DeleteBehavior.Restrict);
-
+            // Jerarquía Grupo → Asignatura → Programa → Facultad (M19): el grupo solo apunta a su
+            // asignatura; programa_id/facultad_id se quitaron porque podían contradecirla.
+            // Restrict: AsignaturaService.DeleteAsync ya cascadea a Grupos a mano; la FK es la red
+            // de seguridad para cualquier otro camino de borrado. Igual con Docente
+            // (DocenteService.DeleteAsync bloquea si hay grupos asociados).
+            // M19 añade además en SQL la clave única (id, asignatura_id), destino de la FK compuesta
+            // de Sesiones que obliga a que la sesión sea de la misma asignatura que su grupo. No se
+            // modela en EF: una clave alterna haría AsignaturaId inmodificable en el change tracker.
             builder.HasOne<Asignatura>()
                 .WithMany()
                 .HasForeignKey(g => g.AsignaturaId)
@@ -108,19 +92,11 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasForeignKey(g => g.DocenteId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            builder.HasOne<Facultad>()
-                .WithMany()
-                .HasForeignKey(g => g.FacultadId)
-                .OnDelete(DeleteBehavior.SetNull);
-
             // Índices
             builder.HasIndex(g => g.Codigo)
                 .IsUnique()
                 .HasFilter("codigo IS NOT NULL")
                 .HasDatabaseName("ix_grupo_codigo");
-
-            builder.HasIndex(g => g.ProgramaId)
-                .HasDatabaseName("ix_grupo_programa_id");
 
             builder.HasIndex(g => g.AsignaturaId)
                 .HasDatabaseName("ix_grupo_asignatura_id");

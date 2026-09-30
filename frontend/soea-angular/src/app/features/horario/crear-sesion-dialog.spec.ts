@@ -5,7 +5,7 @@ import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { CrearSesionDialogComponent } from './horario.component';
 import { StateService } from '../../core/state.service';
 import { PersistenciaService } from '../../core/persistencia.service';
-import { Asignatura, Grupo } from '../../core/models';
+import { Asignatura, Docente, Grupo } from '../../core/models';
 
 /**
  * P0-3/P0-5 auditoría: el mismo diálogo crea una sesión manual (al horario vigente, que exige
@@ -15,12 +15,12 @@ describe('CrearSesionDialogComponent', () => {
   let persistencia: { crearSesionManual: ReturnType<typeof vi.fn> };
   let dialogRef: { close: ReturnType<typeof vi.fn> };
 
-  function abrir(modoFija: boolean): CrearSesionDialogComponent {
+  function abrir(modoFija: boolean, docentes: Docente[] = []): CrearSesionDialogComponent {
     persistencia = { crearSesionManual: vi.fn().mockReturnValue({ subscribe: () => {} }) };
     dialogRef = { close: vi.fn() };
     const asignatura = { id: 'a1', nombre: 'Cálculo I', programaId: 'p1', sesionesTeoriaPresencialSemana: 0,
       sesionesTeoriaVirtualSemana: 1, horasTeoriaVirtual: 2, sesionesLaboratorioSemana: 0 } as Asignatura;
-    const grupo = { id: 'g1', nombre: 'G1', asignaturaId: 'a1' } as Grupo;
+    const grupo = { id: 'g1', nombre: 'G1', asignaturaId: 'a1', docenteId: docentes[0]?.id } as Grupo;
     TestBed.configureTestingModule({
       imports: [CrearSesionDialogComponent],
       providers: [
@@ -29,7 +29,7 @@ describe('CrearSesionDialogComponent', () => {
         { provide: MatDialogRef, useValue: dialogRef },
         {
           provide: MAT_DIALOG_DATA,
-          useValue: { asignaturas: [asignatura], docentes: [], espacios: [], grupos: [grupo], sesiones: [], programaById: new Map(), modoFija },
+          useValue: { asignaturas: [asignatura], docentes, espacios: [], grupos: [grupo], sesiones: [], programaById: new Map(), modoFija },
         },
       ],
     });
@@ -70,5 +70,16 @@ describe('CrearSesionDialogComponent', () => {
 
     expect(persistencia.crearSesionManual).toHaveBeenCalledWith(
       expect.objectContaining({ horarioId: 'h1', grupoId: 'g1', docenteId: null, espacioId: null }));
+  });
+
+  it('avisa si la clase cae fuera de la disponibilidad del docente del grupo, sin bloquear', () => {
+    const disponibilidad = { martes: { noDisponible: false, tipo: 'Franja específica', desde: '14:00', hasta: '18:00' } };
+    const c = abrir(false, [{ id: 'd1', nombre: 'Ana Pérez', cedula: '', maxHoras: 40, disponibilidad }]);
+
+    expect(c.avisos()).toEqual(['Fuera de la disponibilidad de Ana Pérez: el martes solo está disponible de 14:00 a 18:00.']);
+    expect(c.checksOk()).toBe(true);
+
+    c.horaInicio = '14:00'; c.recheck();
+    expect(c.avisos()).toEqual([]);
   });
 });

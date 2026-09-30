@@ -39,7 +39,7 @@ interface AsignaturaFila {
           <div class="empty">No hay asignaturas cargadas. Impórtelas desde la pestaña <strong>Asignaturas</strong> primero.</div>
         }
 
-        @for (grupo of gruposFiltrados(); track grupo.programa) {
+        @for (grupo of gruposFiltrados(); track grupo.id) {
           <div class="prog-group">
             <div class="prog-head"><span>{{ grupo.programa }}</span><span class="text-muted">{{ grupo.filas.length }} asignatura(s)</span></div>
             <table class="table">
@@ -206,11 +206,13 @@ export class AlternanciaTabComponent implements OnInit {
   });
 
   gruposFiltrados = computed(() => {
-    const mapa = new Map<string, { programa: string; filas: AsignaturaFila[] }>();
+    // L-14 auditoría 2026-09-28: se agrupa por id de programa; el `track` del template usaba el NOMBRE, y hay
+    // programas homónimos (dos "INGENIERIA PESQUERA") → NG0955 (clave duplicada) en /catalogo.
+    const mapa = new Map<string, { id: string; programa: string; filas: AsignaturaFila[] }>();
     for (const fila of this.filasFiltradas()) {
       const progId = fila.asignatura.programaId ?? 'Sin programa';
       const progNom = this.state.programaById().get(progId)?.nombre ?? 'Programa no encontrado';
-      if (!mapa.has(progId)) mapa.set(progId, { programa: progNom, filas: [] });
+      if (!mapa.has(progId)) mapa.set(progId, { id: progId, programa: progNom, filas: [] });
       mapa.get(progId)!.filas.push(fila);
     }
     return [...mapa.values()].sort((a, b) => a.programa.localeCompare(b.programa));

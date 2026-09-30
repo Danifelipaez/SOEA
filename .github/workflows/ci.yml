@@ -13,6 +13,24 @@ jobs:
   backend:
     name: Backend (.NET)
     runs-on: ubuntu-latest
+    # NEW-9 auditoría 2026-09-28: sin Postgres, las pruebas de integración (FK, índices únicos, migraciones,
+    # API completo) se omitían en silencio y CI salía en verde sin haber ejecutado ninguna. Contenedor
+    # desechable, credencial sin valor fuera de este job. Con SOEA_TEST_DB definida, un servidor inalcanzable
+    # hace FALLAR las pruebas (PostgresPruebas.cs) en vez de omitirlas.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SOEA_TEST_DB: Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=postgres
     steps:
       - uses: actions/checkout@v4
 

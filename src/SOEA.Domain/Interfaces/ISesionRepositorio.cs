@@ -31,7 +31,8 @@ namespace SOEA.Domain.Interfaces
         /// <summary>Idem <see cref="GetIdsByGrupoIdAsync"/> pero por asignatura.</summary>
         Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId);
 
-        /// <summary>Idem <see cref="GetIdsByGrupoIdAsync"/> pero por espacio.</summary>
+        /// <summary>Idem <see cref="GetIdsByGrupoIdAsync"/> pero por espacio: incluye las sesiones cuya
+        /// AsignacionSemanal usa el aula, no solo las que la traen fija en Sesion.EspacioId.</summary>
         Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId);
     }
 }

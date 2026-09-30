@@ -13,9 +13,14 @@ namespace SOEA.Tests.Integracion
     /// la suite. Cada corrida usa una BD nueva y desechable.
     /// Servidor y credenciales: variable SOEA_TEST_DB o, en local, la cadena de
     /// src/SOEA.API/appsettings.Development.json (de ella solo se toma el servidor; nunca se toca
-    /// la BD que nombra). Sin servidor alcanzable las pruebas se omiten en vez de fallar.
-    /// ponytail: sin Testcontainers — no hay Docker en la máquina de desarrollo; si CI lo necesita,
-    /// basta un service container de postgres y SOEA_TEST_DB.
+    /// la BD que nombra). Sin nada configurado (ni variable ni appsettings) o con el servidor de appsettings
+    /// inalcanzable las pruebas se omiten, para no estorbar en una máquina sin Postgres.
+    /// NEW-9 auditoría 2026-09-28: si SOEA_TEST_DB está definida es una declaración de intención (CI, o
+    /// alguien que quiere correr estas pruebas) y un servidor inalcanzable FALLA con un mensaje claro en vez de
+    /// omitir: antes un arranque lento (timeout de 3 s) convertía en silencio las pruebas en "Omitido" y la
+    /// suite salía en verde sin haber probado nada contra la BD.
+    /// ponytail: sin Testcontainers — no hay Docker en la máquina de desarrollo; CI usa un service container de
+    /// postgres (ver .github/workflows/ci.yml) y SOEA_TEST_DB.
     /// </summary>
     internal static class PostgresPruebas
     {
@@ -38,16 +43,31 @@ namespace SOEA.Tests.Integracion
 
         private static string? Resolver()
         {
-            var cadena = Environment.GetEnvironmentVariable("SOEA_TEST_DB") ?? CadenaDelApi();
+            var explicita = Environment.GetEnvironmentVariable("SOEA_TEST_DB");
+            var cadena = string.IsNullOrWhiteSpace(explicita) ? CadenaDelApi() : explicita;
             if (string.IsNullOrWhiteSpace(cadena)) return null;
-            try
+
+            // Con variable explícita: hasta 5 intentos de 10 s (un servidor que está arrancando tarda), y si
+            // ninguno conecta se lanza. Sin ella (appsettings de desarrollo): un solo intento corto y se omite.
+            var exigida = !string.IsNullOrWhiteSpace(explicita);
+            var intentos = exigida ? 5 : 1;
+            Exception? ultimo = null;
+            for (var i = 0; i < intentos; i++)
             {
-                using var cn = new NpgsqlConnection(
-                    new NpgsqlConnectionStringBuilder(cadena) { Database = "postgres", Timeout = 3 }.ConnectionString);
-                cn.Open();
-                return cadena;
+                try
+                {
+                    using var cn = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(cadena)
+                        { Database = "postgres", Timeout = exigida ? 10 : 3 }.ConnectionString);
+                    cn.Open();
+                    return cadena;
+                }
+                catch (Exception ex) { ultimo = ex; if (exigida && i < intentos - 1) Thread.Sleep(2000); }
             }
-            catch (Exception) { return null; }
+            return exigida
+                ? throw new InvalidOperationException(
+                    "SOEA_TEST_DB está definida pero no se pudo conectar al servidor de PostgreSQL (" + ultimo?.GetType().Name +
+                    "). Las pruebas de integración NO se omiten en este caso: arranque el servidor o quite la variable.", ultimo)
+                : null;
         }
 
         private static string? CadenaDelApi()

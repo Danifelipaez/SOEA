@@ -52,5 +52,41 @@ namespace SOEA.Tests.Application.Horario
             Assert.Equal(8, cfg.PesoPresencialFirst);  // antes se perdía en el mapeo
             Assert.Equal(12345, cfg.Semilla);          // antes se perdía en el mapeo (irreproducible)
         }
+
+        // SEC-2 auditoría 2026-09-28: sin tope superior, MaxGeneraciones = 2e9 dejaba la CPU ocupada
+        // mientras el cliente no colgara.
+        public static IEnumerable<object[]> FueraDeRango() => new[]
+        {
+            new object[] { new ConfiguracionAlgoritmoDto { MaxGeneraciones = 2_000_000_000 } },
+            new object[] { new ConfiguracionAlgoritmoDto { MaxGeneraciones = 0 } },
+            new object[] { new ConfiguracionAlgoritmoDto { UmbralConvergencia = 2_000_000_000 } },
+            new object[] { new ConfiguracionAlgoritmoDto { TamañoPoblacion = 2_000_000_000 } },
+            new object[] { new ConfiguracionAlgoritmoDto { TamañoPoblacion = 9 } },
+            new object[] { new ConfiguracionAlgoritmoDto { ProbabilidadMutacion = 1.5 } },
+            new object[] { new ConfiguracionAlgoritmoDto { ProbabilidadCruce = double.NaN } },
+            new object[] { new ConfiguracionAlgoritmoDto { PesoErgo = -1 } },
+            new object[] { new ConfiguracionAlgoritmoDto { PesoPresencialFirst = int.MaxValue } },
+        };
+
+        [Theory]
+        [MemberData(nameof(FueraDeRango))]
+        public void ValorFueraDeRango_Lanza_ArgumentException(ConfiguracionAlgoritmoDto dto)
+        {
+            var ex = Assert.Throws<ArgumentException>(() => GenerarHorarioService.MapearConfiguracion(dto));
+            Assert.Contains("debe estar entre", ex.Message);
+        }
+
+        [Fact]
+        public void LosTopes_AdmitenExactamenteElLimite()
+        {
+            var cfg = GenerarHorarioService.MapearConfiguracion(new ConfiguracionAlgoritmoDto
+            {
+                TamañoPoblacion = 200, MaxGeneraciones = 1000, UmbralConvergencia = 1000,
+                ProbabilidadMutacion = 1, ProbabilidadCruce = 0, PesoErgo = 100
+            });
+
+            Assert.Equal(200, cfg.TamañoPoblacion);
+            Assert.Equal(1000, cfg.MaxGeneraciones);
+        }
     }
 }

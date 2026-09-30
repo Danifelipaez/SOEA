@@ -471,15 +471,6 @@ namespace SOEA.Tests.Application
                 foreach (var g in seed) _store[g.Id] = g;
             }
 
-            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId)
-            {
-                var result = _store.Values.FirstOrDefault(x =>
-                    x.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase) && x.ProgramaId == programaId)
-                    ?? _uow.All<Grupo>().FirstOrDefault(x =>
-                        x.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase) && x.ProgramaId == programaId);
-                return Task.FromResult(result);
-            }
-
             public Task<Grupo?> GetByIdAsync(Guid id) =>
                 Task.FromResult(_store.GetValueOrDefault(id) ?? _uow.Find<Grupo>(id));
             public Task<List<Grupo>> GetAllAsync() =>

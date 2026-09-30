@@ -67,6 +67,13 @@
 
 **Estado 2026-09-08:** las 20 migraciones commiteadas en `main` están aplicadas en prod (verificado vía `__EFMigrationsHistory`). La más reciente: `20260908003020_M8_UniqueEspacioBloqueSemana` (índice único `espacio_id+semana+bloque_tiempo_id` en `AsignacionesSemanales`, con limpieza de duplicados incluida en el propio `Up()` — segura de reaplicar sobre datos viejos).
 
+**Estado 2026-09-28 (auditoría pre-producción, docs/AUDITORIA_PreProd_2026-09-28.md):**
+- Prod corre el commit `b3d67d9` (deploy del 2026-09-15); `origin/main` está en `c480015` (solo cambia el pre-chequeo de capacidad de CP-SAT, sin migraciones). Las migraciones aplicadas se **infieren** (23, hasta `M14_ClavesAjenasSesionesYGrupos`) porque `Migrate()` corre al arrancar y la API responde sana; no se leyó `__EFMigrationsHistory` (lectura de la BD de prod pendiente).
+- **Cómo saber qué commit hay desplegado:** Kudu no guarda el SHA. Se identifica por símbolos dentro de las DLL desplegadas (Kudu VFS, `/api/vfs/site/wwwroot/`): el símbolo `NombreClaseEspacio` en `SOEA.Engine.ConstraintProg.dll` marca `c480015`.
+- `lastModified` de la app (2026-09-23) no tiene un despliegue asociado; no fiarse del timestamp para saber la versión.
+- **Pendiente:** `httpsOnly` sigue en `false` (HTTP plano sin redirección) y la API no tiene restricción de acceso (SEC-2/SEC-3).
+- **Migraciones nuevas en la rama de trabajo, sin desplegar** (se aplican solas al arrancar el API; cada una sanea antes de crear su restricción): `M15_FkAsignacionEspacio`, `M16_AsignacionPorHorario` (columna `horario_id` e índice único por horario) y `M17_ClavesAjenasCatalogoYAsignaciones` (FK de programa→facultad, asignatura→programa, asignación→sesión/bloque). Antes de desplegarlas, correr la consulta de huérfanos de solo lectura del anexo A.3 de la auditoría.
+
 **Cómo aplicar una migración pendiente contra prod** (sin `appsettings.Production.json` — todo vía env var, usando el mismo AAD login de `az`):
 ```bash
 ACCESS_TOKEN=$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)

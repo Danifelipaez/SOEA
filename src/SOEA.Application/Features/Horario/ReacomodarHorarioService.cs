@@ -93,7 +93,7 @@ namespace SOEA.Application.Features.Horario
                 if (!BloquesPlanner.CabeEnDia(inicioEditada, durParaCabeEnDia, rangosPorDia, diaPorIdxGrid))
                     throw new ArgumentException(
                         $"La sesión no cabe en la jornada de {req.Dia} a partir de las {req.HoraInicio} " +
-                        "sin cruzar la medianoche del horario institucional.");
+                        $"con {sesionEditada.DuracionHoras:0.#} h de duración: terminaría después del cierre de ese día. Elija una hora más temprana.");
             }
 
             var asignacionesActuales = await _asignacionRepo.GetBySesionIdsAsync(sesiones.Select(s => s.Id));
@@ -139,7 +139,7 @@ namespace SOEA.Application.Features.Horario
                     Solapa(inicio, dur) &&
                     // Cohorte: independiente de la semana (la sesión ocupa el tiempo del grupo
                     // todas las semanas, presencial o virtualmente).
-                    ((s.GrupoId.HasValue && s.GrupoId == sesionEditada.GrupoId) ||
+                    (s.GrupoId == sesionEditada.GrupoId ||
                      // Aula: solo si ambas la ocupan alguna semana en común. Una pareja de
                      // alternancia comparte aula y bloque a propósito y no es conflicto.
                      (espacioParaChoque.HasValue && a.EspacioId == espacioParaChoque &&
@@ -206,6 +206,7 @@ namespace SOEA.Application.Features.Horario
                 advertencias.Add($"{freedIds.Count} sesión(es) en conflicto se reubicaron automáticamente.");
             }
 
+            foreach (var a in nuevasAsignaciones) a.AsignarHorario(horario.Id); // NEW-3
             var idsAReemplazar = new HashSet<Guid>(freedIds) { sesionEditada.Id };
             var asignacionesFinal = asignacionesActuales
                 .Where(a => !idsAReemplazar.Contains(a.SesionId))
@@ -224,7 +225,29 @@ namespace SOEA.Application.Features.Horario
                 sesiones.Where(s => s.Bloqueada).Select(s => s.Id).ToHashSet());
 
             var conflictos = ValidadorRestriccionesDuras.Validar(
-                asignacionesFinal, sesionPorId, idxPorBloque, contextoValidacion);
+                asignacionesFinal, sesionPorId, idxPorBloque, contextoValidacion).ToList();
+
+            // NEW-4 auditoría 2026-09-28: HC-I01 (docente) no está en Validar — el docente no es eje de
+            // generación (CR-08) — pero sí de las ediciones, y mover una sesión al hueco de otra del mismo
+            // docente respondía 200. Solo cuentan los solapes que introduce este movimiento: uno previo
+            // (datos anteriores a esta validación) no debe impedir mover otra sesión.
+            // Solo bloquea el docente de la sesión que la persona movió: las reubicadas automáticamente las
+            // coloca CP-SAT sin mirar docentes (CR-08), así que un choque suyo es un aviso, no un rechazo de un
+            // movimiento que en sí es válido.
+            var docenteEditada = sesionEditada.DocenteId;
+            bool DelDocenteEditada(AsignacionSemanal a) =>
+                docenteEditada.HasValue && sesionPorId.TryGetValue(a.SesionId, out var s) && s.DocenteId == docenteEditada;
+
+            var docentePrevio = ValidadorRestriccionesDuras.ValidarDocentes(
+                asignacionesActuales, sesionPorId, idxPorBloque, contextoValidacion).ToHashSet();
+            var docenteBloqueante = ValidadorRestriccionesDuras.ValidarDocentes(
+                    asignacionesFinal.Where(DelDocenteEditada), sesionPorId, idxPorBloque, contextoValidacion)
+                .Where(c => !docentePrevio.Contains(c)).ToList();
+            conflictos.AddRange(docenteBloqueante);
+            advertencias.AddRange(ValidadorRestriccionesDuras.ValidarDocentes(
+                    asignacionesFinal, sesionPorId, idxPorBloque, contextoValidacion)
+                .Where(c => !docentePrevio.Contains(c) && !docenteBloqueante.Contains(c)));
+
             if (conflictos.Count > 0)
                 return new ReacomodarHorarioResponse
                 {

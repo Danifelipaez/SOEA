@@ -176,7 +176,6 @@ namespace SOEA.Tests.Application
             public Task AddAsync(Grupo entity) => Task.CompletedTask;
             public Task UpdateAsync(Grupo entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
-            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) => Task.FromResult<Grupo?>(null);
             public Task<Grupo?> GetByCodigoAsync(string codigo) => Task.FromResult<Grupo?>(null);
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) => Task.FromResult(Enumerable.Empty<Grupo>());
             public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) => Task.FromResult(Enumerable.Empty<Grupo>());

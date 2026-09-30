@@ -123,5 +123,36 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.Equal(MotivoInfactibilidad.FranjaGrupo, resultado.Motivo);
             Assert.DoesNotContain("Diagnóstico adicional", resultado.MensajeError);
         }
+
+        // Auditoría de escala (2026-09-29): 3 sesiones/semana del mismo tipo exigen 3 días separados ≥2
+        // (Lun-Mié-Vie, etc.); con miércoles y sábado cerrados no hay combinación. El barrido por exclusión
+        // no corre con >20 grupos, pero el aislamiento por grupo sí nombra al culpable aunque no haya sweep.
+        [Fact]
+        public async Task GrupoContradictorioPorSiSolo_SeNombraSinNecesitarElSweep()
+        {
+            var dias = new[] { DiaDeSemana.Lunes, DiaDeSemana.Martes, DiaDeSemana.Miercoles, DiaDeSemana.Jueves, DiaDeSemana.Viernes, DiaDeSemana.Sábado };
+            var bloques = dias.SelectMany(d => Enumerable.Range(7, 3)
+                .Select(h => new BloqueTiempo(Guid.NewGuid(), d, new TimeOnly(h, 0), new TimeOnly(h + 1, 0)))).ToList();
+            var salon = new Espacio(Guid.NewGuid(), "Salón", TipoEspacio.Salon, 40);
+
+            var sano = new Grupo(Guid.NewGuid(), "Grupo sano", Guid.NewGuid(), 20);
+            var culpable = new Grupo(Guid.NewGuid(), "Grupo culpable", Guid.NewGuid(), 20);
+            culpable.ActualizarDisponibilidadUi("{\"Miercoles\":{\"noDisponible\":true},\"Sabado\":{\"noDisponible\":true}}");
+            var asigCulpable = Guid.NewGuid();
+            var sesiones = new List<Sesion> { CrearSesionPresencial(sano.Id, 2m) };
+            sesiones.AddRange(Enumerable.Range(0, 3).Select(_ => new Sesion(Guid.NewGuid(), asigCulpable, null, Guid.NewGuid(), null,
+                culpable.Id, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false, tipoFlujo: TipoFlujo.AulaVirtual)));
+
+            var motor = new MotorConstraintProgramming(NullLogger<MotorConstraintProgramming>.Instance);   // SweepGrupos desactivado
+
+            var resultado = await motor.ResolverFactibilidadAsync(sesiones, bloques, new[] { salon }, new[] { sano, culpable });
+
+            Assert.False(resultado.EsFactible);
+            Assert.Equal(MotivoInfactibilidad.Otro, resultado.Motivo);
+            Assert.Contains("Grupo culpable", resultado.MensajeError);
+            Assert.Contains("por sí solo", resultado.MensajeError);
+            Assert.DoesNotContain("Grupo sano", resultado.MensajeError);
+            Assert.Equal(new[] { culpable.Id }, resultado.GruposResponsablesIds);
+        }
     }
 }

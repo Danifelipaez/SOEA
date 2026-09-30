@@ -44,6 +44,68 @@ namespace SOEA.Tests.Application
             return (bloques, indice);
         }
 
+        // NEW-4 auditoría 2026-09-28: HC-I01 vive en ValidarDocentes, no en Validar (CR-08: el docente
+        // no es eje de generación), y solo compara sesiones con el MISMO docente.
+        [Fact]
+        public void ValidarDocentes_MismoDocenteConSesionesSolapadas_DetectaHCI01_YValidarNoLoVe()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var docente = Guid.NewGuid();
+            var s1 = CrearSesion(Guid.NewGuid(), 2m); s1.AsignarDocente(docente);   // bloques 0-1
+            var s2 = CrearSesion(Guid.NewGuid(), 1m); s2.AsignarDocente(docente);   // bloque 1: solapa
+            var otro = CrearSesion(Guid.NewGuid(), 1m); otro.AsignarDocente(Guid.NewGuid()); // otro docente, mismo bloque
+            var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2, [otro.Id] = otro };
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.A, bloques[1].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), otro.Id, SemanaAcademica.A, bloques[1].Id, null, Modalidad.Virtual),
+            };
+
+            var conflictos = ValidadorRestriccionesDuras.ValidarDocentes(asignaciones, sesiones, indice);
+
+            Assert.Single(conflictos);
+            Assert.StartsWith("HC-I01", conflictos[0]);
+            Assert.Empty(ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice));
+        }
+
+        [Fact]
+        public void ValidarDocentes_SesionesSinDocente_NoSeComparan()
+        {
+            var (bloques, indice) = CrearGrilla(5);
+            var s1 = CrearSesion(Guid.NewGuid(), 2m);
+            var s2 = CrearSesion(Guid.NewGuid(), 2m);
+            var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1, [s2.Id] = s2 };
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), s2.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+            };
+
+            Assert.Empty(ValidadorRestriccionesDuras.ValidarDocentes(asignaciones, sesiones, indice));
+        }
+
+        // VAL-1 auditoría 2026-09-28: una asignación que el validador no puede resolver (sesión o bloque
+        // desconocido) se saltaba en silencio y contaba como "0 violaciones".
+        [Fact]
+        public void AsignacionConSesionOBloqueDesconocido_SeReportaComoDATOS_NoSeIgnoraEnSilencio()
+        {
+            var (bloques, indice) = CrearGrilla(3);
+            var s1 = CrearSesion(Guid.NewGuid(), 1m);
+            var sesiones = new Dictionary<Guid, Sesion> { [s1.Id] = s1 };
+            var asignaciones = new[]
+            {
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.A, bloques[0].Id, null, Modalidad.Virtual),
+                new AsignacionSemanal(Guid.NewGuid(), Guid.NewGuid(), SemanaAcademica.A, bloques[1].Id, null, Modalidad.Virtual), // sesión desconocida
+                new AsignacionSemanal(Guid.NewGuid(), s1.Id, SemanaAcademica.B, Guid.NewGuid(), null, Modalidad.Virtual),         // bloque desconocido
+            };
+
+            var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesiones, indice);
+
+            Assert.Contains(conflictos, c => c.StartsWith("DATOS") && c.Contains("sesión"));
+            Assert.Contains(conflictos, c => c.StartsWith("DATOS") && c.Contains("bloque"));
+        }
+
         [Fact]
         public void SinSolapes_DevuelveListaVacia()
         {

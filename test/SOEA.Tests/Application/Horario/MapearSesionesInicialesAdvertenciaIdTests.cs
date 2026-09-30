@@ -20,8 +20,7 @@ namespace SOEA.Tests.Application.Horario
         [Fact]
         public void GrupoHuerfano_LaAdvertenciaIncluyeSuId()
         {
-            var grupo = new Grupo(Guid.NewGuid(), "Grupo Huérfano", Guid.Empty, 30,
-                asignaturaId: Guid.NewGuid());
+            var grupo = new Grupo(Guid.NewGuid(), "Grupo Huérfano", Guid.NewGuid(), 30);
 
             var (_, advertencias) = GenerarHorarioService.MapearSesionesIniciales(
                 new List<Grupo> { grupo }, new List<AsignaturaDto>());
@@ -32,8 +31,8 @@ namespace SOEA.Tests.Application.Horario
         [Fact]
         public void DosGruposHuerfanosMismoNombre_CadaAdvertenciaEsDistinguiblePorId()
         {
-            var g1 = new Grupo(Guid.NewGuid(), "G1", Guid.Empty, 30, asignaturaId: Guid.NewGuid());
-            var g2 = new Grupo(Guid.NewGuid(), "G1", Guid.Empty, 30, asignaturaId: Guid.NewGuid());
+            var g1 = new Grupo(Guid.NewGuid(), "G1", Guid.NewGuid(), 30);
+            var g2 = new Grupo(Guid.NewGuid(), "G1", Guid.NewGuid(), 30);
 
             var (_, advertencias) = GenerarHorarioService.MapearSesionesIniciales(
                 new List<Grupo> { g1, g2 }, new List<AsignaturaDto>());

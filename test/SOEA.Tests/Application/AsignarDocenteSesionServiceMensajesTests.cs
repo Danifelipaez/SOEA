@@ -39,7 +39,7 @@ namespace SOEA.Tests.Application
             // sesionTarget: 07:00-09:00 (span de 2h desde bloqueA); sesionExistente: 08:00-09:00 (1h desde bloqueB) → solapan.
             var sesionTarget = new Sesion(Guid.NewGuid(), asigTargetId, null, bloqueA.Id, null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m, false, false);
-            var sesionExistente = new Sesion(Guid.NewGuid(), asigExistenteId, docente.Id, bloqueB.Id, null, null,
+            var sesionExistente = new Sesion(Guid.NewGuid(), asigExistenteId, docente.Id, bloqueB.Id, null, Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false);
 
             var asigTarget = new AsignacionSemanal(Guid.NewGuid(), sesionTarget.Id, SemanaAcademica.A, bloqueA.Id, null, Modalidad.Virtual);
@@ -154,7 +154,6 @@ namespace SOEA.Tests.Application
             public Task<List<Grupo>> GetAllAsync() => Task.FromResult(_store.Values.ToList());
             public Task UpdateAsync(Grupo e) { _store[e.Id] = e; return Task.CompletedTask; }
             public Task DeleteAsync(Guid id) { _store.Remove(id); return Task.CompletedTask; }
-            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) => Task.FromResult<Grupo?>(null);
             public Task<Grupo?> GetByCodigoAsync(string codigo) => Task.FromResult<Grupo?>(null);
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) => Task.FromResult(Enumerable.Empty<Grupo>());
             public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) => Task.FromResult(Enumerable.Empty<Grupo>());

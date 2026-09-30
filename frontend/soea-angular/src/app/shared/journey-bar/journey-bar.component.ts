@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { NavigationEnd, Router, RouterModule } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map, startWith } from 'rxjs';
+import { StateService } from '../../core/state.service';
 
 interface JourneyStep {
   path: string;
@@ -42,7 +43,7 @@ const STEPS: JourneyStep[] = [
           @if (!last) { <span class="jsep">›</span> }
         }
       </div>
-      <div class="ctx">2026-1 · Ing. Sistemas</div>
+      <div class="ctx">Semestre {{ semestre() }}</div>
     </nav>
   `,
   styles: [`
@@ -70,6 +71,8 @@ const STEPS: JourneyStep[] = [
 })
 export class JourneyBarComponent {
   private router = inject(Router);
+  /** L-8: antes un "2026-1 · Ing. Sistemas" fijo (el programa no es único: el catálogo tiene 22). */
+  semestre = inject(StateService).semestre;
 
   private currentUrl = toSignal(
     this.router.events.pipe(

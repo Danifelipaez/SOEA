@@ -19,6 +19,6 @@ namespace SOEA.Infrastructure.Data.Repositories
 
         public async Task<Asignatura?> GetByNombreYProgramaAsync(string nombre, Guid programaId)
             => await _dbSet.FirstOrDefaultAsync(a =>
-                EF.Functions.ILike(a.Nombre, nombre) && a.ProgramaId == programaId);
+                a.Nombre.ToLower() == nombre.ToLower() && a.ProgramaId == programaId);
     }
 }

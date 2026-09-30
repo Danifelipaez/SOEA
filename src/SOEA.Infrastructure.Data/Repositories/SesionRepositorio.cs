@@ -45,7 +45,13 @@ namespace SOEA.Infrastructure.Data.Repositories
         public async Task<List<Guid>> GetIdsByAsignaturaIdAsync(Guid asignaturaId)
             => await _dbSet.AsNoTracking().Where(s => s.AsignaturaId == asignaturaId).Select(s => s.Id).ToListAsync();
 
+        // NEW-2 auditoría 2026-09-28: Sesion.EspacioId solo lo llevan las sesiones fijas/manuales; el
+        // aula que el pipeline asigna vive solo en AsignacionSemanal.EspacioId. Buscar únicamente por
+        // Sesion.EspacioId dejaba pasar el borrado de un aula en uso y dejaba asignaciones huérfanas.
         public async Task<List<Guid>> GetIdsByEspacioIdAsync(Guid espacioId)
-            => await _dbSet.AsNoTracking().Where(s => s.EspacioId == espacioId).Select(s => s.Id).ToListAsync();
+            => await _dbSet.AsNoTracking()
+                .Where(s => s.EspacioId == espacioId
+                         || _context.Set<AsignacionSemanal>().Any(a => a.SesionId == s.Id && a.EspacioId == espacioId))
+                .Select(s => s.Id).ToListAsync();
     }
 }

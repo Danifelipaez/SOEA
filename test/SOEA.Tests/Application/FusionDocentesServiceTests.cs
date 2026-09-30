@@ -119,9 +119,6 @@ namespace SOEA.Tests.Application
             public Task<List<Grupo>> GetAllAsync() => Task.FromResult(_store.Values.ToList());
             public Task UpdateAsync(Grupo e) { _store[e.Id] = e; return Task.CompletedTask; }
             public Task DeleteAsync(Guid id) { _store.Remove(id); return Task.CompletedTask; }
-            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) =>
-                Task.FromResult(_store.Values.FirstOrDefault(g =>
-                    g.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase) && g.ProgramaId == programaId));
             public Task<Grupo?> GetByCodigoAsync(string codigo) =>
                 Task.FromResult(_store.Values.FirstOrDefault(g => g.Codigo == codigo));
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) =>

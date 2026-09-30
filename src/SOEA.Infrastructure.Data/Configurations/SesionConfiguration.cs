@@ -35,9 +35,11 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasColumnName("espacio_id")
                 .IsRequired(false);
 
+            // Obligatorio (M19): toda sesión pertenece a un grupo. La FK compuesta
+            // (grupo_id, asignatura_id) → Grupos(id, asignatura_id) vive en SQL, ver GrupoConfiguration.
             builder.Property(s => s.GrupoId)
                 .HasColumnName("grupo_id")
-                .IsRequired(false);
+                .IsRequired();
 
             builder.Property(s => s.Alternancia)
                 .HasColumnName("alternancia")

@@ -361,34 +361,50 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
         }
 
-        // ── M1-bis (auditoría QA producción): el pre-check de capacidad clasificaba solo por
-        // TipoSesion (Laboratorio vs el resto) e ignoraba el RequisitoEspacio.TipoEspacio explícito
-        // del grupo — una Teoría Presencial forzada a "Solo laboratorio" caía en la bolsa
-        // "salones/auditorios" (0h en este escenario) y se rechazaba aunque el laboratorio real
-        // estuviera libre y el solve de verdad la hubiera ubicado ahí sin problema. Reproduce el
-        // bug confirmado en producción: 0 espacios Salon/Auditorio, 1 Laboratorio libre.
+        // ── M1-bis / NEW-5 (auditoría QA producción y pre-producción 2026-09-28): el pre-check de capacidad
+        // clasificaba solo por TipoSesion (Laboratorio vs el resto) e ignoraba el requisito de espacio del
+        // grupo — el TipoEspacio explícito (M1-bis) y el aula fija (NEW-5). Una sesión cuyo requisito la lleva
+        // a un espacio "de la otra clase" se contaba contra una bolsa con 0h y se rechazaba en falso aunque el
+        // solve real la ubicaba sin problema. Ahora cada sesión cuenta en la bolsa de los espacios que realmente puede usar.
+
+        private static Sesion SesionDe(Guid grupoId, TipoFlujo tipoFlujo) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false, tipoFlujo: tipoFlujo);
+
+        private static Grupo GrupoConRequisito(Guid grupoId, RequisitoEspacio requisito)
+        {
+            var grupo = new Grupo(grupoId, "G", Guid.NewGuid(), 20);
+            grupo.ActualizarRequisitosEspacio(new List<RequisitoEspacio> { requisito });
+            return grupo;
+        }
 
         [Fact]
         public async Task M1bis_TeoriaPresencialConRequisitoDeLaboratorio_SinSalonesDeSobra_RetornaFactible()
         {
-            var bloques = CrearBloques(4);
             var grupoId = Guid.NewGuid();
-            var grupo = new Grupo(grupoId, "G", Guid.NewGuid(), 20);
-            grupo.ActualizarRequisitosEspacio(new List<RequisitoEspacio>
-            {
-                new(TipoSesion.TeoriaPresencial, null, TipoEspacio.Laboratorio, 1)
-            });
-            var laboratorio = new Espacio(Guid.NewGuid(), "Lab", TipoEspacio.Laboratorio, 30);
-            var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
-                TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
+            var grupo = GrupoConRequisito(grupoId, new(TipoSesion.TeoriaPresencial, null, TipoEspacio.Laboratorio, 1));
+            var laboratorio = CrearLaboratorio();
 
             var resultado = await Motor.ResolverFactibilidadAsync(
-                new[] { sesion }, bloques, new[] { laboratorio },
+                new[] { SesionDe(grupoId, TipoFlujo.AulaVirtual) }, CrearBloques(4), new[] { laboratorio },
                 grupos: new[] { grupo });
 
             Assert.True(resultado.EsFactible, resultado.MensajeError);
-            Assert.All(resultado.Asignaciones.Where(a => a.SesionId == sesion.Id),
-                a => Assert.Equal(laboratorio.Id, a.EspacioId));
+        }
+
+        [Fact]
+        public async Task NEW5_LaboratorioConAulaFijaDeTipoSalon_SinLaboratorios_RetornaFactibleEnElSalonFijo()
+        {
+            var grupoId = Guid.NewGuid();
+            var salon = new Espacio(Guid.NewGuid(), "Salón 101", TipoEspacio.Salon, 30);
+            var grupo = GrupoConRequisito(grupoId, new(TipoSesion.Laboratorio, salon.Id, null, 1));
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                new[] { SesionDe(grupoId, TipoFlujo.Laboratorio) }, CrearBloques(4), new[] { salon },
+                grupos: new[] { grupo });
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError); // antes: 422 "No caben las laboratorios… 0h"
+            Assert.Equal(salon.Id, Assert.Single(resultado.Asignaciones).EspacioId);
         }
 
         // ── HC-G01: disponibilidad declarada por grupo (P1 — antes no había ni un test que le

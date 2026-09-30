@@ -110,7 +110,6 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<Grupo>> GetAllAsync() => Task.FromResult(Items.ToList());
             public Task UpdateAsync(Grupo entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
-            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) => Task.FromResult<Grupo?>(null);
             public Task<Grupo?> GetByCodigoAsync(string codigo) => Task.FromResult<Grupo?>(null);
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) =>
                 Task.FromResult(Items.Where(g => g.AsignaturaId == asignaturaId));
@@ -197,14 +196,17 @@ namespace SOEA.Tests.Application.Horario
         }
 
         private ReacomodarHorarioService CrearReacomodarServicio(
-            FakeHorarioRepo horarioRepo, FakeSesionRepo sesionRepo, FakeAsignacionRepo asigRepo, FakeUow uow)
+            FakeHorarioRepo horarioRepo, FakeSesionRepo sesionRepo, FakeAsignacionRepo asigRepo, FakeUow uow,
+            string? disponibilidadGrupoB = null)
         {
+            var grupoB = new Grupo(_grupoBId, "Grupo B", _asigBId, 20);
+            grupoB.ActualizarDisponibilidadUi(disponibilidadGrupoB);
             var grupoRepo = new FakeGrupoRepo
             {
                 Items =
                 {
-                    new Grupo(_grupoAId, "Grupo A", Guid.Empty, 20, asignaturaId: _asigAId),
-                    new Grupo(_grupoBId, "Grupo B", Guid.Empty, 20, asignaturaId: _asigBId)
+                    new Grupo(_grupoAId, "Grupo A", _asigAId, 20),
+                    grupoB
                 }
             };
             var asignaturaRepo = new FakeAsignaturaRepo
@@ -360,6 +362,104 @@ namespace SOEA.Tests.Application.Horario
             Assert.True(resultado.EsFactible, resultado.MensajeError);
             var fila = Assert.Single(resultado.Sesiones);
             Assert.Equal(_salon1Id.ToString(), fila.EspacioId);
+        }
+
+        /// <summary>
+        /// NEW-4 (auditoría 2026-09-28): mismo docente en dos sesiones de grupos y aulas distintos; mover
+        /// una al hueco de la otra, con aula y grupo libres, respondía 200 y dejaba al docente en dos
+        /// clases a la vez (HC-I01 no estaba en el post-chequeo). Ahora se rechaza sin persistir.
+        /// </summary>
+        [Fact]
+        public async Task MoverSesionAlHuecoDeOtraDelMismoDocente_SeRechaza_YNoPersiste()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+
+            var bloqueLunes  = BloqueReal(DiaDeSemana.Lunes, 8);
+            var bloqueMartes = BloqueReal(DiaDeSemana.Martes, 8);
+            var docenteId = Guid.NewGuid();
+
+            var sesionA = SesionSinAulaFija(_asigAId, _grupoAId, bloqueLunes.Id);
+            var sesionB = SesionSinAulaFija(_asigBId, _grupoBId, bloqueMartes.Id);
+            sesionA.AsignarDocente(docenteId);
+            sesionB.AsignarDocente(docenteId);
+            sesionRepo.Items.Add(sesionA);
+            sesionRepo.Items.Add(sesionB);
+            asigRepo.Items.Add(new AsignacionSemanal(Guid.NewGuid(), sesionA.Id, SemanaAcademica.A, bloqueLunes.Id, _salon1Id, Modalidad.Presencial));
+            asigRepo.Items.Add(new AsignacionSemanal(Guid.NewGuid(), sesionB.Id, SemanaAcademica.A, bloqueMartes.Id, _salon2Id, Modalidad.Presencial));
+            var horario = new SOEA.Domain.Entities.Horario(Guid.NewGuid(), "2026-1", new List<Guid> { sesionA.Id, sesionB.Id });
+            horarioRepo.Items.Add(horario);
+
+            var reacomodarSvc = CrearReacomodarServicio(horarioRepo, sesionRepo, asigRepo, uow);
+            var resultado = await reacomodarSvc.EjecutarAsync(new ReacomodarHorarioRequest
+            {
+                HorarioId = horario.Id,
+                SesionEditadaId = sesionA.Id,
+                Dia = "martes",
+                HoraInicio = "08:00",
+                EspacioId = _salon1Id.ToString()   // aula libre a esa hora: solo el docente choca
+            });
+
+            Assert.False(resultado.EsFactible);
+            Assert.Contains("HC-I01", resultado.MensajeError);
+            Assert.Equal(0, uow.Commits);
+            // La asignación de A quedó donde estaba (lunes).
+            Assert.Equal(bloqueLunes.Id, asigRepo.Items.Single(a => a.SesionId == sesionA.Id).BloqueTiempoId);
+        }
+
+        /// <summary>
+        /// El choque de docente de una sesión REUBICADA automáticamente no rechaza el movimiento: CP-SAT la coloca
+        /// sin mirar docentes (CR-08), así que el movimiento de la persona era válido. Se avisa. Antes se rechazaba
+        /// citando sesiones que nadie movió.
+        /// </summary>
+        [Fact]
+        public async Task ReubicadaQueCaeSobreOtraDeSuDocente_SeAplicaConAviso_NoSeRechaza()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+
+            var bloqueLunes     = BloqueReal(DiaDeSemana.Lunes, 8);
+            var bloqueMartes    = BloqueReal(DiaDeSemana.Martes, 8);
+            var bloqueMiercoles = BloqueReal(DiaDeSemana.Miercoles, 8);
+            var docenteY = Guid.NewGuid();
+
+            // B (docente Y) está en Salón 1 el martes; C (también docente Y, otro grupo) en Salón 2 el miércoles.
+            var sesionA = SesionSinAulaFija(_asigAId, _grupoAId, bloqueLunes.Id);
+            var sesionB = SesionSinAulaFija(_asigBId, _grupoBId, bloqueMartes.Id);
+            var sesionC = SesionSinAulaFija(_asigBId, _grupoAId, bloqueMiercoles.Id);
+            sesionB.AsignarDocente(docenteY);
+            sesionC.AsignarDocente(docenteY);
+            foreach (var s in new[] { sesionA, sesionB, sesionC }) sesionRepo.Items.Add(s);
+            asigRepo.Items.Add(new AsignacionSemanal(Guid.NewGuid(), sesionA.Id, SemanaAcademica.A, bloqueLunes.Id, _salon1Id, Modalidad.Presencial));
+            asigRepo.Items.Add(new AsignacionSemanal(Guid.NewGuid(), sesionB.Id, SemanaAcademica.A, bloqueMartes.Id, _salon1Id, Modalidad.Presencial));
+            asigRepo.Items.Add(new AsignacionSemanal(Guid.NewGuid(), sesionC.Id, SemanaAcademica.A, bloqueMiercoles.Id, _salon2Id, Modalidad.Presencial));
+            var horario = new SOEA.Domain.Entities.Horario(Guid.NewGuid(), "2026-1", new List<Guid> { sesionA.Id, sesionB.Id, sesionC.Id });
+            horarioRepo.Items.Add(horario);
+
+            // El grupo B solo puede el miércoles 08–10: al liberarse, B solo cabe justo sobre C (Salón 1).
+            const string soloMiercoles = """
+                {"lunes":{"noDisponible":true},"martes":{"noDisponible":true},
+                 "miercoles":{"noDisponible":false,"tipo":"Franja específica","desde":"08:00","hasta":"10:00"},
+                 "jueves":{"noDisponible":true},"viernes":{"noDisponible":true},"sabado":{"noDisponible":true}}
+                """;
+            var reacomodarSvc = CrearReacomodarServicio(horarioRepo, sesionRepo, asigRepo, uow, soloMiercoles);
+            var resultado = await reacomodarSvc.EjecutarAsync(new ReacomodarHorarioRequest
+            {
+                HorarioId = horario.Id,
+                SesionEditadaId = sesionA.Id,
+                Dia = "martes",
+                HoraInicio = "08:00",
+                EspacioId = _salon1Id.ToString()   // el aula de B: la libera
+            });
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            Assert.Contains(resultado.Advertencias, a => a.Contains("HC-I01"));
+            var filaB = Assert.Single(resultado.Sesiones, s => s.Id == sesionB.Id.ToString());
+            Assert.Equal("miercoles", filaB.Dia);
         }
 
         /// <summary>

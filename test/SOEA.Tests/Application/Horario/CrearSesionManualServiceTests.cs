@@ -21,6 +21,8 @@ namespace SOEA.Tests.Application.Horario
     {
         private static readonly Guid Lab = Guid.NewGuid();
         private static readonly Guid Salon = Guid.NewGuid();
+        private static readonly Guid Asig = Guid.NewGuid();
+        private static readonly Guid Grupo = Guid.NewGuid();
 
         private static (CrearSesionManualService svc, SOEA.Domain.Entities.Horario horario) Crear()
         {
@@ -29,7 +31,7 @@ namespace SOEA.Tests.Application.Horario
             var svc = new CrearSesionManualService(
                 new FakeBloqueRepo(GrillaInstitucional.GenerarBloques().ToArray()),
                 new FakeHorarioRepo(horario), new FakeSesionRepo(), new FakeAsignacionRepo(),
-                new FakeAsignaturaRepo(), new FakeGrupoRepo(),
+                new FakeAsignaturaRepo(), new FakeGrupoRepo(new Grupo(Grupo, "G1", Asig, 30)),
                 new FakeEspacioRepo(
                     new Espacio(Lab, "Lab 1", TipoEspacio.Laboratorio, 30),
                     new Espacio(Salon, "Salón 1", TipoEspacio.Salon, 30)),
@@ -45,7 +47,8 @@ namespace SOEA.Tests.Application.Horario
             var resultado = await svc.EjecutarAsync(new CrearSesionManualRequest
             {
                 HorarioId = horario.Id,
-                AsignaturaId = Guid.NewGuid(),
+                AsignaturaId = Asig,
+                GrupoId = Grupo,
                 DocenteId = Guid.NewGuid(),
                 EspacioId = Lab,
                 Dia = "lunes",
@@ -71,7 +74,8 @@ namespace SOEA.Tests.Application.Horario
             var resultado = await svc.EjecutarAsync(new CrearSesionManualRequest
             {
                 HorarioId = horario.Id,
-                AsignaturaId = Guid.NewGuid(),
+                AsignaturaId = Asig,
+                GrupoId = Grupo,
                 DocenteId = Guid.NewGuid(),
                 EspacioId = null,
                 Dia = "martes",
@@ -94,7 +98,8 @@ namespace SOEA.Tests.Application.Horario
             var resultado = await svc.EjecutarAsync(new CrearSesionManualRequest
             {
                 HorarioId = horario.Id,
-                AsignaturaId = Guid.NewGuid(),
+                AsignaturaId = Asig,
+                GrupoId = Grupo,
                 DocenteId = Guid.NewGuid(),
                 EspacioId = Salon,
                 Dia = "miercoles",
@@ -120,7 +125,8 @@ namespace SOEA.Tests.Application.Horario
             var resultado = await svc.EjecutarAsync(new CrearSesionManualRequest
             {
                 HorarioId = horario.Id,
-                AsignaturaId = Guid.NewGuid(),
+                AsignaturaId = Asig,
+                GrupoId = Grupo,
                 Dia = "jueves",
                 HoraInicio = "10:00",
                 DuracionHoras = 2m,
@@ -139,13 +145,30 @@ namespace SOEA.Tests.Application.Horario
             await Assert.ThrowsAsync<KeyNotFoundException>(() => svc.EjecutarAsync(new CrearSesionManualRequest
             {
                 HorarioId = Guid.NewGuid(),
-                AsignaturaId = Guid.NewGuid(),
+                AsignaturaId = Asig,
+                GrupoId = Grupo,
                 Dia = "jueves",
                 HoraInicio = "10:00",
                 DuracionHoras = 2m,
                 TipoFlujo = "AulaVirtual",
                 EsVirtual = true
             }));
+        }
+
+        [Fact]
+        public async Task SinGrupo_OGrupoDeOtraAsignatura_Lanza()
+        {
+            // Jerarquía Sesión → Grupo → Asignatura: sin grupo no hay sesión, y el grupo debe ser de esa asignatura.
+            var (svc, horario) = Crear();
+            CrearSesionManualRequest Req(Guid asig, Guid grupo) => new()
+            {
+                HorarioId = horario.Id, AsignaturaId = asig, GrupoId = grupo,
+                Dia = "lunes", HoraInicio = "07:00", DuracionHoras = 2m, TipoFlujo = "AulaVirtual", EsVirtual = true
+            };
+
+            await Assert.ThrowsAsync<ArgumentException>(() => svc.EjecutarAsync(Req(Asig, Guid.Empty)));
+            await Assert.ThrowsAsync<ArgumentException>(() => svc.EjecutarAsync(Req(Guid.NewGuid(), Grupo)));
+            await Assert.ThrowsAsync<SOEA.Domain.Exceptions.BusinessRuleViolationException>(() => svc.EjecutarAsync(Req(Asig, Guid.NewGuid())));
         }
     }
 }

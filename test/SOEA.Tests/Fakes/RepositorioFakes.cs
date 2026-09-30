@@ -83,9 +83,6 @@ namespace SOEA.Tests.Fakes
     {
         public FakeGrupoRepo(params Grupo[] grupos) : base(grupos) { }
 
-        public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) =>
-            Task.FromResult(Store.Values.FirstOrDefault(g =>
-                g.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase) && g.ProgramaId == programaId));
 
         public Task<Grupo?> GetByCodigoAsync(string codigo) =>
             Task.FromResult(Store.Values.FirstOrDefault(g => g.Codigo == codigo));

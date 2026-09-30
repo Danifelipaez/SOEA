@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using SOEA.Application.Features.Horario;
 using SOEA.Application.Features.Horario.Requests;
 using SOEA.Application.Features.Horario.Responses;
@@ -38,7 +39,7 @@ namespace SOEA.API.Controllers
         public async Task<IActionResult> ObtenerActual([FromQuery] string semestre)
         {
             if (string.IsNullOrWhiteSpace(semestre))
-                return BadRequest("Debe especificar el semestre.");
+                throw new ArgumentException("Debe especificar el semestre.");
 
             var resultado = await _generarService.ObtenerActualAsync(semestre);
             return resultado is null ? NotFound() : Ok(resultado);
@@ -51,6 +52,7 @@ namespace SOEA.API.Controllers
         /// y devuelve las sesiones programadas listas para pintar en la matriz.
         /// </summary>
         [HttpPost("generar")]
+        [EnableRateLimiting("generar")] // una sola generación a la vez — ver Program.cs (SEC-2)
         [ProducesResponseType(typeof(GenerarHorarioResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(GenerarHorarioResponse), StatusCodes.Status422UnprocessableEntity)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -60,7 +62,7 @@ namespace SOEA.API.Controllers
                 return BadRequest(ModelState);
 
             if (request.Asignaturas.Count == 0)
-                return BadRequest("Debe incluir al menos una asignatura en el request.");
+                throw new ArgumentException("Debe incluir al menos una asignatura en el request.");
 
             // M1 auditoría: CR-08 (presencial-first) sacó al docente del pipeline de generación —
             // solo alimenta objetivos blandos del algoritmo genético, y se asigna después vía
@@ -69,7 +71,7 @@ namespace SOEA.API.Controllers
             // espacios, generar, y solo entonces asignar docentes.
 
             if (request.Espacios.Count == 0)
-                return BadRequest("Debe incluir al menos un espacio en el request.");
+                throw new ArgumentException("Debe incluir al menos un espacio en el request.");
 
             try
             {

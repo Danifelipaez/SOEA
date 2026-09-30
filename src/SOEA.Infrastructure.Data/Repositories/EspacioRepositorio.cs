@@ -11,6 +11,6 @@ namespace SOEA.Infrastructure.Data.Repositories
         public EspacioRepositorio(SOEABdContext context) : base(context) { }
 
         public async Task<Espacio?> GetByNombreAsync(string nombre)
-            => await _dbSet.FirstOrDefaultAsync(x => EF.Functions.ILike(x.Nombre, nombre));
+            => await _dbSet.FirstOrDefaultAsync(x => x.Nombre.ToLower() == nombre.ToLower());
     }
 }

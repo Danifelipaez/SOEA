@@ -18,7 +18,7 @@ namespace SOEA.Tests.Application
     /// </summary>
     public class DeleteGrupoServiceTests
     {
-        private static Grupo Existente(Guid id) => new(id, "G1", Guid.NewGuid(), 30, asignaturaId: Guid.NewGuid());
+        private static Grupo Existente(Guid id) => new(id, "G1", Guid.NewGuid(), 30);
 
         private static Sesion SesionDelGrupo(Guid grupoId) =>
             new(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,

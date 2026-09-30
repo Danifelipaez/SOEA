@@ -23,9 +23,10 @@ namespace SOEA.Application.Features.Horario.Requests
         /// obliga a elegir un grupo, pero el dato se descartaba (el request no lo traía) — sin él,
         /// HC-SEP se evaluaba por (asignatura, tipo) sobre TODAS las cohortes (rechazaba la sesión
         /// del lunes del grupo B porque el grupo A ya tenía una el lunes) y HC-S05 (aula fija del
-        /// grupo) no se podía aplicar en absoluto.
+        /// grupo) no se podía aplicar en absoluto. Obligatorio: toda sesión pertenece a un grupo de
+        /// <see cref="AsignaturaId"/> (Sesión → Grupo → Asignatura → Programa → Facultad).
         /// </summary>
-        public Guid?   GrupoId       { get; set; }
+        public Guid    GrupoId       { get; set; }
         /// <summary>Día en minúsculas: "lunes", "martes", "miercoles", "jueves", "viernes", "sabado".</summary>
         public string  Dia           { get; set; } = string.Empty;
         /// <summary>Hora de inicio en formato "HH:mm".</summary>

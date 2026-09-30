@@ -81,7 +81,6 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<Grupo>> GetAllAsync() => Task.FromResult(new List<Grupo>());
             public Task UpdateAsync(Grupo e) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
-            public Task<Grupo?> GetByNombreYProgramaAsync(string n, Guid p) => Task.FromResult<Grupo?>(null);
             public Task<Grupo?> GetByCodigoAsync(string c) => Task.FromResult<Grupo?>(null);
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid a) => Task.FromResult(Enumerable.Empty<Grupo>());
             public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid d) => Task.FromResult(Enumerable.Empty<Grupo>());

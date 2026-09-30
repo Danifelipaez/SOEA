@@ -100,7 +100,8 @@ namespace SOEA.Tests.Infrastructure.Excel
             var docenteLuis = resultado.Docentes.Single(d => d.Nombre == "Luis Borja Hidalgo");
             Assert.Empty(docenteLuis.BloquesDisponibles);
 
-            Assert.Empty(resultado.Advertencias);
+            // Los avisos de valores supuestos (DB-10) salen siempre: el formato no trae capacidad ni estudiantes.
+            Assert.Empty(resultado.Advertencias.Where(a => !a.Contains("supuest")));
         }
 
         [Fact]
@@ -260,7 +261,8 @@ namespace SOEA.Tests.Infrastructure.Excel
             var resultado = await lector.LeerCurriculumAsync(stream);
 
             Assert.Equal(2, resultado.Facultades.Count);
-            Assert.Empty(resultado.Advertencias);
+            // Los avisos de valores supuestos (DB-10) salen siempre; aquí importa que no haya aviso de typo.
+            Assert.Empty(resultado.Advertencias.Where(a => !a.Contains("supuest")));
         }
     }
 }

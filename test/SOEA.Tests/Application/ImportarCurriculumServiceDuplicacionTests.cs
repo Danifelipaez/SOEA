@@ -128,33 +128,28 @@ namespace SOEA.Tests.Application
         }
 
         [Fact]
-        public async Task Grupo_ConFacultadIdTemporal_SeRemapeaAlIdRealDeLaFacultad()
+        public async Task Grupo_ConAsignaturaIdTemporal_SeRemapeaAlIdRealDeLaAsignatura()
         {
-            // M14 auditoría (descubierto al investigar la migración de FK de saneamiento):
-            // progRealId/asigRealId/docRealId se remapean del id TEMPORAL (asignado durante el
-            // mapeo DTO→entidad) al id REAL creado al persistir, pero g.FacultadId no pasaba por
-            // el mismo remapeo — se persistía el id temporal, que nunca corresponde a ninguna fila
-            // real de Facultades. En la BD local esto dejó el 100% de los Grupos con facultad_id
-            // huérfano.
+            // Jerarquía Grupo → Asignatura: el grupo del Excel trae el id TEMPORAL de su asignatura
+            // (asignado durante el mapeo DTO→entidad); debe persistirse apuntando a la asignatura real.
             var (svc, db) = Crear();
-            var facTempId = Guid.NewGuid(); // id "temporal" tal como lo asigna el mapeo DTO→entidad
-            var programaId = Guid.NewGuid();
+            var fac = new Facultad(Guid.NewGuid(), "INGENIERIA");
+            var prog = new Programa(Guid.NewGuid(), "SISTEMAS", fac.Id);
+            var asigTemp = new Asignatura(Guid.NewGuid(), "CALCULO", "C1", 2, 1, 0, prog.Id);
 
             var resultado = new CurriculumExcelResult(
-                facultades: new List<Facultad> { new(facTempId, "INGENIERIA") },
-                programas: new List<Programa>(),
-                asignaturas: new List<Asignatura>(),
+                facultades: new List<Facultad> { fac },
+                programas: new List<Programa> { prog },
+                asignaturas: new List<Asignatura> { asigTemp },
                 docentes: new List<Docente>(),
                 sesionesPredefinidas: new List<Sesion>(),
                 espacios: new List<Espacio>(),
-                grupos: new List<Grupo> { new(Guid.NewGuid(), "G1", programaId, 30, facultadId: facTempId) });
+                grupos: new List<Grupo> { new(Guid.NewGuid(), "G1", asigTemp.Id, 30) });
             await svc.EjecutarAsync(resultado);
 
-            var facultadReal = await db.Facultades.AsNoTracking().SingleAsync();
+            var asignaturaReal = await db.Asignaturas.AsNoTracking().SingleAsync();
             var grupoPersistido = await db.Grupos.AsNoTracking().SingleAsync();
-
-            Assert.Equal(facultadReal.Id, grupoPersistido.FacultadId);
-            Assert.NotEqual(facTempId, grupoPersistido.FacultadId); // el id temporal nunca debe sobrevivir
+            Assert.Equal(asignaturaReal.Id, grupoPersistido.AsignaturaId);
         }
 
         [Fact]

@@ -1,6 +1,7 @@
 import { Injectable, signal, computed } from '@angular/core';
 import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, HorarioBase } from './models';
 import { nuevoId } from './id.util';
+import { SEMESTRE_POR_DEFECTO } from './semestre';
 
 @Injectable({
   providedIn: 'root'
@@ -108,6 +109,8 @@ export class StateService {
   setAsignaturas(list: Asignatura[]) { this.asignaturas.set(list); }
 
   // ── Sesiones y Logs (resultado del algoritmo) ──────────────────────────────
+  /** Semestre con el que se genera y se rehidrata el horario (L-8). */
+  semestre = signal<string>(SEMESTRE_POR_DEFECTO);
   executionLogs = signal<string[]>([]);
   /** Id del Horario persistido por la última generación exitosa (P5: lo necesita /reacomodar). */
   horarioId = signal<string | null>(null);

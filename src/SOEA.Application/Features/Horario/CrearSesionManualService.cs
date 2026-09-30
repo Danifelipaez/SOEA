@@ -84,6 +84,15 @@ namespace SOEA.Application.Features.Horario
             var horario = await _horarios.GetByIdAsync(req.HorarioId)
                 ?? throw new KeyNotFoundException("El horario cambió mientras trabajaba. Recargue la página.");
 
+            // Jerarquía Sesión → Grupo → Asignatura: el grupo es obligatorio y debe ser de esa asignatura.
+            if (req.GrupoId == Guid.Empty)
+                throw new ArgumentException("Elija el grupo al que pertenece la sesión.");
+            var grupos = await _grupos.GetAllAsync();
+            var grupo = grupos.FirstOrDefault(g => g.Id == req.GrupoId)
+                ?? throw new BusinessRuleViolationException("El grupo elegido ya no existe. Recargue la página.");
+            if (grupo.AsignaturaId != req.AsignaturaId)
+                throw new ArgumentException($"El grupo '{grupo.Nombre}' no pertenece a la asignatura elegida.");
+
             // Sesion.EspacioId es el aula FIJA exigida (HC-S05), no el aula elegida: esa vive solo en la
             // asignación, igual que en las sesiones generadas.
             var sesion = new Sesion(
@@ -105,6 +114,7 @@ namespace SOEA.Application.Features.Horario
             Guid? espacioFinal = modalidadFila == Modalidad.Presencial ? req.EspacioId : null;
             var asignacion = new AsignacionSemanal(Guid.NewGuid(), sesion.Id, ModalidadSemanal.SemanaCanonica(sesion),
                 bloque.Id, espacioFinal, modalidadFila);
+            asignacion.AsignarHorario(horario.Id); // NEW-3: el índice único de aula/bloque/semana es por horario
 
             // P0-4 auditoría: los chequeos leían Sesion.BloqueTiempoId, que en las sesiones generadas era
             // la pista de Fase 1 y no el bloque final: una sesión 1 h después de otra en la misma aula
@@ -142,7 +152,7 @@ namespace SOEA.Application.Features.Horario
             // Solo cuentan las violaciones que introduce la sesión nueva: una preexistente (p. ej. un grupo
             // editado en el catálogo después de generar) no debe impedir agregar otra sesión.
             var contexto = ContextoValidacion.DesdeCatalogo(bloquesGrid, asignaturas,
-                await _grupos.GetAllAsync(), await _espacios.GetAllAsync());
+                grupos, await _espacios.GetAllAsync());
             var previas = ValidadorRestriccionesDuras.Validar(asignaciones, sesionPorId, idxPorBloque, contexto).ToHashSet();
             var nuevas = ValidadorRestriccionesDuras.Validar(asignaciones.Append(asignacion), sesionPorId, idxPorBloque, contexto)
                 .Where(c => !previas.Contains(c))

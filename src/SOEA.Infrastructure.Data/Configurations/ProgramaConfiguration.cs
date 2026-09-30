@@ -25,6 +25,14 @@ namespace SOEA.Infrastructure.Data.Configurations
                 .HasColumnName("facultad_id")
                 .IsRequired();
 
+            // DB-6 auditoría 2026-09-28: sin FK, DELETE /facultades/{id} respondía 204 y dejaba los
+            // programas apuntando a una facultad inexistente. Restrict: FacultadService.DeleteAsync
+            // avisa con un mensaje claro antes de llegar aquí.
+            builder.HasOne<Facultad>()
+                .WithMany()
+                .HasForeignKey(p => p.FacultadId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             builder.HasIndex(p => p.FacultadId)
                 .HasDatabaseName("ix_programas_facultad_id");
         }

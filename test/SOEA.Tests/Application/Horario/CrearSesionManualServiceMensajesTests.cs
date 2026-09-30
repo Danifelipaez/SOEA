@@ -22,6 +22,7 @@ namespace SOEA.Tests.Application.Horario
     {
         private static readonly Guid AsigExistente = Guid.NewGuid();
         private static readonly Guid AsigNueva = Guid.NewGuid();
+        private static readonly Guid GrupoNueva = Guid.NewGuid();
 
         private static BloqueTiempo Bloque(DiaDeSemana dia, int hora) =>
             GrillaInstitucional.GenerarBloques().First(b => b.Dia == dia && b.HoraInicio == new TimeOnly(hora, 0));
@@ -38,7 +39,7 @@ namespace SOEA.Tests.Application.Horario
                 new FakeAsignaturaRepo(
                     new Asignatura(AsigExistente, "Física I", "COD-FIS", 1, 1, 0, Guid.NewGuid()),
                     new Asignatura(AsigNueva, "Cálculo I", "COD-CALC", 1, 1, 0, Guid.NewGuid())),
-                new FakeGrupoRepo(),
+                new FakeGrupoRepo(new Grupo(GrupoNueva, "G1", AsigNueva, 1)),
                 new FakeEspacioRepo(espacios),
                 new FakeUnitOfWork());
 
@@ -47,7 +48,7 @@ namespace SOEA.Tests.Application.Horario
         {
             var bloque = Bloque(DiaDeSemana.Lunes, 7);
             var docenteId = Guid.NewGuid();
-            var existente = new Sesion(Guid.NewGuid(), AsigExistente, docenteId, bloque.Id, null, null,
+            var existente = new Sesion(Guid.NewGuid(), AsigExistente, docenteId, bloque.Id, null, Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false);
             var asignacion = new AsignacionSemanal(Guid.NewGuid(), existente.Id, SemanaAcademica.A, bloque.Id, null, Modalidad.Virtual);
             var horario = HorarioCon(existente.Id);
@@ -57,6 +58,7 @@ namespace SOEA.Tests.Application.Horario
                 {
                     HorarioId = horario.Id,
                     AsignaturaId = AsigNueva,
+                    GrupoId = GrupoNueva,
                     DocenteId = docenteId,
                     Dia = "lunes",
                     HoraInicio = "07:00",
@@ -80,7 +82,7 @@ namespace SOEA.Tests.Application.Horario
         {
             var bloque = Bloque(DiaDeSemana.Martes, 8);
             var lab = new Espacio(Guid.NewGuid(), "Lab 1", TipoEspacio.Laboratorio, 30);
-            var existente = new Sesion(Guid.NewGuid(), AsigExistente, Guid.NewGuid(), bloque.Id, null, null,
+            var existente = new Sesion(Guid.NewGuid(), AsigExistente, Guid.NewGuid(), bloque.Id, null, Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false);
             var asignacion = new AsignacionSemanal(Guid.NewGuid(), existente.Id, SemanaAcademica.A, bloque.Id, lab.Id, Modalidad.Presencial);
             var horario = HorarioCon(existente.Id);
@@ -90,6 +92,7 @@ namespace SOEA.Tests.Application.Horario
                 {
                     HorarioId = horario.Id,
                     AsignaturaId = AsigNueva,
+                    GrupoId = GrupoNueva,
                     EspacioId = lab.Id,
                     Dia = "martes",
                     HoraInicio = "08:00",
@@ -114,7 +117,7 @@ namespace SOEA.Tests.Application.Horario
         public async Task HCS01_ComparaContraLaAsignacionReal_NoContraElBloqueDeFase1()
         {
             var lab = new Espacio(Guid.NewGuid(), "Lab 1", TipoEspacio.Laboratorio, 30);
-            var existente = new Sesion(Guid.NewGuid(), AsigExistente, null, Bloque(DiaDeSemana.Lunes, 7).Id, null, null,
+            var existente = new Sesion(Guid.NewGuid(), AsigExistente, null, Bloque(DiaDeSemana.Lunes, 7).Id, null, Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false);
             var asignacion = new AsignacionSemanal(Guid.NewGuid(), existente.Id, SemanaAcademica.A,
                 Bloque(DiaDeSemana.Martes, 8).Id, lab.Id, Modalidad.Presencial);
@@ -125,6 +128,7 @@ namespace SOEA.Tests.Application.Horario
                 {
                     HorarioId = horario.Id,
                     AsignaturaId = AsigNueva,
+                    GrupoId = GrupoNueva,
                     EspacioId = lab.Id,
                     Dia = "martes",
                     HoraInicio = "09:00",
@@ -141,7 +145,7 @@ namespace SOEA.Tests.Application.Horario
         {
             var bloque = Bloque(DiaDeSemana.Lunes, 7);
             var docenteId = Guid.NewGuid();
-            var fantasma = new Sesion(Guid.NewGuid(), AsigExistente, docenteId, bloque.Id, null, null,
+            var fantasma = new Sesion(Guid.NewGuid(), AsigExistente, docenteId, bloque.Id, null, Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false);
             var asignacion = new AsignacionSemanal(Guid.NewGuid(), fantasma.Id, SemanaAcademica.A, bloque.Id, null, Modalidad.Virtual);
             var horario = HorarioCon(); // no contiene a la fantasma
@@ -150,6 +154,7 @@ namespace SOEA.Tests.Application.Horario
             {
                 HorarioId = horario.Id,
                 AsignaturaId = AsigNueva,
+                GrupoId = GrupoNueva,
                 DocenteId = docenteId,
                 Dia = "lunes",
                 HoraInicio = "07:00",

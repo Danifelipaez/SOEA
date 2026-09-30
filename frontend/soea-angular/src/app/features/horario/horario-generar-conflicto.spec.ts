@@ -212,3 +212,49 @@ describe('HorarioComponent.generarHorario() — doble envío', () => {
     expect(horarioApi.generarHorario).toHaveBeenCalledTimes(2);
   });
 });
+
+/**
+ * L-7 y L-8 (auditoría 2026-09-28): la generación exigía docentes cargados aunque salieron del pipeline
+ * (CR-02/CR-08: se asignan después de generar), y el semestre estaba escrito a mano en la llamada.
+ */
+describe('HorarioComponent.generarHorario() — requisitos y semestre', () => {
+  let state: StateService;
+  let horarioApi: { generarHorario: ReturnType<typeof vi.fn>; mapearSesiones: ReturnType<typeof vi.fn> };
+  let component: HorarioComponent;
+
+  beforeEach(() => {
+    horarioApi = { generarHorario: vi.fn().mockReturnValue(new Subject()), mapearSesiones: vi.fn((s: unknown[]) => s) };
+    TestBed.configureTestingModule({
+      imports: [HorarioComponent],
+      providers: [
+        provideNoopAnimations(),
+        { provide: HorarioApiService, useValue: horarioApi },
+        { provide: PersistenciaService, useValue: {} },
+        { provide: CatalogoService, useValue: {} },
+      ],
+    });
+    component = TestBed.createComponent(HorarioComponent).componentInstance;
+    component.backendReady.set(true);
+    state = TestBed.inject(StateService);
+  });
+
+  it('genera con asignaturas y espacios aunque todavía no haya docentes', () => {
+    state.asignaturas.set([asignatura()]);
+    state.espacios.set([espacio()]);
+    state.docentes.set([]);
+
+    component.generarHorario();
+
+    expect(horarioApi.generarHorario).toHaveBeenCalledTimes(1);
+  });
+
+  it('usa el semestre del estado, no un literal', () => {
+    state.asignaturas.set([asignatura()]);
+    state.espacios.set([espacio()]);
+    state.semestre.set('2027-2');
+
+    component.generarHorario();
+
+    expect(horarioApi.generarHorario.mock.calls[0][4]).toBe('2027-2'); // 5º argumento: semestre
+  });
+});

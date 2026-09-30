@@ -36,7 +36,7 @@ namespace SOEA.Tests.Engine.Genetic
 
         private static Sesion Sesion(Guid docenteId, TipoAlternancia alt, Modalidad modalidad, decimal dur,
             TipoFlujo tipoFlujo = TipoFlujo.Laboratorio) =>
-            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), null, null, alt, modalidad, dur, false, false,
+            new(Guid.NewGuid(), Guid.NewGuid(), docenteId, Guid.NewGuid(), null, Guid.NewGuid(), alt, modalidad, dur, false, false,
                 tipoFlujo: tipoFlujo);
 
 
@@ -207,7 +207,7 @@ namespace SOEA.Tests.Engine.Genetic
             var bloques  = Grilla(6);
 
             // Teoría presencial con espacio fijo = B (el greedy sin HC-S05 elegiría A, el primero).
-            var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), espacioB.Id, null,
+            var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), espacioB.Id, Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false,
                 tipoFlujo: TipoFlujo.AulaVirtual);
             var sesiones = new List<Sesion> { sesion };
@@ -232,7 +232,7 @@ namespace SOEA.Tests.Engine.Genetic
             var grupoId  = Guid.NewGuid();
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Salón chico", TipoEspacio.Salon, 10) };
             var bloques  = Grilla(6);
-            var grupo = new Grupo(grupoId, "Cohorte", Guid.Empty, estudiantesInscritos: 40);
+            var grupo = new Grupo(grupoId, "Cohorte", Guid.NewGuid(), estudiantesInscritos: 40);
 
             var sesion = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, grupoId,
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false,
@@ -341,9 +341,9 @@ namespace SOEA.Tests.Engine.Genetic
             var espacios = new List<Espacio> { new(Guid.NewGuid(), "Salón", TipoEspacio.Salon, 100) };
             var grupos = new List<Grupo>
             {
-                new(grupoY, "Grupo Y", Guid.Empty, 30, asignaturaId: asigY),
-                new(grupoP1, "Grupo P1", Guid.Empty, 30, asignaturaId: p1.AsignaturaId),
-                new(grupoP2, "Grupo P2", Guid.Empty, 30, asignaturaId: p2.AsignaturaId),
+                new(grupoY, "Grupo Y", asigY, 30),
+                new(grupoP1, "Grupo P1", p1.AsignaturaId, 30),
+                new(grupoP2, "Grupo P2", p2.AsignaturaId, 30),
             };
 
             var cfg = new ConfiguracionOptimizacion(TamañoPoblacion: 30, MaxGeneraciones: 100, Semilla: 7);

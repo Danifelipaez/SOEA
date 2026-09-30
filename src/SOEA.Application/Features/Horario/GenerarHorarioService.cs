@@ -25,7 +25,18 @@ namespace SOEA.Application.Features.Horario
         private readonly IGrupoRepositorio           _grupoRepo;
         private readonly ICriterioCesionAlternanciaRepositorio _criterioCesionRepo;
         private readonly IUnitOfWork                 _uow;
+        private readonly TimeSpan                    _plazoTotal;
 
+        /// <summary>
+        /// L-10 auditoría 2026-09-28: plazo único de toda la generación. Azure corta un HTTP síncrono a
+        /// los 230 s; antes cada solve de CP-SAT (más la relajación y el barrido diagnóstico) podía gastar
+        /// su propio <c>CpSat.TimeoutSegundos</c> completo (120 s) y el peor caso teórico pasaba de
+        /// los 2 000 s, con el cliente ya desconectado. Deja ~30 s para persistir y responder.
+        /// </summary>
+        public static readonly TimeSpan PlazoTotalPorDefecto = TimeSpan.FromSeconds(200);
+
+        // plazoTotal es opcional (null = PlazoTotalPorDefecto) para no romper la firma en los tests
+        // existentes y poder reducirlo en los que ejercitan el plazo.
         public GenerarHorarioService(
             IMotorColoracionGrafo       fase1,
             IMotorConstraintProgramming  fase2,
@@ -35,8 +46,10 @@ namespace SOEA.Application.Features.Horario
             IAsignacionSemanalRepositorio asignacionRepo,
             IGrupoRepositorio           grupoRepo,
             ICriterioCesionAlternanciaRepositorio criterioCesionRepo,
-            IUnitOfWork                 uow)
+            IUnitOfWork                 uow,
+            TimeSpan?                   plazoTotal = null)
         {
+            _plazoTotal  = plazoTotal ?? PlazoTotalPorDefecto;
             _fase1       = fase1;
             _fase2       = fase2;
             _fase3       = fase3;
@@ -79,12 +92,51 @@ namespace SOEA.Application.Features.Horario
             };
         }
 
-        public async Task<GenerarHorarioResponse> EjecutarAsync(GenerarHorarioRequest request, CancellationToken ct = default)
+        public async Task<GenerarHorarioResponse> EjecutarAsync(GenerarHorarioRequest request, CancellationToken ctCliente = default)
+        {
+            // SEC-2: se valida al entrar, no en la Fase 3 — un valor absurdo no debe gastar minutos de
+            // CP-SAT antes de ser rechazado.
+            var configuracionGa = MapearConfiguracion(request.Configuracion);
+
+            // L-10: un solo plazo compartido por Fase 1, 2 (incluidos la relajación, el barrido y el
+            // bucle de cesión) y 3. Cancelar el token detiene al solver (StopSearch) y al GA.
+            using var plazo = CancellationTokenSource.CreateLinkedTokenSource(ctCliente);
+            plazo.CancelAfter(_plazoTotal);
+            try
+            {
+                return await EjecutarPipelineAsync(request, configuracionGa, ctCliente, plazo.Token);
+            }
+            // Si canceló el cliente se deja propagar (el controller responde 499); si canceló el plazo, el
+            // usuario recibe una respuesta clara en vez de esperar a que Azure corte la conexión.
+            catch (OperationCanceledException) when (plazo.IsCancellationRequested && !ctCliente.IsCancellationRequested)
+            {
+                var segundos = (int)_plazoTotal.TotalSeconds;
+                return new GenerarHorarioResponse
+                {
+                    Semestre     = request.Semestre,
+                    EsFactible   = false,
+                    MotivoInfactibilidad = nameof(MotivoInfactibilidad.Timeout),
+                    MensajeError = $"La generación superó el tiempo máximo ({segundos} s) y se detuvo sin encontrar un horario. " +
+                                   "Intente de nuevo o reduzca el número de asignaturas o grupos en este intento.",
+                    Logs         = new List<string> { $"[ERROR] Plazo total de generación agotado ({segundos} s)." },
+                    Sesiones     = new List<SesionGeneradaDto>()
+                };
+            }
+        }
+
+        private async Task<GenerarHorarioResponse> EjecutarPipelineAsync(
+            GenerarHorarioRequest request, ConfiguracionOptimizacion configuracionGa,
+            CancellationToken ctCliente, CancellationToken ct)
         {
             var logs = new List<string>();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             
             logs.Add($"[INFO] Iniciando pipeline de optimización con {request.Asignaturas.Count} asignaturas, {request.Docentes.Count} docentes y {request.Espacios.Count} espacios.");
+
+            // Un Id repetido rompía los ToDictionary de más abajo con un 400 en inglés de framework
+            // ("An item with the same key…"); se deduplica una sola vez, en el origen (igual que los grupos).
+            request.Asignaturas = DeduplicarPorId(request.Asignaturas, x => x.Id, x => x.Nombre, "Asignatura", logs);
+            request.Espacios    = DeduplicarPorId(request.Espacios,    x => x.Id, x => x.Nombre, "Espacio", logs);
 
             // ── 1. Convertir DTOs del frontend a entidades de dominio ───────────
             var (espacios, advertenciasEspacios) = MapearEspacios(request.Espacios);
@@ -128,6 +180,15 @@ namespace SOEA.Application.Features.Horario
             logs.AddRange(advertenciasSesiones);
             logs.Add($"[INFO] Sesiones creadas a partir de grupos: {sesiones.Count}.");
 
+            // Las sesiones nacen de los grupos: una asignatura sin grupos no aporta nada al horario y
+            // antes se omitía sin decir nada.
+            var asignaturasConGrupo = grupos.Select(g => g.AsignaturaId).ToHashSet();
+            var asignaturasSinGrupos = request.Asignaturas
+                .Where(a => Guid.TryParse(a.Id, out var aid) && !asignaturasConGrupo.Contains(aid))
+                .Select(a => a.Nombre).ToList();
+            foreach (var nombre in asignaturasSinGrupos)
+                logs.Add($"[WARN] Asignatura '{nombre}' no tiene grupos: no se generará ninguna sesión para ella. Cree al menos un grupo en el catálogo.");
+
             // ── 1b. Sesiones fijas (horario base) — se añaden con bloque pre-asignado ──
             // P0-3 auditoría: cada fija pertenece a un grupo real del request. Antes recibía un GrupoId
             // sintético que la FK de Sesiones rechazaba, así que generar con horario base respondía
@@ -151,6 +212,23 @@ namespace SOEA.Application.Features.Horario
                 logs.Add($"[INFO] {fijas.Count} sesión(es) fijas del horario base añadidas.");
                 foreach (var motivo in omitidas)
                     logs.Add($"[WARN] Sesión fija omitida: {motivo}");
+            }
+
+            if (sesiones.Count == 0)
+            {
+                var causa = asignaturasSinGrupos.Count > 0
+                    ? $"{asignaturasSinGrupos.Count} asignatura(s) no tienen grupos ({string.Join(", ", asignaturasSinGrupos.Take(3))}{(asignaturasSinGrupos.Count > 3 ? "…" : "")}); cree al menos un grupo por asignatura."
+                    : "los grupos enviados no definen sesiones (revise las horas por semana de sus asignaturas).";
+                logs.Add($"[ERROR] Sin sesiones que generar: {causa}");
+                return new GenerarHorarioResponse
+                {
+                    Semestre = request.Semestre,
+                    EsFactible = false,
+                    MotivoInfactibilidad = nameof(MotivoInfactibilidad.Datos),
+                    MensajeError = $"No hay sesiones que generar: {causa}",
+                    Logs = logs,
+                    Sesiones = new List<SesionGeneradaDto>()
+                };
             }
 
             // Lista ordenada/activable de criterios de cesión (MultiplesSesiones / Electiva / Optativa /
@@ -221,17 +299,14 @@ namespace SOEA.Application.Features.Horario
             // horaria, franja de grupo, datos, timeout), ceder no ayuda y no se entra al bucle.
             int intentosCesion = 0;
             int maxIntentosCesion = sesiones.Count; // cada intento cuesta un solve completo
-            // PERF1 auditoría: maxIntentosCesion escalaba con sesiones.Count sin ningún tope de
-            // tiempo — cada iteración cuesta un solve CP-SAT completo (hasta CpSat.TimeoutSegundos,
-            // 120s por defecto) más, si toca clasificar la infactibilidad, un segundo solve de
-            // relajación. Con 120 sesiones que no caben, esto podía tardar horas antes de responder.
-            // ponytail: techo fijo aquí, no configurable todavía — promover a un campo del request
-            // (igual que CpSat.TimeoutSegundos en el motor) si hace falta afinarlo por instalación.
-            var presupuestoCesion = TimeSpan.FromMinutes(5);
+            // PERF1/L-10 auditoría: cada iteración cuesta un solve CP-SAT completo (hasta
+            // CpSat.TimeoutSegundos, 120 s) más, si toca clasificar la infactibilidad, un solve de
+            // relajación. El tope de tiempo ya no es un presupuesto propio que solo se miraba entre
+            // iteraciones (5 min, así que un solve en curso lo sobrepasaba): es el plazo único de
+            // EjecutarAsync, que interrumpe el solve en marcha y hace lanzar OperationCanceledException.
             while (!resultadoFactibilidad.EsFactible
                    && resultadoFactibilidad.Motivo == MotivoInfactibilidad.Espacio
-                   && intentosCesion++ < maxIntentosCesion
-                   && swFase2.Elapsed < presupuestoCesion)
+                   && intentosCesion++ < maxIntentosCesion)
             {
                 var cesion = CederSiguientePareja(
                     sesiones, predicadosCesion, sesionesFijasIds, contextoCesion, parejasDescartadas);
@@ -279,13 +354,6 @@ namespace SOEA.Application.Features.Horario
             }
             swFase2.Stop();
 
-            if (!resultadoFactibilidad.EsFactible && resultadoFactibilidad.Motivo == MotivoInfactibilidad.Espacio
-                && swFase2.Elapsed >= presupuestoCesion)
-            {
-                logs.Add($"[WARN] Se alcanzó el presupuesto de tiempo del bucle de cesión " +
-                         $"({presupuestoCesion.TotalMinutes:0} min, {intentosCesion} intento(s)); se detiene con la última infactibilidad conocida.");
-            }
-
             if (!resultadoFactibilidad.EsFactible)
             {
                 logs.Add($"[ERROR] Fase 2 falló en {swFase2.ElapsedMilliseconds}ms [{resultadoFactibilidad.Motivo}]: {resultadoFactibilidad.MensajeError}");
@@ -302,7 +370,6 @@ namespace SOEA.Application.Features.Horario
 
                 return new GenerarHorarioResponse
                 {
-                    HorarioId     = Guid.NewGuid(),
                     Semestre      = request.Semestre,
                     EsFactible    = false,
                     MensajeError  = mensaje,
@@ -347,15 +414,34 @@ namespace SOEA.Application.Features.Horario
                 s => (s.Modalidad, s.Alternancia, s.PatronAlternanciaId, s.ParejaAlternanciaId, s.CedidaPorSaturacion));
 
             var swFase3 = System.Diagnostics.Stopwatch.StartNew();
-            var resultadoGA = await _fase3.OptimizarAsync(
-                sesionesColoreadas, resultadoFactibilidad.Asignaciones, bloques, espacios,
-                grupos: grupos,
-                config: MapearConfiguracion(request.Configuracion),
-                infoAsignatura: infoAsignatura,
-                ventanaPorAsignatura: ventanaPorAsig,   // HC-VH: el GA no puede sacar sesiones de su ventana
-                sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null, // regla 8: el GA no mueve el horario base
-                sesionesCedidasParaRevertir: sesionesCedidasEnOrden.Count > 0 ? sesionesCedidasEnOrden : null,
-                ct: ct);
+            ResultadoOptimizacion resultadoGA;
+            try
+            {
+                resultadoGA = await _fase3.OptimizarAsync(
+                    sesionesColoreadas, resultadoFactibilidad.Asignaciones, bloques, espacios,
+                    grupos: grupos,
+                    config: configuracionGa,
+                    infoAsignatura: infoAsignatura,
+                    ventanaPorAsignatura: ventanaPorAsig,   // HC-VH: el GA no puede sacar sesiones de su ventana
+                    sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null, // regla 8: el GA no mueve el horario base
+                    sesionesCedidasParaRevertir: sesionesCedidasEnOrden.Count > 0 ? sesionesCedidasEnOrden : null,
+                    ct: ct);
+            }
+            // L-10: la Fase 3 solo mejora un horario que la Fase 2 ya dejó válido. Si el plazo se agota
+            // aquí no se pierde el trabajo: se publica la solución de Fase 2 (mismo camino que el
+            // fallback por violaciones). Una cancelación del cliente sí se propaga.
+            catch (OperationCanceledException) when (!ctCliente.IsCancellationRequested)
+            {
+                logs.Add("[WARN] El plazo total se agotó durante la Fase 3 (optimización); se usa la solución de Fase 2, sin optimizar.");
+                foreach (var s in sesionesColoreadas)
+                {
+                    var estado = estadoPreFase3[s.Id];
+                    s.RestaurarEstadoAlternancia(
+                        estado.Modalidad, estado.Alternancia, estado.PatronAlternanciaId,
+                        estado.ParejaAlternanciaId, estado.CedidaPorSaturacion);
+                }
+                resultadoGA = new ResultadoOptimizacion(resultadoFactibilidad.Asignaciones, 0m, 0, UsoFallback: true);
+            }
             swFase3.Stop();
             logs.Add($"[INFO] Fase 3 completada en {swFase3.ElapsedMilliseconds}ms. Fitness={resultadoGA.PuntajeFitness}, " +
                      $"generaciones={resultadoGA.Generaciones}, fallback={resultadoGA.UsoFallback}.");
@@ -425,7 +511,6 @@ namespace SOEA.Application.Features.Horario
                 foreach (var c in conflictos.Take(20)) logs.Add($"[ERROR] {c}");
                 return new GenerarHorarioResponse
                 {
-                    HorarioId    = Guid.NewGuid(),
                     Semestre     = request.Semestre,
                     EsFactible   = false,
                     MensajeError = $"El horario generado viola {conflictos.Count} restricción(es) dura(s) y no puede publicarse. " +
@@ -453,6 +538,9 @@ namespace SOEA.Application.Features.Horario
                 sesionIds: sesionesColoreadas.Select(s => s.Id).ToList(),
                 violacionesRestriccionesDuras: conflictos.Count,
                 puntajeFitness: puntajeFitness);
+
+            // NEW-3: el índice único de aula/bloque/semana es por horario.
+            foreach (var a in asignaciones) a.AsignarHorario(horario.Id);
 
             await _uow.BeginTransactionAsync();
             try
@@ -532,7 +620,7 @@ namespace SOEA.Application.Features.Horario
             List<BloqueTiempo> bloques,
             List<Grupo> grupos)
         {
-            var grupoIds = grupos.Select(g => g.Id).ToHashSet();
+            var grupoPorId = grupos.ToDictionary(g => g.Id);
             // Índice rápido: (dia, horaInicio) → BloqueTiempo
             var bloqueDict = bloques.ToDictionary(
                 b => (DiaToString(b.Dia), b.HoraInicio.ToString("HH:mm")));
@@ -555,9 +643,15 @@ namespace SOEA.Application.Features.Horario
                     omitidas.Add($"AsignaturaId '{dto.AsignaturaId}' no es un identificador válido ({dto.Dia} {dto.HoraInicio}).");
                     continue;
                 }
-                if (!Guid.TryParse(dto.GrupoId, out var grupoId) || !grupoIds.Contains(grupoId))
+                if (!Guid.TryParse(dto.GrupoId, out var grupoId) || !grupoPorId.TryGetValue(grupoId, out var grupoFija))
                 {
                     omitidas.Add($"asignatura {dto.AsignaturaId}, {dto.Dia} {dto.HoraInicio}: no indica un grupo de los incluidos en la generación.");
+                    continue;
+                }
+                // Jerarquía Sesión → Grupo → Asignatura: la sesión es de la asignatura de su grupo.
+                if (grupoFija.AsignaturaId != asigId)
+                {
+                    omitidas.Add($"asignatura {dto.AsignaturaId}, {dto.Dia} {dto.HoraInicio}: el grupo '{grupoFija.Nombre}' pertenece a otra asignatura.");
                     continue;
                 }
                 Guid? espId = Guid.TryParse(dto.EspacioId, out var eid) ? eid : null;
@@ -601,6 +695,22 @@ namespace SOEA.Application.Features.Horario
         private static readonly HashSet<string> LiteralesTipoEspacioReconocidos =
             new(StringComparer.OrdinalIgnoreCase) { "laboratorio", "auditorio", "salon", "salón" };
 
+        private static List<T> DeduplicarPorId<T>(List<T> items, Func<T, string> id, Func<T, string> nombre, string tipo, List<string> logs)
+        {
+            var vistos = new HashSet<Guid>();
+            var resultado = new List<T>(items.Count);
+            foreach (var item in items)
+            {
+                if (Guid.TryParse(id(item), out var g) && !vistos.Add(g))
+                {
+                    logs.Add($"[WARN] {tipo} '{nombre(item)}' (Id {g}) viene repetido en la petición; se usó la primera aparición.");
+                    continue;
+                }
+                resultado.Add(item);
+            }
+            return resultado;
+        }
+
         private static (List<Espacio> espacios, List<string> advertencias) MapearEspacios(List<EspacioDto> dtos)
         {
             var advertencias = new List<string>();
@@ -608,11 +718,14 @@ namespace SOEA.Application.Features.Horario
             {
                 if (!string.IsNullOrWhiteSpace(dto.Tipo) && !LiteralesTipoEspacioReconocidos.Contains(dto.Tipo))
                     advertencias.Add($"[WARN] Espacio '{dto.Nombre}': tipo '{dto.Tipo}' no reconocido, se usó Salón por defecto.");
+                // Antes una capacidad ≤ 0 pasaba a 30 sin avisar: el horario se armaba con un aforo inventado.
+                if (dto.Capacidad <= 0)
+                    throw new ArgumentException($"El espacio '{dto.Nombre}' tiene capacidad {dto.Capacidad}. Corrija su capacidad en el catálogo antes de generar.");
                 return new Espacio(
                     id: Guid.TryParse(dto.Id, out var eid) ? eid : Guid.NewGuid(),
                     nombre: dto.Nombre,
                     tipo: ParseTipoEspacio(dto.Tipo),
-                    capacidad: dto.Capacidad > 0 ? dto.Capacidad : 30);
+                    capacidad: dto.Capacidad);
             }).ToList();
             return (espacios, advertencias);
         }
@@ -639,7 +752,7 @@ namespace SOEA.Application.Features.Horario
 
             foreach (var grupo in grupos)
             {
-                if (grupo.AsignaturaId is not { } asigId || !asignaturaPorId.TryGetValue(asigId, out var dto))
+                if (!asignaturaPorId.TryGetValue(grupo.AsignaturaId, out var dto))
                 {
                     advertencias.Add($"[WARN] Grupo '{grupo.Nombre}' (Id {grupo.Id}) no tiene una asignatura válida y no se incluyó en el horario.");
                     continue;
@@ -668,7 +781,7 @@ namespace SOEA.Application.Features.Horario
                     {
                         sesiones.Add(new Sesion(
                             id: Guid.NewGuid(),
-                            asignaturaId: asigId,
+                            asignaturaId: grupo.AsignaturaId,
                             docenteId: grupo.DocenteId,
                             bloqueId: bloqueTemp,
                             espacioId: espacioFijo,
@@ -727,7 +840,7 @@ namespace SOEA.Application.Features.Horario
             foreach (var sesion in sesiones)
             {
                 if (espacioHogarPorSesion.ContainsKey(sesion.Id)) continue;
-                if (!sesion.GrupoId.HasValue || !requisitosPorGrupoDto.TryGetValue(sesion.GrupoId.Value, out var reqs)) continue;
+                if (!requisitosPorGrupoDto.TryGetValue(sesion.GrupoId, out var reqs)) continue;
                 var requisito = reqs.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion));
                 if (requisito?.EspacioId is Guid espacioHogar)
                     espacioHogarPorSesion[sesion.Id] = espacioHogar.ToString();
@@ -799,7 +912,7 @@ namespace SOEA.Application.Features.Horario
                 Id            = s.Id.ToString(),
                 AsignaturaId  = s.AsignaturaId.ToString(),
                 DocenteId     = s.DocenteId?.ToString() ?? string.Empty,
-                GrupoId       = s.GrupoId?.ToString() ?? string.Empty,
+                GrupoId       = s.GrupoId.ToString(),
                 EspacioId     = a.EspacioId?.ToString(),
                 EspacioIdHogar = espacioIdHogar ?? a.EspacioId?.ToString(),
                 Dia           = dia,
@@ -818,21 +931,46 @@ namespace SOEA.Application.Features.Horario
         }
 
         // internal (no private) para verificación directa del mapeo en SOEA.Tests (B4 auditoría).
-        internal static ConfiguracionOptimizacion MapearConfiguracion(ConfiguracionAlgoritmoDto? dto) =>
-            dto is null
-                ? new ConfiguracionOptimizacion()
-                : new ConfiguracionOptimizacion(
-                    TamañoPoblacion:      dto.TamañoPoblacion,
-                    MaxGeneraciones:      dto.MaxGeneraciones,
-                    ProbabilidadMutacion: dto.ProbabilidadMutacion,
-                    ProbabilidadCruce:    dto.ProbabilidadCruce,
-                    UmbralConvergencia:   dto.UmbralConvergencia,
-                    PesoErgo:             dto.PesoErgo,
-                    PesoTiempos:          dto.PesoTiempos,
-                    PesoMaxHorasSeguidas: dto.PesoMaxHorasSeguidas,
-                    PesoBalanceSemanas:   dto.PesoBalanceSemanas,
-                    PesoPresencialFirst:  dto.PesoPresencialFirst,
-                    Semilla:              dto.Semilla);
+        internal static ConfiguracionOptimizacion MapearConfiguracion(ConfiguracionAlgoritmoDto? dto)
+        {
+            if (dto is null) return new ConfiguracionOptimizacion();
+
+            // SEC-2 auditoría 2026-09-28: MotorGenetico solo acotaba por abajo, así que un request
+            // con MaxGeneraciones/UmbralConvergencia = 2e9 dejaba la CPU ocupada mientras el cliente
+            // no colgara, y TamañoPoblacion enorme reservaba memoria sin límite. Los topes son ~4-5x
+            // el default (50/200/30); el frontend hoy solo envía los defaults.
+            ValidarRango(nameof(dto.TamañoPoblacion),      dto.TamañoPoblacion,      10, 200);
+            ValidarRango(nameof(dto.MaxGeneraciones),      dto.MaxGeneraciones,      1,  1000);
+            ValidarRango(nameof(dto.UmbralConvergencia),   dto.UmbralConvergencia,   1,  1000);
+            ValidarRango(nameof(dto.ProbabilidadMutacion), dto.ProbabilidadMutacion, 0,  1);
+            ValidarRango(nameof(dto.ProbabilidadCruce),    dto.ProbabilidadCruce,    0,  1);
+            ValidarRango(nameof(dto.PesoErgo),             dto.PesoErgo,             0,  100);
+            ValidarRango(nameof(dto.PesoTiempos),          dto.PesoTiempos,          0,  100);
+            ValidarRango(nameof(dto.PesoMaxHorasSeguidas), dto.PesoMaxHorasSeguidas, 0,  100);
+            ValidarRango(nameof(dto.PesoBalanceSemanas),   dto.PesoBalanceSemanas,   0,  100);
+            ValidarRango(nameof(dto.PesoPresencialFirst),  dto.PesoPresencialFirst,  0,  100);
+
+            return new ConfiguracionOptimizacion(
+                TamañoPoblacion:      dto.TamañoPoblacion,
+                MaxGeneraciones:      dto.MaxGeneraciones,
+                ProbabilidadMutacion: dto.ProbabilidadMutacion,
+                ProbabilidadCruce:    dto.ProbabilidadCruce,
+                UmbralConvergencia:   dto.UmbralConvergencia,
+                PesoErgo:             dto.PesoErgo,
+                PesoTiempos:          dto.PesoTiempos,
+                PesoMaxHorasSeguidas: dto.PesoMaxHorasSeguidas,
+                PesoBalanceSemanas:   dto.PesoBalanceSemanas,
+                PesoPresencialFirst:  dto.PesoPresencialFirst,
+                Semilla:              dto.Semilla);
+        }
+
+        // ArgumentException → GlobalExceptionHandler la traduce a 400 con este mensaje.
+        private static void ValidarRango(string campo, double valor, double min, double max)
+        {
+            if (double.IsNaN(valor) || valor < min || valor > max)
+                throw new ArgumentException(
+                    $"La configuración del algoritmo no es válida: {campo} debe estar entre {min} y {max}.");
+        }
 
         /// <summary>
         /// Convierte los GrupoDtos del request a entidades de dominio Grupo. La disponibilidad
@@ -864,18 +1002,20 @@ namespace SOEA.Application.Features.Horario
                     continue;
                 }
 
-                Guid? asigId    = Guid.TryParse(dto.AsignaturaId, out var aid) ? aid : null;
-                Guid? facId     = Guid.TryParse(dto.FacultadId,   out var fid) ? fid : null;
-                Guid? docenteId = Guid.TryParse(dto.DocenteId,    out var did) ? did : null;
+                // Todo grupo pertenece a una asignatura; sin ella no hay nada que programar.
+                if (!Guid.TryParse(dto.AsignaturaId, out var asigId) || asigId == Guid.Empty)
+                {
+                    advertencias.Add($"[WARN] Grupo '{dto.Nombre}' (Id {id}) no tiene una asignatura válida y no se incluyó en el horario.");
+                    continue;
+                }
+                Guid? docenteId = Guid.TryParse(dto.DocenteId, out var did) ? did : null;
 
                 var grupo = new Grupo(
                     id:                   id,
                     nombre:               dto.Nombre,
-                    programaId:           Guid.Empty,   // no requerido para el pipeline
+                    asignaturaId:         asigId,
                     estudiantesInscritos: Math.Max(1, dto.EstudiantesInscritos),
                     codigo:               dto.Codigo,
-                    asignaturaId:         asigId,
-                    facultadId:           facId,
                     docenteId:            docenteId);
 
                 grupo.ActualizarDisponibilidadUi(dto.DisponibilidadUiJson);
@@ -952,8 +1092,15 @@ namespace SOEA.Application.Features.Horario
 
         // DUP auditoría: internal (no private) para que AsignaturaService use esta misma versión
         // en vez de mantener su propia copia idéntica.
-        internal static TimeOnly? ParseHora(string? hhmm) =>
-            !string.IsNullOrWhiteSpace(hhmm) && TimeOnly.TryParse(hhmm, out var t) ? t : null;
+        /// <summary>Hora de la ventana horaria de una asignatura. Vacía = sin límite; ilegible = 400
+        /// (antes se guardaba como vacía sin avisar y la asignatura perdía su ventana).</summary>
+        internal static TimeOnly? ParseHora(string? hhmm)
+        {
+            if (string.IsNullOrWhiteSpace(hhmm)) return null;
+            return TimeOnly.TryParse(hhmm, out var t)
+                ? t
+                : throw new ArgumentException($"La hora '{hhmm}' de la ventana horaria no es válida. Use el formato HH:mm (por ejemplo 07:00).");
+        }
 
         private static CategoriaAsignatura ParseCategoria(string? categoria) =>
             categoria?.Trim().ToLowerInvariant() switch
@@ -1024,17 +1171,16 @@ namespace SOEA.Application.Features.Horario
                 int dur = Math.Max(1, (int)Math.Ceiling(sesion.DuracionHoras));
 
                 HashSet<int>? permGrupo = null;
-                if (sesion.GrupoId.HasValue) permitidosPorGrupo.TryGetValue(sesion.GrupoId.Value, out permGrupo);
+                permitidosPorGrupo.TryGetValue(sesion.GrupoId, out permGrupo);
                 (TimeOnly? min, TimeOnly? max) ventana = default;
                 ventanaPorAsignatura.TryGetValue(sesion.AsignaturaId, out ventana);
                 dominios[sesion.Id] = CalculadorDominioSesion.StartsPermitidos(
                     dur, bloques, rangos, diaPorIdx, permGrupo, ventana.min, ventana.max);
 
-                RequisitoEspacio? requisito = sesion.GrupoId.HasValue &&
-                    grupoPorId.TryGetValue(sesion.GrupoId.Value, out var g)
+                RequisitoEspacio? requisito = grupoPorId.TryGetValue(sesion.GrupoId, out var g)
                     ? g.RequisitosEspacio.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion))
                     : null;
-                int estudiantes = sesion.GrupoId.HasValue && grupoPorId.TryGetValue(sesion.GrupoId.Value, out var g2)
+                int estudiantes = grupoPorId.TryGetValue(sesion.GrupoId, out var g2)
                     ? g2.EstudiantesInscritos : 0;
 
                 aulas[sesion.Id] = CalculadorEspaciosSesion.Candidatos(sesion, espacios, requisito)
@@ -1157,7 +1303,7 @@ namespace SOEA.Application.Features.Horario
 
         private static string DescribirSesion(Sesion s, ContextoCesion ctx)
         {
-            var grupo = s.GrupoId.HasValue && ctx.GrupoPorId.TryGetValue(s.GrupoId.Value, out var g)
+            var grupo = ctx.GrupoPorId.TryGetValue(s.GrupoId, out var g)
                 ? g.Nombre : "grupo sin nombre";
             return $"la sesión de {CalculadorEspaciosSesion.TipoSesionDe(s)} de '{grupo}'";
         }

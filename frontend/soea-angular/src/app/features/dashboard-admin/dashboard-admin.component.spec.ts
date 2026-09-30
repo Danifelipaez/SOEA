@@ -69,3 +69,27 @@ describe('DashboardAdminComponent — carga docente', () => {
     expect(fila?.maxHoras).toBe(40);
   });
 });
+
+/**
+ * L-6 (auditoría 2026-09-28): el KPI de ocupación dividía entre 16 h × 6 días = 96 h por aula, contando el sábado
+ * como jornada completa; el aula real tiene 88 h a la semana (lunes–viernes 06:00–22:00 y sábado hasta las 14:00),
+ * así que la ocupación salía menor de lo real.
+ */
+describe('DashboardAdminComponent — ocupación de aulas', () => {
+  it('una aula con 44 h presenciales está al 50 % (88 h semanales), no al 46 % (96 h)', () => {
+    TestBed.configureTestingModule({
+      imports: [DashboardAdminComponent],
+      providers: [{ provide: CatalogoService, useValue: { cargarTodo: () => ({ subscribe: () => {} }) } }],
+    });
+    const component = TestBed.createComponent(DashboardAdminComponent).componentInstance;
+    const state = TestBed.inject(StateService);
+    state.espacios.set([{ id: 'e1', nombre: 'Aula', capacidad: 30, tipo: 'Salón' }]);
+    // 11 sesiones presenciales de 4 h = 44 h
+    state.sesiones.set(Array.from({ length: 11 }, (_, i) => ({
+      id: `s${i}`, asignaturaId: 'a1', dia: 'lunes', horaInicio: '07:00', horaFin: '11:00',
+      duracionHoras: 4, virtual: false, alternancia: 'SinAlternancia', semana: 'A',
+    } as Sesion)));
+
+    expect(component.ocupacionPct()).toBe(50);
+  });
+});

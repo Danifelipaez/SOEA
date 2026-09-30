@@ -94,7 +94,7 @@ namespace SOEA.Application.Features.Horario
         private static string Describir(Sesion s, ContextoValidacion? ctx)
         {
             var asig = NombreAsignatura(s.AsignaturaId, ctx);
-            return s.GrupoId.HasValue ? $"{asig} · {NombreGrupo(s.GrupoId.Value, ctx)}" : asig;
+            return $"{asig} · {NombreGrupo(s.GrupoId, ctx)}";
         }
 
         /// <summary>
@@ -120,23 +120,14 @@ namespace SOEA.Application.Features.Horario
         {
             var conflictos = new List<string>();
 
-            var items = new List<Intervalo>();
-            foreach (var a in asignaciones)
-            {
-                if (!sesionPorId.TryGetValue(a.SesionId, out var s)) continue;
-                if (!bloqueIndex.TryGetValue(a.BloqueTiempoId, out var inicio)) continue;
-                int duracion = Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
-                items.Add(new Intervalo(a, s, inicio, duracion));
-            }
+            var items = ConstruirItems(asignaciones, sesionPorId, bloqueIndex, conflictos);
 
             // HC-C01 — conflicto de cohorte (presencial + virtual consumen el tiempo del grupo).
             // CR-08 (presencial-first): el grupo de estudiantes es el eje de no-solapamiento; el
             // docente sale del pipeline. Solo aplica a sesiones con grupo asignado.
             // INDEPENDIENTE DE LA SEMANA (ALT-05): la sesión cae en la misma franja todas las
             // semanas, y una que alterna se sigue dictando virtualmente la semana contraria.
-            foreach (var grupo in items
-                         .Where(i => i.Sesion.GrupoId.HasValue)
-                         .GroupBy(i => i.Sesion.GrupoId!.Value))
+            foreach (var grupo in items.GroupBy(i => i.Sesion.GrupoId))
                 conflictos.AddRange(DetectarSolapes(grupo, "HC-C01",
                     NombreGrupo(grupo.Key, contexto), contexto));
 
@@ -149,7 +140,7 @@ namespace SOEA.Application.Features.Horario
             // dos filas digan semanas distintas.
             //
             // AVISO: el índice único de BD ux_asignacion_semanal_espacio_conflicto
-            // (espacio_id, semana, bloque_tiempo_id) NO puede ver ese caso, porque los valores de
+            // (horario_id, espacio_id, semana, bloque_tiempo_id) NO puede ver ese caso, porque los valores de
             // semana difieren. No se puede endurecer: una pareja comparte legítimamente aula y
             // bloque entre semanas y SQL no ve pareja_alternancia_id. La garantía real vive AQUÍ,
             // más el NoOverlap por (espacio, semana) de CP-SAT y del asignador de aulas.
@@ -205,6 +196,54 @@ namespace SOEA.Application.Features.Horario
             return conflictos;
         }
 
+        /// <param name="datos">Si se pasa, recibe un aviso DATOS por las asignaciones que no se pueden resolver
+        /// (sesión o bloque desconocido). VAL-1 auditoría 2026-09-28: antes se saltaban en silencio, así que
+        /// una asignación que el validador no podía ver contaba como "0 violaciones" — justo lo que se está
+        /// verificando. Con las FK de M14/M17 no deberían existir en BD; si aparecen, es un bug del llamador
+        /// y debe verse, no publicarse un horario que no se pudo comprobar entero.</param>
+        private static List<Intervalo> ConstruirItems(
+            IEnumerable<AsignacionSemanal> asignaciones,
+            IReadOnlyDictionary<Guid, Sesion> sesionPorId,
+            IReadOnlyDictionary<Guid, int> bloqueIndex,
+            List<string>? datos = null)
+        {
+            var items = new List<Intervalo>();
+            int sinSesion = 0, sinBloque = 0;
+            foreach (var a in asignaciones)
+            {
+                if (!sesionPorId.TryGetValue(a.SesionId, out var s)) { sinSesion++; continue; }
+                if (!bloqueIndex.TryGetValue(a.BloqueTiempoId, out var inicio)) { sinBloque++; continue; }
+                int duracion = Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
+                items.Add(new Intervalo(a, s, inicio, duracion));
+            }
+            if (sinSesion > 0)
+                datos?.Add($"DATOS: {sinSesion} asignación(es) apuntan a una sesión que no está en este horario; no se pudieron verificar.");
+            if (sinBloque > 0)
+                datos?.Add($"DATOS: {sinBloque} asignación(es) apuntan a un bloque de tiempo que no existe en la grilla; no se pudieron verificar.");
+            return items;
+        }
+
+        /// <summary>
+        /// HC-I01 — un mismo docente con sesiones solapadas. Va aparte de <see cref="Validar"/> a propósito:
+        /// el docente está fuera del pipeline de generación (CR-08), así que la generación no lo exige y
+        /// solo lo aplican las ediciones posteriores a la generación (asignar docente, sesión manual,
+        /// /reacomodar — NEW-4 auditoría 2026-09-28: mover una sesión al hueco de otra del mismo docente
+        /// respondía 200 sin avisar). Independiente de la semana, igual que HC-C01.
+        /// </summary>
+        public static IReadOnlyList<string> ValidarDocentes(
+            IEnumerable<AsignacionSemanal> asignaciones,
+            IReadOnlyDictionary<Guid, Sesion> sesionPorId,
+            IReadOnlyDictionary<Guid, int> bloqueIndex,
+            ContextoValidacion? contexto = null)
+        {
+            var conflictos = new List<string>();
+            foreach (var docente in ConstruirItems(asignaciones, sesionPorId, bloqueIndex)
+                         .Where(i => i.Sesion.DocenteId.HasValue)
+                         .GroupBy(i => i.Sesion.DocenteId!.Value))
+                conflictos.AddRange(DetectarSolapes(docente, "HC-I01", "el docente asignado a ambas sesiones", contexto));
+            return conflictos;
+        }
+
         private static void ValidarConContexto(
             List<Intervalo> items, ContextoValidacion ctx, List<string> conflictos)
         {
@@ -241,8 +280,7 @@ namespace SOEA.Application.Features.Horario
                 // no-disponible toda la semana es, para ellos, "sin dato" — para el chequeo viejo,
                 // cada uno de sus bloques quedaba fuera de PermiteBloque y TODAS sus sesiones se
                 // reportaban como violación aunque los motores las hubieran programado sin problema).
-                if (!esFija && s.GrupoId.HasValue &&
-                    ctx.DisponibilidadPorGrupo.TryGetValue(s.GrupoId.Value, out var disp))
+                if (!esFija && ctx.DisponibilidadPorGrupo.TryGetValue(s.GrupoId, out var disp))
                 {
                     var permitidos = CalculadorDominioSesion.BloquesPermitidos(ctx.Bloques, disp);
                     if (permitidos is not null)
@@ -287,8 +325,7 @@ namespace SOEA.Application.Features.Horario
                 // HC-S03 — tipo de espacio según TipoSesion (A2/A3), con el requisito del grupo
                 // si existe (misma fuente que CP-SAT/GA: CalculadorEspaciosSesion).
                 var tipoSesion = CalculadorEspaciosSesion.TipoSesionDe(s);
-                RequisitoEspacio? requisito = s.GrupoId.HasValue &&
-                    (ctx.RequisitosPorGrupo?.TryGetValue(s.GrupoId.Value, out var reqs) ?? false)
+                RequisitoEspacio? requisito = (ctx.RequisitosPorGrupo?.TryGetValue(s.GrupoId, out var reqs) ?? false)
                     ? reqs!.FirstOrDefault(r => r.TipoSesion == tipoSesion)
                     : null;
                 if (!CalculadorEspaciosSesion.CumpleTipo(espacio, tipoSesion, requisito))
@@ -296,8 +333,7 @@ namespace SOEA.Application.Features.Horario
                                    $"'{espacio.Nombre}' (tipo {espacio.Tipo}), que no cumple su requisito de espacio (semana {a.Semana}).");
 
                 // HC-CAP — aforo suficiente para los estudiantes del grupo.
-                if (s.GrupoId.HasValue &&
-                    ctx.EstudiantesPorGrupo.TryGetValue(s.GrupoId.Value, out var estudiantes) &&
+                if (ctx.EstudiantesPorGrupo.TryGetValue(s.GrupoId, out var estudiantes) &&
                     estudiantes > 0 && espacio.Capacidad < estudiantes)
                 {
                     conflictos.Add($"HC-CAP: {Describir(s, ctx)} en espacio '{espacio.Nombre}' (aforo {espacio.Capacidad}) " +
@@ -330,8 +366,8 @@ namespace SOEA.Application.Features.Horario
             // (ALT-05: la sesión cae el mismo día todas las semanas). Sesiones fijas del horario
             // base quedan fuera (mismo criterio que HC-VH/HC-G01: CP-SAT no les aplica este dominio).
             foreach (var grupo in items
-                         .Where(i => i.Sesion.GrupoId.HasValue && ctx.SesionesFijas?.Contains(i.Sesion.Id) != true)
-                         .GroupBy(i => (GrupoId: i.Sesion.GrupoId!.Value, i.Sesion.AsignaturaId,
+                         .Where(i => ctx.SesionesFijas?.Contains(i.Sesion.Id) != true)
+                         .GroupBy(i => (GrupoId: i.Sesion.GrupoId, i.Sesion.AsignaturaId,
                                         Tipo: CalculadorEspaciosSesion.TipoSesionDe(i.Sesion))))
             {
                 var lista = grupo.Where(i => i.Inicio < ctx.Bloques.Count).ToList();
@@ -356,6 +392,7 @@ namespace SOEA.Application.Features.Horario
             {
                 "HC-C01" => "Mueva una de las dos sesiones a otro día u hora, o revise que pertenezcan al grupo correcto.",
                 "HC-S01" => "Asigne un espacio distinto a una de las dos sesiones, o cámbiela a otro horario.",
+                "HC-I01" => "Elija otra hora para una de las dos sesiones, o cambie el docente de una de ellas.",
                 _        => "Ajuste el horario de una de las dos sesiones para que no se solapen."
             };
 

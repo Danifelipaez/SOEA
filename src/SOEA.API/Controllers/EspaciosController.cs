@@ -3,6 +3,7 @@ using SOEA.Application.Features.Espacios;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
 using SOEA.Domain.Interfaces;
+using SOEA.Domain.ValueObjects;
 
 namespace SOEA.API.Controllers
 {
@@ -46,6 +47,7 @@ namespace SOEA.API.Controllers
         public async Task<ActionResult<EspacioDto>> Create([FromBody] EspacioDto dto)
         {
             var id = dto.Id == Guid.Empty ? Guid.NewGuid() : dto.Id;
+            await _service.ExigirNombreUnicoAsync(dto.Nombre, id);
             var espacio = new Espacio(id, dto.Nombre, ParseTipo(dto.Tipo), dto.Capacidad, dto.Edificio, dto.Piso);
             await _repo.AddAsync(espacio);
             return StatusCode(StatusCodes.Status201Created, MapToDto(espacio));
@@ -55,7 +57,8 @@ namespace SOEA.API.Controllers
         public async Task<ActionResult<EspacioDto>> Update(Guid id, [FromBody] EspacioDto dto)
         {
             var existing = await _repo.GetByIdAsync(id);
-            if (existing is null) return NotFound();
+            if (existing is null) throw new KeyNotFoundException($"Espacio con ID {id} no encontrado.");
+            await _service.ExigirNombreUnicoAsync(dto.Nombre, id);
             existing.ActualizarDatos(dto.Nombre, ParseTipo(dto.Tipo), dto.Edificio, dto.Piso);
             existing.ActualizarCapacidad(dto.Capacidad);
             await _repo.UpdateAsync(existing);
@@ -69,11 +72,13 @@ namespace SOEA.API.Controllers
             return NoContent();
         }
 
-        private static TipoEspacio ParseTipo(string tipo) => tipo switch
+        // L-12 auditoría 2026-09-28: antes exigía "Salón" con tilde y exacto — "Salon" (el literal que usa el
+        // resto del contrato, p. ej. RequisitoEspacioDto) daba 400. Se comparan sin tilde ni mayúsculas.
+        private static TipoEspacio ParseTipo(string tipo) => NormalizadorTexto.Normalizar(tipo) switch
         {
-            "Salón"       => TipoEspacio.Salon,
-            "Laboratorio" => TipoEspacio.Laboratorio,
-            "Auditorio"   => TipoEspacio.Auditorio,
+            "salon"       => TipoEspacio.Salon,
+            "laboratorio" => TipoEspacio.Laboratorio,
+            "auditorio"   => TipoEspacio.Auditorio,
             _             => throw new ArgumentException(
                 $"Tipo de espacio '{tipo}' no reconocido. Valores válidos: 'Salón', 'Laboratorio', 'Auditorio'.")
         };

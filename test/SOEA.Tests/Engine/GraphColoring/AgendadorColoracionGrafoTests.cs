@@ -41,7 +41,7 @@ namespace SOEA.Tests.Engine.GraphColoring
         public async Task GrupoMatutino_NingunBloqueAsignadoCaeEnLaTarde()
         {
             var grupoId = Guid.NewGuid();
-            var grupo = new Grupo(grupoId, "Cohorte", Guid.Empty, estudiantesInscritos: 20);
+            var grupo = new Grupo(grupoId, "Cohorte", Guid.NewGuid(), estudiantesInscritos: 20);
             grupo.ActualizarDisponibilidadUi(DisponibilidadUiJsonMatutino());
             // 12 bloques/día (06:00–18:00): la mitad matutina, la mitad vespertina.
             var bloques = Grilla(12);
