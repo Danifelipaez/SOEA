@@ -300,7 +300,11 @@ namespace SOEA.Tests.Engine.ConstraintProg
 
             Assert.False(resultado.EsFactible);
             Assert.Contains("Capacidad insuficiente", resultado.MensajeError);
-            Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
+            Assert.Contains("laboratorio 'Lab'", resultado.MensajeError);
+            // Capacidad, no Espacio: emparejar en alternancia no agranda el aula (el bucle de cesión no debe entrar).
+            Assert.Equal(MotivoInfactibilidad.Capacidad, resultado.Motivo);
+            Assert.Equal(new[] { cohorte }, resultado.GruposResponsablesIds);
+            Assert.Equal(labPequeno.Id, resultado.EspacioLimitanteId);
         }
 
         // Con un espacio de aforo 50 para el mismo grupo de 40 → factible.
