@@ -19,15 +19,18 @@ namespace SOEA.Infrastructure.Data.Seeding
     /// esta tabla.
     /// Una base ya sembrada (Ids aleatorios) necesita además la migración de datos
     /// M10_UnificarCatalogoBloques — este seeder por sí solo solo corrige bases nuevas.
-    /// Operación idempotente: no hace nada si ya existen bloques.
+    /// Operación idempotente: inserta solo los bloques de la grilla cuyo Id todavía no existe (antes
+    /// salía si la tabla tenía cualquier fila, y una grilla ampliada — Sáb 13:00 — nunca se completaba).
     /// </summary>
     public static class BloqueTiempoSeeder
     {
         public static async Task SeedAsync(SOEABdContext context)
         {
-            if (await context.BloqueTiempos.AnyAsync()) return;
+            var existentes = (await context.BloqueTiempos.Select(b => b.Id).ToListAsync()).ToHashSet();
+            var faltantes = GrillaInstitucional.GenerarBloques().Where(b => !existentes.Contains(b.Id)).ToList();
+            if (faltantes.Count == 0) return;
 
-            await context.BloqueTiempos.AddRangeAsync(GrillaInstitucional.GenerarBloques());
+            await context.BloqueTiempos.AddRangeAsync(faltantes);
             await context.SaveChangesAsync();
         }
     }
