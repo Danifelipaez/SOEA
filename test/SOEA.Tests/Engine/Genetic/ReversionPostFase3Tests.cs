@@ -34,7 +34,7 @@ namespace SOEA.Tests.Engine.Genetic
             // Construye SinAlternancia y, si aplica, pasa por AplicarAlternancia para marcar
             // CedidaPorSaturacion=true de forma realista (el flag solo lo setean los mutadores,
             // nunca el constructor).
-            var s = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, null,
+            var s = new Sesion(Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false,
                 tipoFlujo: TipoFlujo.Laboratorio, bloqueada: bloqueada);
             if (alt != TipoAlternancia.SinAlternancia || cedidaPorSaturacion)

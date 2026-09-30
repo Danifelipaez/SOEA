@@ -22,7 +22,7 @@ namespace SOEA.Tests.Domain.Entities
                 _validDocenteId,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoA,
                 Modalidad.Presencial,
                 2m,
@@ -46,7 +46,7 @@ namespace SOEA.Tests.Domain.Entities
                 _validDocenteId,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoA,
                 Modalidad.Presencial,
                 2m,
@@ -63,7 +63,7 @@ namespace SOEA.Tests.Domain.Entities
                 _validDocenteId,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoA,
                 Modalidad.Presencial,
                 2m,
@@ -81,7 +81,7 @@ namespace SOEA.Tests.Domain.Entities
                 null,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoA,
                 Modalidad.Presencial,
                 2m,
@@ -105,7 +105,7 @@ namespace SOEA.Tests.Domain.Entities
                 Guid.Empty,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia,
                 Modalidad.Presencial,
                 2m,
@@ -126,7 +126,7 @@ namespace SOEA.Tests.Domain.Entities
                 _validDocenteId,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoA,
                 Modalidad.Presencial,
                 horas,
@@ -143,7 +143,7 @@ namespace SOEA.Tests.Domain.Entities
                 _validDocenteId,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoA,
                 Modalidad.Presencial,
                 2m,
@@ -152,7 +152,7 @@ namespace SOEA.Tests.Domain.Entities
         }
 
         [Fact]
-        public void Constructor_WithOptionalProperties_AllowsNullEspacioAndGrupo()
+        public void Constructor_EspacioOpcional_GrupoObligatorio()
         {
             // Act
             var sesion = new Sesion(
@@ -161,7 +161,7 @@ namespace SOEA.Tests.Domain.Entities
                 _validDocenteId,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoA,
                 Modalidad.Virtual,
                 1.5m,
@@ -170,7 +170,10 @@ namespace SOEA.Tests.Domain.Entities
 
             // Assert
             Assert.Null(sesion.EspacioId);
-            Assert.Null(sesion.GrupoId);
+
+            // Jerarquía Sesión → Grupo: sin grupo no hay sesión.
+            Assert.Throws<ArgumentException>(() => new Sesion(_validId, _validAsignaturaId, null, _validBloqueId,
+                null, Guid.Empty, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 1m, false, false));
         }
 
         [Fact]
@@ -183,7 +186,7 @@ namespace SOEA.Tests.Domain.Entities
                 _validDocenteId,
                 _validBloqueId,
                 Guid.NewGuid(),
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.SinAlternancia,
                 Modalidad.Presencial,
                 3m,
@@ -206,7 +209,7 @@ namespace SOEA.Tests.Domain.Entities
                 _validDocenteId,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoA,
                 Modalidad.Presencial,
                 2m,
@@ -232,7 +235,7 @@ namespace SOEA.Tests.Domain.Entities
                 _validDocenteId,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoA,
                 Modalidad.Presencial,
                 2m,
@@ -258,7 +261,7 @@ namespace SOEA.Tests.Domain.Entities
                 _validDocenteId,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoA,
                 Modalidad.Presencial,
                 2m,
@@ -292,7 +295,7 @@ namespace SOEA.Tests.Domain.Entities
         {
             var sesion = new Sesion(
                 _validId, _validAsignaturaId, null, _validBloqueId,
-                null, null, TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m, false, false);
+                null, Guid.NewGuid(), TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m, false, false);
             var nuevoDocente = Guid.NewGuid();
 
             sesion.AsignarDocente(nuevoDocente);
@@ -305,7 +308,7 @@ namespace SOEA.Tests.Domain.Entities
         {
             var sesion = new Sesion(
                 _validId, _validAsignaturaId, _validDocenteId, _validBloqueId,
-                null, null, TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m, false, false);
+                null, Guid.NewGuid(), TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m, false, false);
 
             sesion.AsignarDocente(null);
 
@@ -317,7 +320,7 @@ namespace SOEA.Tests.Domain.Entities
         {
             var sesion = new Sesion(
                 _validId, _validAsignaturaId, null, _validBloqueId,
-                null, null, TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m, false, false);
+                null, Guid.NewGuid(), TipoAlternancia.SinAlternancia, Modalidad.Virtual, 2m, false, false);
 
             Assert.Throws<ArgumentException>(() => sesion.AsignarDocente(Guid.Empty));
         }
@@ -326,7 +329,7 @@ namespace SOEA.Tests.Domain.Entities
 
         private Sesion CrearSesionPresencialPura() => new(
             _validId, _validAsignaturaId, null, _validBloqueId,
-            null, null, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false);
+            null, Guid.NewGuid(), TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false);
 
         [Fact]
         public void AplicarAlternancia_CedidaPorSaturacionTrue_MarcaElFlag()
@@ -370,7 +373,7 @@ namespace SOEA.Tests.Domain.Entities
             var espacioFijo = Guid.NewGuid();
             var sesion = new Sesion(
                 _validId, _validAsignaturaId, null, _validBloqueId,
-                espacioFijo, null, TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false);
+                espacioFijo, Guid.NewGuid(), TipoAlternancia.SinAlternancia, Modalidad.Presencial, 2m, false, false);
 
             sesion.VirtualizarSesion(cedidaPorSaturacion: true);
             Assert.Null(sesion.EspacioId); // se limpió al virtualizar
@@ -415,7 +418,7 @@ namespace SOEA.Tests.Domain.Entities
         {
             var sesion = new Sesion(
                 _validId, _validAsignaturaId, null, _validBloqueId,
-                null, null, TipoAlternancia.TipoA, Modalidad.Presencial, 2m, false, false,
+                null, Guid.NewGuid(), TipoAlternancia.TipoA, Modalidad.Presencial, 2m, false, false,
                 bloqueada: true);
             // Bloqueada ⇒ AplicarAlternancia ya es no-op y CedidaPorSaturacion nunca se marca,
             // pero RevertirCesion debe seguir siendo no-op explícitamente por el guard de Bloqueada.
@@ -432,7 +435,7 @@ namespace SOEA.Tests.Domain.Entities
                 _validDocenteId,
                 _validBloqueId,
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoA,
                 Modalidad.Presencial,
                 2m,
@@ -445,7 +448,7 @@ namespace SOEA.Tests.Domain.Entities
                 Guid.NewGuid(),
                 Guid.NewGuid(),
                 null,
-                null,
+                Guid.NewGuid(),
                 TipoAlternancia.TipoB,
                 Modalidad.Virtual,
                 1m,

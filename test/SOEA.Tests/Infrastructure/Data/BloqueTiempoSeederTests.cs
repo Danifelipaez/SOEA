@@ -66,5 +66,23 @@ namespace SOEA.Tests.Infrastructure.Data
 
             Assert.Equal(primeraCorrida, segundaCorrida);
         }
+
+        [Fact]
+        public async Task SeedAsync_CompletaLosBloquesFaltantes_DeUnaTablaYaSembradaIncompleta()
+        {
+            using var db = CrearContexto();
+            var grilla = GrillaInstitucional.GenerarBloques();
+            // Estado real de SOEAdb tras M10: todos los bloques menos Sábado 13:00.
+            var sabado13 = grilla.Single(b => b.Dia == SOEA.Domain.Enums.DiaDeSemana.Sábado && b.HoraInicio.Hour == 13);
+            db.BloqueTiempos.AddRange(grilla.Where(b => b.Id != sabado13.Id));
+            await db.SaveChangesAsync();
+
+            await BloqueTiempoSeeder.SeedAsync(db);
+
+            Assert.Equal(grilla.Count, await db.BloqueTiempos.CountAsync());
+            Assert.True(await db.BloqueTiempos.AnyAsync(b => b.Id == sabado13.Id));
+            // Mismo Id que hardcodea la migración M18.
+            Assert.Equal(new Guid("75149140-a4aa-5d67-edab-0fdcbc3af399"), sabado13.Id);
+        }
     }
 }
