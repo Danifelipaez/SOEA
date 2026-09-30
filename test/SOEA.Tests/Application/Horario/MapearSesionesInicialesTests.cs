@@ -34,7 +34,7 @@ namespace SOEA.Tests.Application.Horario
         {
             var asigId = Guid.NewGuid();
             var docenteId = Guid.NewGuid();
-            var grupo = new Grupo(Guid.NewGuid(), "G1", Guid.Empty, 30, asignaturaId: asigId, docenteId: docenteId);
+            var grupo = new Grupo(Guid.NewGuid(), "G1", asigId, 30, docenteId: docenteId);
 
             var (sesiones, advertencias) = GenerarHorarioService.MapearSesionesIniciales(
                 new List<Grupo> { grupo }, new List<AsignaturaDto> { AsignaturaConUnaTeoriaPresencial(asigId) });
@@ -48,7 +48,7 @@ namespace SOEA.Tests.Application.Horario
         public void GrupoSinDocente_SesionQuedaSinDocente_NoRevienta()
         {
             var asigId = Guid.NewGuid();
-            var grupo = new Grupo(Guid.NewGuid(), "G1", Guid.Empty, 30, asignaturaId: asigId, docenteId: null);
+            var grupo = new Grupo(Guid.NewGuid(), "G1", asigId, 30, docenteId: null);
 
             var (sesiones, _) = GenerarHorarioService.MapearSesionesIniciales(
                 new List<Grupo> { grupo }, new List<AsignaturaDto> { AsignaturaConUnaTeoriaPresencial(asigId) });
@@ -59,8 +59,7 @@ namespace SOEA.Tests.Application.Horario
         [Fact]
         public void GrupoCuyaAsignaturaNoResuelve_SeDescartaYQuedaAdvertenciaConSuNombre()
         {
-            var grupo = new Grupo(Guid.NewGuid(), "Grupo Huérfano", Guid.Empty, 30,
-                asignaturaId: Guid.NewGuid()); // no está en la lista de asignaturas del request
+            var grupo = new Grupo(Guid.NewGuid(), "Grupo Huérfano", Guid.NewGuid(), 30); // no está en la lista de asignaturas del request
 
             var (sesiones, advertencias) = GenerarHorarioService.MapearSesionesIniciales(
                 new List<Grupo> { grupo }, new List<AsignaturaDto>());
@@ -73,8 +72,8 @@ namespace SOEA.Tests.Application.Horario
         public void DosGruposDeLaMismaAsignatura_CadaUnoConservaSuPropioGrupoId()
         {
             var asigId = Guid.NewGuid();
-            var g1 = new Grupo(Guid.NewGuid(), "G1", Guid.Empty, 30, asignaturaId: asigId);
-            var g2 = new Grupo(Guid.NewGuid(), "G2", Guid.Empty, 30, asignaturaId: asigId);
+            var g1 = new Grupo(Guid.NewGuid(), "G1", asigId, 30);
+            var g2 = new Grupo(Guid.NewGuid(), "G2", asigId, 30);
 
             var (sesiones, _) = GenerarHorarioService.MapearSesionesIniciales(
                 new List<Grupo> { g1, g2 }, new List<AsignaturaDto> { AsignaturaConUnaTeoriaPresencial(asigId) });

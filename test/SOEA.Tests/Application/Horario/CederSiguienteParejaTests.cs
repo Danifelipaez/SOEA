@@ -142,8 +142,8 @@ namespace SOEA.Tests.Application.Horario
         {
             // Bioquímica solo puede en los bloques 0-1, Química Orgánica solo en 8-9.
             var asigA = Guid.NewGuid(); var asigB = Guid.NewGuid();
-            var s1a = Pres(asigA, Guid.NewGuid()); var s1b = Pres(asigA, s1a.GrupoId!.Value);
-            var s2a = Pres(asigB, Guid.NewGuid()); var s2b = Pres(asigB, s2a.GrupoId!.Value);
+            var s1a = Pres(asigA, Guid.NewGuid()); var s1b = Pres(asigA, s1a.GrupoId);
+            var s2a = Pres(asigB, Guid.NewGuid()); var s2b = Pres(asigB, s2a.GrupoId);
             var sesiones = new List<Sesion> { s1a, s1b, s2a, s2b };
             var criterios = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)>
                 { CriterioElectiva(Electivas(asigA, asigB)) };
@@ -164,8 +164,8 @@ namespace SOEA.Tests.Application.Horario
         public void NoEmpareja_SinAulaComun_YLoExplica()
         {
             var asigA = Guid.NewGuid(); var asigB = Guid.NewGuid();
-            var s1a = Pres(asigA, Guid.NewGuid()); var s1b = Pres(asigA, s1a.GrupoId!.Value);
-            var s2a = Pres(asigB, Guid.NewGuid()); var s2b = Pres(asigB, s2a.GrupoId!.Value);
+            var s1a = Pres(asigA, Guid.NewGuid()); var s1b = Pres(asigA, s1a.GrupoId);
+            var s2a = Pres(asigB, Guid.NewGuid()); var s2b = Pres(asigB, s2a.GrupoId);
             var sesiones = new List<Sesion> { s1a, s1b, s2a, s2b };
             var criterios = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)>
                 { CriterioElectiva(Electivas(asigA, asigB)) };
@@ -236,7 +236,7 @@ namespace SOEA.Tests.Application.Horario
             var fija = PresLab(asigA, Guid.NewGuid());
             var sesiones = new List<Sesion>
             {
-                fija, PresLab(asigA, fija.GrupoId!.Value),
+                fija, PresLab(asigA, fija.GrupoId),
                 PresLab(asigB, Guid.NewGuid())
             };
             var criterios = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)>
@@ -254,7 +254,7 @@ namespace SOEA.Tests.Application.Horario
             var bloqueada = Pres(asigA, Guid.NewGuid(), bloqueada: true);
             var sesiones = new List<Sesion>
             {
-                bloqueada, Pres(asigA, bloqueada.GrupoId!.Value),
+                bloqueada, Pres(asigA, bloqueada.GrupoId),
                 Pres(asigB, Guid.NewGuid())
             };
             var criterios = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)>
@@ -346,9 +346,9 @@ namespace SOEA.Tests.Application.Horario
             // El bucle descarta una pareja que volvió el modelo infactible por otra causa y sigue
             // con la siguiente combinación en vez de abandonar.
             var asigA = Guid.NewGuid(); var asigB = Guid.NewGuid(); var asigC = Guid.NewGuid();
-            var a1 = Pres(asigA, Guid.NewGuid()); var a2 = Pres(asigA, a1.GrupoId!.Value);
-            var b1 = Pres(asigB, Guid.NewGuid()); var b2 = Pres(asigB, b1.GrupoId!.Value);
-            var c1 = Pres(asigC, Guid.NewGuid()); var c2 = Pres(asigC, c1.GrupoId!.Value);
+            var a1 = Pres(asigA, Guid.NewGuid()); var a2 = Pres(asigA, a1.GrupoId);
+            var b1 = Pres(asigB, Guid.NewGuid()); var b2 = Pres(asigB, b1.GrupoId);
+            var c1 = Pres(asigC, Guid.NewGuid()); var c2 = Pres(asigC, c1.GrupoId);
             var sesiones = new List<Sesion> { a1, a2, b1, b2, c1, c2 };
             var criterios = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)>
                 { CriterioElectiva(Electivas(asigA, asigB, asigC)) };

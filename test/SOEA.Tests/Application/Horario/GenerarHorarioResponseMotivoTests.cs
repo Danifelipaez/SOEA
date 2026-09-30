@@ -76,7 +76,6 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<Grupo>> GetAllAsync() => Task.FromResult(new List<Grupo>());
             public Task UpdateAsync(Grupo entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
-            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) => Task.FromResult<Grupo?>(null);
             public Task<Grupo?> GetByCodigoAsync(string codigo) => Task.FromResult<Grupo?>(null);
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) => Task.FromResult(Enumerable.Empty<Grupo>());
             public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) => Task.FromResult(Enumerable.Empty<Grupo>());
@@ -127,6 +126,7 @@ namespace SOEA.Tests.Application.Horario
 
             Assert.False(r.EsFactible);
             Assert.Equal(nameof(MotivoInfactibilidad.Espacio), r.MotivoInfactibilidad);
+            Assert.Null(r.HorarioId); // NEW-10: antes un Guid aleatorio distinto en cada intento fallido
         }
     }
 }

@@ -88,7 +88,6 @@ namespace SOEA.Tests.Application.Horario
             public Task<List<Grupo>> GetAllAsync() => Task.FromResult(new List<Grupo>());
             public Task UpdateAsync(Grupo entity) => Task.CompletedTask;
             public Task DeleteAsync(Guid id) => Task.CompletedTask;
-            public Task<Grupo?> GetByNombreYProgramaAsync(string nombre, Guid programaId) => Task.FromResult<Grupo?>(null);
             public Task<Grupo?> GetByCodigoAsync(string codigo) => Task.FromResult<Grupo?>(null);
             public Task<IEnumerable<Grupo>> GetByAsignaturaIdAsync(Guid asignaturaId) => Task.FromResult<IEnumerable<Grupo>>(new List<Grupo>());
             public Task<IEnumerable<Grupo>> GetByDocenteIdAsync(Guid docenteId) => Task.FromResult<IEnumerable<Grupo>>(new List<Grupo>());
@@ -116,8 +115,17 @@ namespace SOEA.Tests.Application.Horario
                 IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
                 CancellationToken ct = default)
             {
+                // Las sesiones no fijas llegan con el bloque provisional de la Fase 1 falsa (un Guid que no está en la
+                // grilla); un solver real les da un bloque de la grilla. VAL-1 (2026-09-28): el validador ya no ignora
+                // en silencio una asignación con bloque desconocido, así que el doble también debe usar uno real. Se
+                // reparten en jueves/viernes/sábado para no chocar entre sí ni con HC-SEP.
+                var idsGrilla = bloques.Select(b => b.Id).ToHashSet();
+                var libres = new[] { DiaDeSemana.Jueves, DiaDeSemana.Viernes, DiaDeSemana.Sábado }
+                    .Select(d => bloques.First(b => b.Dia == d && b.HoraInicio == new TimeOnly(8, 0)).Id).ToList();
+                var siguienteLibre = 0;
                 var asignaciones = sesiones.Select(s => new AsignacionSemanal(
-                    Guid.NewGuid(), s.Id, ModalidadSemanal.SemanaCanonica(s), s.BloqueTiempoId,
+                    Guid.NewGuid(), s.Id, ModalidadSemanal.SemanaCanonica(s),
+                    idsGrilla.Contains(s.BloqueTiempoId) ? s.BloqueTiempoId : libres[siguienteLibre++ % libres.Count],
                     ModalidadSemanal.ModalidadCanonica(s) == Modalidad.Presencial ? s.EspacioId : null,
                     ModalidadSemanal.ModalidadCanonica(s))).ToList();
                 return Task.FromResult(new ResultadoFactibilidad(true, asignaciones, ""));
@@ -146,8 +154,8 @@ namespace SOEA.Tests.Application.Horario
 
         private static readonly string GrupoId = Guid.NewGuid().ToString();
 
-        /// <summary>Toda sesión fija necesita un grupo incluido en la generación (P0-3).</summary>
-        private static List<GrupoDto> UnGrupo() => new() { new() { Id = GrupoId, Nombre = "G1" } };
+        /// <summary>Toda sesión fija necesita un grupo incluido en la generación (P0-3), de su misma asignatura.</summary>
+        private static List<GrupoDto> UnGrupo(string asignaturaId) => new() { new() { Id = GrupoId, Nombre = "G1", AsignaturaId = asignaturaId } };
 
         /// <summary>
         /// P0-3 auditoría: sin un grupo del request la fija se omite con aviso. Antes recibía un
@@ -160,20 +168,37 @@ namespace SOEA.Tests.Application.Horario
             var request = new GenerarHorarioRequest
             {
                 Semestre = "2026-1",
-                Grupos = UnGrupo(),
+                Grupos = UnGrupo(asigId),
                 SesionesFijas = new List<SesionFijaDto>
                 {
                     new() { GrupoId = GrupoId, AsignaturaId = asigId, Dia = "martes", HoraInicio = "07:00", Virtual = true },
                     new() { AsignaturaId = asigId, Virtual = true },
-                    new() { GrupoId = Guid.NewGuid().ToString(), AsignaturaId = asigId, Dia = "miercoles", Virtual = true }
+                    new() { GrupoId = Guid.NewGuid().ToString(), AsignaturaId = asigId, Dia = "miercoles", Virtual = true },
+                    // Jerarquía Sesión → Grupo → Asignatura: el grupo existe pero es de otra asignatura.
+                    new() { GrupoId = GrupoId, AsignaturaId = Guid.NewGuid().ToString(), Dia = "jueves", Virtual = true }
                 }
             };
 
             var r = await CrearServicio().EjecutarAsync(request);
 
             Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
-            Assert.Equal(2, r.SesionesFijasOmitidas);
+            Assert.Equal(3, r.SesionesFijasOmitidas);
+            Assert.Contains(r.Logs, l => l.Contains("pertenece a otra asignatura"));
             Assert.Equal(GrupoId, Assert.Single(r.Sesiones).GrupoId);
+        }
+
+        /// <summary>Antes una capacidad ≤ 0 pasaba a 30 sin avisar y el horario se armaba con un aforo inventado.</summary>
+        [Fact]
+        public async Task EspacioConCapacidadCero_Lanza400ConElNombreDelEspacio()
+        {
+            var request = new GenerarHorarioRequest
+            {
+                Semestre = "2026-1",
+                Espacios = new List<EspacioDto> { new() { Id = Guid.NewGuid().ToString(), Nombre = "Lab 3", Capacidad = 0, Tipo = "Laboratorio" } }
+            };
+
+            var ex = await Assert.ThrowsAsync<ArgumentException>(() => CrearServicio().EjecutarAsync(request));
+            Assert.Contains("Lab 3", ex.Message);
         }
 
         /// <summary>
@@ -217,7 +242,7 @@ namespace SOEA.Tests.Application.Horario
                 Semestre = "2026-1",
                 Asignaturas = new List<AsignaturaDto>(),
                 Espacios = new List<EspacioDto>(),
-                Grupos = UnGrupo(),
+                Grupos = UnGrupo(asigId),
                 Docentes = new List<DocenteDto>(),
                 SesionesFijas = new List<SesionFijaDto>
                 {
@@ -257,7 +282,7 @@ namespace SOEA.Tests.Application.Horario
                 Semestre = "2026-1",
                 Asignaturas = new List<AsignaturaDto>(),
                 Espacios = new List<EspacioDto>(),
-                Grupos = UnGrupo(),
+                Grupos = UnGrupo(asigId),
                 Docentes = new List<DocenteDto>(),
                 SesionesFijas = new List<SesionFijaDto>
                 {
@@ -288,7 +313,7 @@ namespace SOEA.Tests.Application.Horario
                 Semestre = "2026-1",
                 Asignaturas = new List<AsignaturaDto>(),
                 Espacios = new List<EspacioDto>(),
-                Grupos = UnGrupo(),
+                Grupos = UnGrupo(asigValidaId),
                 Docentes = new List<DocenteDto>(),
                 SesionesFijas = new List<SesionFijaDto>
                 {
