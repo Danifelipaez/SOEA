@@ -110,6 +110,7 @@ namespace SOEA.Tests.Application.Horario
             public Task<int> SaveChangesAsync(CancellationToken ct = default) => Task.FromResult(0);
             public Task SaveAsync() => Task.CompletedTask;
             public void Track<T>(T entity) where T : EntidadBase { }
+            public void AttachUnchanged<T>(T entity) where T : EntidadBase { }
             public void Dispose() { }
         }
 

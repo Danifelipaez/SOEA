@@ -78,6 +78,7 @@ namespace SOEA.Tests.Application.Horario
             public Task CommitAsync() => Task.CompletedTask;
             public Task RollbackAsync() => Task.CompletedTask;
             public void Track<T>(T entity) where T : EntidadBase { }
+            public void AttachUnchanged<T>(T entity) where T : EntidadBase { }
             public void Dispose() { }
         }
 

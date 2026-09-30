@@ -37,6 +37,9 @@ namespace SOEA.Infrastructure.Data
         public void Track<T>(T entity) where T : EntidadBase
             => _context.Set<T>().Add(entity);
 
+        public void AttachUnchanged<T>(T entity) where T : EntidadBase
+            => _context.Set<T>().Attach(entity);
+
         public void Dispose()
             => _tx?.Dispose();
     }
