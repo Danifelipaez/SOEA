@@ -23,8 +23,8 @@ describe('errorSeparacionDias', () => {
     expect(errorSeparacionDias(disp('lunes', 'miercoles'), 2)).toBeNull();
   });
 
-  it('día sin entrada cuenta como disponible, igual que el backend (import de Excel)', () => {
-    expect(errorSeparacionDias({ lunes: { noDisponible: false } }, 3)).toBeNull();
+  it('día sin entrada cuenta como no disponible, igual que el backend (import de Excel)', () => {
+    expect(errorSeparacionDias({ lunes: { noDisponible: false } }, 3)).not.toBeNull();
   });
 
   it('3 sesiones: lun-mar-mié no alcanza, lun-mié-vie sí; 4 nunca', () => {

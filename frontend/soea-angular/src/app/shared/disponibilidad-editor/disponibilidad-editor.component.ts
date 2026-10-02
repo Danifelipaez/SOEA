@@ -34,8 +34,9 @@ export function errorSeparacionDias(disp: Record<string, any> | null | undefined
   // Voraz: tomar siempre el primer día disponible que respete la separación es óptimo en una línea.
   let separados = 0, ultimo = -2;
   DIAS_SEMANA.forEach((dia, i) => {
-    // Día sin entrada = disponible, igual que en el backend (el import de Excel solo declara días con filas).
-    if (!disp[dia]?.noDisponible && i - ultimo >= 2) { separados++; ultimo = i; }
+    // Día sin entrada = NO disponible, igual que Grupo.ObtenerDisponibilidadSemanal en el backend
+    // (el import de Excel solo declara días con filas, y el editor de grupos muestra los demás cerrados).
+    if (disp[dia] && !disp[dia].noDisponible && i - ultimo >= 2) { separados++; ultimo = i; }
   });
   return separados >= n ? null
     : `Marque al menos ${n} días disponibles con un día libre entre ellos (por ejemplo ${n === 2 ? 'lunes y miércoles' : 'lunes, miércoles y viernes'}).`;
