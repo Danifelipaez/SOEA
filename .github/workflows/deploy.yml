@@ -1,0 +1,74 @@
+name: Deploy
+
+# Despliegue a Azure en cada push a main: CI (build + tests) -> API (App Service) -> frontend (Static Web App).
+# Las migraciones de EF las aplica el API solo al arrancar (Database.Migrate en Program.cs).
+# Secrets necesarios: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID (OIDC) y AZURE_STATIC_WEB_APPS_API_TOKEN.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  api:
+    name: Deploy API
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      # linux-x64: sin -r, OR-Tools arrastra binarios de 5 plataformas (zip de ~340 MB en vez de ~31 MB)
+      - name: Publish
+        run: dotnet publish src/SOEA.API/SOEA.API.csproj -c Release -r linux-x64 --self-contained false -o publish
+
+      # scm.allow=false en soea-api: el publish profile (basic auth) no sirve, se usa login AAD por OIDC
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: soea-api
+          package: publish
+          clean: true
+
+  frontend:
+    name: Deploy frontend
+    needs: api # la UI nueva no debe llamar a endpoints que el API viejo aún no tiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/soea-angular/package-lock.json
+
+      - name: Build
+        working-directory: frontend/soea-angular
+        run: npm ci && npm run build
+
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          skip_app_build: true
+          app_location: frontend/soea-angular/dist/soea-angular/browser

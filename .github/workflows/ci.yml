@@ -5,9 +5,10 @@ name: CI
 
 on:
   push:
-    branches: [main, Developing]
+    branches: [Developing] # main lo cubre deploy.yml, que reutiliza este workflow
   pull_request:
     branches: [main, Developing]
+  workflow_call:
 
 jobs:
   backend:
