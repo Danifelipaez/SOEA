@@ -110,6 +110,45 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.True(resultado.EsFactible, resultado.MensajeError);
         }
 
+        // Regresión: el import de Excel solo declara los días con filas ("lunes" aquí). La UI muestra
+        // los demás días como "No disponible", pero el backend los abría y CP-SAT programaba ahí.
+        private static List<BloqueTiempo> CrearBloquesLunesYMartes() =>
+            new[] { DiaDeSemana.Lunes, DiaDeSemana.Martes }
+                .SelectMany(d => Enumerable.Range(0, 5).Select(i => new BloqueTiempo(
+                    Guid.NewGuid(), d, new TimeOnly(7 + i, 0), new TimeOnly(8 + i, 0))))
+                .ToList();
+
+        [Fact]
+        public async Task DiaAusenteDelJson_NoSePuedeUsarComoOverflow_EsInfactible()
+        {
+            var bloques = CrearBloquesLunesYMartes();
+            // Lunes solo permite 1 bloque; si el martes (sin entrada) se tratara como abierto, la 2ª
+            // sesión cabría allí y esto sería factible.
+            var grupo = GrupoConVentana("lunes", "07:00", "08:00");
+            var sesiones = Enumerable.Range(0, 2).Select(_ => CrearSesion(grupo.Id, 1m)).ToList();
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                sesiones, bloques, Enumerable.Empty<Espacio>(), new[] { grupo });
+
+            Assert.False(resultado.EsFactible);
+            Assert.Equal(MotivoInfactibilidad.FranjaGrupo, resultado.Motivo);
+        }
+
+        [Fact]
+        public async Task GrupoConSoloLunesDeclarado_NingunaSesionCaeEnOtroDia()
+        {
+            var bloques = CrearBloquesLunesYMartes();
+            var grupo = GrupoConVentana("lunes", "07:00", "12:00");
+            var sesiones = Enumerable.Range(0, 3).Select(_ => CrearSesion(grupo.Id, 1m)).ToList();
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                sesiones, bloques, Enumerable.Empty<Espacio>(), new[] { grupo });
+
+            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            var diaPorBloque = bloques.ToDictionary(b => b.Id, b => b.Dia);
+            Assert.All(resultado.Asignaciones, a => Assert.Equal(DiaDeSemana.Lunes, diaPorBloque[a.BloqueTiempoId]));
+        }
+
         // Confirma que el chequeo agregado nuevo es no-op para runs sin ningún Grupo —
         // bloquesPermitidosPorGrupo queda vacío y el nuevo loop no encuentra nada que agrupar.
         [Fact]

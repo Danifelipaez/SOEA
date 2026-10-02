@@ -180,7 +180,24 @@ namespace SOEA.Tests.Domain.Entities
             var disp = grupo.ObtenerDisponibilidadSemanal();
 
             Assert.False(disp.PermiteBloque(DiaDeSemana.Lunes, new TimeOnly(8, 0), new TimeOnly(9, 0)));
-            Assert.True(disp.PermiteBloque(DiaDeSemana.Martes, new TimeOnly(8, 0), new TimeOnly(9, 0)));
+            // Día ausente del JSON = no disponible para un grupo (regresión: el backend lo abría
+            // mientras la UI lo mostraba cerrado, y el horario caía fuera de lo que el usuario declaró).
+            Assert.False(disp.PermiteBloque(DiaDeSemana.Martes, new TimeOnly(8, 0), new TimeOnly(9, 0)));
+        }
+
+        [Fact]
+        public void ObtenerDisponibilidadSemanal_SoloUnDiaDeclarado_RechazaLosDemasDias()
+        {
+            var grupo = new Grupo(_validId, "Grupo A", _validAsignaturaId, 30);
+            // Forma que escribe el import de Excel: solo el día con filas.
+            grupo.ActualizarDisponibilidadUi(
+                """{"jueves":{"noDisponible":false,"tipo":"Franja específica","desde":"11:00","hasta":"13:00"}}""");
+
+            var disp = grupo.ObtenerDisponibilidadSemanal();
+
+            Assert.True(disp.PermiteBloque(DiaDeSemana.Jueves, new TimeOnly(11, 0), new TimeOnly(13, 0)));
+            Assert.False(disp.PermiteBloque(DiaDeSemana.Viernes, new TimeOnly(6, 0), new TimeOnly(8, 0)));
+            Assert.Equal(1, disp.DiasSeparadosDisponibles());
         }
 
         // Regresión P1.4: GruposController persiste RequisitosEspacio a través de este mutador —

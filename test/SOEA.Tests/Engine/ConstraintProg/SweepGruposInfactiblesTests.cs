@@ -137,7 +137,11 @@ namespace SOEA.Tests.Engine.ConstraintProg
 
             var sano = new Grupo(Guid.NewGuid(), "Grupo sano", Guid.NewGuid(), 20);
             var culpable = new Grupo(Guid.NewGuid(), "Grupo culpable", Guid.NewGuid(), 20);
-            culpable.ActualizarDisponibilidadUi("{\"Miercoles\":{\"noDisponible\":true},\"Sabado\":{\"noDisponible\":true}}");
+            // Un día sin entrada es no disponible para un grupo: los días abiertos se declaran explícitos
+            // para que lo único que contradiga a HC-SEP sean miércoles y sábado cerrados.
+            culpable.ActualizarDisponibilidadUi(
+                "{\"Lunes\":{\"noDisponible\":false},\"Martes\":{\"noDisponible\":false},\"Miercoles\":{\"noDisponible\":true}," +
+                "\"Jueves\":{\"noDisponible\":false},\"Viernes\":{\"noDisponible\":false},\"Sabado\":{\"noDisponible\":true}}");
             var asigCulpable = Guid.NewGuid();
             var sesiones = new List<Sesion> { CrearSesionPresencial(sano.Id, 2m) };
             sesiones.AddRange(Enumerable.Range(0, 3).Select(_ => new Sesion(Guid.NewGuid(), asigCulpable, null, Guid.NewGuid(), null,

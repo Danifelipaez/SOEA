@@ -39,10 +39,10 @@ namespace SOEA.Tests.Application
         }
 
         [Fact]
-        public void DiaSinEntrada_CuentaComoDisponible_IgualQueAlGenerar()
+        public void DiaSinEntrada_CuentaComoNoDisponible_IgualQueAlGenerar()
         {
-            // El import de Excel solo declara los días con filas; los demás quedan abiertos.
-            Assert.Null(GrupoService.ErrorDiasSeparados("{\"lunes\":{\"noDisponible\":false}}", 3, "G1"));
+            // El import de Excel solo declara los días con filas; los demás quedan cerrados.
+            Assert.NotNull(GrupoService.ErrorDiasSeparados("{\"lunes\":{\"noDisponible\":false}}", 3, "G1"));
         }
 
         [Fact]

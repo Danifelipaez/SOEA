@@ -45,6 +45,29 @@ namespace SOEA.Tests.Domain.ValueObjects
             Assert.True(disp.PermiteBloque(DiaDeSemana.Martes, new TimeOnly(20, 0), new TimeOnly(21, 0)));
         }
 
+        // Grupo: su editor muestra cerrado un día sin entrada, así que el motor debe tratarlo igual.
+        [Fact]
+        public void DesdeJson_DiaSinEntrada_ConDiaSinEntradaNoDisponible_RechazaEseDia()
+        {
+            var json = """{"lunes":{"noDisponible":false,"tipo":"Franja general","franjaGeneral":"Todo el día (06:00–22:00)"}}""";
+            var disp = DisponibilidadSemanal.DesdeJson(json, diaSinEntradaDisponible: false);
+
+            Assert.True(disp.PermiteBloque(DiaDeSemana.Lunes, new TimeOnly(8, 0), new TimeOnly(9, 0)));
+            Assert.False(disp.PermiteBloque(DiaDeSemana.Martes, new TimeOnly(8, 0), new TimeOnly(9, 0)));
+            Assert.Equal(1, disp.DiasSeparadosDisponibles());
+        }
+
+        // Sin JSON no hay nada declarado: sigue siendo sin restricción aunque el dueño sea un grupo.
+        [Theory]
+        [InlineData(null)]
+        [InlineData("{}")]
+        public void DesdeJson_SinEntradas_ConDiaSinEntradaNoDisponible_SigueSinRestriccion(string? json)
+        {
+            var disp = DisponibilidadSemanal.DesdeJson(json, diaSinEntradaDisponible: false);
+
+            Assert.True(disp.PermiteBloque(DiaDeSemana.Martes, new TimeOnly(8, 0), new TimeOnly(9, 0)));
+        }
+
         [Fact]
         public void DesdeJson_FranjaGeneralMatutino_SoloPermiteAntesDeLas13()
         {
