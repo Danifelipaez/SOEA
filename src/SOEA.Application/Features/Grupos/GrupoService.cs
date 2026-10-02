@@ -46,7 +46,7 @@ public class GrupoService
         if (sesionesMismoTipo > 3)
             return $"Con {sesionesMismoTipo} sesiones del mismo tipo por semana no hay forma de dejar un día libre entre " +
                    "todas (caben como máximo 3: lunes, miércoles y viernes). Reduzca las sesiones por semana de la asignatura.";
-        if (DisponibilidadSemanal.DesdeJson(disponibilidadUiJson).DiasSeparadosDisponibles() >= sesionesMismoTipo) return null;
+        if (DisponibilidadSemanal.DesdeJson(disponibilidadUiJson, diaSinEntradaDisponible: false).DiasSeparadosDisponibles() >= sesionesMismoTipo) return null;
         return $"El grupo '{nombreGrupo}' tiene {sesionesMismoTipo} sesiones del mismo tipo por semana, que deben ir en días " +
                "distintos con al menos un día libre entre ellas, y su disponibilidad no lo permite. Marque al menos " +
                $"{sesionesMismoTipo} días disponibles separados (por ejemplo {(sesionesMismoTipo == 2 ? "lunes y miércoles" : "lunes, miércoles y viernes")}).";

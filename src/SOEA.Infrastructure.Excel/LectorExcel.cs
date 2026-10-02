@@ -415,8 +415,8 @@ namespace SOEA.Infrastructure.Excel
             }
 
             // Aplicar la ventana acumulada de cada grupo como su DisponibilidadUiJson (HC-G01).
-            // Días sin ninguna fila para ese grupo quedan sin entrada = sin restricción (no se cierran
-            // por falta de evidencia — ver DisponibilidadSemanal.PermiteBloque).
+            // Días sin ninguna fila para ese grupo quedan sin entrada = NO disponibles (igual que los
+            // muestra el editor de grupos — ver Grupo.ObtenerDisponibilidadSemanal).
             foreach (var grupo in grupos)
             {
                 if (!disponibilidadPorGrupo.TryGetValue(grupo.Id, out var ventanas) || ventanas.Count == 0)

@@ -13,6 +13,9 @@ namespace SOEA.Domain.ValueObjects
     /// <see cref="Entities.Docente"/> y <see cref="Entities.Grupo"/> — antes este parseo por día vivía
     /// solo para docentes (<c>GenerarHorarioService.MapearDocentes</c>); ahora ambos lo derivan de aquí.
     /// JSON vacío/ausente/sin entradas = sin restricción (todo bloque permitido).
+    /// Un día AUSENTE de un JSON con entradas depende del dueño (<c>diaSinEntradaDisponible</c>):
+    /// docente → disponible (su editor parte abierto); grupo → NO disponible (su editor parte
+    /// cerrado y así lo muestra la UI — antes el backend lo abría y CP-SAT programaba ahí).
     /// </summary>
     public sealed class DisponibilidadSemanal
     {
@@ -28,19 +31,22 @@ namespace SOEA.Domain.ValueObjects
 
         private readonly Dictionary<DiaDeSemana, (TimeOnly Desde, TimeOnly Hasta)>? _ventanasPorDia;
         private readonly HashSet<DiaDeSemana>? _diasCerrados;
+        private readonly bool _diaSinEntradaDisponible;
 
         private DisponibilidadSemanal(
             Dictionary<DiaDeSemana, (TimeOnly, TimeOnly)>? ventanasPorDia,
-            HashSet<DiaDeSemana>? diasCerrados)
+            HashSet<DiaDeSemana>? diasCerrados,
+            bool diaSinEntradaDisponible)
         {
             _ventanasPorDia = ventanasPorDia;
             _diasCerrados = diasCerrados;
+            _diaSinEntradaDisponible = diaSinEntradaDisponible;
         }
 
         /// <summary>Sin ninguna restricción declarada: todo bloque, de cualquier día, está permitido.</summary>
-        public static readonly DisponibilidadSemanal SinRestriccion = new(null, null);
+        public static readonly DisponibilidadSemanal SinRestriccion = new(null, null, true);
 
-        public static DisponibilidadSemanal DesdeJson(string? json)
+        public static DisponibilidadSemanal DesdeJson(string? json, bool diaSinEntradaDisponible = true)
         {
             if (string.IsNullOrWhiteSpace(json)) return SinRestriccion;
 
@@ -53,7 +59,7 @@ namespace SOEA.Domain.ValueObjects
             {
                 return SinRestriccion;
             }
-            return Desde(crudo);
+            return Desde(crudo, diaSinEntradaDisponible);
         }
 
         /// <summary>
@@ -99,7 +105,8 @@ namespace SOEA.Domain.ValueObjects
             && (e.NoDisponible || e.Tipo != "Franja específica"
                 || (TimeOnly.TryParse(e.Desde, out var desde) && TimeOnly.TryParse(e.Hasta, out var hasta) && desde < hasta));
 
-        public static DisponibilidadSemanal Desde(IReadOnlyDictionary<string, DiaEntradaCruda>? porDia)
+        public static DisponibilidadSemanal Desde(
+            IReadOnlyDictionary<string, DiaEntradaCruda>? porDia, bool diaSinEntradaDisponible = true)
         {
             if (porDia is null || porDia.Count == 0) return SinRestriccion;
 
@@ -113,25 +120,25 @@ namespace SOEA.Domain.ValueObjects
                 if (entrada.NoDisponible) { cerrados.Add(dia.Value); continue; }
                 ventanas[dia.Value] = VentanaDe(entrada);
             }
-            return new DisponibilidadSemanal(ventanas, cerrados);
+            return new DisponibilidadSemanal(ventanas, cerrados, diaSinEntradaDisponible);
         }
 
         /// <summary>
         /// True si el bloque [horaInicio, horaFin) del día cae dentro de la ventana declarada.
-        /// Sin restricción global, o día sin entrada declarada (falta de información) → permitido.
+        /// Sin restricción global → permitido. Día sin entrada → según el dueño (ver la clase).
         /// Día declarado explícitamente no-disponible, o fuera de la ventana → rechazado.
         /// </summary>
         public bool PermiteBloque(DiaDeSemana dia, TimeOnly horaInicio, TimeOnly horaFin)
         {
             if (_ventanasPorDia is null) return true;
             if (_diasCerrados!.Contains(dia)) return false;
-            if (!_ventanasPorDia.TryGetValue(dia, out var ventana)) return true;
+            if (!_ventanasPorDia.TryGetValue(dia, out var ventana)) return _diaSinEntradaDisponible;
             return horaInicio >= ventana.Desde && horaFin <= ventana.Hasta;
         }
 
         /// <summary>
         /// HC-SEP: cuántos días disponibles caben con al menos un día libre entre cada par (máx. 3 en
-        /// Lunes..Sábado). Día sin entrada = disponible, igual que en <see cref="PermiteBloque"/>.
+        /// Lunes..Sábado). Día sin entrada: mismo criterio que <see cref="PermiteBloque"/>.
         /// Tomar siempre el primer día que respete la separación es óptimo en una línea.
         /// </summary>
         public int DiasSeparadosDisponibles()
@@ -139,7 +146,9 @@ namespace SOEA.Domain.ValueObjects
             int n = 0, ultimo = -2;
             foreach (var dia in Enum.GetValues<DiaDeSemana>())
             {
-                if (_diasCerrados?.Contains(dia) == true || (int)dia - ultimo < 2) continue;
+                bool sinEntradaCerrado = _ventanasPorDia is not null && !_diaSinEntradaDisponible
+                                         && !_ventanasPorDia.ContainsKey(dia);
+                if (_diasCerrados?.Contains(dia) == true || sinEntradaCerrado || (int)dia - ultimo < 2) continue;
                 n++;
                 ultimo = (int)dia;
             }

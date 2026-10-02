@@ -116,9 +116,13 @@ namespace SOEA.Domain.Entities
             DisponibilidadUiJson = disponibilidadUiJson;
         }
 
-        /// <summary>Deriva la disponibilidad estructurada (HC-G01) desde <see cref="DisponibilidadUiJson"/>.</summary>
+        /// <summary>
+        /// Deriva la disponibilidad estructurada (HC-G01) desde <see cref="DisponibilidadUiJson"/>.
+        /// Un día ausente del JSON es NO disponible (el editor de grupos lo muestra así, y el import de
+        /// Excel solo escribe los días con filas); JSON ausente/vacío sigue siendo "sin restricción".
+        /// </summary>
         public DisponibilidadSemanal ObtenerDisponibilidadSemanal() =>
-            DisponibilidadSemanal.DesdeJson(DisponibilidadUiJson);
+            DisponibilidadSemanal.DesdeJson(DisponibilidadUiJson, diaSinEntradaDisponible: false);
 
         public void ActualizarRequisitosEspacio(List<RequisitoEspacio> requisitos)
         {
