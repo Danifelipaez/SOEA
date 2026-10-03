@@ -1,6 +1,15 @@
 namespace SOEA.API.Controllers
 {
-    /// <summary>Resumen del resultado de POST /api/import/excel.</summary>
+    /// <summary>Filas del archivo + sus incoherencias (POST import/excel/revisar y import/filas/revisar).</summary>
+    public class RevisionImportDto
+    {
+        public List<SOEA.Domain.Interfaces.FilaCurriculum> Filas { get; set; } = new();
+        public List<SOEA.Domain.Interfaces.IncoherenciaFila> Incoherencias { get; set; } = new();
+        /// <summary>Avisos del archivo entero (p. ej. columnas de cabecera no reconocidas).</summary>
+        public List<string> Avisos { get; set; } = new();
+    }
+
+    /// <summary>Resumen del resultado de POST /api/import/filas.</summary>
     public class ImportExcelStatsDto
     {
         public int FacultadesCreadas { get; set; }

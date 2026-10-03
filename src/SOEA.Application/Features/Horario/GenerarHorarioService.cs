@@ -92,6 +92,33 @@ namespace SOEA.Application.Features.Horario
             };
         }
 
+        /// <summary>
+        /// "Limpiar horario": borra las sesiones (y sus asignaciones) de todas las corridas del semestre.
+        /// Irreversible. Las filas Horario quedan con SesioneIds colgando — ObtenerActualAsync ya trata
+        /// "sin sesiones" como "sin horario" (404) y la próxima generación las limpia igual.
+        /// Devuelve cuántas sesiones se borraron.
+        /// </summary>
+        public async Task<int> LimpiarAsync(string semestre)
+        {
+            var ids = (await _horarioRepo.GetAllBySemestreAsync(semestre)).SelectMany(h => h.SesioneIds).ToHashSet();
+            if (ids.Count == 0) return 0;
+
+            await _uow.BeginTransactionAsync();
+            try
+            {
+                // Mismo orden que la limpieza de corridas anteriores: AsignacionSemanal.SesionId no tiene FK.
+                await _asignacionRepo.DeleteBySesionIdsAsync(ids);
+                await _sesionRepo.DeleteRangeAsync(ids);
+                await _uow.CommitAsync();
+            }
+            catch
+            {
+                await _uow.RollbackAsync();
+                throw;
+            }
+            return ids.Count;
+        }
+
         public async Task<GenerarHorarioResponse> EjecutarAsync(GenerarHorarioRequest request, CancellationToken ctCliente = default)
         {
             // SEC-2: se valida al entrar, no en la Fase 3 — un valor absurdo no debe gastar minutos de

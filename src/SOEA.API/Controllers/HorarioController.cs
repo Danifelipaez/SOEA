@@ -45,6 +45,19 @@ namespace SOEA.API.Controllers
             return resultado is null ? NotFound() : Ok(resultado);
         }
 
+        /// <summary>Borra el horario vigente del semestre (todas sus sesiones). Irreversible.</summary>
+        [HttpDelete("actual")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> LimpiarActual([FromQuery] string semestre)
+        {
+            if (string.IsNullOrWhiteSpace(semestre))
+                throw new ArgumentException("Debe especificar el semestre.");
+
+            await _generarService.LimpiarAsync(semestre);
+            return NoContent();
+        }
+
         /// <summary>
         /// Genera un horario académico ejecutando el pipeline de 3 fases
         /// (GraphColoring → CP-SAT → Genetic Algorithm).

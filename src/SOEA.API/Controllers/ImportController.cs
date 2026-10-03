@@ -36,11 +36,12 @@ namespace SOEA.API.Controllers
         }
 
         /// <summary>
-        /// Importa el Excel de horario/currículum y persiste toda la jerarquía en una transacción.
+        /// Paso 1 del import: lee el Excel y devuelve sus filas con las incoherencias encontradas.
+        /// No guarda nada — el operador corrige o borra filas y luego llama a POST import/filas.
         /// </summary>
-        [HttpPost("excel")]
+        [HttpPost("excel/revisar")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> ImportarExcel(IFormFile archivo)
+        public async Task<ActionResult<RevisionImportDto>> RevisarExcel(IFormFile archivo)
         {
             if (archivo == null || archivo.Length == 0)
                 throw new ArgumentException("No se recibió ningún archivo.");
@@ -48,6 +49,39 @@ namespace SOEA.API.Controllers
             if (!archivo.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) &&
                 !archivo.FileName.EndsWith(".xls",  StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("El archivo debe ser .xlsx o .xls.");
+
+            HojaCurriculum hoja;
+            try
+            {
+                using var stream = archivo.OpenReadStream();
+                hoja = await _lectorExcel.LeerFilasAsync(stream);
+            }
+            catch (Exception ex)
+            {
+                // M5 auditoría: no se atribuye cualquier falla (incluidos bugs del lector) al archivo
+                // del usuario ni se devuelve ex.Message crudo: detalle al log, mensaje genérico al cliente.
+                _logger.LogWarning(ex, "No se pudo leer el archivo de importación.");
+                throw new ArgumentException("No se pudo leer el archivo. Verifica que sea un Excel (.xlsx/.xls) válido y no esté dañado.");
+            }
+
+            return Ok(Revisar(hoja.Filas, hoja.Avisos));
+        }
+
+        /// <summary>Vuelve a revisar las filas tras editarlas/borrarlas en el popup. No guarda nada.</summary>
+        [HttpPost("filas/revisar")]
+        public ActionResult<RevisionImportDto> RevisarFilas([FromBody] List<FilaCurriculum> filas)
+            => Ok(Revisar(filas, Array.Empty<string>()));
+
+        /// <summary>
+        /// Paso 2: importa las filas revisadas y persiste toda la jerarquía en una transacción.
+        /// Si queda algún error sin resolver responde 422 con la revisión, sin guardar nada.
+        /// </summary>
+        [HttpPost("filas")]
+        public async Task<IActionResult> ImportarFilas([FromBody] List<FilaCurriculum> filas)
+        {
+            var revision = Revisar(filas, Array.Empty<string>());
+            if (revision.Incoherencias.Any(i => i.EsError))
+                return UnprocessableEntity(revision);
 
             var bloquesCatalogo = await _bloques.GetAllAsync();
             var catalogoLookup = bloquesCatalogo
@@ -58,21 +92,12 @@ namespace SOEA.API.Controllers
             CurriculumExcelResult resultado;
             try
             {
-                using var stream = archivo.OpenReadStream();
-                resultado = await _lectorExcel.LeerCurriculumAsync(stream, catalogoLookup);
+                resultado = _lectorExcel.ConstruirCurriculum(filas, catalogoLookup);
             }
             catch (ArchivoImportacionInvalidoException ex)
             {
-                // El mensaje ya es del usuario (fila + dato): se le devuelve tal cual, no "archivo dañado".
+                // El mensaje ya es del usuario (fila + dato).
                 throw new ArgumentException(ex.Message);
-            }
-            catch (Exception ex)
-            {
-                // M5 auditoría: antes se le atribuía CUALQUIER falla (incluidos bugs internos del
-                // lector) al archivo del usuario, y se devolvía ex.Message crudo en el body. Se
-                // registra el detalle real en el log del servidor y se responde un mensaje genérico.
-                _logger.LogWarning(ex, "No se pudo leer el archivo de importación.");
-                throw new ArgumentException("No se pudo leer el archivo. Verifica que sea un Excel (.xlsx/.xls) válido y no esté dañado.");
             }
 
             // B3 auditoría: sin catch-all aquí — GlobalExceptionHandler (A1) cubre lo demás sin
@@ -93,6 +118,18 @@ namespace SOEA.API.Controllers
                 GruposSinDocente   = stats.GruposSinDocente,
                 Advertencias            = stats.Advertencias
             });
+        }
+
+        private RevisionImportDto Revisar(IReadOnlyList<FilaCurriculum> filas, IReadOnlyList<string> avisos)
+        {
+            if (filas.Count == 0 && avisos.Count == 0)
+                throw new ArgumentException("No hay filas para importar.");
+            return new RevisionImportDto
+            {
+                Filas          = filas.ToList(),
+                Incoherencias  = _lectorExcel.ValidarFilas(filas).ToList(),
+                Avisos         = avisos.ToList(),
+            };
         }
     }
 }

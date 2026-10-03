@@ -43,16 +43,41 @@ namespace SOEA.Domain.Interfaces
         }
     }
 
+    /// <summary>
+    /// Una fila del Excel tal como viene (texto crudo), con su número de fila real. Es lo que el
+    /// operador revisa y corrige antes de importar — por eso viaja como texto y no como entidades.
+    /// </summary>
+    public sealed record FilaCurriculum(
+        int Fila, string? Facultad, string? Programa, string? Asignatura, string? Codigo,
+        string? TipoEspacio, string? Espacio, string? Duracion, string? Dia, string? Hora,
+        string? Final, string? Docente, string? Grupo);
+
+    /// <summary>Filas de la hoja + avisos sobre la cabecera (columnas no reconocidas).</summary>
+    public sealed record HojaCurriculum(IReadOnlyList<FilaCurriculum> Filas, IReadOnlyList<string> Avisos);
+
+    /// <summary>
+    /// Problema de una fila. Campo = nombre de la propiedad de <see cref="FilaCurriculum"/> en
+    /// minúscula ("duracion", "final"…) o "" si afecta a la fila entera. EsError = impide importar
+    /// hasta corregir o borrar la fila; si no, es un aviso que el operador puede aceptar.
+    /// </summary>
+    public sealed record IncoherenciaFila(int Fila, string Campo, bool EsError, string Mensaje);
+
     public interface ILectorExcel
     {
+        /// <summary>Lee las filas de la primera hoja sin interpretarlas (columnas por cabecera).</summary>
+        Task<HojaCurriculum> LeerFilasAsync(Stream excelStream);
+
+        /// <summary>Incoherencias de las filas, por fila y entre filas. No modifica nada.</summary>
+        IReadOnlyList<IncoherenciaFila> ValidarFilas(IReadOnlyList<FilaCurriculum> filas);
+
         /// <summary>
-        /// Lee el Excel del horario existente (columnas A-J) y extrae la jerarquía completa.
+        /// Construye la jerarquía completa a partir de las filas (ya revisadas).
         /// Si se proporciona catalogoBloques (mapa Dia+HoraInicio → BloqueTiempo del catálogo
-        /// persistido), las sesiones predefinidas y la disponibilidad de docentes usarán esos IDs.
-        /// Sin catálogo (ConsoleRunner), los bloques se crean en memoria con IDs temporales.
+        /// persistido), las sesiones predefinidas usarán esos IDs; sin catálogo, los bloques se
+        /// crean en memoria con IDs temporales.
         /// </summary>
-        Task<CurriculumExcelResult> LeerCurriculumAsync(
-            Stream excelStream,
+        CurriculumExcelResult ConstruirCurriculum(
+            IReadOnlyList<FilaCurriculum> filas,
             IReadOnlyDictionary<(DiaDeSemana Dia, TimeOnly HoraInicio), BloqueTiempo>? catalogoBloques = null);
     }
 }

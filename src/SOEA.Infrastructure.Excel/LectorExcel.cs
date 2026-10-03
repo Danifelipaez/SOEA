@@ -34,9 +34,18 @@ namespace SOEA.Infrastructure.Excel
             _logger = logger;
         }
 
+        /// <summary>Lectura + construcción en un paso, sin revisión (consola y pruebas).</summary>
         public async Task<CurriculumExcelResult> LeerCurriculumAsync(
             Stream excelStream,
             IReadOnlyDictionary<(DiaDeSemana Dia, TimeOnly HoraInicio), BloqueTiempo>? catalogoBloques = null)
+        {
+            var hoja = await LeerFilasAsync(excelStream);
+            var r = ConstruirCurriculum(hoja.Filas, catalogoBloques);
+            return new CurriculumExcelResult(r.Facultades, r.Programas, r.Asignaturas, r.Docentes,
+                r.SesionesPredefinidas, r.Espacios, r.Grupos, hoja.Avisos.Concat(r.Advertencias).ToList().AsReadOnly());
+        }
+
+        public async Task<HojaCurriculum> LeerFilasAsync(Stream excelStream)
         {
             _logger.LogInformation("Iniciando lectura del currículum desde archivo Excel.");
 
@@ -46,15 +55,9 @@ namespace SOEA.Infrastructure.Excel
             var hoja = paquete.Workbook.Worksheets[0];
             var totalFilas = hoja.Dimension?.Rows ?? 0;
             if (totalFilas < 2)
-            {
-                _logger.LogWarning("El archivo Excel no tiene filas de datos.");
-                return new CurriculumExcelResult(
-                    Array.Empty<Facultad>(), Array.Empty<Programa>(), Array.Empty<Asignatura>(),
-                    Array.Empty<Docente>(), Array.Empty<Sesion>(), Array.Empty<Espacio>(),
-                    Array.Empty<Grupo>(), new[] { "El archivo no tiene filas de datos." });
-            }
+                return new HojaCurriculum(Array.Empty<FilaCurriculum>(), new[] { "El archivo no tiene filas de datos." });
 
-            // ── 1. Detectar columnas por cabecera (row 1) ─────────────────────────────
+            // ── Detectar columnas por cabecera (row 1) ────────────────────────────────
             var colIdx = DetectarColumnas(hoja, totalFilas);
             _logger.LogDebug("Columnas detectadas: {Cols}", string.Join(", ", colIdx.Select(kv => $"{kv.Key}={kv.Value}")));
 
@@ -78,29 +81,66 @@ namespace SOEA.Infrastructure.Excel
             int cGrupo      = ColOpt(colIdx, new[] { "grupo", "seccion", "sección" }, -1);
             int cHoraFin    = ColOpt(colIdx, new[] { "final", "hora fin", "hora final", "horafin", "fin" }, -1);
 
+            // Una columna requerida que no se reconoce por cabecera se lee por su posición histórica (formato
+            // legado A–J): si el archivo no es de ese formato, se importaban datos de otra columna (p. ej. el
+            // número de grupo como nombre de asignatura) sin decir nada.
+            var avisos = new List<string>();
+            foreach (var (nombreCol, claves, pos) in new[] { ("Facultad", new[] { "facultad" }, 1), ("Programa", new[] { "programa" }, 2), ("Asignatura", new[] { "asignatura", "nombre" }, 3) })
+                if (!claves.Any(colIdx.ContainsKey))
+                    avisos.Add($"No se encontró la columna '{nombreCol}' en la cabecera; se leyó la columna {pos} (formato legado). Verifique que sea la correcta.");
+
+            var filas = new List<FilaCurriculum>();
+            for (int fila = 2; fila <= totalFilas; fila++)
+            {
+                var f = new FilaCurriculum(fila,
+                    Celda(hoja, fila, cFacultad), Celda(hoja, fila, cPrograma), Celda(hoja, fila, cAsignatura),
+                    Celda(hoja, fila, cCodigo), Celda(hoja, fila, cTipoEsp), Celda(hoja, fila, cEspNombre),
+                    Celda(hoja, fila, cDuracion), Celda(hoja, fila, cDia), Celda(hoja, fila, cHora),
+                    Celda(hoja, fila, cHoraFin), Celda(hoja, fila, cDocente), Celda(hoja, fila, cGrupo));
+                // Filas totalmente vacías (formato sobrante al final de la hoja) no son datos.
+                if (Campos(f).Any(c => c.Length > 0)) filas.Add(f);
+            }
+            return new HojaCurriculum(filas, avisos);
+        }
+
+        private static string[] Campos(FilaCurriculum f) => new[]
+        {
+            f.Facultad, f.Programa, f.Asignatura, f.Codigo, f.TipoEspacio, f.Espacio,
+            f.Duracion, f.Dia, f.Hora, f.Final, f.Docente, f.Grupo
+        }.Select(c => (c ?? "").Trim()).ToArray();
+
+        /// <summary>Misma fila con todos los textos no nulos y recortados (las filas pueden venir del cliente).</summary>
+        private static FilaCurriculum Limpia(FilaCurriculum f)
+        {
+            var c = Campos(f);
+            return new FilaCurriculum(f.Fila, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11]);
+        }
+
+        public CurriculumExcelResult ConstruirCurriculum(
+            IReadOnlyList<FilaCurriculum> filasEntrada,
+            IReadOnlyDictionary<(DiaDeSemana Dia, TimeOnly HoraInicio), BloqueTiempo>? catalogoBloques = null)
+        {
+            var filas = filasEntrada.Select(Limpia).ToList();
+
             // Discriminador de conteo: por número de grupo cuando el Excel lo trae (cada grupo
             // cuenta SUS PROPIAS filas → su propio número real de reuniones semanales), o por
             // docente si no (formato viejo). Sin esto, un docente que dicta VARIAS secciones de la
             // misma asignatura (una fila por sección, cada una reuniéndose una vez/semana) inflaba
             // sesionesPorSemana al número de secciones que dicta, no al de reuniones de cada una.
-            string DiscriminadorConteo(int fila)
+            static string DiscriminadorConteo(FilaCurriculum f)
             {
-                var txtG = Celda(hoja, fila, cGrupo);
-                if (!string.IsNullOrWhiteSpace(txtG) && int.TryParse(txtG, out var gnum)) return $"N{gnum}";
-                return NormalizadorTexto.Normalizar(Celda(hoja, fila, cDocente));
+                if (!string.IsNullOrWhiteSpace(f.Grupo) && int.TryParse(f.Grupo, out var gnum)) return $"N{gnum}";
+                return NormalizadorTexto.Normalizar(f.Docente!);
             }
 
-            // ── 2. Pre-pass: contar sesiones por (asig_norm, prog_texto, discriminador) ─
+            // ── 1. Pre-pass: contar sesiones por (asig_norm, prog_texto, discriminador) ─
             // Esto nos da el sesionesPorSemana real sin hardcodear 2.
             var conteoGrupos = new Dictionary<(string AsigNorm, string ProgTexto, string Discriminador), int>();
-            for (int fila = 2; fila <= totalFilas; fila++)
+            foreach (var f in filas)
             {
-                var fa = Celda(hoja, fila, cFacultad);
-                var pr = Celda(hoja, fila, cPrograma);
-                var as_ = Celda(hoja, fila, cAsignatura);
-                if (string.IsNullOrWhiteSpace(fa) || string.IsNullOrWhiteSpace(pr) || string.IsNullOrWhiteSpace(as_)) continue;
+                if (f.Facultad!.Length == 0 || f.Programa!.Length == 0 || f.Asignatura!.Length == 0) continue;
 
-                var clave = (NormalizadorTexto.Normalizar(as_), NormalizadorTexto.Normalizar(pr), DiscriminadorConteo(fila));
+                var clave = (NormalizadorTexto.Normalizar(f.Asignatura), NormalizadorTexto.Normalizar(f.Programa), DiscriminadorConteo(f));
                 conteoGrupos[clave] = conteoGrupos.TryGetValue(clave, out int cnt) ? cnt + 1 : 1;
             }
 
@@ -122,12 +162,6 @@ namespace SOEA.Infrastructure.Excel
             // conteo de grupos por (asig_norm, programaId) para numerar secuencialmente
             var gruposContador  = new Dictionary<(string AsigNorm, Guid ProgramaId), int>();
             var advertencias    = new List<string>();
-            // Una columna requerida que no se reconoce por cabecera se lee por su posición histórica (formato
-            // legado A–J): si el archivo no es de ese formato, se importaban datos de otra columna (p. ej. el
-            // número de grupo como nombre de asignatura) sin decir nada.
-            foreach (var (nombreCol, claves, pos) in new[] { ("Facultad", new[] { "facultad" }, 1), ("Programa", new[] { "programa" }, 2), ("Asignatura", new[] { "asignatura", "nombre" }, 3) })
-                if (!claves.Any(colIdx.ContainsKey))
-                    advertencias.Add($"No se encontró la columna '{nombreCol}' en la cabecera; se leyó la columna {pos} (formato legado). Verifique que sea la correcta.");
             // DB-10 auditoría 2026-09-28: el formato de Excel no trae capacidad de espacio, estudiantes por grupo ni horas
             // del docente, y el lector los rellena (30 / 30 / 40 h Matutino). CLAUDE.md §4: esos datos los da la
             // coordinadora, no se inventan — al menos se avisa POR NOMBRE de qué se asumió, para que se confirme.
@@ -140,11 +174,12 @@ namespace SOEA.Infrastructure.Excel
             // clase. Se acumula aquí y se aplica al Grupo (no al Docente) después del loop principal.
             var disponibilidadPorGrupo = new Dictionary<Guid, Dictionary<DiaDeSemana, (TimeOnly Desde, TimeOnly Hasta)>>();
 
-            for (int fila = 2; fila <= totalFilas; fila++)
+            foreach (var f in filas)
             {
-                var txtFacultad   = Celda(hoja, fila, cFacultad);
-                var txtPrograma   = Celda(hoja, fila, cPrograma);
-                var txtAsignatura = Celda(hoja, fila, cAsignatura);
+                var fila          = f.Fila;
+                var txtFacultad   = f.Facultad!;
+                var txtPrograma   = f.Programa!;
+                var txtAsignatura = f.Asignatura!;
 
                 if (string.IsNullOrWhiteSpace(txtFacultad) || string.IsNullOrWhiteSpace(txtPrograma) || string.IsNullOrWhiteSpace(txtAsignatura))
                 {
@@ -153,15 +188,15 @@ namespace SOEA.Infrastructure.Excel
                     continue;
                 }
 
-                var txtCodigo        = Celda(hoja, fila, cCodigo);
-                var txtTipoEspacio   = Celda(hoja, fila, cTipoEsp);
-                var txtEspNombre     = Celda(hoja, fila, cEspNombre);
-                var txtDuracion      = Celda(hoja, fila, cDuracion);
-                var txtDia           = Celda(hoja, fila, cDia);
-                var txtHora          = Celda(hoja, fila, cHora);
-                var txtHoraFin       = Celda(hoja, fila, cHoraFin);
-                var txtDocente       = Celda(hoja, fila, cDocente);
-                var txtGrupo         = Celda(hoja, fila, cGrupo);
+                var txtCodigo        = f.Codigo!;
+                var txtTipoEspacio   = f.TipoEspacio!;
+                var txtEspNombre     = f.Espacio!;
+                var txtDuracion      = f.Duracion!;
+                var txtDia           = f.Dia!;
+                var txtHora          = f.Hora!;
+                var txtHoraFin       = f.Final!;
+                var txtDocente       = f.Docente!;
+                var txtGrupo         = f.Grupo!;
                 var numeroGrupoExplicito = int.TryParse(txtGrupo, out var ngExp) ? ngExp : (int?)null;
                 var docenteNorm      = NormalizadorTexto.Normalizar(txtDocente);
                 var asignaturaNorm   = NormalizadorTexto.Normalizar(txtAsignatura);
@@ -225,7 +260,7 @@ namespace SOEA.Infrastructure.Excel
                 }
 
                 // SesionesPorSemana: tomado del pre-pass
-                var claveConteo = (asignaturaNorm, NormalizadorTexto.Normalizar(txtPrograma), DiscriminadorConteo(fila));
+                var claveConteo = (asignaturaNorm, NormalizadorTexto.Normalizar(txtPrograma), DiscriminadorConteo(f));
                 int sesionesSemana = conteoGrupos.TryGetValue(claveConteo, out int cnt2) ? cnt2 : 1;
 
                 // Asignatura: ÚNICA por (asig_norm, programaId) — el docente ya no la diferencia.
@@ -466,6 +501,131 @@ namespace SOEA.Infrastructure.Excel
                 resultado.Espacios.Count, resultado.Advertencias.Count);
 
             return resultado;
+        }
+
+        /// <summary>
+        /// Incoherencias del archivo antes de importar (revisión 2026-10-03: el Excel real traía
+        /// "Reales [h] = 3" con una franja de 2 h y filas sin facultad que se descartaban en silencio;
+        /// el horario importado quedaba infactible sin que nadie lo viera). Errores = no se puede
+        /// importar sin corregir o borrar la fila; avisos = el operador decide.
+        /// ponytail: cruces entre filas O(n²) — sobra para cientos de filas; indexar por día si crece.
+        /// </summary>
+        public IReadOnlyList<IncoherenciaFila> ValidarFilas(IReadOnlyList<FilaCurriculum> filasEntrada)
+        {
+            var r = new List<IncoherenciaFila>();
+            void Error(FilaCurriculum f, string campo, string msg) => r.Add(new IncoherenciaFila(f.Fila, campo, true, msg));
+            void Aviso(FilaCurriculum f, string campo, string msg) => r.Add(new IncoherenciaFila(f.Fila, campo, false, msg));
+
+            var leidas = new List<(FilaCurriculum F, DiaDeSemana? Dia, TimeOnly? Ini, TimeOnly? Fin, decimal Duracion)>();
+            foreach (var f in filasEntrada.Select(Limpia))
+            {
+                foreach (var (campo, nombre, valor, max) in new[]
+                {
+                    ("facultad", "la facultad", f.Facultad!, 255), ("programa", "el programa", f.Programa!, 255),
+                    ("asignatura", "la asignatura", f.Asignatura!, 255),
+                })
+                {
+                    if (valor.Length == 0) Error(f, campo, $"Falta {nombre}.");
+                    else if (valor.Length > max) Error(f, campo, $"Tiene {valor.Length} caracteres; el máximo es {max}.");
+                }
+                if (f.Docente!.Length > 100) Error(f, "docente", $"Tiene {f.Docente.Length} caracteres; el máximo es 100.");
+                if (f.Espacio!.Length > 100) Error(f, "espacio", $"Tiene {f.Espacio.Length} caracteres; el máximo es 100.");
+                if (f.Grupo!.Length > 0 && !int.TryParse(f.Grupo, out _)) Error(f, "grupo", $"El grupo '{f.Grupo}' no es un número.");
+
+                decimal? duracion = null;
+                if (f.Duracion!.Length > 0)
+                {
+                    if (!decimal.TryParse(f.Duracion, out var d) || d <= 0)
+                        Error(f, "duracion", $"La duración '{f.Duracion}' no es un número de horas válido.");
+                    else if (d > Asignatura.HorasMaximasPorSesion)
+                        Error(f, "duracion", $"La duración de {d:0.##} h supera el máximo de {Asignatura.HorasMaximasPorSesion} h por sesión.");
+                    else if (d != decimal.Truncate(d))
+                        Error(f, "duracion", $"La duración de {d:0.##} h no es un número entero de horas.");
+                    else duracion = d;
+                }
+
+                DiaDeSemana? dia = null;
+                if (f.Dia!.Length == 0 || f.Hora!.Length == 0)
+                    Aviso(f, f.Dia.Length == 0 ? "dia" : "hora", "Sin día u hora: el grupo se importará sin horario y podrá programarse en cualquier momento.");
+                else if (TryParseDia(f.Dia, out var dd)) dia = dd;
+                else Error(f, "dia", $"No se reconoce el día '{f.Dia}'.");
+
+                TimeOnly? ini = null, fin = null;
+                var finExplicito = f.Final!.Length > 0 || f.Hora!.IndexOfAny(new[] { '-', '–', '—' }) >= 0;
+                if (f.Hora!.Length > 0)
+                {
+                    if (f.Final.Length > 0)
+                    {
+                        if (TryParseHoraUnica(f.Hora, out var hi)) ini = hi; else Error(f, "hora", $"No se reconoce la hora '{f.Hora}'.");
+                        if (TryParseHoraUnica(f.Final, out var hf)) fin = hf; else Error(f, "final", $"No se reconoce la hora final '{f.Final}'.");
+                    }
+                    else if (TryParseRangoHora(f.Hora, (int)(duracion ?? 2), out var hi, out var hf)) { ini = hi; fin = hf; }
+                    else Error(f, "hora", $"No se reconoce la hora '{f.Hora}'.");
+                }
+                if (ini.HasValue && fin.HasValue && fin <= ini)
+                {
+                    Error(f, f.Final.Length > 0 ? "final" : "hora", $"La hora final ({fin:HH:mm}) no es posterior a la inicial ({ini:HH:mm}).");
+                    fin = null;
+                }
+
+                var horasFranja = ini.HasValue && fin.HasValue && finExplicito ? (decimal)(fin.Value - ini.Value).TotalHours : (decimal?)null;
+                if (duracion.HasValue && horasFranja.HasValue && duracion != horasFranja)
+                    Error(f, "duracion", $"La duración dice {duracion:0.##} h, pero de {ini:HH:mm} a {fin:HH:mm} hay {horasFranja:0.##} h. Corrija la duración o la hora final.");
+                if (f.Duracion.Length == 0)
+                {
+                    if (horasFranja.HasValue) Error(f, "duracion", $"Falta la duración (de {ini:HH:mm} a {fin:HH:mm} hay {horasFranja:0.##} h).");
+                    else Aviso(f, "duracion", "Sin duración: se asumirán 2 h por sesión.");
+                }
+
+                leidas.Add((f, dia, ini, fin, duracion ?? horasFranja ?? 2));
+            }
+
+            string Norm(string? s) => NormalizadorTexto.Normalizar(s ?? "");
+            string ClaveAsignatura(FilaCurriculum f) => $"{Norm(f.Programa)}|{Norm(f.Asignatura)}";
+            string ClaveGrupo(FilaCurriculum f) => $"{ClaveAsignatura(f)}|{(f.Grupo!.Length > 0 ? "N" + f.Grupo : Norm(f.Docente))}";
+            string Nombre(FilaCurriculum f) => $"{f.Asignatura}{(f.Grupo!.Length > 0 ? " G" + f.Grupo : "")} ({f.Programa}, fila {f.Fila})";
+
+            // La duración es de la ASIGNATURA (no del grupo): todas sus filas deben coincidir; si no, el
+            // lector se quedaba en silencio con la primera y los demás grupos quedaban infactibles.
+            foreach (var asig in leidas.Where(x => x.F.Asignatura!.Length > 0).GroupBy(x => ClaveAsignatura(x.F)))
+            {
+                var porDuracion = asig.GroupBy(x => x.Duracion).ToList();
+                if (porDuracion.Count < 2) continue;
+                var detalle = string.Join(", ", porDuracion.Select(g => $"{g.Key:0.##} h (fila{(g.Count() > 1 ? "s" : "")} {string.Join(", ", g.Select(x => x.F.Fila))})"));
+                foreach (var x in asig)
+                    Error(x.F, "duracion", $"{x.F.Asignatura} ({x.F.Programa}) tiene sesiones de distinta duración: {detalle}. La duración es de la asignatura: todas sus filas deben coincidir.");
+            }
+
+            var conHorario = leidas.Where(x => x.Dia.HasValue && x.Ini.HasValue && x.Fin.HasValue).ToList();
+            for (int i = 0; i < conHorario.Count; i++)
+                for (int j = i + 1; j < conHorario.Count; j++)
+                {
+                    var (a, b) = (conHorario[i], conHorario[j]);
+                    if (a.Dia != b.Dia || !(a.Ini < b.Fin && b.Ini < a.Fin)) continue;
+
+                    if (ClaveGrupo(a.F) == ClaveGrupo(b.F))
+                    {
+                        if (a.Ini == b.Ini && a.Fin == b.Fin) Error(b.F, "", $"Fila repetida: es la misma clase que la fila {a.F.Fila}.");
+                        else
+                        {
+                            Error(a.F, "hora", $"El grupo tiene otra clase que se cruza con esta: fila {b.F.Fila}.");
+                            Error(b.F, "hora", $"El grupo tiene otra clase que se cruza con esta: fila {a.F.Fila}.");
+                        }
+                        continue;
+                    }
+                    if (a.F.Espacio!.Length > 0 && Norm(a.F.Espacio) == Norm(b.F.Espacio))
+                    {
+                        Aviso(a.F, "espacio", $"El espacio {a.F.Espacio} está ocupado a la misma hora por {Nombre(b.F)}.");
+                        Aviso(b.F, "espacio", $"El espacio {b.F.Espacio} está ocupado a la misma hora por {Nombre(a.F)}.");
+                    }
+                    if (a.F.Docente!.Length > 0 && Norm(a.F.Docente) == Norm(b.F.Docente))
+                    {
+                        Aviso(a.F, "docente", $"{a.F.Docente} tiene otra clase a la misma hora: {Nombre(b.F)}.");
+                        Aviso(b.F, "docente", $"{b.F.Docente} tiene otra clase a la misma hora: {Nombre(a.F)}.");
+                    }
+                }
+
+            return r.OrderBy(x => x.Fila).ToList().AsReadOnly();
         }
 
         // ── Helpers de detección y acceso a celdas ────────────────────────────────
