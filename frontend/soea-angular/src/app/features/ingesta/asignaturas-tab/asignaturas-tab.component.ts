@@ -10,8 +10,10 @@ import { CatalogoService } from '../../../core/catalogo.service';
 import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { ImportResultadoDialogComponent } from '../../../shared/import-resultado-dialog/import-resultado-dialog.component';
+import { ImportRevisionDialogComponent } from '../../../shared/import-revision-dialog/import-revision-dialog.component';
 import { Asignatura, Facultad, Grupo, Programa, RequisitoEspacio, TipoSesionUi } from '../../../core/models';
 import { nuevoId } from '../../../core/id.util';
+import { porNombre } from '../../../core/orden';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { ImportExcelStatsDto } from '../../../core/persistencia.service';
 import { SearchableSelectComponent, SearchableOption } from '../../../shared/searchable-select/searchable-select.component';
@@ -28,6 +30,19 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
       <div class="toolbar">
         <div class="filters">
           <input class="input search" placeholder="🔍 Buscar asignatura…" (input)="filterStr.set($any($event.target).value)">
+          <select class="input fsel" aria-label="Filtrar por facultad" [value]="facultadFiltro()" (change)="setFacultadFiltro($any($event.target).value)">
+            <option value="">Todas las facultades</option>
+            @for (f of facultadesOrdenadas(); track f.id) { <option [value]="f.id">{{ f.nombre }}</option> }
+          </select>
+          <select class="input fsel" aria-label="Filtrar por programa" [value]="programaFiltro()" (change)="programaFiltro.set($any($event.target).value)">
+            <option value="">Todos los programas</option>
+            @for (p of programasFiltro(); track p.id) { <option [value]="p.id">{{ p.nombre }}</option> }
+          </select>
+          <select class="input fsel" aria-label="Filtrar por estado" [value]="estadoFiltro()" (change)="estadoFiltro.set($any($event.target).value)">
+            <option value="">Todas</option>
+            <option value="incompletas">Con datos incompletos</option>
+            <option value="sinGrupos">Sin grupos</option>
+          </select>
           <span class="text-muted count">{{ filtered().length }} asignaturas</span>
         </div>
         <div class="actions">
@@ -131,8 +146,9 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
   styles: [`
     .tab-content { padding: 20px 0; display: flex; flex-direction: column; gap: 14px; }
     .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-    .filters { display: flex; align-items: center; gap: 10px; }
+    .filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .search { width: 240px; }
+    .fsel { width: auto; max-width: 210px; }
     .count { font-size: 12.5px; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .empty { text-align: center; color: var(--color-neutral-500); padding: 28px; }
@@ -160,14 +176,30 @@ export class AsignaturasTabComponent {
   saving = signal(false);
   uploading = signal(false);
   filterStr = signal('');
+  facultadFiltro = signal('');
+  programaFiltro = signal('');
+  estadoFiltro = signal<'' | 'incompletas' | 'sinGrupos'>('');
   expandidos = signal<Set<string>>(new Set());
 
+  facultadesOrdenadas = computed(() => [...this.state.facultades()].sort(porNombre));
+  programasFiltro = computed(() => {
+    const fac = this.facultadFiltro();
+    return this.state.programas().filter(p => !fac || p.facultadId === fac).sort(porNombre);
+  });
+  setFacultadFiltro(id: string) { this.facultadFiltro.set(id); this.programaFiltro.set(''); }
+
+  /** Orden alfabético fijo (nombre, luego programa: hay asignaturas homónimas en varios programas). */
   filtered = computed(() => {
     const f = this.filterStr().toLowerCase();
+    const fac = this.facultadFiltro(), prog = this.programaFiltro(), estado = this.estadoFiltro();
     return this.state.asignaturas().filter(a =>
-      !f || a.nombre.toLowerCase().includes(f) || a.codigo.toLowerCase().includes(f) ||
-      this.programaNombre(a.programaId).toLowerCase().includes(f)
-    );
+      (!f || a.nombre.toLowerCase().includes(f) || a.codigo.toLowerCase().includes(f) ||
+        this.programaNombre(a.programaId).toLowerCase().includes(f)) &&
+      (!prog || a.programaId === prog) &&
+      (!fac || this.state.getProgramaById(a.programaId)?.facultadId === fac) &&
+      (estado !== 'incompletas' || this.asignaturaIncompleta(a)) &&
+      (estado !== 'sinGrupos' || this.state.getGruposByAsignatura(a.id).length === 0)
+    ).sort((a, b) => porNombre(a, b) || this.programaNombre(a.programaId).localeCompare(this.programaNombre(b.programaId), 'es'));
   });
 
   programaNombre(programaId: string): string { return this.state.getProgramaById(programaId)?.nombre ?? '—'; }
@@ -324,16 +356,28 @@ export class AsignaturasTabComponent {
     if (!file) return;
     (event.target as HTMLInputElement).value = '';
     this.uploading.set(true);
-    this.persistencia.importarExcel(file).subscribe({
-      next: (stats: ImportExcelStatsDto) => {
-        this.uploading.set(false);
-        this.cargarDesdeBD();
-        this.dialog.open(ImportResultadoDialogComponent, { width: '340px', data: stats });
+    // Dos pasos: revisar (sin guardar) → si algo no cuadra, el operador lo corrige o borra en el
+    // popup antes de importar; si todo cuadra, se importa directamente como antes.
+    const terminar = (stats: ImportExcelStatsDto | undefined) => {
+      this.uploading.set(false);
+      if (!stats) return;
+      this.cargarDesdeBD();
+      this.dialog.open(ImportResultadoDialogComponent, { width: '340px', data: stats });
+    };
+    const fallo = (err: unknown) => {
+      this.uploading.set(false);
+      this.snackBar.open(`Error al importar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 });
+    };
+    this.persistencia.revisarExcel(file).subscribe({
+      next: (revision) => {
+        if (revision.incoherencias.length === 0 && revision.avisos.length === 0) {
+          this.persistencia.importarFilas(revision.filas).subscribe({ next: terminar, error: fallo });
+          return;
+        }
+        this.dialog.open(ImportRevisionDialogComponent, { width: '1100px', maxWidth: '96vw', disableClose: true, data: revision })
+          .afterClosed().subscribe(terminar);
       },
-      error: (err) => {
-        this.uploading.set(false);
-        this.snackBar.open(`Error al importar: ${mensajeErrorHttp(err)}`, 'Cerrar', { duration: 5000 });
-      }
+      error: fallo
     });
   }
 

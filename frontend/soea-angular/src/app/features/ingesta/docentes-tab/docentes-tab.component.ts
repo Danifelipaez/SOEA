@@ -9,6 +9,7 @@ import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { Docente } from '../../../core/models';
 import { nuevoId } from '../../../core/id.util';
+import { porNombre } from '../../../core/orden';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { DisponibilidadEditorComponent, FranjaOption } from '../../../shared/disponibilidad-editor/disponibilidad-editor.component';
 
@@ -21,6 +22,11 @@ import { DisponibilidadEditorComponent, FranjaOption } from '../../../shared/dis
       <div class="toolbar">
         <div class="filters">
           <input class="input search" placeholder="🔍 Buscar docente…" (input)="filterStr.set($any($event.target).value)">
+          <select class="input" style="width:auto" aria-label="Filtrar docentes" [value]="estadoFiltro()" (change)="estadoFiltro.set($any($event.target).value)">
+            <option value="">Todos</option>
+            <option value="sinDisp">Sin disponibilidad declarada</option>
+            <option value="sinGrupos">Sin grupos asignados</option>
+          </select>
           <span class="text-muted count">{{ filtered().length }} docentes</span>
         </div>
         <div class="actions">
@@ -77,9 +83,17 @@ export class DocentesTabComponent {
   filterStr = signal('');
   saving = signal(false);
 
+  estadoFiltro = signal<'' | 'sinDisp' | 'sinGrupos'>('');
+
   filtered = computed(() => {
     const f = this.filterStr().toLowerCase();
-    return this.state.docentes().filter(d => !f || d.nombre.toLowerCase().includes(f) || (d.cedula ?? '').includes(f));
+    const estado = this.estadoFiltro();
+    const conGrupos = new Set(this.state.grupos().map(g => g.docenteId));
+    return this.state.docentes().filter(d =>
+      (!f || d.nombre.toLowerCase().includes(f) || (d.cedula ?? '').includes(f)) &&
+      (estado !== 'sinDisp' || !this.dispDeclarada(d)) &&
+      (estado !== 'sinGrupos' || !conGrupos.has(d.id))
+    ).sort(porNombre);
   });
 
   /** Resumen textual de la disponibilidad declarada por día. Vacío = sin declarar. */

@@ -14,6 +14,10 @@ import { nuevoId } from '../../core/id.util';
 import { HORA_APERTURA, HORA_CIERRE, HORA_CIERRE_SABADO } from '../../core/jornada';
 import { mensajeErrorHttp, limpiarEtiquetaInterna } from '../../core/http-error.util';
 import { SearchableSelectComponent, SearchableOption } from '../../shared/searchable-select/searchable-select.component';
+import { ConfirmDeleteDialogComponent } from '../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
+import { porNombre } from '../../core/orden';
+import { from, of } from 'rxjs';
+import { catchError, concatMap, map, toArray } from 'rxjs/operators';
 
 /** Representación visual de una sesión atómica multi-slot. */
 interface MergedSesion {
@@ -179,7 +183,39 @@ function ventanaDelDia(d: { noDisponible?: boolean; tipo?: string; franjaGeneral
   return { desde: HORA_APERTURA * 60, hasta: HORA_CIERRE * 60 };
 }
 
-export interface AvisosDocente { choques: string[]; fueraDeDisponibilidad?: string; }
+/** conIds: ids de las sesiones con las que choca (mismo orden que choques) — permite listar cada
+ *  par una sola vez en el resumen sin perder el aviso en ninguna de las dos sesiones. */
+export interface AvisosDocente { choques: string[]; conIds: string[]; fueraDeDisponibilidad?: string; }
+
+/**
+ * Sesiones fuera de la disponibilidad declarada de su grupo (HC-G01), por id de sesión → motivo.
+ * Espejo de Grupo.ObtenerDisponibilidadSemanal (backend, diaSinEntradaDisponible: false): JSON
+ * nulo/vacío/{} = sin restricción; si declara algún día, un día ausente cuenta como cerrado.
+ * El motor ya lo respeta al generar; esto avisa de horarios guardados con datos/reglas anteriores.
+ */
+export function fueraDisponibilidadGrupo(sesiones: Sesion[], grupos: Grupo[]): Map<string, string> {
+  const fuera = new Map<string, string>();
+  const dispPorGrupo = new Map<string, Record<string, any>>();
+  for (const g of grupos) {
+    try {
+      const obj = g.disponibilidadUiJson ? JSON.parse(g.disponibilidadUiJson) : null;
+      if (obj && typeof obj === 'object' && Object.keys(obj).length > 0) dispPorGrupo.set(g.id, obj);
+    } catch { /* ilegible = sin restricción, igual que el backend */ }
+  }
+  for (const s of sesiones) {
+    if (s.esContraparteVirtual || !s.grupoId) continue;
+    const disp = dispPorGrupo.get(s.grupoId);
+    if (!disp) continue;
+    const declarado = disp[s.dia];
+    const v = declarado ? ventanaDelDia(declarado) : null;
+    if (v && minutosDe(s.horaInicio) >= v.desde && minutosDe(s.horaFin) <= v.hasta) continue;
+    const dia = DIAS_GRILLA.find(d => d.valor === s.dia)?.etiqueta.toLowerCase() ?? s.dia;
+    fuera.set(s.id, v
+      ? `el grupo solo está disponible el ${dia} de ${hhmmDeMinutos(v.desde)} a ${hhmmDeMinutos(v.hasta)}`
+      : `el grupo no está disponible el ${dia}`);
+  }
+  return fuera;
+}
 
 /**
  * Avisos del docente por id de sesión. NO bloquean: el docente está fuera de la generación (CR-08)
@@ -192,7 +228,7 @@ export interface AvisosDocente { choques: string[]; fueraDeDisponibilidad?: stri
  */
 export function avisosDocentePorSesion(sesiones: Sesion[], docentes: Docente[], asignaturas: Asignatura[], grupos: Grupo[]): Map<string, AvisosDocente> {
   const avisos = new Map<string, AvisosDocente>();
-  const de = (id: string) => avisos.get(id) ?? avisos.set(id, { choques: [] }).get(id)!;
+  const de = (id: string) => avisos.get(id) ?? avisos.set(id, { choques: [], conIds: [] }).get(id)!;
   const docentePorId = new Map(docentes.map(d => [d.id, d]));
   const nombreDe = (id: string) => docentePorId.get(id)?.nombre ?? 'El docente';
   // La contraparte virtual derivada repite el id de su sesión: cada sesión cuenta una sola vez.
@@ -210,7 +246,9 @@ export function avisosDocentePorSesion(sesiones: Sesion[], docentes: Docente[], 
         if (!(minutosDe(a.horaInicio) < minutosDe(b.horaFin) && minutosDe(b.horaInicio) < minutosDe(a.horaFin))) continue;
         const nombre = nombreDe(a.docenteId!);
         de(a.id).choques.push(`${nombre} tiene otra clase a la misma hora: ${describirSesionConflicto(b, asignaturas, grupos)}.`);
+        de(a.id).conIds.push(b.id);
         de(b.id).choques.push(`${nombre} tiene otra clase a la misma hora: ${describirSesionConflicto(a, asignaturas, grupos)}.`);
+        de(b.id).conIds.push(a.id);
       }
     }
   }
@@ -226,6 +264,53 @@ export function avisosDocentePorSesion(sesiones: Sesion[], docentes: Docente[], 
       : `Fuera de la disponibilidad de ${nombreDe(s.docenteId!)}: marcó el ${dia} como no disponible.`;
   }
   return avisos;
+}
+
+/**
+ * Choques de aula por id de sesión: dos clases presenciales en el mismo espacio, mismo día, con
+ * franjas solapadas y alguna semana en común (ver nuncaCoexisteEnSemana). Un horario generado no
+ * debería tener ninguno; sirve sobre todo para el modo borrador, donde las clases se agregan a mano.
+ * Mismo formato que avisosDocentePorSesion (choques + conIds) para listar cada par una sola vez.
+ */
+export function choquesEspacioPorSesion(sesiones: Sesion[], espacios: Espacio[], asignaturas: Asignatura[], grupos: Grupo[]): Map<string, AvisosDocente> {
+  const choques = new Map<string, AvisosDocente>();
+  const de = (id: string) => choques.get(id) ?? choques.set(id, { choques: [], conIds: [] }).get(id)!;
+  const nombreEspacio = new Map(espacios.map(e => [e.id, e.nombre]));
+  const porEspacioDia = new Map<string, Sesion[]>();
+  for (const s of sesiones) {
+    if (s.virtual || s.esContraparteVirtual || !s.espacioId || !(minutosDe(s.horaFin) > minutosDe(s.horaInicio))) continue;
+    const k = `${s.espacioId}|${s.dia}`;
+    porEspacioDia.set(k, [...(porEspacioDia.get(k) ?? []), s]);
+  }
+  for (const lista of porEspacioDia.values()) {
+    for (let i = 0; i < lista.length; i++) {
+      for (let j = i + 1; j < lista.length; j++) {
+        const a = lista[i], b = lista[j];
+        if (nuncaCoexisteEnSemana(a.semana, b.semana)) continue;
+        if (!(minutosDe(a.horaInicio) < minutosDe(b.horaFin) && minutosDe(b.horaInicio) < minutosDe(a.horaFin))) continue;
+        const aula = nombreEspacio.get(a.espacioId!) ?? 'El espacio';
+        de(a.id).choques.push(`${aula} ya está ocupado a esa hora por ${describirSesionConflicto(b, asignaturas, grupos)}.`);
+        de(a.id).conIds.push(b.id);
+        de(b.id).choques.push(`${aula} ya está ocupado a esa hora por ${describirSesionConflicto(a, asignaturas, grupos)}.`);
+        de(b.id).conIds.push(a.id);
+      }
+    }
+  }
+  return choques;
+}
+
+/** Filas de resumen (una por sesión, cada par listado una sola vez) de un mapa de choques por sesión. */
+function filasDeChoques(sesiones: Sesion[], choques: Map<string, AvisosDocente>, asignaturas: Asignatura[], grupos: Grupo[]) {
+  const listadas = new Set<string>();
+  const filas: { s: Sesion; etiqueta: string; detalle: string }[] = [];
+  for (const s of sesiones) {
+    const av = choques.get(s.id);
+    if (s.esContraparteVirtual || !av?.choques.length) continue;
+    const nuevos = av.choques.filter((_, i) => !listadas.has(av.conIds[i]));
+    listadas.add(s.id);
+    if (nuevos.length) filas.push({ s, etiqueta: describirSesionConflicto(s, asignaturas, grupos), detalle: nuevos.join(' ') });
+  }
+  return filas;
 }
 
 /** Ubicación de una sesión en la cuadrícula: fila1 es exclusiva (grid-row: "fila0 / fila1"),
@@ -361,7 +446,7 @@ export function mensajeInfactibilidadAmigable(
 @Component({
   selector: 'app-horario',
   standalone: true,
-  imports: [CommonModule, DatePipe, FormsModule, MatDialogModule, MatSnackBarModule, RouterModule, MatMenuModule],
+  imports: [CommonModule, DatePipe, FormsModule, MatDialogModule, MatSnackBarModule, RouterModule, MatMenuModule, SearchableSelectComponent],
   template: `
     <div class="hz-head">
       <div class="hz-head-l"><span class="soea-tag">Paso 2</span><h1 class="hz-title">Horario semanal</h1></div>
@@ -393,22 +478,54 @@ export function mensajeInfactibilidadAmigable(
           <span><span class="lg-box pres"></span> Presencial</span>
           <span><span class="lg-box virt"></span> ⌁ Virtual</span>
         </div>
-        <div class="tb-right">
-          <button class="btn btn-secondary" (click)="abrirSesionFija()">＋ Fijar una clase</button>
-          @if (state.sesiones().length > 0) {
-            <button class="btn btn-secondary" (click)="abrirCrearSesion()" [disabled]="loadingBackend()">＋ Sesión manual</button>
-            <button class="btn btn-secondary" (click)="guardarComoBase()">Guardar como punto de partida</button>
-          }
-          <button class="btn btn-primary" (click)="generarHorario()" [disabled]="loadingBackend() || generandoHorario()">▶ Generar horario</button>
-        </div>
+        @if (!enBorrador()) {
+          <div class="tb-right">
+            <button class="btn btn-secondary" (click)="abrirSesionFija()">＋ Fijar una clase</button>
+            @if (state.sesiones().length > 0) {
+              <button class="btn btn-secondary" (click)="abrirCrearSesion()" [disabled]="loadingBackend()">＋ Sesión manual</button>
+              <button class="btn btn-secondary" (click)="guardarComoBase()">Guardar como punto de partida</button>
+              <button class="btn btn-secondary" (click)="entrarBorrador()" title="Pruebe agregar clases sin tocar el horario guardado">✎ Modo borrador</button>
+              <button class="btn btn-secondary btn-peligro" (click)="limpiarHorario()" [disabled]="loadingBackend() || generandoHorario()">Limpiar horario</button>
+            }
+            <button class="btn btn-primary" (click)="generarHorario()" [disabled]="loadingBackend() || generandoHorario()">▶ Generar horario</button>
+          </div>
+        }
       </div>
 
-      <!-- leyenda de colores por asignatura (petición 12) -->
-      @if (leyendaAsignaturas().length > 0) {
-        <div class="asig-legend">
-          @for (item of leyendaAsignaturas(); track item.id) {
-            <span class="asig-legend-item"><span class="lg-box" [style.background]="item.color"></span>{{ item.nombre }}</span>
+      <!-- Modo borrador: copia en memoria del horario a la que se agregan clases para probar. -->
+      @if (enBorrador()) {
+        <div class="borrador-bar" role="region" aria-label="Modo borrador">
+          <div><b>✎ Modo borrador</b> — pruebe agregar clases sin tocar el horario guardado. {{ clasesBorrador().length }} clase(s) agregada(s); clic en una para quitarla.</div>
+          <div class="borrador-acc">
+            <button class="btn btn-secondary" (click)="agregarAlBorrador()">＋ Agregar clase</button>
+            <button class="btn btn-primary" (click)="convertirBorrador()" [disabled]="clasesBorrador().length === 0 || convirtiendo()">{{ convirtiendo() ? 'Guardando…' : 'Convertir en horario real' }}</button>
+            <button class="btn btn-secondary" (click)="salirBorrador()" [disabled]="convirtiendo()">Salir del borrador</button>
+          </div>
+          @if (erroresBorrador().length > 0) {
+            <div class="errb">No se pudieron agregar al horario real (siguen en el borrador):
+              <ul>@for (e of erroresBorrador(); track $index) { <li>{{ e }}</li> }</ul>
+            </div>
           }
+        </div>
+      }
+
+      <!-- Filtros: limitan lo que se ve en la cuadrícula (no cambian el horario). -->
+      @if (sesiones().length > 0) {
+        <div class="filtros" role="search" aria-label="Filtrar el horario">
+          <span class="tb-lbl">Filtrar</span>
+          <select class="input fsel" aria-label="Facultad" [value]="fFacultad()" (change)="setFiltro('facultad', $any($event.target).value)">
+            <option value="">Todas las facultades</option>
+            @for (f of opcFacultades(); track f.id) { <option [value]="f.id">{{ f.nombre }}</option> }
+          </select>
+          <select class="input fsel" aria-label="Programa" [value]="fPrograma()" (change)="setFiltro('programa', $any($event.target).value)">
+            <option value="">Todos los programas</option>
+            @for (p of opcProgramas(); track p.id) { <option [value]="p.id">{{ p.nombre }}</option> }
+          </select>
+          <app-searchable-select class="fss" aria-label="Grupo" [ngModel]="fGrupo()" (ngModelChange)="setFiltro('grupo', $event)"
+                                 [options]="opcGrupos()" placeholder="Todos los grupos"></app-searchable-select>
+          <app-searchable-select class="fss" aria-label="Docente" [ngModel]="fDocente()" (ngModelChange)="setFiltro('docente', $event)"
+                                 [options]="opcDocentes()" placeholder="Todos los docentes"></app-searchable-select>
+          @if (hayFiltros()) { <button type="button" class="btn-link" (click)="limpiarFiltros()">Quitar filtros</button> }
         </div>
       }
 
@@ -426,51 +543,26 @@ export function mensajeInfactibilidadAmigable(
           <div class="grid-main">
             <!-- selector de espacio -->
             <div class="space-sel">
+              <button class="chip space-chip" [class.on]="todosEspacios()" (click)="selectTodos()">Todos los espacios</button>
               @for (esp of state.espacios(); track esp.id) {
-                <button class="chip space-chip" [class.on]="!modoVirtual() && activeSpace()?.id === esp.id" (click)="selectSpace(esp)">{{ esp.nombre }}</button>
+                <button class="chip space-chip" [class.on]="!todosEspacios() && !modoVirtual() && activeSpace()?.id === esp.id" (click)="selectSpace(esp)">{{ esp.nombre }}</button>
               }
-              <button class="chip space-chip" [class.on]="modoVirtual()" (click)="selectVirtual()">⌁ Virtual (sin espacio)</button>
+              <button class="chip space-chip" [class.on]="!todosEspacios() && modoVirtual()" (click)="selectVirtual()">⌁ Virtual (sin espacio)</button>
             </div>
 
             @if (!backendReady()) {
               <div class="soft backend-alert">No hay conexión con el sistema. <button class="btn btn-secondary" style="font-size:12px;padding:3px 10px" (click)="syncFromBackend()" [disabled]="loadingBackend()">Reintentar</button></div>
             }
 
-            @if (grilla().fuera.length > 0) {
-              <div class="soft fuera" role="region" aria-label="Sesiones que no se pueden ubicar en la cuadrícula">
-                <b>{{ grilla().fuera.length }} sesión(es) que no se pueden ubicar en la cuadrícula:</b>
-                <ul>
-                  @for (f of grilla().fuera; track f.m.key) {
-                    <li>
-                      <button type="button" class="btn-link" (click)="abrirEditarSesion(f.m)">{{ getAsignaturaName(f.m) }}{{ grupoSuffix(f.m) }}</button>
-                      — {{ f.motivo }}
-                    </li>
-                  }
-                </ul>
-              </div>
-            }
-
-            @if (choquesDocente().length > 0 || fueraDeDisponibilidad() > 0) {
-              <div class="soft fuera" role="region" aria-label="Avisos del docente">
-                <b>⚠ Avisos del docente (no impiden usar el horario):</b>
-                @if (choquesDocente().length > 0) {
-                  <ul>
-                    @for (c of choquesDocente(); track c.s.id) {
-                      <li><button type="button" class="btn-link" (click)="abrirSesion(c.s)">{{ c.etiqueta }}</button> — {{ c.detalle }}</li>
-                    }
-                  </ul>
-                }
-                @if (fueraDeDisponibilidad() > 0) {
-                  <div>{{ fueraDeDisponibilidad() }} clase(s) fuera de la disponibilidad declarada de su docente. Abra la clase para ver el detalle.</div>
-                }
-              </div>
-            }
-
-            @if (state.sesiones().length === 0) {
+            @if (sesiones().length === 0) {
               <p class="vacio">Todavía no hay horario. Pulse «Generar horario» o abra una copia guardada desde «Más opciones».</p>
             } @else if (grilla().total === 0) {
               <p class="vacio">
-                @if (modoVirtual()) {
+                @if (hayFiltros()) {
+                  No hay clases con estos filtros{{ todosEspacios() ? '' : ' en esta vista' }}.
+                } @else if (todosEspacios()) {
+                  No hay sesiones{{ hayAlternancia() ? ' en la Semana ' + semanaVista() : '' }}.
+                } @else if (modoVirtual()) {
                   No hay sesiones virtuales{{ hayAlternancia() ? ' en la Semana ' + semanaVista() : '' }}.
                 } @else {
                   {{ activeSpace()?.nombre }} no tiene sesiones{{ hayAlternancia() ? ' en la Semana ' + semanaVista() : '' }}.
@@ -492,7 +584,7 @@ export function mensajeInfactibilidadAmigable(
                       <div class="wk-cerrado" [style.grid-row]="d.filaCierre + ' / -1'" aria-hidden="true">Cerrado</div>
                     }
                     @for (t of d.tarjetas; track t.key) {
-                      <button type="button" class="gcell" [class.gvirt]="t.m.virtual" [class.gsiempre]="t.siempre" [class.g1h]="t.g1h"
+                      <button type="button" class="gcell" [class.gvirt]="t.m.virtual" [class.gsiempre]="t.siempre" [class.g1h]="t.g1h" [class.gnueva]="t.m.sesiones[0].deBorrador"
                               [style.grid-row]="t.fila" [style.grid-column]="t.col"
                               [style.background]="t.siempre ? null : gcellBg(t.m)" [style.border-left-color]="altColor(t.m)"
                               [title]="t.texto" [attr.aria-label]="t.texto" (click)="abrirEditarSesion(t.m)">
@@ -514,6 +606,62 @@ export function mensajeInfactibilidadAmigable(
               </div>
             </div>
             <div class="grid-foot text-muted">⋯ jornada {{ horaAperturaTexto }} – {{ horaCierreTexto }} (Sáb: {{ horaAperturaTexto }} – {{ horaCierreSabadoTexto }}) ⋯</div>
+
+            <!-- Avisos debajo de la matriz, colapsables (cerrados por defecto: el resumen ya dice cuántos hay). -->
+            <div class="avisos">
+              @if (grilla().fuera.length > 0) {
+                <details class="soft fuera">
+                  <summary><b>{{ grilla().fuera.length }} sesión(es) que no se pueden ubicar en la cuadrícula</b></summary>
+                  <ul>
+                    @for (f of grilla().fuera; track f.m.key) {
+                      <li>
+                        <button type="button" class="btn-link" (click)="abrirEditarSesion(f.m)">{{ getAsignaturaName(f.m) }}{{ grupoSuffix(f.m) }}</button>
+                        — {{ f.motivo }}
+                      </li>
+                    }
+                  </ul>
+                </details>
+              }
+
+              @if (choquesEspacio().length > 0) {
+                <details class="soft fuera" [open]="enBorrador()">
+                  <summary><b>⚠ {{ choquesEspacio().length }} clase(s) en un espacio ya ocupado a esa hora</b></summary>
+                  <ul>
+                    @for (c of choquesEspacio(); track c.s.id) {
+                      <li><button type="button" class="btn-link" (click)="abrirSesion(c.s)">{{ c.etiqueta }}</button> — {{ c.detalle }}</li>
+                    }
+                  </ul>
+                </details>
+              }
+
+              @if (fueraGrupo().length > 0) {
+                <details class="soft fuera">
+                  <summary><b>⚠ {{ fueraGrupo().length }} clase(s) fuera del horario disponible de su grupo</b></summary>
+                  <div>Vuelva a generar el horario, o ajuste la disponibilidad del grupo en Catálogo si cambió.</div>
+                  <ul>
+                    @for (f of fueraGrupo(); track f.s.id) {
+                      <li><button type="button" class="btn-link" (click)="abrirSesion(f.s)">{{ f.etiqueta }}</button> — {{ f.motivo }}</li>
+                    }
+                  </ul>
+                </details>
+              }
+
+              @if (choquesDocente().length > 0 || fueraDeDisponibilidad() > 0) {
+                <details class="soft fuera" [open]="enBorrador() && choquesDocente().length > 0">
+                  <summary><b>⚠ Avisos del docente ({{ choquesDocente().length + fueraDeDisponibilidad() }}) — no impiden usar el horario</b></summary>
+                  @if (choquesDocente().length > 0) {
+                    <ul>
+                      @for (c of choquesDocente(); track c.s.id) {
+                        <li><button type="button" class="btn-link" (click)="abrirSesion(c.s)">{{ c.etiqueta }}</button> — {{ c.detalle }}</li>
+                      }
+                    </ul>
+                  }
+                  @if (fueraDeDisponibilidad() > 0) {
+                    <div>{{ fueraDeDisponibilidad() }} clase(s) fuera de la disponibilidad declarada de su docente. Abra la clase para ver el detalle.</div>
+                  }
+                </details>
+              }
+            </div>
 
             <mat-menu #masMenu="matMenu">
               <ng-template matMenuContent let-lista="lista">
@@ -568,10 +716,15 @@ export function mensajeInfactibilidadAmigable(
     .legend span { display: flex; gap: 7px; align-items: center; }
     .lg-box { width: 24px; height: 14px; border: 1px solid var(--color-neutral-700); border-left: 4px solid var(--color-accent); }
     .lg-box.virt { border-style: dashed; background: repeating-linear-gradient(-45deg, transparent 0 3px, color-mix(in srgb, var(--color-accent) 18%, transparent) 3px 5px); }
-    .asig-legend { display: flex; gap: 14px; align-items: center; flex-wrap: nowrap; overflow-x: auto; padding: 2px 0 8px; font-size: 11.5px; color: var(--color-neutral-700); }
-    .asig-legend-item { display: flex; gap: 6px; align-items: center; white-space: nowrap; flex: 0 0 auto; }
-    .asig-legend-item .lg-box { width: 14px; height: 14px; border-left-width: 1px; flex: 0 0 auto; }
     .tb-right { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn-peligro { color: var(--err-bd); border-color: var(--err-bd); }
+    .filtros { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 22px; border-bottom: 1px solid var(--color-divider); }
+    .fsel { width: auto; max-width: 220px; }
+    .fss { width: 220px; }
+    .borrador-bar { display: flex; flex-direction: column; gap: 8px; padding: 12px 22px; border-bottom: 1px solid var(--color-divider);
+                    background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg)); font-size: 13px; }
+    .borrador-acc { display: flex; gap: 10px; flex-wrap: wrap; }
+    .borrador-bar ul { margin: 4px 0 0; padding-left: 18px; }
 
     .fail { padding: 16px 22px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 
@@ -582,8 +735,9 @@ export function mensajeInfactibilidadAmigable(
     .space-chip.on { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
     .backend-alert { margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
 
-    .fuera { margin-bottom: 14px; }
-    .fuera ul { margin: 6px 0 0; padding-left: 18px; }
+    .avisos { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .fuera summary { cursor: pointer; }
+    .fuera ul { margin: 6px 0 0; padding-left: 18px; max-height: 220px; overflow-y: auto; }
     .fuera li { margin-bottom: 2px; }
     .btn-link { border: 0; background: none; padding: 0; color: var(--color-accent); text-decoration: underline; cursor: pointer; font: inherit; }
     .vacio { color: var(--color-neutral-700); font-size: 13px; padding: 18px 4px; margin: 0 0 12px; }
@@ -610,6 +764,7 @@ export function mensajeInfactibilidadAmigable(
     .gcell .g, .gcell .det > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-neutral-700); font-size: 10px; }
     .gcell .nodoc { color: var(--err-bd); font-weight: 500; }
     .gcell.g1h .s { -webkit-line-clamp: 1; } .gcell.g1h .det { display: none; }
+    .gnueva { outline: 2px dashed var(--color-accent); outline-offset: -4px; }
     .gsiempre { background: var(--color-neutral-100); border-color: var(--color-neutral-500); border-left-color: var(--color-neutral-500) !important; }
     .gcell .gsub { margin-top: 2px; padding: 2px 4px; border: 1px dashed var(--color-neutral-500);
                    background: repeating-linear-gradient(-45deg, var(--color-bg) 0 5px, color-mix(in srgb, var(--color-accent) 12%, transparent) 5px 8px);
@@ -665,8 +820,11 @@ export class HorarioComponent implements OnInit {
   ngOnInit() { this.syncFromBackend(); }
   constructor() { const espacios = this.state.espacios(); if (espacios.length > 0) this.activeSpace.set(espacios[0]); }
 
-  selectSpace(esp: Espacio) { this.modoVirtual.set(false); this.activeSpace.set(esp); }
-  selectVirtual() { this.modoVirtual.set(true); }
+  /** Chip "Todos los espacios": la vista natural para revisar un grupo o un docente filtrado. */
+  todosEspacios = signal(false);
+  selectTodos() { this.todosEspacios.set(true); this.modoVirtual.set(false); }
+  selectSpace(esp: Espacio) { this.todosEspacios.set(false); this.modoVirtual.set(false); this.activeSpace.set(esp); }
+  selectVirtual() { this.todosEspacios.set(false); this.modoVirtual.set(true); }
   selectWeek(week: 'A' | 'B') { this.activeWeek.set(week); }
   altColor(m: MergedSesion): string { return m.alternancia === 'TipoA' ? '#5980a6' : m.alternancia === 'TipoB' ? '#a8825a' : '#8a8f94'; }
 
@@ -677,12 +835,162 @@ export class HorarioComponent implements OnInit {
     return `color-mix(in srgb, ${this.state.colorDeAsignatura(m.asignaturaId)} 20%, white)`;
   }
 
-  leyendaAsignaturas = computed(() => {
-    const ids = new Set(this.state.sesiones().map(s => s.asignaturaId));
-    return [...ids]
-      .map(id => ({ id, nombre: this.state.asignaturaById().get(id)?.nombre ?? 'Asignatura eliminada', color: this.state.colorDeAsignatura(id) }))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  /** Lo que pinta la vista: el borrador si está activo, si no el horario real. */
+  sesiones = computed(() => this.state.borrador() ?? this.state.sesiones());
+
+  // ── Filtros (Facultad → Programa → Grupo, y Docente) ─────────────────────────
+  fFacultad = signal('');
+  fPrograma = signal('');
+  fGrupo = signal('');
+  fDocente = signal('');
+  hayFiltros = computed(() => !!(this.fFacultad() || this.fPrograma() || this.fGrupo() || this.fDocente()));
+
+  opcFacultades = computed(() => [...this.state.facultades()].sort(porNombre));
+  opcProgramas = computed(() => this.state.programas().filter(p => !this.fFacultad() || p.facultadId === this.fFacultad()).sort(porNombre));
+  opcGrupos = computed<SearchableOption[]>(() => {
+    const asig = this.state.asignaturaById(), progs = this.state.programaById();
+    const grupos = this.state.grupos().filter(g => {
+      const programaId = asig.get(g.asignaturaId)?.programaId;
+      return (!this.fPrograma() || programaId === this.fPrograma())
+        && (!this.fFacultad() || progs.get(programaId ?? '')?.facultadId === this.fFacultad());
+    }).sort(porNombre);
+    return [{ value: '', label: 'Todos los grupos' }, ...grupos.map(g => ({ value: g.id, label: g.nombre, sub: asig.get(g.asignaturaId)?.nombre }))];
   });
+  opcDocentes = computed<SearchableOption[]>(() =>
+    [{ value: '', label: 'Todos los docentes' }, ...[...this.state.docentes()].sort(porNombre).map(d => ({ value: d.id, label: d.nombre }))]);
+
+  /** Cambiar un nivel limpia los que dependen de él; al filtrar se pasa a "Todos los espacios" —
+   *  ver el horario de un grupo o un docente aula por aula no sirve de mucho. */
+  setFiltro(campo: 'facultad' | 'programa' | 'grupo' | 'docente', valor: string) {
+    if (campo === 'facultad') { this.fFacultad.set(valor); this.fPrograma.set(''); this.fGrupo.set(''); }
+    if (campo === 'programa') { this.fPrograma.set(valor); this.fGrupo.set(''); }
+    if (campo === 'grupo') this.fGrupo.set(valor);
+    if (campo === 'docente') this.fDocente.set(valor);
+    if (valor) this.selectTodos();
+  }
+  limpiarFiltros() { this.fFacultad.set(''); this.fPrograma.set(''); this.fGrupo.set(''); this.fDocente.set(''); }
+
+  private pasaFiltros = computed(() => {
+    const fac = this.fFacultad(), prog = this.fPrograma(), grupo = this.fGrupo(), doc = this.fDocente();
+    const asig = this.state.asignaturaById(), progs = this.state.programaById();
+    return (s: Sesion) => {
+      if (grupo && s.grupoId !== grupo) return false;
+      if (doc && s.docenteId !== doc) return false;
+      const programaId = asig.get(s.asignaturaId)?.programaId;
+      if (prog && programaId !== prog) return false;
+      return !fac || progs.get(programaId ?? '')?.facultadId === fac;
+    };
+  });
+
+  // ── Modo borrador ────────────────────────────────────────────────────────────
+  enBorrador = computed(() => this.state.borrador() !== null);
+  clasesBorrador = computed(() => (this.state.borrador() ?? []).filter(s => s.deBorrador));
+  convirtiendo = signal(false);
+  erroresBorrador = signal<string[]>([]);
+
+  entrarBorrador() { this.erroresBorrador.set([]); this.state.borrador.set([...this.state.sesiones()]); }
+
+  salirBorrador() {
+    const n = this.clasesBorrador().length;
+    if (n > 0 && !window.confirm(`¿Salir del borrador? Se descartarán las ${n} clase(s) agregada(s).`)) return;
+    this.state.borrador.set(null);
+    this.erroresBorrador.set([]);
+  }
+
+  agregarAlBorrador() {
+    const ref = this.dialog.open(CrearSesionDialogComponent, {
+      width: '320px', maxHeight: '92vh',
+      data: { asignaturas: this.state.asignaturas(), docentes: this.state.docentes(), espacios: this.state.espacios(), grupos: this.state.grupos(), sesiones: this.sesiones(), programaById: this.state.programaById(), modoBorrador: true } satisfies DialogData
+    });
+    ref.afterClosed().subscribe((nuevas: Sesion[] | undefined) => {
+      if (!nuevas?.length) return;
+      this.state.borrador.update(b => [...(b ?? []), ...nuevas]);
+      const choca = nuevas.some(s => this.choquesEspacioMap().get(s.id)?.choques.length || this.avisosDocente().get(s.id)?.choques.length);
+      this.snackBar.open(choca ? 'Clase agregada al borrador — ⚠ choca con otra clase (vea los avisos bajo la cuadrícula).' : 'Clase agregada al borrador.', 'Cerrar', { duration: 5000 });
+    });
+  }
+
+  private quitarDelBorrador(s: Sesion) {
+    const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
+      width: '320px',
+      data: { title: 'Quitar del borrador', message: `Se quitará "${describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos())}" del borrador.`, confirmText: 'Quitar' }
+    });
+    ref.afterClosed().subscribe(ok => { if (ok) this.state.borrador.update(b => (b ?? []).filter(x => x.id !== s.id)); });
+  }
+
+  /** Guarda en el horario real las clases agregadas, una a una, por el mismo camino que «Sesión
+   *  manual» (el servidor valida y rechaza las que chocan). Las rechazadas quedan en el borrador. */
+  convertirBorrador() {
+    const nuevas = this.clasesBorrador();
+    const horarioId = this.state.horarioId();
+    if (!horarioId) { this.snackBar.open('Genere el horario antes de convertir el borrador.', 'Cerrar', { duration: 5000 }); return; }
+    const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
+      width: '360px',
+      data: {
+        title: 'Convertir en horario real',
+        message: `Se agregarán ${nuevas.length} clase(s) al horario guardado. Las que choquen con otra clase no se agregarán y seguirán en el borrador.`,
+        confirmText: 'Convertir'
+      }
+    });
+    ref.afterClosed().subscribe(ok => {
+      if (!ok) return;
+      this.convirtiendo.set(true);
+      this.erroresBorrador.set([]);
+      from(nuevas).pipe(
+        concatMap(s => this.persistencia.crearSesionManual({
+          horarioId, asignaturaId: s.asignaturaId, docenteId: s.docenteId ?? null, espacioId: s.espacioId ?? null,
+          grupoId: s.grupoId!, dia: s.dia, horaInicio: s.horaInicio, duracionHoras: s.duracionHoras, alternancia: s.alternancia,
+          tipoFlujo: s.tipoFlujo ?? 'AulaVirtual', esVirtual: s.virtual
+        }).pipe(
+          map(creadas => ({ s, creadas, error: '' })),
+          catchError(err => of({ s, creadas: [] as Sesion[], error: `${describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos())}: ${mensajeErrorHttp(err)}` }))
+        )),
+        toArray()
+      ).subscribe(resultados => {
+        this.convirtiendo.set(false);
+        const creadas = resultados.flatMap(r => r.creadas);
+        this.state.sesiones.update(v => [...v, ...creadas]);
+        const fallidas = resultados.filter(r => r.error);
+        if (fallidas.length === 0) {
+          this.state.borrador.set(null);
+          this.snackBar.open(`Borrador convertido: ${nuevas.length} clase(s) agregada(s) al horario.`, 'Cerrar', { duration: 5000 });
+          return;
+        }
+        this.state.borrador.set([...this.state.sesiones(), ...fallidas.map(r => r.s)]);
+        this.erroresBorrador.set(fallidas.map(r => r.error));
+      });
+    });
+  }
+
+  // ── Limpiar horario ──────────────────────────────────────────────────────────
+  limpiarHorario() {
+    const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
+      width: '360px',
+      data: {
+        title: 'Limpiar horario',
+        message: `Se borrarán las ${this.state.sesiones().length} clases del horario guardado. Esta acción no se puede deshacer.`,
+        confirmText: 'Limpiar horario'
+      }
+    });
+    ref.afterClosed().subscribe(ok => {
+      if (!ok) return;
+      this.loadingBackend.set(true);
+      this.horarioApi.limpiar(this.state.semestre()).subscribe({
+        next: () => {
+          this.loadingBackend.set(false);
+          this.state.setSesiones([]);
+          this.state.setExecutionLogs([]);
+          this.state.horarioId.set(null);
+          this.mensajeInfactible.set('');
+          this.snackBar.open('Horario limpiado.', '', { duration: 3000 });
+        },
+        error: (err: any) => {
+          this.loadingBackend.set(false);
+          this.snackBar.open(`No se pudo limpiar el horario: ${err?.mensajeError ?? mensajeErrorHttp(err)}`, 'Cerrar', { duration: 6000, panelClass: ['snack-error'] });
+        }
+      });
+    });
+  }
 
   syncFromBackend() {
     this.loadingBackend.set(true);
@@ -735,7 +1043,7 @@ export class HorarioComponent implements OnInit {
 
   /** Hay alternancia activa cuando alguna sesión tiene pareja. Sin ella la Semana B no existe
    *  y el selector ni siquiera se muestra: la Semana A es el horario completo. */
-  hayAlternancia = computed(() => this.state.sesiones().some(s => !!s.parejaId));
+  hayAlternancia = computed(() => this.sesiones().some(s => !!s.parejaId));
 
   /** La semana efectivamente mostrada: si ya no hay alternancia (p. ej. tras regenerar sin
    *  parejas) no se queda pegada en B sin selector visible para volver a A. */
@@ -752,8 +1060,10 @@ export class HorarioComponent implements OnInit {
   /** Sesiones visibles en el chip/semana actual, ya plegadas con su contraparte de alternancia.
    *  Reemplaza el mapa por celda de inicio (mergedByCell/coveredCells) de la tabla anterior. */
   sesionesVista = computed<MergedSesion[]>(() => {
-    const spaceId = this.modoVirtual() ? this.ESPACIO_VIRTUAL : this.activeSpace()?.id;
-    const visibles = this.state.sesiones().filter(s => this.sesionPerteneceAlEspacio(s, spaceId) && this.sesionVisibleEnSemana(s));
+    // "Todos los espacios" = sin spaceId: sesionPerteneceAlEspacio deja pasar todo, virtuales incluidas.
+    const spaceId = this.todosEspacios() ? undefined : this.modoVirtual() ? this.ESPACIO_VIRTUAL : this.activeSpace()?.id;
+    const pasa = this.pasaFiltros();
+    const visibles = this.sesiones().filter(s => this.sesionPerteneceAlEspacio(s, spaceId) && this.sesionVisibleEnSemana(s) && pasa(s));
 
     // La contraparte virtual se pliega como sub-caja DENTRO de la tarjeta presencial solo si
     // coincide exactamente en pareja + día + hora con una presencial visible — antes se indexaba
@@ -783,8 +1093,10 @@ export class HorarioComponent implements OnInit {
   /** Presenciales sin aula ni aula de origen: `sesionPerteneceAlEspacio` las excluye de TODOS los
    *  chips de espacio físico (no pertenecen a ninguno), así que sin este parche desaparecían de
    *  la grilla sin aviso. grilla() las suma a la lista "fuera" de cualquier vista de aula. */
-  private sesionesSinAula = computed<Sesion[]>(() =>
-    this.state.sesiones().filter(s => !s.virtual && !s.espacioId && !s.espacioIdHogar && this.sesionVisibleEnSemana(s)));
+  private sesionesSinAula = computed<Sesion[]>(() => {
+    const pasa = this.pasaFiltros();
+    return this.sesiones().filter(s => !s.virtual && !s.espacioId && !s.espacioIdHogar && this.sesionVisibleEnSemana(s) && pasa(s));
+  });
 
   /** Cuadrícula por carriles (ver distribuirEnCarriles/ubicarEnGrilla): posiciona cada sesión por
    *  minutos de inicio/fin y reparte las simultáneas en columnas lado a lado — reemplaza la tabla
@@ -805,7 +1117,8 @@ export class HorarioComponent implements OnInit {
       if ('motivo' in pos) { fuera.push({ m, motivo: pos.motivo, texto: this.describir(m) }); continue; }
       const lista = porDia.get(m.dia) ?? []; lista.push({ m, ...pos }); porDia.set(m.dia, lista);
     }
-    if (!this.modoVirtual()) {
+    // En "Todos los espacios" ya están en sesionesVista (y en la cuadrícula): no duplicarlas aquí.
+    if (!this.modoVirtual() && !this.todosEspacios()) {
       for (const s of this.sesionesSinAula()) {
         const m = this.aMerged(s);
         fuera.push({ m, motivo: 'sin aula asignada', texto: this.describir(m) });
@@ -849,18 +1162,31 @@ export class HorarioComponent implements OnInit {
     const siempre = this.semanaVista() === 'B' && !m.semana ? ' · ocupa el aula todas las semanas' : '';
     const contraparte = m.contraparte ? ` · alterna con ${this.getAsignaturaName(m.contraparte)}${this.grupoSuffix(m.contraparte)} (virtual)` : '';
     const choque = this.tieneChoque(m) ? ' · ⚠ el docente tiene otra clase a la misma hora' : '';
-    return `${base}${ctx ? ' · ' + ctx : ''} · ${docente} · ${espacio}${semana}${siempre}${contraparte}${choque}. Clic para editar.`;
+    const choqueAula = this.tieneChoqueEspacio(m) ? ' · ⚠ el espacio ya está ocupado a esa hora' : '';
+    const accion = this.enBorrador() ? (m.sesiones[0].deBorrador ? 'Clic para quitarla del borrador' : 'Clase del horario real') : 'Clic para editar';
+    return `${base}${ctx ? ' · ' + ctx : ''} · ${docente} · ${espacio}${semana}${siempre}${contraparte}${choque}${choqueAula}. ${accion}.`;
   }
 
   /** Avisos del docente (no bloquean) de todo el horario — ver avisosDocentePorSesion. */
   avisosDocente = computed(() =>
-    avisosDocentePorSesion(this.state.sesiones(), this.state.docentes(), this.state.asignaturas(), this.state.grupos()));
-  /** Clases con el docente en dos clases a la vez: se listan sobre la cuadrícula para poder abrirlas. */
-  choquesDocente = computed(() => this.state.sesiones()
-    .filter(s => !s.esContraparteVirtual && this.avisosDocente().get(s.id)?.choques.length)
-    .map(s => ({ s, etiqueta: describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos()), detalle: this.avisosDocente().get(s.id)!.choques.join(' ') })));
+    avisosDocentePorSesion(this.sesiones(), this.state.docentes(), this.state.asignaturas(), this.state.grupos()));
+  /** Clases con el docente en dos clases a la vez: se listan bajo la cuadrícula para poder abrirlas. */
+  choquesDocente = computed(() => filasDeChoques(this.sesiones(), this.avisosDocente(), this.state.asignaturas(), this.state.grupos()));
+  /** Dos clases en el mismo espacio a la vez (sobre todo en el borrador) — ver choquesEspacioPorSesion. */
+  choquesEspacioMap = computed(() =>
+    choquesEspacioPorSesion(this.sesiones(), this.state.espacios(), this.state.asignaturas(), this.state.grupos()));
+  choquesEspacio = computed(() => filasDeChoques(this.sesiones(), this.choquesEspacioMap(), this.state.asignaturas(), this.state.grupos()));
+  /** Clases fuera de la disponibilidad de su grupo — ver fueraDisponibilidadGrupo. */
+  fueraGrupo = computed(() => {
+    const motivos = fueraDisponibilidadGrupo(this.sesiones(), this.state.grupos());
+    return this.sesiones()
+      .filter(s => motivos.has(s.id) && !s.esContraparteVirtual)
+      .map(s => ({ s, etiqueta: describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos()), motivo: motivos.get(s.id)! }));
+  });
   fueraDeDisponibilidad = computed(() => [...this.avisosDocente().values()].filter(a => a.fueraDeDisponibilidad).length);
-  tieneChoque(m: MergedSesion): boolean { return !!this.avisosDocente().get(m.sesiones[0].id)?.choques.length; }
+  /** ⚠ de la tarjeta: choque de docente o de espacio. */
+  tieneChoque(m: MergedSesion): boolean { return !!this.avisosDocente().get(m.sesiones[0].id)?.choques.length || this.tieneChoqueEspacio(m); }
+  private tieneChoqueEspacio(m: MergedSesion): boolean { return !!this.choquesEspacioMap().get(m.sesiones[0].id)?.choques.length; }
   abrirSesion(s: Sesion) { this.abrirEditarSesion(this.aMerged(s)); }
 
   getAsignaturaName(merged: MergedSesion): string { return this.state.asignaturaById().get(merged.asignaturaId)?.nombre ?? 'Desconocida'; }
@@ -888,6 +1214,12 @@ export class HorarioComponent implements OnInit {
   }
 
   abrirEditarSesion(merged: MergedSesion) {
+    // En el borrador nada pasa por el servidor: solo se quitan las clases agregadas al borrador.
+    if (this.enBorrador()) {
+      if (merged.sesiones[0].deBorrador) this.quitarDelBorrador(merged.sesiones[0]);
+      else this.snackBar.open('En el modo borrador solo puede quitar las clases que agregó. Salga del borrador para editar el horario real.', 'Cerrar', { duration: 5000 });
+      return;
+    }
     const ref = this.dialog.open(EditarSesionDialogComponent, {
       width: '300px', maxHeight: '92vh',
       data: {
@@ -1003,7 +1335,7 @@ export class HorarioComponent implements OnInit {
           this.state.setMotivoInfactibilidad(undefined);
           this.mensajeInfactible.set('');
           const choques = this.choquesDocente().length;
-          const aviso = choques ? ` Atención: ${choques} clase(s) tienen al docente en dos clases a la vez — vea el aviso sobre la cuadrícula.` : '';
+          const aviso = choques ? ` Atención: ${choques} clase(s) tienen al docente en dos clases a la vez — vea los avisos bajo la cuadrícula.` : '';
           this.snackBar.open(`Horario generado con ${sesiones.length} clases.${aviso}`, 'Cerrar', { duration: choques ? 10000 : 6000 });
         },
         error: (err: any) => {
@@ -1321,15 +1653,16 @@ export class EditarSesionDialogComponent {
 }
 
 // ═══ Diálogo: Crear sesión manual (REQUISITOS §2) ═══
-/** `modoFija`: la sesión va a un horario base (se devuelve a quien abrió el diálogo) en vez de crearse en el servidor. */
-interface DialogData { asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[]; grupos: Grupo[]; sesiones: Sesion[]; programaById: Map<string, { id: string; nombre: string }>; modoFija?: boolean; }
+/** `modoFija`: la sesión va a un horario base (se devuelve a quien abrió el diálogo) en vez de crearse en el servidor.
+ *  `modoBorrador`: igual, pero va al borrador; los choques avisan en vez de bloquear y el docente se puede cambiar. */
+interface DialogData { asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[]; grupos: Grupo[]; sesiones: Sesion[]; programaById: Map<string, { id: string; nombre: string }>; modoFija?: boolean; modoBorrador?: boolean; }
 
 @Component({
   selector: 'app-crear-sesion-dialog',
   standalone: true,
   imports: [CommonModule, FormsModule, MatDialogModule, MatSnackBarModule, SearchableSelectComponent],
   template: `
-    <div class="pophd">{{ modoFija ? 'Fijar clase antes de generar' : 'Agregar clase' }} <button type="button" class="pop-close" (click)="cancelar()" aria-label="Cerrar">✕</button></div>
+    <div class="pophd">{{ modoFija ? 'Fijar clase antes de generar' : modoBorrador ? 'Agregar clase al borrador' : 'Agregar clase' }} <button type="button" class="pop-close" (click)="cancelar()" aria-label="Cerrar">✕</button></div>
     <div class="popbd" style="max-height:80vh;overflow:auto">
       <div class="dfield"><label>Asignatura <span class="rq">*</span></label>
         <app-searchable-select [(ngModel)]="asignaturaId" (ngModelChange)="onAsignaturaChange($event)"
@@ -1346,7 +1679,15 @@ interface DialogData { asignaturas: Asignatura[]; docentes: Docente[]; espacios:
             @for (t of tiposDisponibles(); track t.tipo) { <label class="seg-opt" [class.on]="tipoSesion() === t.tipo" (click)="setTipoSesion(t.tipo)">{{ t.label }}</label> }
           </div>
         </div>
-        <div class="text-muted" style="font-size:12px">👤 {{ docenteDelGrupo() }} · ⏱ {{ duracionSeleccionada() }}h por sesión (fijo)</div>
+        @if (modoBorrador) {
+          <div class="dfield"><label>Docente</label>
+            <app-searchable-select [ngModel]="docenteActual()" (ngModelChange)="docenteElegido = $event; recheck()"
+                                    [options]="docenteOptions" placeholder="— Sin docente —"></app-searchable-select>
+          </div>
+          <div class="text-muted" style="font-size:12px">⏱ {{ duracionSeleccionada() }}h por sesión (fijo)</div>
+        } @else {
+          <div class="text-muted" style="font-size:12px">👤 {{ docenteDelGrupo() }} · ⏱ {{ duracionSeleccionada() }}h por sesión (fijo)</div>
+        }
       }
 
       <div class="dfield"><label>Día <span class="rq">*</span></label>
@@ -1382,7 +1723,8 @@ interface DialogData { asignaturas: Asignatura[]; docentes: Docente[]; espacios:
       }
 
       @if (asignaturaId && dia && horaInicio && (espacioId || tipoSesion() === 'TeoriaVirtual')) {
-        @for (c of checks(); track c.texto) { <div [class]="c.ok ? 'okb' : 'errb'">{{ c.ok ? '✓' : '✕' }} {{ c.texto }}</div> }
+        <!-- En el borrador un choque no bloquea: se avisa y la clase se puede agregar igual. -->
+        @for (c of checks(); track c.texto) { <div [class]="c.ok ? 'okb' : modoBorrador ? 'soft' : 'errb'">{{ c.ok ? '✓' : modoBorrador ? '⚠' : '✕' }} {{ c.texto }}</div> }
         @for (w of avisos(); track w) { <div class="soft"><b>⚠ Aviso (no bloquea):</b> {{ w }}</div> }
       }
       @if (errorServidor()) { <div class="errb"><b>✕ {{ errorServidor() }}</b></div> }
@@ -1392,7 +1734,7 @@ interface DialogData { asignaturas: Asignatura[]; docentes: Docente[]; espacios:
 
       <div class="popfoot">
         <button class="btn btn-secondary" (click)="cancelar()" [disabled]="guardando()">Cancelar</button>
-        <button class="btn btn-primary" [disabled]="!puedeCrear() || guardando()" (click)="crear()">{{ guardando() ? 'Creando…' : modoFija ? 'Fijar sesión' : 'Crear' }}</button>
+        <button class="btn btn-primary" [disabled]="!puedeCrear() || guardando()" (click)="crear()">{{ guardando() ? 'Creando…' : modoFija ? 'Fijar sesión' : modoBorrador ? 'Agregar al borrador' : 'Crear' }}</button>
       </div>
     </div>
   `
@@ -1403,6 +1745,12 @@ export class CrearSesionDialogComponent {
   private persistencia = inject(PersistenciaService);
   private state = inject(StateService);
   readonly modoFija = !!this.data.modoFija;
+  readonly modoBorrador = !!this.data.modoBorrador;
+  /** Solo en el borrador: docente elegido a mano. null = el del grupo; '' = sin docente. */
+  docenteElegido: string | null = null;
+  readonly docenteOptions: SearchableOption[] = [{ value: '', label: 'Sin docente' },
+    ...[...this.data.docentes].sort(porNombre).map(d => ({ value: d.id, label: d.nombre }))];
+  docenteActual(): string { return this.docenteElegido ?? this.docenteIdDelGrupo(); }
 
   asignaturaId = ''; dia = ''; horaInicio = ''; espacioId = '';
   alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia' = 'SinAlternancia';
@@ -1448,7 +1796,7 @@ export class CrearSesionDialogComponent {
     const id = this.docenteIdDelGrupo();
     return id ? this.nombreDocente(id) : '— sin docente en el grupo —';
   }
-  onGrupoChange() { this.grupoIdSel.set(this.grupoId); this.espacioId = ''; this.recheck(); }
+  onGrupoChange() { this.grupoIdSel.set(this.grupoId); this.espacioId = ''; this.docenteElegido = null; this.recheck(); }
 
   tiposDisponibles = computed<{ tipo: TipoSesionUi; label: string }[]>(() => {
     const a = this.asignaturaSeleccionada();
@@ -1471,7 +1819,12 @@ export class CrearSesionDialogComponent {
   espaciosDisponibles = computed(() =>
     espaciosPermitidosPara(this.tipoSesion(), this.data.grupos.find(g => g.id === this.grupoIdSel()), this.data.espacios));
 
-  puedeCrear = computed(() => !!this.asignaturaId && !!this.grupoIdSel() && !!this.dia && !!this.horaInicio && (!!this.espacioId || this.tipoSesion() === 'TeoriaVirtual') && this.checksOk() && !this.guardando());
+  /** Método, no computed(): lee campos planos (asignaturaId, dia…). Como computed, su primera evaluación
+   *  cortaba en `!!this.asignaturaId` sin leer ningún signal, quedaba sin dependencias y congelado en
+   *  false — el botón Crear/Fijar nunca se habilitaba. */
+  puedeCrear(): boolean {
+    return !!this.asignaturaId && !!this.grupoIdSel() && !!this.dia && !!this.horaInicio && (!!this.espacioId || this.tipoSesion() === 'TeoriaVirtual') && this.checksOk() && !this.guardando();
+  }
 
   onAsignaturaChange(id: string) {
     const a = this.data.asignaturas.find(x => x.id === id);
@@ -1510,7 +1863,7 @@ export class CrearSesionDialogComponent {
     // de "nunca coexiste" debe considerar la semana que ESTA sesión ocuparía, igual que Editar.
     const semanaActual: Sesion['semana'] = this.alternancia === 'TipoA' ? 'A' : this.alternancia === 'TipoB' ? 'B' : undefined;
 
-    const docenteId = this.docenteIdDelGrupo();
+    const docenteId = this.docenteActual();
     if (docenteId) {
       const conflictoDocente = this.data.sesiones.find(s => s.docenteId === docenteId && s.dia === this.dia && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
       if (conflictoDocente) ok = false;
@@ -1533,7 +1886,8 @@ export class CrearSesionDialogComponent {
         : `${espNombre} está libre en esa franja`;
       chks.push({ ok: !conflictoEspacio, texto });
     }
-    this.checks.set(chks); this.checksOk.set(ok);
+    // En el borrador un choque solo avisa: con los campos completos siempre se puede agregar.
+    this.checks.set(chks); this.checksOk.set(ok || this.modoBorrador);
     const nueva: Sesion = {
       id: '', asignaturaId: a.id, grupoId: this.grupoIdSel(), docenteId: docenteId || undefined, dia: this.dia, horaInicio: this.horaInicio,
       horaFin: hhmm(parseInt(this.horaInicio, 10) + Math.round(dur)), duracionHoras: dur, virtual: esVirtual, alternancia: this.alternancia,
@@ -1546,15 +1900,16 @@ export class CrearSesionDialogComponent {
     if (!this.puedeCrear()) return;
     const a = this.asignaturaSeleccionada()!, tipo = this.tipoSesion(), duracion = this.duracionSeleccionada();
     // Grupo sin docente → null: '' no es un Guid y el servidor lo rechazaba con 400.
-    const docenteId = this.docenteIdDelGrupo() || null;
+    const docenteId = this.docenteActual() || null;
     const espacioId = tipo === 'TeoriaVirtual' ? null : (this.espacioId || null);
-    if (this.modoFija) {
+    if (this.modoFija || this.modoBorrador) {
       const [hh, mm] = this.horaInicio.split(':').map(Number);
       const sesion: Sesion = {
         id: nuevoId(), asignaturaId: a.id, grupoId: this.grupoIdSel(), docenteId: docenteId ?? undefined,
         dia: this.dia, horaInicio: this.horaInicio, duracionHoras: duracion,
         horaFin: `${String(hh + duracion).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
-        espacioId: espacioId ?? undefined, virtual: esVirtualDesde(tipo), alternancia: this.alternancia, tipoFlujo: tipoFlujoDesde(tipo)
+        espacioId: espacioId ?? undefined, virtual: esVirtualDesde(tipo), alternancia: this.alternancia, tipoFlujo: tipoFlujoDesde(tipo),
+        ...(this.modoBorrador ? { deBorrador: true } : {})
       };
       this.dialogRef.close([sesion]);
       return;

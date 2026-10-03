@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
-import { avisosDocentePorSesion, EditarSesionDialogComponent } from './horario.component';
+import { avisosDocentePorSesion, choquesEspacioPorSesion, EditarSesionDialogComponent, fueraDisponibilidadGrupo } from './horario.component';
 import { Asignatura, Docente, Grupo, Sesion } from '../../core/models';
 import { StateService } from '../../core/state.service';
 
@@ -88,5 +88,48 @@ describe('EditarSesionDialogComponent — avisos del docente', () => {
     c.horaInicio.set('16:00');
     expect(bloqueoDocente(c)?.ok).toBe(false);
     expect(c.avisosDocente()).toEqual([]); // ya lo muestra la validación: sin duplicarlo como aviso
+  });
+});
+
+describe('fueraDisponibilidadGrupo', () => {
+  const conDisp = (json: unknown) => [{ id: 'g1', nombre: 'Grupo 1', disponibilidadUiJson: json === undefined ? undefined : JSON.stringify(json) }] as Grupo[];
+
+  it('día sin entrada = cerrado; JSON vacío o ausente = sin restricción (espejo del backend)', () => {
+    const casos: [unknown, string | undefined][] = [
+      [{ lunes: { noDisponible: false, tipo: 'Franja específica', desde: '06:00', hasta: '08:00' } }, 'el grupo no está disponible el jueves'],
+      [{ jueves: { noDisponible: true } }, 'el grupo no está disponible el jueves'],
+      [{ jueves: { noDisponible: false, tipo: 'Franja específica', desde: '15:00', hasta: '16:00' } }, 'el grupo solo está disponible el jueves de 15:00 a 16:00'],
+      [{ jueves: { noDisponible: false, tipo: 'Franja específica', desde: '15:00', hasta: '17:00' } }, undefined],
+      [{}, undefined],
+      [undefined, undefined],
+    ];
+    for (const [json, esperado] of casos)
+      expect(fueraDisponibilidadGrupo([sesion()], conDisp(json)).get('s1')).toBe(esperado);
+  });
+
+  it('ignora la contraparte virtual derivada', () => {
+    const disp = conDisp({ lunes: { noDisponible: true } });
+    expect(fueraDisponibilidadGrupo([sesion({ esContraparteVirtual: true })], disp).size).toBe(0);
+  });
+});
+
+describe('choquesEspacioPorSesion (modo borrador)', () => {
+  const espacios = [{ id: 'e1', nombre: 'Lab 1', tipo: 'Laboratorio', capacidad: 30 }] as any[];
+
+  it('avisa dos clases presenciales solapadas en el mismo espacio, en ambas sesiones', () => {
+    const ch = choquesEspacioPorSesion([sesion(), sesion({ id: 's2', grupoId: 'g2', horaInicio: '16:00', horaFin: '18:00' })], espacios, asignaturas, grupos);
+    expect(ch.get('s1')?.choques[0]).toBe('Lab 1 ya está ocupado a esa hora por Química General · Grupo 2 (jueves 16:00–18:00).');
+    expect(ch.get('s2')?.conIds).toEqual(['s1']);
+  });
+
+  it('no avisa consecutivas, otro espacio, virtuales ni semanas que nunca coinciden', () => {
+    const ch = choquesEspacioPorSesion([
+      sesion({ semana: 'A' }),
+      sesion({ id: 's2', horaInicio: '17:00', horaFin: '19:00' }),
+      sesion({ id: 's3', espacioId: 'e2' }),
+      sesion({ id: 's4', virtual: true }),
+      sesion({ id: 's5', semana: 'B' }),
+    ], espacios, asignaturas, grupos);
+    expect([...ch.values()].flatMap(a => a.choques)).toEqual([]);
   });
 });

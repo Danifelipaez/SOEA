@@ -2,6 +2,7 @@ import { Injectable, signal, computed } from '@angular/core';
 import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, HorarioBase } from './models';
 import { nuevoId } from './id.util';
 import { SEMESTRE_POR_DEFECTO } from './semestre';
+import { porNombre } from './orden';
 
 @Injectable({
   providedIn: 'root'
@@ -47,6 +48,7 @@ export class StateService {
       const list = m.get(g.asignaturaId);
       if (list) list.push(g); else m.set(g.asignaturaId, [g]);
     }
+    for (const list of m.values()) list.sort(porNombre);
     return m;
   });
 
@@ -144,6 +146,13 @@ export class StateService {
     }));
   }
   setExecutionLogs(logs: string[]) { this.executionLogs.set(logs); }
+
+  /**
+   * Modo borrador de /horario: copia del horario a la que se le agregan clases a mano para probar
+   * (las nuevas llevan `deBorrador`). null = modo apagado. Vive aquí (no en el componente) para no
+   * perderse al cambiar de pestaña; ponytail: no sobrevive a un F5 — persistirlo si hace falta.
+   */
+  borrador = signal<Sesion[] | null>(null);
 
   /**
    * Ids de grupo que el backend señaló como responsables de una infactibilidad (diagnóstico

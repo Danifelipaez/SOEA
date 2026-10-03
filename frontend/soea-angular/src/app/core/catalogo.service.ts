@@ -96,6 +96,10 @@ export class CatalogoService {
       tap(guardada => {
         this.marcarEnBd(tipo, guardada.id);
         this.actualizarEnState(tipo, guardada);
+        // El backend mueve en cascada las sesiones de un grupo que cambia de asignatura (FK
+        // compuesta): sin esto el horario en memoria las seguía mostrando con la asignatura vieja.
+        if (tipo === 'grupo') this.state.sesiones.update(v => v.some(s => s.grupoId === guardada.id && s.asignaturaId !== guardada.asignaturaId)
+          ? v.map(s => s.grupoId === guardada.id ? { ...s, asignaturaId: guardada.asignaturaId } : s) : v);
       }),
       catchError(err => {
         if (esNueva) this.eliminarDeState(tipo, entidad.id);
@@ -127,6 +131,9 @@ export class CatalogoService {
     return peticion$.pipe(tap(() => {
       this.quitarDeBd(tipo, id);
       this.eliminarDeState(tipo, id);
+      // GrupoService.DeleteAsync borra sus sesiones en cascada: el horario en memoria las seguía
+      // pintando hasta recargar la página.
+      if (tipo === 'grupo') this.state.sesiones.update(v => v.filter(s => s.grupoId !== id));
     }));
   }
 

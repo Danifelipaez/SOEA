@@ -222,12 +222,35 @@ export class PersistenciaService {
     return this.http.post<Sesion[]>(`${this.base}/horario/sesion-manual`, payload);
   }
 
-  importarExcel(file: File): Observable<ImportExcelStatsDto> {
+  /** Paso 1 del import: lee el Excel y devuelve sus filas con las incoherencias. No guarda nada. */
+  revisarExcel(file: File): Observable<RevisionImport> {
     const form = new FormData();
     form.append('archivo', file, file.name);
-    return this.http.post<ImportExcelStatsDto>(`${this.base}/import/excel`, form);
+    return this.http.post<RevisionImport>(`${this.base}/import/excel/revisar`, form);
+  }
+
+  /** Vuelve a revisar las filas tras editarlas o borrarlas. No guarda nada. */
+  revisarFilas(filas: FilaCurriculum[]): Observable<RevisionImport> {
+    return this.http.post<RevisionImport>(`${this.base}/import/filas/revisar`, filas);
+  }
+
+  /** Paso 2: importa las filas. 422 (con un RevisionImport en el cuerpo) si queda algún error. */
+  importarFilas(filas: FilaCurriculum[]): Observable<ImportExcelStatsDto> {
+    return this.http.post<ImportExcelStatsDto>(`${this.base}/import/filas`, filas);
   }
 }
+
+/** Una fila del Excel tal cual (texto). `fila` = número de fila en el archivo. */
+export interface FilaCurriculum {
+  fila: number;
+  facultad: string; programa: string; asignatura: string; codigo: string; tipoEspacio: string;
+  espacio: string; duracion: string; dia: string; hora: string; final: string; docente: string; grupo: string;
+}
+
+/** `campo` = propiedad de FilaCurriculum afectada, o '' si es la fila entera. */
+export interface IncoherenciaFila { fila: number; campo: string; esError: boolean; mensaje: string; }
+
+export interface RevisionImport { filas: FilaCurriculum[]; incoherencias: IncoherenciaFila[]; avisos: string[]; }
 
 export interface ImportExcelStatsDto {
   facultadesCreadas: number;

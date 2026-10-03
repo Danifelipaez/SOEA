@@ -9,6 +9,7 @@ import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { Espacio } from '../../../core/models';
 import { nuevoId } from '../../../core/id.util';
+import { porNombre } from '../../../core/orden';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
 type TipoEspacio = 'Salón' | 'Laboratorio' | 'Auditorio';
@@ -87,7 +88,7 @@ export class EspaciosTabComponent {
     return this.state.espacios().filter(e =>
       (tipo === 'Todos' || e.tipo === tipo) &&
       (!f || e.nombre.toLowerCase().includes(f) || e.tipo.toLowerCase().includes(f) || (e.edificio ?? '').toLowerCase().includes(f))
-    );
+    ).sort(porNombre);
   });
 
   tagClass(tipo: string): string {

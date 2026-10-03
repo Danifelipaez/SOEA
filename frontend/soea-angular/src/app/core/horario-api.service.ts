@@ -257,6 +257,13 @@ export class HorarioApiService {
       .pipe(catchError((err: HttpErrorResponse) => err.status === 404 ? of(null) : this.manejarError(err)));
   }
 
+  /** Borra el horario vigente del semestre en el servidor. Irreversible. */
+  limpiar(semestre = SEMESTRE_POR_DEFECTO): Observable<void> {
+    return this.http
+      .delete<void>(`${this.apiBase}/horario/actual`, { params: { semestre } })
+      .pipe(catchError(this.manejarError));
+  }
+
   /**
    * Petición 13: mueve una sesión ya generada a un nuevo (día, hora, espacio) sin regenerar el
    * horario completo. El backend recalcula solo la sesión editada y las que ahora chocan con ella.

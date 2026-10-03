@@ -157,6 +157,8 @@ export interface Sesion {
   tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
   /** Causa por la que Fase 1 no encontró un bloque libre sin conflicto para esta sesión. Vacío si se agendó sin conflicto. */
   motivoConflicto?: string;
+  /** Clase agregada en el modo borrador: solo existe en memoria hasta convertir el borrador en horario real. */
+  deBorrador?: boolean;
 }
 
 /** Vista de UI de los 3 tipos de sesión combinables por asignatura (desglose por tipo). */

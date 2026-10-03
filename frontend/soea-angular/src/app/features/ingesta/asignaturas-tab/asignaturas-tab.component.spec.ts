@@ -247,7 +247,7 @@ describe('AsignaturasTabComponent — mensaje de error al importar Excel', () =>
   });
 
   function importar(errorBody: any) {
-    vi.spyOn(component.persistencia, 'importarExcel').mockReturnValue(throwError(() => errorBody));
+    vi.spyOn(component.persistencia, 'revisarExcel').mockReturnValue(throwError(() => errorBody));
     const openSpy = vi.spyOn(component.snackBar, 'open').mockReturnValue({} as any);
     const file = new File(['contenido'], 'curriculum.xlsx');
     const input = { files: [file], value: '' } as unknown as HTMLInputElement;
