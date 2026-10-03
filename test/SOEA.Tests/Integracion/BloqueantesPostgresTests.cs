@@ -91,7 +91,7 @@ namespace SOEA.Tests.Integracion
             {
                 { new ByteArrayContent(paquete.GetAsByteArray()), "archivo", "horario.xlsx" }
             };
-            var r = await _api.Client.PostAsync("/api/import/excel", form);
+            var r = await ImportarAsync(form);
             var cuerpo = await r.Content.ReadAsStringAsync();
 
             Assert.True(r.StatusCode == HttpStatusCode.OK, cuerpo); // antes: 409 por el EspacioId temporal del lector
@@ -549,7 +549,7 @@ namespace SOEA.Tests.Integracion
             using var paquete = ExcelHorario(Fila("CON DOCENTE", $"DOCENTE {sufijo}"), Fila("SIN DOCENTE", ""));
 
             using var form = new MultipartFormDataContent { { new ByteArrayContent(paquete.GetAsByteArray()), "archivo", "horario.xlsx" } };
-            var r = await _api.Client.PostAsync("/api/import/excel", form);
+            var r = await ImportarAsync(form);
             var cuerpo = await r.Content.ReadAsStringAsync();
             Assert.True(r.StatusCode == HttpStatusCode.OK, cuerpo);
 
@@ -560,6 +560,15 @@ namespace SOEA.Tests.Integracion
             await using var db = _api.Db();
             var asig = await db.Set<Asignatura>().SingleAsync(a => a.Nombre.ToUpper() == $"SIN DOCENTE {sufijo}".ToUpper());
             Assert.Null((await db.Set<Grupo>().SingleAsync(g => g.AsignaturaId == asig.Id)).DocenteId);
+        }
+
+        /// <summary>Import en dos pasos (revisar → importar las filas tal cual), como hace la UI.</summary>
+        private async Task<HttpResponseMessage> ImportarAsync(MultipartFormDataContent form)
+        {
+            var revision = await _api.Client.PostAsync("/api/import/excel/revisar", form);
+            if (!revision.IsSuccessStatusCode) return revision;
+            var filas = JsonDocument.Parse(await revision.Content.ReadAsStringAsync()).RootElement.GetProperty("filas").GetRawText();
+            return await _api.Client.PostAsync("/api/import/filas", new StringContent(filas, System.Text.Encoding.UTF8, "application/json"));
         }
 
         private static ExcelPackage ExcelHorario(params object[][] filas)
@@ -594,7 +603,7 @@ namespace SOEA.Tests.Integracion
                 for (int c = 0; c < cabecera.Length; c++) hoja.Cells[f + 2, c + 1].Value = filas[f][c];
 
             using var form = new MultipartFormDataContent { { new ByteArrayContent(paquete.GetAsByteArray()), "archivo", "horario.xlsx" } };
-            var r = await _api.Client.PostAsync("/api/import/excel", form);
+            var r = await ImportarAsync(form);
             Assert.True(r.StatusCode == HttpStatusCode.OK, await r.Content.ReadAsStringAsync());
 
             await using var db = _api.Db();

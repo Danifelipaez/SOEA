@@ -350,6 +350,20 @@ namespace SOEA.Tests.Application.Horario
         }
 
         [Fact]
+        public async Task LimpiarAsync_TrasGenerar_DejaElSemestreSinHorario()
+        {
+            var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
+            var request = RequestBase();
+            var generado = await svc.EjecutarAsync(request);
+            Assert.True(generado.EsFactible, generado.MensajeError ?? string.Join("\n", generado.Logs));
+
+            var borradas = await svc.LimpiarAsync(request.Semestre);
+
+            Assert.Equal(generado.Sesiones.Select(s => s.Id).Distinct().Count(), borradas);
+            Assert.Null(await svc.ObtenerActualAsync(request.Semestre));
+        }
+
+        [Fact]
         public async Task ObtenerActualAsync_SinNingunaGeneracionPrevia_DevuelveNull()
         {
             var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());
