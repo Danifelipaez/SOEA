@@ -120,15 +120,29 @@ namespace SOEA.Tests.Infrastructure
         }
 
         [Fact]
-        public async Task NombreDeGrupoDerivadoMasLargoQue100_FallaNombrandoLaFila()
+        public async Task NombreDeGrupoDerivadoMasLargoQue100_SeAcortaYAvisa()
         {
-            // 95 caracteres pasan el límite de la asignatura (255), pero "{asignatura} - Grupo 1" no cabe en Grupos.nombre (100).
+            // 95 caracteres pasan el límite de la asignatura (255), pero "{asignatura} - Grupo 1" no cabe en Grupos.nombre (100):
+            // se acorta la parte de la asignatura en vez de rechazar todo el archivo.
             var fila = new object[] { "FAC", "PROG", new string('A', 95), 1, "DOC", 2, "AULA", "Lunes", "08:00", "10:00" };
 
-            var ex = await Assert.ThrowsAsync<SOEA.Domain.Exceptions.ArchivoImportacionInvalidoException>(() => Leer(Excel(fila)));
+            var r = await Leer(Excel(fila));
 
-            Assert.Contains("Fila 2", ex.Message);
-            Assert.Contains("Grupo", ex.Message);
+            var grupo = Assert.Single(r.Grupos);
+            Assert.Equal(100, grupo.Nombre.Length);
+            Assert.EndsWith(" - Grupo 1", grupo.Nombre);
+            Assert.Contains(r.Advertencias, a => a.Contains("Fila 2") && a.Contains("se acortó"));
+        }
+
+        [Fact]
+        public async Task SinDocenteNiGrupo_FilasALaMismaHoraSonSeccionesDistintas()
+        {
+            object[] F(string dia) => new object[] { "FAC", "PROG", "CALCULO", null!, "", 2, "AULA", dia, "08:00", "10:00" };
+
+            var r = await Leer(Excel(F("Lunes"), F("Lunes"), F("Miercoles")));
+
+            // Dos clases el lunes a la misma hora no pueden ser del mismo grupo; la del miércoles se une al primero.
+            Assert.Equal(2, r.Grupos.Count);
         }
 
         [Theory]

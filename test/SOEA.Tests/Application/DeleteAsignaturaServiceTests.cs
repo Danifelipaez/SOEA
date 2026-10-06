@@ -44,7 +44,7 @@ namespace SOEA.Tests.Application
             var asigRepo = new FakeAsignaturaRepo(asig);
             var grupoRepo = new FakeGrupoRepo();
             var service = new AsignaturaService(
-                asigRepo, grupoRepo, Cascade(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+                asigRepo, grupoRepo, Cascade(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
 
             await service.DeleteAsync(asig.Id);
 
@@ -56,7 +56,7 @@ namespace SOEA.Tests.Application
         {
             var service = new AsignaturaService(
                 new FakeAsignaturaRepo(), new FakeGrupoRepo(),
-                Cascade(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+                Cascade(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
 
             await Assert.ThrowsAsync<KeyNotFoundException>(
                 () => service.DeleteAsync(Guid.NewGuid()));
@@ -72,7 +72,7 @@ namespace SOEA.Tests.Application
             var grupoOtraAsignatura = new Grupo(Guid.NewGuid(), "G3", Guid.NewGuid(), 30);
             var grupoRepo = new FakeGrupoRepo(grupo1, grupo2, grupoOtraAsignatura);
             var service = new AsignaturaService(
-                asigRepo, grupoRepo, Cascade(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+                asigRepo, grupoRepo, Cascade(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
 
             await service.DeleteAsync(asig.Id);
 
@@ -99,7 +99,7 @@ namespace SOEA.Tests.Application
                 new AsignacionSemanal(Guid.NewGuid(), sesionPorGrupo.Id, SemanaAcademica.A, Guid.NewGuid(), null, Modalidad.Presencial),
                 new AsignacionSemanal(Guid.NewGuid(), sesionDirecta.Id, SemanaAcademica.A, Guid.NewGuid(), null, Modalidad.Presencial));
 
-            var service = new AsignaturaService(asigRepo, grupoRepo, Cascade(sesionRepo, asignacionRepo), new FakeUnitOfWork());
+            var service = new AsignaturaService(asigRepo, grupoRepo, Cascade(sesionRepo, asignacionRepo), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
 
             await service.DeleteAsync(asig.Id);
 

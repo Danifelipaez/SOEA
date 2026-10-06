@@ -58,7 +58,7 @@ namespace SOEA.Tests.Application
             var grupo = new Grupo(Guid.NewGuid(), "G1", asig.Id, 30);
             grupo.ActualizarDisponibilidadUi(disponibilidadGrupo);
             var servicio = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepo(grupo),
-                new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+                new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
             return (servicio, asig);
         }
 

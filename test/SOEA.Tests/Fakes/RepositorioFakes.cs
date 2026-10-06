@@ -79,6 +79,20 @@ namespace SOEA.Tests.Fakes
                 a.Nombre.Equals(nombre, StringComparison.OrdinalIgnoreCase) && a.ProgramaId == programaId));
     }
 
+    /// <summary>
+    /// Todo programa "existe": para las pruebas de asignatura que no tratan del catálogo de programas
+    /// (AsignaturaService exige que el programa exista). El guard en sí se prueba con <see cref="FakeProgramaRepo"/>.
+    /// </summary>
+    public sealed class FakeProgramaRepoPermisivo : IProgramaRepositorio
+    {
+        public Task<Programa?> GetByIdAsync(Guid id) => Task.FromResult<Programa?>(new Programa(id, "Programa", Guid.NewGuid()));
+        public Task<Programa?> GetByNombreYFacultadAsync(string nombre, Guid facultadId) => Task.FromResult<Programa?>(null);
+        public Task<List<Programa>> GetAllAsync() => Task.FromResult(new List<Programa>());
+        public Task AddAsync(Programa entity) => Task.CompletedTask;
+        public Task UpdateAsync(Programa entity) => Task.CompletedTask;
+        public Task DeleteAsync(Guid id) => Task.CompletedTask;
+    }
+
     public sealed class FakeGrupoRepo : FakeRepositorio<Grupo>, IGrupoRepositorio
     {
         public FakeGrupoRepo(params Grupo[] grupos) : base(grupos) { }

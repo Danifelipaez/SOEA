@@ -39,7 +39,7 @@ namespace SOEA.Tests.Application
             var progId = Guid.NewGuid();
             var asig   = Existente(Guid.NewGuid(), progId);
             var repo   = new FakeAsignaturaRepo(asig);
-            var service = new AsignaturaService(repo, new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+            var service = new AsignaturaService(repo, new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
 
             var response = await service.UpdateAsync(asig.Id, Request(progId));
 
@@ -53,11 +53,23 @@ namespace SOEA.Tests.Application
         }
 
         [Fact]
+        public async Task ProgramaInexistente_Lanza400_SinActualizar()
+        {
+            var progId = Guid.NewGuid();
+            var asig   = Existente(Guid.NewGuid(), progId);
+            var repo   = new FakeAsignaturaRepo(asig);
+            var service = new AsignaturaService(repo, new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepo());
+
+            await Assert.ThrowsAsync<ArgumentException>(() => service.UpdateAsync(asig.Id, Request(progId)));
+            Assert.Equal(0, repo.Actualizaciones);
+        }
+
+        [Fact]
         public async Task AlternanciaExplicita_SeRespetaSobreLaInferida()
         {
             var progId = Guid.NewGuid();
             var asig   = Existente(Guid.NewGuid(), progId);
-            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
 
             var request = Request(progId);
             request.Alternancia = TipoAlternancia.TipoA; // override manual (11 lab inferiría TipoB)
@@ -82,7 +94,7 @@ namespace SOEA.Tests.Application
         public async Task CreateAsync_ConIdDeCliente_LaRespeta()
         {
             var repo = new FakeAsignaturaRepo();
-            var service = new AsignaturaService(repo, new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+            var service = new AsignaturaService(repo, new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
             var idCliente = Guid.NewGuid();
 
             var request = CreateRequest(Guid.NewGuid());
@@ -96,7 +108,7 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task CreateAsync_SinIdDeCliente_GeneraUno()
         {
-            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
 
             var response = await service.CreateAsync(CreateRequest(Guid.NewGuid()));
 
@@ -106,7 +118,7 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task CreateAsync_AplicaCategoriaYAlternanciaExplicitas()
         {
-            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
             var request = CreateRequest(Guid.NewGuid());
             request.Categoria = CategoriaAsignatura.Electiva;
             request.Alternancia = TipoAlternancia.TipoA;
@@ -120,7 +132,7 @@ namespace SOEA.Tests.Application
         [Fact]
         public async Task LanzaKeyNotFound_SiNoExiste()
         {
-            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(), new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
 
             await Assert.ThrowsAsync<KeyNotFoundException>(
                 () => service.UpdateAsync(Guid.NewGuid(), Request(Guid.NewGuid())));
@@ -131,7 +143,7 @@ namespace SOEA.Tests.Application
         {
             var progId  = Guid.NewGuid();
             var asig    = Existente(Guid.NewGuid(), progId);
-            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+            var service = new AsignaturaService(new FakeAsignaturaRepo(asig), new FakeGrupoRepoVacio(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeProgramaRepoPermisivo());
 
             var request = Request(progId);
             request.HorasTeoriaPresencial = 0; // conteo > 0 con horas = 0 → el dominio exige horas > 0
