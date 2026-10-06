@@ -169,12 +169,13 @@ const hhmmDeMinutos = (m: number): string => `${String(Math.floor(m / 60)).padSt
 
 /** Ventana declarada de un día en minutos [desde, hasta), o null si el día está marcado no disponible.
  *  Espejo de DisponibilidadSemanal.VentanaDe (backend): la franja general la decide el prefijo de la
- *  etiqueta; una franja específica ilegible o "Todo el día" no restringe. */
+ *  etiqueta; una franja específica ilegible o "Todo el día" no restringe. Una franja legible con
+ *  desde >= hasta se devuelve tal cual, como en el backend: ventana vacía, ninguna clase cabe ese día. */
 function ventanaDelDia(d: { noDisponible?: boolean; tipo?: string; franjaGeneral?: string; desde?: string; hasta?: string }): { desde: number; hasta: number } | null {
   if (d.noDisponible) return null;
   if (d.tipo === 'Franja específica') {
     const desde = minutosDe(d.desde ?? ''), hasta = minutosDe(d.hasta ?? '');
-    if (desde < hasta) return { desde, hasta };
+    if (!Number.isNaN(desde) && !Number.isNaN(hasta)) return { desde, hasta };
   }
   const franja = (d.franjaGeneral ?? '').toLowerCase();
   if (franja.startsWith('matutino')) return { desde: 6 * 60, hasta: 12 * 60 };
