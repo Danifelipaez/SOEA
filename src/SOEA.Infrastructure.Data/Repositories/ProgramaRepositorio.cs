@@ -14,5 +14,8 @@ namespace SOEA.Infrastructure.Data.Repositories
         public async Task<Programa?> GetByNombreYFacultadAsync(string nombre, Guid facultadId)
             => await _dbSet.FirstOrDefaultAsync(x =>
                 x.Nombre.ToLower() == nombre.ToLower() && x.FacultadId == facultadId);
+
+        public Task<int> ContarPorFacultadAsync(Guid facultadId)
+            => _dbSet.CountAsync(p => p.FacultadId == facultadId);
     }
 }

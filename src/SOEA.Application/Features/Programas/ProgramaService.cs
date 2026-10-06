@@ -32,7 +32,7 @@ public class ProgramaService
         if (await _repo.GetByIdAsync(id) is null)
             throw new KeyNotFoundException($"Programa con ID {id} no encontrado.");
 
-        var asignaturas = (await _asignaturaRepo.GetAllAsync()).Count(a => a.ProgramaId == id);
+        var asignaturas = await _asignaturaRepo.ContarPorProgramaAsync(id);
         if (asignaturas > 0)
             throw new BusinessRuleViolationException(
                 $"No se puede eliminar el programa: tiene {asignaturas} asignatura(s). Elimínelas o cámbielas de programa primero.");

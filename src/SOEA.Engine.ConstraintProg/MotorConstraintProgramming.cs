@@ -729,44 +729,53 @@ namespace SOEA.Engine.ConstraintProg
             // más HC-SEP): resolver cada grupo aislado es mucho más barato que el barrido por exclusión y no
             // tiene tope de grupos. Solo cuando la causa NO son las aulas: si relajarlas hace factible el modelo,
             // ningún grupo es contradictorio por sí solo, y así el bucle de cesión (que vive de infactibilidades
-            // por Espacio) no paga un solve por grupo en cada iteración.
-            if (permitirSweep && !omitirRestriccionAulas && !esFaltaDeAulas)
+            // por Espacio) no paga un solve por grupo en cada iteración (salvo cuando una pareja cedida da Otro).
+            // El diagnóstico es un extra: si el plazo se agota a mitad, la infactibilidad ya está probada y se
+            // devuelve su mensaje, en vez de dejar que la cancelación la convierta en "plazo agotado".
+            IReadOnlyList<Guid>? gruposResponsablesIds = null;
+            try
             {
-                var autoContradictorios = GruposInfactiblesEnSolitario(
-                    sesiones, bloques, espacios, grupos, sesionesFijasIds, ventanaPorAsignatura, ct);
-                if (autoContradictorios.Count > 0)
+                if (permitirSweep && !omitirRestriccionAulas && !esFaltaDeAulas)
                 {
-                    var nombres = string.Join("', '", autoContradictorios.Take(3).Select(g => g.Nombre));
-                    var msgSolo = $"El grupo '{nombres}'{(autoContradictorios.Count > 3 ? $" y otros {autoContradictorios.Count - 3}" : "")} " +
-                                  "no admite ningún horario por sí solo, sin contar a los demás: sus propias restricciones " +
-                                  "(franja de disponibilidad del grupo, ventana horaria de la asignatura y separación mínima " +
-                                  "de 2 días entre sesiones del mismo tipo) son contradictorias. Revise su disponibilidad o " +
-                                  "las sesiones por semana de su asignatura.";
-                    _logger.LogError(msgSolo);
-                    return new ResultadoFactibilidad(false, SinAsignaciones, msgSolo, MotivoInfactibilidad.Otro,
-                        autoContradictorios.Select(g => g.Id).ToList());
+                    var autoContradictorios = GruposInfactiblesEnSolitario(
+                        sesiones, bloques, espacios, grupos, sesionesFijasIds, ventanaPorAsignatura, ct);
+                    if (autoContradictorios.Count > 0)
+                    {
+                        var nombres = string.Join("', '", autoContradictorios.Take(3).Select(g => g.Nombre));
+                        var msgSolo = $"El grupo '{nombres}'{(autoContradictorios.Count > 3 ? $" y otros {autoContradictorios.Count - 3}" : "")} " +
+                                      "no admite ningún horario por sí solo, sin contar a los demás: sus propias restricciones " +
+                                      "(franja de disponibilidad del grupo, ventana horaria de la asignatura y separación mínima " +
+                                      "de 2 días entre sesiones del mismo tipo) son contradictorias. Revise su disponibilidad o " +
+                                      "las sesiones por semana de su asignatura.";
+                        _logger.LogError(msgSolo);
+                        return new ResultadoFactibilidad(false, SinAsignaciones, msgSolo, MotivoInfactibilidad.Otro,
+                            autoContradictorios.Select(g => g.Id).ToList());
+                    }
+                }
+
+                // El barrido corre igual cuando la causa son las aulas: el motivo Espacio dice QUÉ hacer
+                // (emparejar / añadir aulas) y el barrido dice A QUIÉN mirar. Son complementarios.
+                // Causa real no explicada por ningún pre-check estructural: si está habilitado, el
+                // barrido reintenta el solve una vez por grupo excluyéndolo para nombrar culpables.
+                if (permitirSweep)
+                {
+                    var gruposResponsables = EjecutarSweepDiagnostico(
+                        sesiones, bloques, espacios, grupos, sesionesFijasIds, ventanaPorAsignatura, ct);
+                    if (gruposResponsables is not null)
+                    {
+                        gruposResponsablesIds = gruposResponsables.Select(g => g.Id).ToList();
+                        mensaje += gruposResponsables.Count > 0
+                            ? $" Diagnóstico adicional: al excluir el grupo '{string.Join("' o '", gruposResponsables.Select(g => g.Nombre))}' " +
+                              "el modelo pasa a ser factible; revise conflictos entre esos grupos (espacio compartido, " +
+                              "pareja de alternancia, u otra restricción cruzada)."
+                            : " Diagnóstico adicional: ningún grupo individual es responsable — revise la capacidad global, " +
+                              "la separación mínima de días entre sesiones, o las parejas de alternancia.";
+                    }
                 }
             }
-
-            // El barrido corre igual cuando la causa son las aulas: el motivo Espacio dice QUÉ hacer
-            // (emparejar / añadir aulas) y el barrido dice A QUIÉN mirar. Son complementarios.
-            // Causa real no explicada por ningún pre-check estructural: si está habilitado, el
-            // barrido reintenta el solve una vez por grupo excluyéndolo para nombrar culpables.
-            IReadOnlyList<Guid>? gruposResponsablesIds = null;
-            if (permitirSweep)
+            catch (OperationCanceledException)
             {
-                var gruposResponsables = EjecutarSweepDiagnostico(
-                    sesiones, bloques, espacios, grupos, sesionesFijasIds, ventanaPorAsignatura, ct);
-                if (gruposResponsables is not null)
-                {
-                    gruposResponsablesIds = gruposResponsables.Select(g => g.Id).ToList();
-                    mensaje += gruposResponsables.Count > 0
-                        ? $" Diagnóstico adicional: al excluir el grupo '{string.Join("' o '", gruposResponsables.Select(g => g.Nombre))}' " +
-                          "el modelo pasa a ser factible; revise conflictos entre esos grupos (espacio compartido, " +
-                          "pareja de alternancia, u otra restricción cruzada)."
-                        : " Diagnóstico adicional: ningún grupo individual es responsable — revise la capacidad global, " +
-                          "la separación mínima de días entre sesiones, o las parejas de alternancia.";
-                }
+                _logger.LogWarning("Diagnóstico de infactibilidad interrumpido por el plazo; se devuelve la infactibilidad sin él.");
             }
 
             return new ResultadoFactibilidad(false, SinAsignaciones, mensaje,

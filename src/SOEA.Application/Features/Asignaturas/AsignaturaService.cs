@@ -14,16 +14,14 @@ public class AsignaturaService
     private readonly IGrupoRepositorio _grupoRepository;
     private readonly SesionCascadeService _sesionCascade;
     private readonly IUnitOfWork _uow;
-    private readonly IProgramaRepositorio? _programaRepository;
+    private readonly IProgramaRepositorio _programaRepository;
 
-    // programaRepository es opcional (null = sin esa comprobación) para no romper la firma en los tests
-    // existentes que no lo proveen; el DI de producción siempre lo inyecta.
     public AsignaturaService(
         IAsignaturaRepositorio repository,
         IGrupoRepositorio grupoRepository,
         SesionCascadeService sesionCascade,
         IUnitOfWork uow,
-        IProgramaRepositorio? programaRepository = null)
+        IProgramaRepositorio programaRepository)
     {
         _repository = repository;
         _grupoRepository = grupoRepository;
@@ -38,7 +36,7 @@ public class AsignaturaService
     /// </summary>
     private async Task ExigirProgramaExisteAsync(Guid programaId)
     {
-        if (_programaRepository is not null && await _programaRepository.GetByIdAsync(programaId) is null)
+        if (await _programaRepository.GetByIdAsync(programaId) is null)
             throw new ArgumentException("El programa indicado no existe. Elija un programa del catálogo.");
     }
 

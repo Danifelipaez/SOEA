@@ -36,7 +36,11 @@ public class GlobalExceptionHandler : IExceptionHandler
             "Un valor es demasiado largo para su campo. Acórtelo e intente de nuevo."),
         PostgresErrorCodes.NumericValueOutOfRange => (StatusCodes.Status400BadRequest, "Solicitud inválida",
             "Un valor numérico está fuera del rango permitido."),
-        PostgresErrorCodes.ForeignKeyViolation => (StatusCodes.Status409Conflict, "Conflicto de datos",
+        // Mismo SQLSTATE, sentido opuesto: al BORRAR, la FK Restrict dice que otros registros aún dependen de este.
+        PostgresErrorCodes.ForeignKeyViolation when ex.Entries.Any(e => e.State == EntityState.Deleted) =>
+            (StatusCodes.Status409Conflict, "Conflicto de datos",
+            "No se pudo eliminar: otros registros todavía dependen de este. Elimínelos o cámbielos primero."),
+        PostgresErrorCodes.ForeignKeyViolation =>(StatusCodes.Status409Conflict, "Conflicto de datos",
             "No se pudo guardar el cambio: hace referencia a un registro que no existe (o que ya fue eliminado)."),
         PostgresErrorCodes.UniqueViolation => (StatusCodes.Status409Conflict, "Conflicto de datos",
             "No se pudo guardar el cambio: ya existe un registro con esos datos."),

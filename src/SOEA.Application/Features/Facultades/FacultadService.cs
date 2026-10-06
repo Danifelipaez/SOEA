@@ -32,7 +32,7 @@ public class FacultadService
         if (await _repo.GetByIdAsync(id) is null)
             throw new KeyNotFoundException($"Facultad con ID {id} no encontrada.");
 
-        var programas = (await _programaRepo.GetAllAsync()).Count(p => p.FacultadId == id);
+        var programas = await _programaRepo.ContarPorFacultadAsync(id);
         if (programas > 0)
             throw new BusinessRuleViolationException(
                 $"No se puede eliminar la facultad: tiene {programas} programa(s). Elimínelos o cámbielos de facultad primero.");

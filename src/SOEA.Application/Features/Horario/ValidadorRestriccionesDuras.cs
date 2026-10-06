@@ -396,7 +396,9 @@ namespace SOEA.Application.Features.Horario
                 _        => "Ajuste el horario de una de las dos sesiones para que no se solapen."
             };
 
-            var ordenados = grupo.OrderBy(i => i.Inicio).ToList();
+            // ThenBy(Id): el texto del conflicto no depende del orden de entrada. Los llamadores que separan
+            // conflictos "nuevos" de "previos" comparan estos textos (ReacomodarHorarioService NEW-4).
+            var ordenados = grupo.OrderBy(i => i.Inicio).ThenBy(i => i.Sesion.Id).ToList();
             for (int i = 0; i < ordenados.Count; i++)
             {
                 for (int j = i + 1; j < ordenados.Count; j++)

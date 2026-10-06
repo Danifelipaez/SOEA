@@ -98,8 +98,8 @@ namespace SOEA.Domain.ValueObjects
                     "deben ser HH:mm y la de inicio anterior a la de fin).");
         }
 
-        // "Franja específica" con hora ilegible ("25:00") o desde >= hasta: VentanaDe la ensancharía en
-        // silencio a "todo el día"; se reporta como inválida para no perder la restricción sin aviso.
+        // "Franja específica" con hora ilegible ("25:00"): VentanaDe la ensancharía en silencio a "todo el día";
+        // con desde >= hasta deja una ventana vacía (el día queda cerrado). Las dos se reportan como inválidas.
         private static bool EntradaEsValida(DiaEntradaCruda? e) =>
             e is not null
             && (e.NoDisponible || e.Tipo != "Franja específica"

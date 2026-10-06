@@ -92,7 +92,7 @@ namespace SOEA.API.Controllers
         public async Task<ActionResult<List<GrupoDto>>> GetByAsignatura(Guid asignaturaId)
         {
             var list = await _repo.GetByAsignaturaIdAsync(asignaturaId);
-            var jerarquia = await JerarquiaAsync();
+            var jerarquia = await JerarquiaDeAsync(await _asignaturas.GetByIdAsync(asignaturaId));
             return Ok(list.Select(g => MapToDto(g, jerarquia)));
         }
 

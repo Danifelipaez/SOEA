@@ -1051,9 +1051,12 @@ namespace SOEA.Application.Features.Horario
                 // queda "sin restricción" — silencioso para el motor, pero no debería serlo para el
                 // coordinador: sin este aviso, un grupo que SÍ marcó su disponibilidad la pierde
                 // entera sin que nadie se entere de por qué se programó fuera de su franja.
+                // JsonEsValido también rechaza una franja con inicio >= fin, que SÍ se aplica (deja ese día
+                // cerrado): el aviso no afirma "sin restricción", porque no siempre es cierto.
                 if (!DisponibilidadSemanal.JsonEsValido(dto.DisponibilidadUiJson))
-                    advertencias.Add($"[WARN] Grupo '{dto.Nombre}': la disponibilidad declarada no se pudo " +
-                                      "interpretar (formato inválido); se generará sin restricción de disponibilidad para este grupo.");
+                    advertencias.Add($"[WARN] Grupo '{dto.Nombre}': la disponibilidad declarada no es válida (formato " +
+                                      "ilegible, o una franja cuya hora de inicio no es anterior a la de fin). Se generará con " +
+                                      "lo que se pudo interpretar, que puede no ser lo declarado: revise la disponibilidad del grupo.");
                 grupo.ActualizarRequisitosEspacio(MapearRequisitosEspacio(dto.RequisitosEspacio));
                 grupos.Add(grupo);
             }

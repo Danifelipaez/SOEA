@@ -161,6 +161,8 @@ namespace SOEA.Infrastructure.Excel
             var gruposDict      = new Dictionary<(string AsigNorm, Guid ProgramaId, string Discriminador), Grupo>();
             // conteo de grupos por (asig_norm, programaId) para numerar secuencialmente
             var gruposContador  = new Dictionary<(string AsigNorm, Guid ProgramaId), int>();
+            // Franjas (día|hora) ya usadas por cada grupo sin docente ni número de grupo, para separar secciones.
+            var franjasSinDocente = new Dictionary<(string AsigNorm, Guid ProgramaId, int K), HashSet<string>>();
             var advertencias    = new List<string>();
             // DB-10 auditoría 2026-09-28: el formato de Excel no trae capacidad de espacio, estudiantes por grupo ni horas
             // del docente, y el lector los rellena (30 / 30 / 40 h Matutino). CLAUDE.md §4: esos datos los da la
@@ -327,7 +329,22 @@ namespace SOEA.Infrastructure.Excel
                 // GRUPO, no en la asignatura (la misma asignatura la dictan docentes distintos).
                 // Si el Excel trae un número de grupo real, es la clave/nombre autoritativa;
                 // si no (formato viejo), se sigue numerando secuencialmente por docente.
-                var discriminadorGrupo = numeroGrupoExplicito.HasValue ? $"N{numeroGrupoExplicito}" : docenteNorm;
+                string discriminadorGrupo;
+                if (numeroGrupoExplicito.HasValue) discriminadorGrupo = $"N{numeroGrupoExplicito}";
+                else if (docente is not null) discriminadorGrupo = docenteNorm;
+                else
+                {
+                    // Sin docente ni número de grupo no se sabe la sección. Con el docente como clave ("") todas
+                    // se fundían en un grupo con clases a la misma hora; una fila que cae en una franja que el
+                    // grupo ya tiene es otra sección. ponytail: heurística; la columna Grupo lo resuelve de verdad.
+                    var franja = $"{NormalizadorTexto.Normalizar(txtDia)}|{txtHora}";
+                    int k = 0;
+                    while (franjasSinDocente.TryGetValue((asignaturaNorm, programa.Id, k), out var usadas) && usadas.Contains(franja)) k++;
+                    if (!franjasSinDocente.TryGetValue((asignaturaNorm, programa.Id, k), out var franjasK))
+                        franjasSinDocente[(asignaturaNorm, programa.Id, k)] = franjasK = new HashSet<string>();
+                    franjasK.Add(franja);
+                    discriminadorGrupo = $"SD{k}";
+                }
                 var claveGrupo = (asignaturaNorm, programa.Id, discriminadorGrupo);
                 if (!gruposDict.TryGetValue(claveGrupo, out var grupoDocente))
                 {
@@ -345,9 +362,15 @@ namespace SOEA.Infrastructure.Excel
                         numGrupoMostrado = numGrupoActual;
                     }
 
-                    var nombreGrupo = $"{txtAsignatura} - Grupo {numGrupoMostrado}";
-                    // Grupos.nombre admite 100 caracteres; la asignatura, 255.
-                    ValidarLongitud(fila, "Grupo (asignatura + número de grupo)", nombreGrupo, 100);
+                    // Grupos.nombre admite 100 caracteres; la asignatura, 255: un nombre derivado largo se acorta
+                    // (avisando) en vez de rechazar todo el archivo por un dato que el usuario no escribió.
+                    var sufijoGrupo = $" - Grupo {numGrupoMostrado}";
+                    var nombreGrupo = txtAsignatura + sufijoGrupo;
+                    if (nombreGrupo.Length > 100)
+                    {
+                        nombreGrupo = txtAsignatura[..(100 - sufijoGrupo.Length)].TrimEnd() + sufijoGrupo;
+                        advertencias.Add($"Fila {fila}: el nombre del grupo superaba 100 caracteres; se acortó a '{nombreGrupo}'.");
+                    }
                     grupoDocente = new Grupo(
                         Guid.NewGuid(), nombreGrupo, asignatura.Id, 30, asignatura.Alternancia,
                         codigo: numeroGrupoExplicito?.ToString(), docenteId: docente?.Id);
