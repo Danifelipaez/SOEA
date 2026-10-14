@@ -17,7 +17,7 @@ description: "Instrucciones para integrar queries PostgreSQL en chat. Automatiza
 | **Todas las queries SQL** | [soea-queries-repository.md](soea-queries-repository.md) |
 | **Casos de uso** | [soea-use-cases.md](soea-use-cases.md) |
 | **Validación de restricciones** | [validation-rules.md](validation-rules.md) |
-| **Especificación de restricciones** | [docs/business-rules/](../../docs/business-rules/) |
+| **Especificación de restricciones** | [docs/domain.md](../../../docs/domain.md) |
 
 ---
 
@@ -321,4 +321,4 @@ Agente:
 - **Casos:** [soea-use-cases.md](soea-use-cases.md)
 - **Validación:** [validation-rules.md](validation-rules.md)
 - **DB Schema:** [schema-quick-reference.md](schema-quick-reference.md)
-- **Restricciones:** [hard-constraints.md](../../docs/business-rules/hard-constraints.md)
+- **Restricciones:** [domain.md](../../../docs/domain.md)

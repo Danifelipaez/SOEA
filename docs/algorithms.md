@@ -1,212 +1,88 @@
-# Algoritmos SOEA
+# Algoritmos
 
-## Definición del problema (UCTP)
+> Verificado contra el código el 2026-10-14. Reglas HC/SC/ALT en [domain.md](domain.md).
 
-SOEA resuelve una variante del University Course Timetabling Problem (UCTP) con alternancia: asignar a cada sesión lógica `s` **una** franja y un aula `(t(s), r(s))` que aplican a todas las semanas del semestre, de forma que se satisfagan todas las restricciones duras y se minimice la suma ponderada de violaciones de restricciones blandas. Lo único que varía por semana es la **modalidad**, y solo para las sesiones emparejadas: dos sesiones con el mismo `ParejaAlternanciaId` comparten bloque y aula, una presencial en la semana A y la otra en la B. La modalidad por semana (presencial/virtual) es un dato derivado fijo de `TipoAlternancia`, no una variable de decisión. El espacio de búsqueda es combinatorio y NP-completo; se usa un pipeline de 3 fases para hacerlo tratable en la práctica (≤ 200 cohortes).
+## Problema
 
-> **Presencial-First (implementado).** El eje del modelo es **asignatura + grupo + espacio** (no disponibilidad docente). `Sesion.TipoFlujo` distingue laboratorio de teoría (presencial/virtual, 3 tracks); `Sesion.PatronAlternanciaId?`/`Bloqueada` permiten alternancia opcional por sesión; `Asignatura.Categoria` + `HoraInicioMin/HoraFinMax` alimentan SC-PRES y HC-VH. `Sesion.DocenteId` es nullable (CR-02): el docente sale del núcleo de generación y se asigna *después* vía `PATCH /api/sesiones/{id}/docente`. El **grupo/cohorte** es el eje de conflicto (HC-C01: grafo por grupo en Fase 1 + NoOverlap por `(grupo, semana)` en Fase 2) y de optimización (ergonomía por cohorte en Fase 3). Un run = una sola cohorte implícita ⇒ todas las sesiones se serializan. **Implementado:** HC-CAP (aforo), HC-VH (ventana), HC-G01 (franja del grupo), HC-S05 (espacio fijo), HC-SEP (separación mínima de días, agosto 2026), HC-ALT (alternancia por parejas, agosto 2026) — impuestas en CP-SAT (Fase 2), respetadas por el GA (Fase 3, auditoría A1) y re-verificadas en el validador post-generación junto con HC-C01/HC-S01. **HC-SU01 ("8+8" como hard constraint) es obsoleta**: TipoA/TipoB son únicamente tipos de alternancia semanal (presencial una semana, virtual la otra), no un patrón de bloques de 8h — ver `docs/domain.md`. HU-04 (editar sesión) es la única pieza pendiente de este eje. Histórico de etapas en `docs/PLAN_MAESTRO_PresencialFirst.md`.
->
-> **Activación de la Semana B (cesión reactiva, `GenerarHorarioService`).** La Semana A es EL horario. La Semana B solo existe cuando, tras comprobar que no hay configuración válida por falta de aulas, dos sesiones se emparejan para turnarse un espacio. El bucle es reactivo: se ejecuta Fase 1 + Fase 2 y, solo si CP-SAT devuelve `MotivoInfactibilidad.Espacio`, `CederSiguientePareja` empareja dos candidatas y se reintenta, hasta lograr factibilidad o agotar combinaciones.
->
-> Candidata: presencial (laboratorio **o** teoría), sin alternancia, no bloqueada, no fija, que cumpla al menos un criterio activo de `CriterioCesionAlternancia` (Electiva → Optativa → Elegible, con `MultiplesSesiones` solo como desempate). La pareja exige asignatura y grupo distintos, misma duración, requisito de espacio compatible y — la compuerta que antes faltaba — **franja común y aula común**, evaluadas con las mismas fuentes que usará CP-SAT (`CalculadorDominioSesion` y `CalculadorEspaciosSesion`), de modo que una pareja aceptada siempre tenga dónde colocarse. Ver `EvaluadorParejaAlternancia`.
->
-> Si una pareja vuelve el modelo infactible por una causa distinta de `Espacio` (p. ej. HC-SEP con las hermanas de sus miembros), el bucle la **deshace y la descarta**, y prueba otra combinación en vez de abandonar. Si no queda ninguna pareja posible, la generación **falla** nombrando qué no cupo y por qué (`SesionesSinAlternanciaPosible`): nunca se virtualiza una sesión presencial en silencio. La heurística preventiva anterior (`AplicarPrioridadPresencial`, que cedía antes de intentar nada y como último recurso virtualizaba) se eliminó por contradecir esta regla.
->
-> Tras la Fase 3, `MotorGenetico` intenta revertir cada cesión (`Sesion.RevertirCesion()`, en orden inverso) verificando con `AsignadorEspacios` si ya cabe físicamente toda la demanda presencial — revertir una pareja deja dos presenciales en el mismo bloque necesitando dos aulas distintas, y ese re-asignado es exactamente el chequeo que lo acepta o lo rechaza.
+Variante del University Course Timetabling Problem con alternancia: dar a cada sesión **una** franja y **un** aula válidas para todo el semestre (ALT-05), cumpliendo todas las restricciones duras y minimizando las blandas. La modalidad por semana no es variable de decisión: se deriva de la alternancia. El horario se genera desde cero en cada corrida (las sesiones fijas entran como igualdades).
 
----
+## Pipeline (`GenerarHorarioService.EjecutarAsync`)
 
-## Fase 1 — Coloración de grafos (Welsh-Powell)
-
-**Implementación:** `SOEA.Engine.GraphColoring` · `AgendadorColoracionGrafo`, `ConstructorGrafoConflictos`
-
-**Input:** `List<Sesion>`, `List<BloqueTiempo>`
-**Output:** `PreHorario` — asignación parcial de bloques (sin espacio asignado aún)
-
-```pseudocode
-función GraphColoringPhase(sesiones, bloques):
-    G = ConstruirGrafoConflictos(sesiones)
-    // ordenar por grado descendente (Welsh-Powell)
-    sesionesOrdenadas = OrdenarPorGrado(G, descendente)
-    asignacion = {}
-    para cada sesión s en sesionesOrdenadas:
-        coloresUsados = { asignacion[v] para v en G.vecinos(s) }
-        asignacion[s] = PrimerBloqueDisponible(bloques, coloresUsados)
-    retornar PreHorario(asignacion)
-
-función ConstruirGrafoConflictos(sesiones):
-    // Verificado contra ConstructorGrafoConflictos.TienenConflicto — solo 2 condiciones, no 3.
-    // El TipoAlternancia NO genera arista por sí solo si no hay grupo o espacio en común.
-    G = grafo vacío
-    para cada par (s1, s2) con s1 ≠ s2:
-        si MismoGrupo(s1, s2):                 // CR-08: eje primario (el docente sale del pipeline)
-            G.agregarArista(s1, s2)
-        sino si MismoEspacio(s1, s2):
-            si NO (s1 y s2 son TipoA/TipoB opuestos):  // ALT-01: pueden compartir espacio
-                G.agregarArista(s1, s2)
-    retornar G
+```
+POST /api/horario/generar  (catálogo enviado por el frontend + semestre + configuración GA)
+ 1. Mapear DTOs → entidades. Cada grupo aporta sus sesiones con su propio GrupoId (multi-grupo real).
+    Las sesiones fijas reemplazan a una sesión del mismo grupo/asignatura/tipo.
+ 2. Fase 1  Coloración de grafos  → bloque inicial por sesión (warm-start)
+ 3. Fase 2  CP-SAT                → horario factible  (si falta aula: bucle de Semana B)
+ 4. Fase 3  Algoritmo genético    → mejora blandas; asignación exacta de aulas; reversión de cesiones
+ 5. Validador de 10 reglas duras  → si el GA violó algo, se usa la solución de Fase 2
+ 6. Persistir en UNA transacción: borra sesiones/asignaciones de corridas previas del mismo
+    semestre, guarda Sesiones + Horario + AsignacionesSemanales
 ```
 
-**Hard constraints procesadas en Fase 1:** HC-C01 (cohorte — eje primario, CR-08), ALT-02/03 (alternancia espacial). El docente quedó fuera del pipeline (CR-08).
+- Plazo total: 200 s (`PlazoTotalPorDefecto`). Si vence antes de Fase 2 → 422 `Timeout`; si vence en Fase 3 → se publica la solución de Fase 2.
+- Una generación a la vez (429 si hay otra en curso). Parámetros del GA validados por rango (400).
+- Infactible → 422 con `motivoInfactibilidad` ∈ {`Espacio`, `Capacidad`, `VentanaHoraria`, `FranjaGrupo`, `Datos`, `Timeout`, `Otro`} y un mensaje que nombra lo que no cupo.
 
-**Auditoría A1/B3:** el dominio de inicios candidatos (`PrimerBloqueDisponible`) ya no es solo "cabe-en-día": usa `CalculadorDominioSesion` (Domain), la misma fuente que CP-SAT y el GA, así que respeta HC-G01 (franja del grupo) y HC-VH (ventana de la asignatura) — el warm-start nunca cae fuera del dominio que Fase 2 va a exigir. Los candidatos se recorren en orden **round-robin por día** (no ascendente puro) para no amontonar todas las sesiones el lunes por la mañana cuando el grafo es completo (cohorte única).
+## Fase 1 — Coloración (Welsh-Powell)
 
----
+`SOEA.Engine.GraphColoring` (`ConstructorGrafoConflictos`, `AgendadorColoracionGrafo`).
 
-## Fase 2 — Programación por restricciones (CP-SAT)
+- Arista si dos sesiones comparten **grupo**, o comparten **aula** salvo que sean TipoA/TipoB opuestos (ALT-01).
+- Orden por grado descendente; a cada sesión se le da el primer inicio de su dominio (`CalculadorDominioSesion`: HC-G01 + HC-VH) libre de vecinos, recorriendo los días en round-robin para no amontonar el lunes.
 
-**Implementación:** `SOEA.Engine.ConstraintProg` · `MotorConstraintProgramming`
-**Dependencia externa:** Google OR-Tools CP-SAT (timeout 120 s)
+## Fase 2 — CP-SAT (OR-Tools)
 
-**Input:** sesiones lógicas de Fase 1 + dominio completo de bloques/espacios/docentes
-**Output:** `IReadOnlyList<AsignacionSemanal>` (2 por sesión, semanas A y B) OR `InfeasibleResult` → HTTP 422
+`SOEA.Engine.ConstraintProg` (`MotorConstraintProgramming`). Timeout por solve: `CpSat:TimeoutSegundos` (120 s).
 
-El modelo CP-SAT indexa **todas las variables por `(sesionId, semana)`** en lugar de solo `sesionId`. La modalidad de cada par es derivada antes de construir el modelo (no es variable): `ModalidadDe(sesion, semana)`.
+- **Variables:** un inicio por sesión (ALT-05 es estructural) con dominio = `CalculadorDominioSesion`; para cada (sesión presencial, semana en que ocupa aula) un literal por aula candidata (`CalculadorEspaciosSesion`: HC-S03, HC-S05, HC-CAP) con `AddExactlyOne`.
+- **Restricciones:** NoOverlap por grupo (HC-C01, independiente de la semana); NoOverlap de intervalos opcionales por (aula, semana) (HC-S01); `AddElement` sobre el día para HC-SEP; igualdad de bloque y aula en parejas (HC-ALT); igualdad en sesiones fijas (HC-BASE). Hints desde Fase 1.
+- **Pre-chequeos** antes de construir el modelo (demanda vs. capacidad por clase de aula, datos incoherentes) → infactibilidad explicada sin resolver.
+- **Clasificación:** ante un INFEASIBLE sin explicación, reintenta sin restricciones de aula (`ClasificarInfactibilidadEspacio`); si así es factible, el motivo es `Espacio`. Opcionalmente (`SweepGrupos`) reintenta excluyendo cada grupo para nombrar al culpable.
 
-```pseudocode
-función ConstraintProgrammingPhase(sesiones, bloques, espacios, docentes):
-    modelo = nuevo CpModel()
+## Semana B reactiva
 
-    // 1. Variables: intervalo de longitud fija DuracionHoras por (sesión, semana)
-    para cada sesión s, semana w ∈ {A, B}:
-        start[(s,w)]    = modelo.NewIntVar(0, |bloques| - dur(s))
-        end[(s,w)]      = modelo.NewIntVar(dur(s), |bloques|)
-        interval[(s,w)] = modelo.NewIntervalVar(start, dur(s), end)
-        si ModalidadDe(s,w) == Presencial:
-            space[(s,w)] = modelo.NewIntVar(0, |espacios|-1)
+Solo se activa si Fase 2 devuelve `Espacio`:
 
-    // 2. Regla 9 (ALT-05): hay UNA variable de inicio por sesión, así que "misma franja en
-    //    todas las semanas" es estructural — no hay nada que enlazar
-    para cada sesión s con s.Alternancia ∈ {TipoA, TipoB}:
-        modelo.Add(start[(s,A)] == start[(s,B)])
-
-    // 3. Warm-start desde Fase 1
-    para cada sesión s con bloque preasignado:
-        modelo.AddHint(start[(s,A)], indice(bloque)); modelo.AddHint(start[(s,B)], indice(bloque))
-
-    // 4. No-cruzar-día: dominio de start = StartsValidos(estructural, sin disponibilidad docente)
-    //    HC-I02 degradada (Etapa 2 / CR-08): la disponibilidad docente ya NO restringe el dominio.
-    para cada sesión s, semana w:
-        modelo.AddLinearExpressionInDomain(start[(s,w)], StartsValidos(s, bloques))
-
-    // 5. HC-C01: NoOverlap por (grupo, semana) — presenciales + virtuales (CR-08).
-    //    El grupo no puede estar en dos sesiones a la vez. Cohorte única ⇒ serialización global.
-    //    El docente sale del pipeline: ya no hay HC-I01 (docente) ni HC-I03 (máx. horas) aquí.
-    para cada grupo g, semana w:
-        modelo.AddNoOverlap([interval[(s,w)] para s de g])
-
-    // 5b. HC-ALT (nuevo, agosto 2026): alternancia por parejas. Para cada Sesion.ParejaAlternanciaId
-    //     compartido por 2 sesiones, fuerza que ambas inicien en el mismo bloque en su semana
-    //     presencial y que ocupen el mismo espacio entre semanas (alternancia atómica).
-    para cada pareja (s1, s2) con mismo ParejaAlternanciaId:
-        modelo.Add(start[(s1,A)] == start[(s2,A)])
-        // enlaza también las variables de espacio de s1/s2 entre semana A y B (mismo salón)
-
-    // 5c. HC-SEP (nuevo, agosto 2026): separación mínima de días entre sesiones semanales
-    //     repetidas del mismo (grupo, asignatura, TipoSesion). Extrae el día de cada start con
-    //     AddElement y exige, por cada par en el mismo cluster, diferencia de día ≥ 2.
-    para cada cluster de sesiones del mismo (grupo, asignatura, tipoSesion) con ≥2 sesiones/semana:
-        para cada par (si, sj) del cluster, semana w:
-            dia[si] = modelo.AddElement(start[(si,w)], tablaDePorBloque)
-            dia[sj] = modelo.AddElement(start[(sj,w)], tablaDePorBloque)
-            modelo.Add(|dia[si] - dia[sj]| >= 2)   // vía literal booleano de disyunción
-
-    // 7. HC-S01 + HC-S03 + HC-S04: intervalos opcionales por (espacio, semana), solo presenciales
-    para cada sesión s, semana w con Modalidad=Presencial:
-        candidatos = EspaciosCandidatos(s)  // HC-S03: lab si la sesión requiere lab
-        literales = [modelo.NewBoolVar() para e en candidatos]
-        modelo.AddExactlyOne(literales)     // exactamente un espacio activo
-        para cada (lit, e):
-            modelo.Add(space[(s,w)] == e).OnlyEnforceIf(lit)
-            optInterval[(s,w,e)] = modelo.NewOptionalIntervalVar(..., lit)
-    para cada espacio e, semana w:
-        modelo.AddNoOverlap([optInterval[(s,w,e)] para s presencial en e y w])
-
-    // 8. Resolver
-    solver.TimeLimit = 120
-    estado = solver.Solve(modelo)
-    si estado es FEASIBLE o OPTIMAL:
-        retornar [AsignacionSemanal(s, w, bloques[start(s,w)], espacio(s,w), ModalidadDe(s,w))
-                  para cada s, w]
-    sino:
-        retornar InfeasibleResult
-```
-
-**Hard constraints procesadas en Fase 2:** HC-C01 (cohorte — eje primario, CR-08), HC-S01, HC-S03, HC-S04, HC-S05 (espacio fijo), HC-CAP (aforo), HC-G01 (franja del grupo), HC-VH (ventana de la asignatura), **HC-SEP** (separación mínima de días, agosto 2026), **HC-ALT** (alternancia por parejas, agosto 2026) — evaluadas por semana. **Docente fuera de generación (CR-08):** HC-I01 (lo subsume HC-C01) y HC-I03 salieron; HC-I02 degradada (Etapa 2). El docente se asigna después de generar el horario.
-
-**Pre-chequeo de saturación (antes de construir el modelo):** compara la demanda presencial estimada contra `espacios.Count × bloques.Count` por semana; si la demanda excede la capacidad, rechaza de inmediato con `MotivoInfactibilidad.Espacio` (sin siquiera construir el modelo CP-SAT) — esto es lo que dispara una nueva pasada del pre-proceso presencial-first (`CederSiguienteCandidatoLab`, ver arriba). Registra una advertencia si la saturación ronda el 95 %.
-
----
+1. `CederSiguientePareja` elige dos candidatas y las empareja (una TipoA, otra TipoB, mismo `ParejaAlternanciaId`, `CedidaPorSaturacion = true`).
+2. **Candidata:** presencial, sin alternancia, no fija ni bloqueada, alcanzada por algún criterio activo de `CriterioCesionAlternancia` (Electiva → Optativa → Elegible, en el orden configurado; `MultiplesSesiones` solo desempata).
+3. **Pareja válida** (`EvaluadorParejaAlternancia`): grupos y asignaturas distintos, misma duración, requisito de aula compatible y, sobre todo, **franja común y aula común** según las mismas fuentes que usa CP-SAT.
+4. Se reintenta Fase 1 + Fase 2. Si la pareja provoca otra causa de infactibilidad (p. ej. HC-SEP), se deshace y se prueba otra.
+5. Si no quedan parejas posibles, la generación **falla** nombrando qué no cupo. Nunca se virtualiza una sesión en silencio.
 
 ## Fase 3 — Algoritmo genético
 
-> **Estado actual:** la Fase 3 está **activa** en `GenerarHorarioService` y optimiza los objetivos blandos de la cohorte (huecos, &gt; N horas seguidas, balance entre días) sobre UN gen de inicio por sesión: `CromosomaHorario.Start`. Antes había un segundo gen `StartB` que para `SinAlternancia` podía divergir, más una soft constraint SC-BAL que penalizaba el desbalance entre semanas; ambos se eliminaron. Con un solo gen ese desbalance es idénticamente cero, y la libertad que premiaban producía una semana par con otro horario, no un horario con alternancia. **SC-PRES es informativo (auditoría B2):** es constante para el conjunto de sesiones del run (el GA nunca mueve la alternancia), así que se reporta aparte (`PenalizacionPresencial`) y ya no suma al fitness — antes inflaba el número sin cambiar ningún ranking.
+`SOEA.Engine.Genetic` (`MotorGenetico`, `CromosomaHorario`, `EvaluadorFitness`, `OperadoresGeneticos`).
 
-**Implementación:** `SOEA.Engine.Genetic` · `MotorGenetico`, `CromosomaHorario`, `EvaluadorFitness`, `OperadoresGeneticos`
-**Hiperparámetros:** población 50 · generaciones máx 200 · convergencia 30 generaciones sin mejora · selección por torneo (k=5)
+- Cromosoma: un gen `Start` por sesión (válido para ambas semanas). Genes de sesiones fijas congelados.
+- (μ+λ) con elitismo: población 50, hasta 200 generaciones, corte tras 30 sin mejora, torneo k=5. Cada hijo pasa por reparación (HC-C01, HC-SEP, HC-ALT, dominio). Rangos aceptados: población 10–200, generaciones 1–1000.
+- Fitness: SC-01, SC-06, SC-09 y guarda de aulas (ver [domain.md](domain.md#restricciones-blandas-fitness-del-ga-menor-es-mejor)).
+- Al converger: si queda un solape de grupo → solución de Fase 2. Luego `AsignadorEspaciosExactoCpSat` (sub-modelo CP-SAT, inicios fijos, solo variables de aula, 10 s) asigna las aulas definitivas.
+- **Reversión de cesiones:** en orden inverso, cada pareja cedida se intenta devolver a presencial; se acepta si el asignador exacto aún encuentra aula para toda la demanda.
 
-**Input:** lista de `AsignacionSemanal` de Fase 2 (pares A/B por sesión; ambas semanas siembran `Start`/`StartB`)
-**Output:** lista optimizada de `AsignacionSemanal` (fitness minimizado)
+## Validador post-generación
 
-**Auditoría B1 — (μ+λ) con elitismo, no steady-state.** El motor original reemplazaba solo un hijo por generación (≤200 evaluaciones útiles); ahora cada generación produce `TamañoPoblación` hijos, se unen a los padres y sobreviven los mejores `TamañoPoblación` — con la config por defecto (50×200) son ~10.000 evaluaciones, y el elitismo garantiza que el mejor fitness es monótono no-creciente generación a generación:
+`ValidadorRestriccionesDuras.Validar` revisa 10 reglas sobre las asignaciones finales: HC-C01, HC-S01, HC-ALT, HC-BASE, HC-VH, HC-G01, HC-S03, HC-CAP, HC-S05, HC-SEP. Si el GA violó alguna, se restaura el estado previo a Fase 3 y se usa la solución de Fase 2. Una asignación que apunta a sesión/bloque inexistente se reporta como `DATOS`. `ValidarDocentes` (HC-I01) se usa solo en edición.
 
-```pseudocode
-función GeneticAlgorithmPhase(horarioFactible):
-    poblacion = InicializarPoblacion(horarioFactible, N=50)
-    sinMejora = 0
-    para generacion = 1 hasta 200:
-        hijos = []
-        repetir N veces:
-            padre1, padre2 = SeleccionTorneo(poblacion, k=5)
-            hijo = Crossover(padre1, padre2)
-            hijo = Mutar(hijo, tasaMutacion)
-            RepararRestriccionesDuras(hijo)   // codiciosa; mantiene feasibilidad
-            hijos.agregar(hijo)
-        poblacion = MejoresN(poblacion + hijos, N)   // (μ+λ) con elitismo
-        si Fitness(MejorDe(poblacion)) < mejorFitness:
-            mejorFitness = Fitness(MejorDe(poblacion)); sinMejora = 0
-        sino:
-            sinMejora++
-        si sinMejora >= 30:
-            break
-    retornar MejorDe(poblacion)
+## Operaciones sobre un horario ya generado
 
-función Fitness(cromosoma):
-    score = 0
-    para cada SC con peso w en [SC-01, SC-06, SC-09, SC-BAL]:  // SC-PRES es informativo, no suma aquí (B2)
-        score += w × ContarViolaciones(cromosoma, SC)
-    score += 1000 × GuardaCapacidadAulas(cromosoma)  // penaliza sesiones presenciales concurrentes > espacios disponibles
-    retornar score   // menor = mejor; 0 = óptimo
-```
+| Endpoint | Servicio | Comportamiento |
+|---|---|---|
+| `POST /horario/reacomodar` | `ReacomodarHorarioService` | Mueve una sesión a (día, hora, aula). Recalcula solo la editada y las que ahora chocan (mismo grupo o aula); el resto conserva exactamente su asignación. Rechaza si queda choque de docente |
+| `POST /horario/sesion-manual` | `CrearSesionManualService` | Agrega una sesión fija al horario vigente, validando solapes |
+| `PATCH /sesiones/{id}/docente` | `AsignarDocenteSesionService` | Solape de docente → 409; fuera de disponibilidad o sobre el máximo de horas → avisos |
+| `GET` / `DELETE /horario/actual` | `GenerarHorarioService` | Recupera el horario vigente del semestre / borra sus sesiones |
 
-**Soft constraints procesadas en Fase 3:** SC-01, SC-06, SC-09 y la guarda de capacidad de aulas (peso 1000, sin ID de restricción propio, ver `docs/domain.md`) suman al fitness; SC-PRES se reporta aparte, informativo (B2). Después de que el GA converge, `MotorGenetico` verifica que no queden solapes de cohorte residuales (si los hay, hace fallback a Fase 2), llama a `IAsignadorEspaciosExacto.Asignar` (Fase 3 del plan de saneamiento: sub-modelo CP-SAT diminuto — inicios ya fijos, solo variables `space` + NoOverlap por espacio; implementación `AsignadorEspaciosExactoCpSat` en `Engine.ConstraintProg`, inyectada por DI — reemplaza el empaquetado greedy anterior, que no era óptimo con candidatos no homogéneos por sesión) para la asignación final de salones, y ejecuta el pase de reversión de cesiones descrito en la nota de Presencial-First al inicio de este documento.
+## Responsabilidad por fase
 
----
-
-## Distribución de responsabilidades entre fases
-
-| Restricción | Fase 1 | Fase 2 | Fase 3 | Validador post-gen |
+| Regla | Fase 1 | Fase 2 | Fase 3 | Validador |
 |---|---|---|---|---|
-| Sin solapamiento de docente (HC-I01) | — | fuera de generación (CR-08): lo subsume HC-C01 | — | — |
-| Disponibilidad docente (HC-I02) | — | ~~CP-SAT~~ degradada (CR-08): solo blanda vía SC-06 | — | — |
-| Máx horas docente (HC-I03) | — | fuera de generación (CR-08): docente post-generación | — | — |
-| Sin solapamiento de espacio (HC-S01) | — | CP-SAT ✓ por `(espacio, semana)` | `AsignadorEspaciosExactoCpSat` ✓ (CP-SAT, plan Fase 3) | ✓ |
-| Capacidad espacio / aforo (HC-CAP, ex HC-S02) | — | CP-SAT ✓ | `AsignadorEspaciosExactoCpSat` ✓ (auditoría A1) | ✓ (auditoría A1) |
-| Lab → espacio lab (HC-S03) | — | CP-SAT ✓ | `AsignadorEspaciosExactoCpSat` ✓ | ✓ (auditoría A1) |
-| Virtual sin espacio (HC-S04) | — | invariante entidad ✓ | invariante ✓ | — |
-| Espacio fijo de la asignatura (HC-S05) | — | CP-SAT ✓ | `AsignadorEspaciosExactoCpSat` ✓ (auditoría A1) | ✓ (auditoría A1) |
-| Franja del grupo (HC-G01) | Dominio ✓ (auditoría A1/B3) | CP-SAT ✓ | dominio de operadores ✓ | ✓ (auditoría A1) |
-| Ventana horaria de asignatura (HC-VH) | Dominio ✓ (auditoría A1/B3) | CP-SAT ✓ | dominio de operadores ✓ (auditoría A1) | ✓ (auditoría A1) |
-| Sesión fija del horario base (regla 8 / HC-BASE) | — | CP-SAT ✓ (igualdad) | gen congelado ✓ (auditoría A1) | ✓ (auditoría A1) |
-| Regla 9 — misma franja todas las semanas (ALT-05) | — | estructural: una variable de inicio por sesión | estructural: un gen por sesión | — |
-| Sin solapamiento cohorte (HC-C01) | Grafo ✓ | CP-SAT ✓ independiente de la semana | reparación | ✓ |
-| Conflicto alternancia (ALT-02/03) | Grafo ✓ | CP-SAT ✓ | reparación | — |
-| Separación mínima de días (HC-SEP) | — | CP-SAT ✓ (`AddElement`) | reparación ✓ (plan Fase 3, M4) | ✓ |
-| Alternancia por parejas (HC-ALT) | — | CP-SAT ✓ | reparación ✓ (bloque y espacio; plan Fase 3, M4/M2) | ✓ |
-| Compacidad cohorte (SC-01) | — | — | fitness ✓ (por grupo, CR-08) | — |
-| Uniformidad carga cohorte (SC-06) | — | — | fitness ✓ (por grupo, CR-08) | — |
-| Balance carga entre semanas (SC-BAL) | — | — | fitness ✓ | — |
-| Guarda de capacidad de aulas (peso 1000) | — | — | fitness ✓ | — |
-| Presencial-first (SC-PRES) | — | — | informativo, no fitness (auditoría B2) | — |
-
-**Auditoría A1:** antes el validador post-generación solo cubría HC-C01/HC-S01, así que si el GA violaba HC-VH/HC-CAP/HC-S03/HC-S05/HC-G01 nada lo detectaba y se podía publicar. **Actualizado 2026-08-07:** `ValidadorRestriccionesDuras` re-verifica hoy **10 reglas** sobre la salida final del GA — HC-C01, HC-S01, HC-ALT, HC-BASE, HC-VH, HC-G01, HC-S03, HC-CAP, HC-S05 y HC-SEP (las dos últimas, HC-ALT y HC-SEP, son las agregadas en agosto 2026 y no figuraban en versiones anteriores de esta tabla, que hablaban de "7 reglas"). Si alguna falla, el pipeline hace fallback a la solución de Fase 2 (que sí las cumple todas).
+| HC-C01 grupo | arista | NoOverlap | reparación | ✓ |
+| HC-S01 aula | — | NoOverlap (aula, semana) | asignador exacto | ✓ |
+| HC-S03 / S05 / CAP | — | candidatos | asignador exacto | ✓ |
+| HC-G01 / VH | dominio | dominio | dominio | ✓ |
+| HC-SEP | — | `AddElement` | reparación | ✓ |
+| HC-ALT | — | igualdad | reparación | ✓ |
+| HC-BASE | — | igualdad | gen congelado | ✓ |
+| ALT-05 | — | un inicio por sesión | un gen por sesión | — |
+| SC-01 / 06 / 09, guarda | — | — | fitness | — |

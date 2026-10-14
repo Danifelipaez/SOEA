@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-// IA por flujo (journey de 5 pasos) — ver docs/MAPEO_FLUJOS_FRONTEND.md.
+// IA por flujo (journey de 5 pasos) — ver docs/frontend.md.
 // horario-docente queda fuera de alcance (descartada); dashboard-admin/developer y
 // tipos-alternancia/configuracion-alternancia se disolvieron dentro de este journey.
 const BASE = 'SOEA';

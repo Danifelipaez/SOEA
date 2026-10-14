@@ -92,9 +92,9 @@ Example: "Create `SummerAvailability.cs` entity in `src/SOEA.Domain/Entities/` w
 
 ## Related Documentation
 
-- [`docs/business-rules/hard-constraints.md`](docs/business-rules/hard-constraints.md)
-- [`docs/architecture/SOEA_Estructura_Carpetas.md`](docs/architecture/SOEA_Estructura_Carpetas.md)
-- [`docs/requirements/glossary.md`](docs/requirements/glossary.md)
+- [`docs/domain.md`](../../../docs/domain.md)
+- [`docs/architecture.md`](../../../docs/architecture.md)
+- [`docs/domain.md`](../../../docs/domain.md)
 
 ## Session History
 

@@ -6,7 +6,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 # Validación de Restricciones: Guía Práctica
 
 > **Fuentes de verdad:**
-> - Especificación de restricciones → [docs/business-rules/hard-constraints.md](../../docs/business-rules/hard-constraints.md)
+> - Especificación de restricciones → [docs/domain.md](../../../docs/domain.md)
 > - Implementación de validación → `SOEA.Application.Services.ConstraintValidator`
 > - Queries SQL → [soea-queries-repository.md](soea-queries-repository.md)
 
@@ -16,7 +16,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 
 ### HC-S01: Conflicto de Ocupación de Espacio
 
-**Especificación:** [hard-constraints.md#HC-S01](../../docs/business-rules/hard-constraints.md#HC-S01)
+**Especificación:** [domain.md · HC-S01](../../../docs/domain.md#restricciones-duras)
 
 > Un espacio NO puede alojar dos sesiones en el mismo espacio de tiempo si ambas cohortes son Tipo A, ambas son Tipo B, o alguna es NonAlternating.
 
@@ -35,7 +35,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 
 ### HC-S02: Exceso de Capacidad de Espacio
 
-**Especificación:** [hard-constraints.md#HC-S02](../../docs/business-rules/hard-constraints.md#HC-S02)
+**Especificación:** [domain.md · HC-S02](../../../docs/domain.md#restricciones-duras)
 
 > El total de estudiantes en sesiones presenciales en el mismo espacio/tiempo no debe exceder la capacidad.
 
@@ -54,7 +54,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 
 ### HC-S03: Tipo de Espacio Requerido
 
-**Especificación:** [hard-constraints.md#HC-S03](../../docs/business-rules/hard-constraints.md#HC-S03)
+**Especificación:** [domain.md · HC-S03](../../../docs/domain.md#restricciones-duras)
 
 > Asignaturas con `RequiereLab=true` deben asignarse a espacios tipo "Laboratorio".
 
@@ -72,7 +72,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 
 ### HC-S04: Sesiones Virtuales sin Espacio Físico
 
-**Especificación:** [hard-constraints.md#HC-S04](../../docs/business-rules/hard-constraints.md#HC-S04)
+**Especificación:** [domain.md · HC-S04](../../../docs/domain.md#restricciones-duras)
 
 > Sesiones virtuales (`Modalidad='Virtual'`) deben tener `Espacio_id=NULL`.
 
@@ -89,7 +89,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 
 ### HC-I01: Docente No Puede Ser Bidocente
 
-**Especificación:** [hard-constraints.md#HC-I01](../../docs/business-rules/hard-constraints.md#HC-I01)
+**Especificación:** [domain.md · HC-I01](../../../docs/domain.md#restricciones-duras)
 
 > Un docente NO puede tener dos sesiones en el mismo espacio de tiempo.
 
@@ -108,7 +108,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 
 ### HC-I02: Disponibilidad de Docente
 
-**Especificación:** [hard-constraints.md#HC-I02](../../docs/business-rules/hard-constraints.md#HC-I02)
+**Especificación:** [domain.md · HC-I02](../../../docs/domain.md#restricciones-duras)
 
 > Docente solo puede asignarse a franjas en su tabla `DisponibilidadDocente`.
 
@@ -126,7 +126,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 
 ### HC-I03: Máximo de Horas Semanales
 
-**Especificación:** [hard-constraints.md#HC-I03](../../docs/business-rules/hard-constraints.md#HC-I03)
+**Especificación:** [domain.md · HC-I03](../../../docs/domain.md#restricciones-duras)
 
 > Docente NO puede exceder `Docentes.Maximo_hrs_semanales`.
 
@@ -146,7 +146,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 
 ### HC-T01: Horario de Operación
 
-**Especificación:** [hard-constraints.md#HC-T01](../../docs/business-rules/hard-constraints.md#HC-T01)
+**Especificación:** [domain.md · HC-T01](../../../docs/domain.md#restricciones-duras)
 
 > Sesiones deben estar entre 07:00 y 21:30.
 
@@ -164,7 +164,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 
 ### HC-T02: Laboratorios Deben Terminar a Tiempo
 
-**Especificación:** [hard-constraints.md#HC-T02](../../docs/business-rules/hard-constraints.md#HC-T02)
+**Especificación:** [domain.md · HC-T02](../../../docs/domain.md#restricciones-duras)
 
 > Laboratorios deben empezar a las 19:30 o antes (para terminar a las 21:30).
 
@@ -184,7 +184,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 
 ### HC-C01: Cohorte sin Solapamiento
 
-**Especificación:** [hard-constraints.md#HC-C01](../../docs/business-rules/hard-constraints.md#HC-C01)
+**Especificación:** [domain.md · HC-C01](../../../docs/domain.md#restricciones-duras)
 
 > Una cohorte NO puede tener dos sesiones en el mismo espacio de tiempo.
 
@@ -202,7 +202,7 @@ description: "Guía de validación de restricciones duras SOEA. Úsalo para: eje
 
 ### HC-C02: Horas Totales de Asignatura
 
-**Especificación:** [hard-constraints.md#HC-C02](../../docs/business-rules/hard-constraints.md#HC-C02)
+**Especificación:** [domain.md · HC-C02](../../../docs/domain.md#restricciones-duras)
 
 > Horas programadas de una cohorte deben coincidir con `Asignatura.BloqueSemanales`.
 
@@ -261,7 +261,7 @@ Hard_constraint_violations > 0 ❌ HORARIO INVÁLIDO
 > "¿Tiene el horario 2024-1 conflictos de espacio?"
 
 **El agente:**
-1. Busca [HC-S01](../../docs/business-rules/hard-constraints.md#HC-S01)
+1. Busca [HC-S01](../../../docs/domain.md#restricciones-duras)
 2. Obtiene [query_HC_S01_detectar_conflictos_espacio](soea-queries-repository.md#query_HC_S01_detectar_conflictos_espacio)
 3. Ejecuta contra SOEAdb con horario_id='2024-1'
 4. Si resultado vacío → "✅ Sin conflictos"

@@ -13,7 +13,7 @@ using SOEA.Infrastructure.Data.Seeding;
 namespace SOEA.Tests.Integracion
 {
     /// <summary>
-    /// Bloqueantes P0 de docs/PLAN_ENTREGA_Auditoria.md, contra PostgreSQL real y el API completo.
+    /// Bloqueantes P0 de la auditoría de entrega 2026-09-14, contra PostgreSQL real y el API completo.
     /// Los cinco pasaban desapercibidos con InMemory/fakes.
     /// </summary>
     [Collection("Postgres")]

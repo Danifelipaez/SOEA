@@ -108,7 +108,7 @@ Codigo | Nombre | BloqueSemanales | labs_disponibles
 ### query_HC_S01_detectar_conflictos_espacio
 **Caso de uso:** Detectar conflictos de ocupación de espacio por alternancia
 **Restricción verificada:** HC-S01 - Un espacio NO puede alojar dos sesiones con mismo tipo de alternancia
-**Documento:** [hard-constraints.md#HC-S01](../../docs/business-rules/hard-constraints.md#HC-S01)
+**Documento:** [domain.md · HC-S01](../../../docs/domain.md#restricciones-duras)
 **Parámetros:** `{horario_id}`
 
 ```sql
@@ -142,7 +142,7 @@ ORDER BY e."Nombre", f."Dia_semana", f."hora_inicio";
 ### query_HC_S02_exceso_capacidad
 **Caso de uso:** Verificar exceso de capacidad de espacio
 **Restricción verificada:** HC-S02 - Estudiantes en mismo espacio/tiempo no exceden capacidad
-**Documento:** [hard-constraints.md#HC-S02](../../docs/business-rules/hard-constraints.md#HC-S02)
+**Documento:** [domain.md · HC-S02](../../../docs/domain.md#restricciones-duras)
 **Parámetros:** `{horario_id}`
 **Nota:** Requiere tabla `Cohortes` con cantidad de estudiantes
 
@@ -174,7 +174,7 @@ HAVING COALESCE(SUM(c."cantidad_estudiantes"), 0) > e."Capacidad";
 ### query_HC_S03_tipo_espacio_requerido
 **Caso de uso:** Verificar que laboratorios estén asignados a espacios de tipo "Laboratorio"
 **Restricción verificada:** HC-S03 - Asignaturas con RequiereLab=true en espacios tipo Laboratorio
-**Documento:** [hard-constraints.md#HC-S03](../../docs/business-rules/hard-constraints.md#HC-S03)
+**Documento:** [domain.md · HC-S03](../../../docs/domain.md#restricciones-duras)
 **Parámetros:** `{horario_id}`
 
 ```sql
@@ -195,7 +195,7 @@ WHERE s."Horario_id" = '{horario_id}'
 ### query_HC_S04_sesiones_virtuales_sin_espacio
 **Caso de uso:** Verificar que sesiones virtuales no tengan espacio asignado
 **Restricción verificada:** HC-S04 - Sesiones virtuales con Espacio_id = NULL
-**Documento:** [hard-constraints.md#HC-S04](../../docs/business-rules/hard-constraints.md#HC-S04)
+**Documento:** [domain.md · HC-S04](../../../docs/domain.md#restricciones-duras)
 **Parámetros:** `{horario_id}`
 
 ```sql
@@ -214,7 +214,7 @@ WHERE s."Horario_id" = '{horario_id}'
 ### query_HC_I01_docente_multitarea
 **Caso de uso:** Detectar docentes con 2+ sesiones en mismo espacio de tiempo
 **Restricción verificada:** HC-I01 - Un docente NO puede tener dos sesiones simultáneamente
-**Documento:** [hard-constraints.md#HC-I01](../../docs/business-rules/hard-constraints.md#HC-I01)
+**Documento:** [domain.md · HC-I01](../../../docs/domain.md#restricciones-duras)
 **Parámetros:** `{horario_id}`
 
 ```sql
@@ -242,7 +242,7 @@ ORDER BY d."Nombre";
 ### query_HC_I02_disponibilidad_docente
 **Caso de uso:** Detectar sesiones con docentes fuera de disponibilidad
 **Restricción verificada:** HC-I02 - Docente solo puede asignarse a franjas en DisponibilidadDocente
-**Documento:** [hard-constraints.md#HC-I02](../../docs/business-rules/hard-constraints.md#HC-I02)
+**Documento:** [domain.md · HC-I02](../../../docs/domain.md#restricciones-duras)
 **Parámetros:** `{horario_id}`
 
 ```sql
@@ -267,7 +267,7 @@ WHERE s."Horario_id" = '{horario_id}'
 ### query_HC_I03_horas_maximas_docente
 **Caso de uso:** Detectar docentes con asignación mayor a su máximo contratado
 **Restricción verificada:** HC-I03 - Docente NO puede exceder Maximo_hrs_semanales
-**Documento:** [hard-constraints.md#HC-I03](../../docs/business-rules/hard-constraints.md#HC-I03)
+**Documento:** [domain.md · HC-I03](../../../docs/domain.md#restricciones-duras)
 **Parámetros:** `{horario_id}`
 
 ```sql
@@ -296,7 +296,7 @@ ORDER BY exceso DESC;
 ### query_HC_T01_fuera_horario_operacion
 **Caso de uso:** Detectar sesiones fuera de horario de operación (07:00–21:30)
 **Restricción verificada:** HC-T01 - Sesiones entre 07:00 y 21:30
-**Documento:** [hard-constraints.md#HC-T01](../../docs/business-rules/hard-constraints.md#HC-T01)
+**Documento:** [domain.md · HC-T01](../../../docs/domain.md#restricciones-duras)
 **Parámetros:** `{horario_id}`
 
 ```sql
@@ -315,7 +315,7 @@ WHERE s."Horario_id" = '{horario_id}'
 ### query_HC_T02_laboratorio_tiempo_minimo
 **Caso de uso:** Detectar laboratorios que empiezan después de 19:30
 **Restricción verificada:** HC-T02 - Laboratorios deben terminar a las 21:30 como máximo
-**Documento:** [hard-constraints.md#HC-T02](../../docs/business-rules/hard-constraints.md#HC-T02)
+**Documento:** [domain.md · HC-T02](../../../docs/domain.md#restricciones-duras)
 **Parámetros:** `{horario_id}`
 
 ```sql
@@ -335,7 +335,7 @@ WHERE s."Horario_id" = '{horario_id}'
 ### query_HC_C01_cohorte_sin_solapamiento
 **Caso de uso:** Detectar cohortes con dos sesiones en el mismo espacio de tiempo
 **Restricción verificada:** HC-C01 - Una cohorte NO puede tener dos sesiones simultáneas
-**Documento:** [hard-constraints.md#HC-C01](../../docs/business-rules/hard-constraints.md#HC-C01)
+**Documento:** [domain.md · HC-C01](../../../docs/domain.md#restricciones-duras)
 **Parámetros:** `{horario_id}`
 **Nota:** Requiere tabla Cohortes o lógica que agrupe por asignatura
 
@@ -361,7 +361,7 @@ WHERE s1."Horario_id" = '{horario_id}';
 ### query_HC_C02_horas_totales_cohorte
 **Caso de uso:** Verificar que horas programadas de asignatura coincidan con BloqueSemanales
 **Restricción verificada:** HC-C02 - Horas programadas = Asignatura.BloqueSemanales
-**Documento:** [hard-constraints.md#HC-C02](../../docs/business-rules/hard-constraints.md#HC-C02)
+**Documento:** [domain.md · HC-C02](../../../docs/domain.md#restricciones-duras)
 **Parámetros:** `{horario_id}`
 
 ```sql

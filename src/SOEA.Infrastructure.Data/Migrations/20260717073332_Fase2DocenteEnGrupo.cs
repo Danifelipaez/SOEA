@@ -10,7 +10,7 @@ namespace SOEA.Infrastructure.Data.Migrations
     /// El paso de datos preserva la información existente: antes de borrar
     /// Asignaturas.docente_id, se copia hacia los Grupos (uno por asignatura con docente).
     /// NO fusiona las asignaturas duplicadas — eso lo hace un script separado y revisable
-    /// (docs/Fase2_FusionAsignaturasDuplicadas.sql), corrido a mano tras probar en una copia.
+    /// (docs/scripts/Fase2_FusionAsignaturasDuplicadas.sql), corrido a mano tras probar en una copia.
     /// </summary>
     public partial class Fase2DocenteEnGrupo : Migration
     {
