@@ -73,15 +73,6 @@ export interface CrearSesionDialogData { asignaturas: Asignatura[]; docentes: Do
         </div>
       </div>
 
-      @if (tipoSesion() === 'Laboratorio') {
-        <div class="dfield"><label>Alternancia <span class="rq">*</span></label>
-          <div class="seg" style="flex-wrap:wrap">
-            <label class="seg-opt" [class.on]="alternancia==='TipoA'" (click)="alternancia='TipoA'; recheck()">Semanas 1, 3, 5…</label>
-            <label class="seg-opt" [class.on]="alternancia==='TipoB'" (click)="alternancia='TipoB'; recheck()">Semanas 2, 4, 6…</label>
-            <label class="seg-opt" [class.on]="alternancia==='SinAlternancia'" (click)="alternancia='SinAlternancia'; recheck()">Todas las semanas</label>
-          </div>
-        </div>
-      }
 
       @if (asignaturaId && dia && horaInicio && (espacioId || tipoSesion() === 'TeoriaVirtual')) {
         <!-- En el borrador un choque no bloquea: se avisa y la clase se puede agregar igual. -->
@@ -114,7 +105,8 @@ export class CrearSesionDialogComponent {
   docenteActual(): string { return this.docenteElegido ?? this.docenteIdDelGrupo(); }
 
   asignaturaId = ''; dia = ''; horaInicio = ''; espacioId = '';
-  alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia' = 'SinAlternancia';
+  /** Una clase agregada a mano nunca alterna: emparejar es cosa del generador (regla 10). */
+  readonly alternancia = 'SinAlternancia' as const;
   guardando = signal(false); errorServidor = signal('');
 
   readonly dias = DIAS_GRILLA;
@@ -199,8 +191,6 @@ export class CrearSesionDialogComponent {
 
   private aplicarReglasTipo() {
     const a = this.asignaturaSeleccionada(), tipo = this.tipoSesion();
-    if (tipo === 'Laboratorio' && a?.alternancia && a.alternancia !== 'SinAlternancia') this.alternancia = a.alternancia as 'TipoA' | 'TipoB';
-    else this.alternancia = 'SinAlternancia';
     this.espacioFijoBloqueado.set(false);
     if (tipo === 'TeoriaVirtual') this.espacioId = '';
   }
@@ -220,9 +210,8 @@ export class CrearSesionDialogComponent {
       { asignaturaId: this.asignaturaId, grupoId: this.grupoIdSel(), dia: this.dia, horaInicio: this.horaInicio, horaFin: horaFinNueva },
       this.data.asignaturas, this.data.grupos);
     const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.data.grupos);
-    // FE5 auditoría: una sesión nueva TipoA/TipoB comparte semana con su propio par — la exención
-    // de "nunca coexiste" debe considerar la semana que ESTA sesión ocuparía, igual que Editar.
-    const semanaActual: Sesion['semana'] = this.alternancia === 'TipoA' ? 'A' : this.alternancia === 'TipoB' ? 'B' : undefined;
+    // La clase nueva no alterna: ocupa todas las semanas, así que choca con cualquier otra.
+    const semanaActual: Sesion['semana'] = undefined;
 
     const docenteId = this.docenteActual();
     if (docenteId) {
@@ -283,7 +272,7 @@ export class CrearSesionDialogComponent {
       horarioId, asignaturaId: a.id, docenteId, espacioId,
       // R2 auditoría: el diálogo ya exige elegir grupo (puedeCrear()) — antes se descartaba aquí.
       grupoId: this.grupoIdSel(),
-      dia: this.dia, horaInicio: this.horaInicio, duracionHoras: duracion, alternancia: this.alternancia,
+      dia: this.dia, horaInicio: this.horaInicio, duracionHoras: duracion,
       tipoFlujo: tipoFlujoDesde(tipo), esVirtual: esVirtualDesde(tipo)
     }).subscribe({
       next: (sesiones: Sesion[]) => { this.guardando.set(false); this.dialogRef.close(sesiones); },

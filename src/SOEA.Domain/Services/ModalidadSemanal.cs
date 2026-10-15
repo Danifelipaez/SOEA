@@ -51,7 +51,7 @@ namespace SOEA.Domain.Services
         /// <summary>
         /// Semana de la ÚNICA fila <see cref="AsignacionSemanal"/> que se persiste para esta sesión:
         /// la semana en la que es presencial. TipoB ⇒ B; todo lo demás ⇒ A. Para una sesión que no
-        /// alterna, "A" significa "todas las semanas", no "solo la semana impar".
+        /// alterna, "A" significa "todas las semanas", no "solo la semana par".
         /// </summary>
         public static SemanaAcademica SemanaCanonica(Sesion sesion) =>
             sesion.Alternancia == TipoAlternancia.TipoB && sesion.Modalidad != Modalidad.Virtual

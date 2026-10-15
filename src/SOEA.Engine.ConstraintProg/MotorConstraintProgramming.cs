@@ -112,14 +112,21 @@ namespace SOEA.Engine.ConstraintProg
             // sí: el conjunto que debe quedar separado es "todas las libres + una fija".
             foreach (var cluster in sesiones
                          .GroupBy(s => (Grupo: s.GrupoId, Asignatura: s.AsignaturaId, Tipo: CalculadorEspaciosSesion.TipoSesionDe(s)))
-                         .Where(g =>
+                         .Select(g =>
                          {
                              int libres = g.Count(s => !sesionesFijasIds.Contains(s.Id));
-                             return libres > 0 && libres + Math.Min(1, g.Count() - libres) >= 4;
-                         }))
+                             int fijas = g.Count() - libres;
+                             return (g.Key, Libres: libres, Fijas: fijas, Separadas: libres + Math.Min(1, fijas));
+                         })
+                         .Where(c => c.Libres > 0 && c.Separadas >= 4))
             {
+                // Se informa el conteo que de verdad debe separarse: con 2+ fijas, decir el total
+                // haría creer que quitar una fija lo arregla.
+                var cuantas = cluster.Fijas > 1
+                    ? $"{cluster.Libres} sesiones semanales libres de tipo {cluster.Key.Tipo} que deben separarse de sus fijas del horario base"
+                    : $"{cluster.Separadas} sesiones semanales de tipo {cluster.Key.Tipo}";
                 var msg = $"No es posible programar esta asignatura: el grupo '{NombreGrupo(cluster.Key.Grupo)}' tiene " +
-                          $"{cluster.Count()} sesiones semanales de tipo {cluster.Key.Tipo}, pero la separación " +
+                          $"{cuantas}, pero la separación " +
                           "mínima de 2 días entre sesiones del mismo tipo sólo admite 3 por semana sin solaparse " +
                           "(p. ej. lunes/miércoles/viernes). Reduzca las sesiones semanales de este tipo o repártalas " +
                           "en más de un grupo.";

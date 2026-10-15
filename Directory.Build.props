@@ -2,5 +2,8 @@
   <!-- La solución compila sin advertencias: se mantiene así haciendo que cualquier advertencia nueva rompa el build. -->
   <PropertyGroup>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Excepto los avisos de vulnerabilidades de NuGet: un aviso publicado para una dependencia rompería
+         el build (y el despliegue automático) sin ningún cambio de código. Siguen visibles como advertencia. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
   </PropertyGroup>
 </Project>

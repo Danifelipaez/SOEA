@@ -76,9 +76,6 @@ namespace SOEA.Application.Features.Horario
                 ? Modalidad.Virtual
                 : Modalidad.Presencial;
 
-            if (!Enum.TryParse<TipoAlternancia>(req.Alternancia, ignoreCase: true, out var alternancia))
-                alternancia = TipoAlternancia.SinAlternancia;
-            var alternanciaFinal = tipoFlujo == TipoFlujo.Laboratorio ? alternancia : TipoAlternancia.SinAlternancia;
 
             // P0-5 auditoría: la sesión pertenece al horario vigente. Antes no entraba en ninguno:
             // respondía 201, desaparecía al recargar y seguía bloqueando docentes sin que nadie la viera.
@@ -103,7 +100,9 @@ namespace SOEA.Application.Features.Horario
                 bloqueId:      bloque.Id,
                 espacioId:     null,
                 grupoId:       req.GrupoId,
-                alternancia:   alternanciaFinal,
+                // Regla 10: emparejar es lo único que activa la alternancia, y lo hace el generador.
+                // Una sesión manual ocupa su aula todas las semanas.
+                alternancia:   TipoAlternancia.SinAlternancia,
                 modalidad:     modalidad,
                 duracionHoras: req.DuracionHoras,
                 esBloque:      false,

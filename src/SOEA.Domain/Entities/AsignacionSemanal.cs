@@ -8,7 +8,7 @@ namespace SOEA.Domain.Entities
     ///
     /// Cada sesión lógica produce UNA asignación, en su semana canónica — la semana en la que es
     /// presencial (ver <see cref="Services.ModalidadSemanal.SemanaCanonica"/>). Para una sesión que
-    /// no alterna, <see cref="SemanaAcademica.A"/> significa "todas las semanas", no "solo la impar":
+    /// no alterna, <see cref="SemanaAcademica.A"/> significa "todas las semanas", no "solo la par":
     /// la franja y el aula son un dato único del semestre (regla 9 / ALT-05).
     ///
     /// Antes se producían DOS asignaciones por sesión, una por semana, y nada obligaba a que

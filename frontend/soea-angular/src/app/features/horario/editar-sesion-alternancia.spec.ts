@@ -53,7 +53,7 @@ describe('EditarSesionDialogComponent — alternancia de solo lectura', () => {
     const fixture = crear();
 
     const bloque: HTMLElement = fixture.nativeElement.querySelector('[data-testid="alternancia-solo-lectura"]');
-    expect(bloque.textContent).toContain('Semanas 1, 3, 5…');
+    expect(bloque.textContent).toContain('Semanas 2, 4, 6…');
     expect(fixture.nativeElement.querySelectorAll('.seg-opt').length).toBe(0);
   });
 

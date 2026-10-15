@@ -10,7 +10,7 @@
 | **Grupo** | Sección/cohorte de una asignatura (estudiantes, docente, disponibilidad, requisitos de aula). **Eje del modelo** |
 | **Sesión** | Una clase semanal de un grupo. Unidad que se agenda; su duración es un dato fijo |
 | **Track** | Teoría presencial, teoría virtual o laboratorio (`TipoSesion`) |
-| **Semana A / B** | Semanas impares / pares del semestre. La A es EL horario; la B solo existe para sesiones emparejadas |
+| **Semana A / B** | Semanas pares / impares del semestre. La A es EL horario; la B solo existe para sesiones emparejadas |
 | **Alternancia** | Una sesión presencial en una semana y virtual en la otra. `TipoA` = presencial en A, `TipoB` = presencial en B |
 | **Pareja de alternancia** | Dos sesiones que comparten bloque y aula, turnándose la presencialidad (`ParejaAlternanciaId`) |
 | **Cesión** | Emparejar sesiones cuando no caben por falta de aulas (activación reactiva de la Semana B) |

@@ -321,10 +321,10 @@ namespace SOEA.Application.Features.Horario
             // ── 2-3. Fase 1 (coloración) + Fase 2 (CP-SAT) ─────────────────────────
             logs.Add("[INFO] Fase 1 (coloración de grafos) y Fase 2 (viabilidad, CP-SAT) iniciadas.");
             var swFase2 = System.Diagnostics.Stopwatch.StartNew();
-            var resultadoFactibilidad = await ColorearYResolverAsync(diagnosticarPorGrupo: true);
-            // El diagnóstico por grupo solo se calcula en este primer intento: en el bucle de Semana B
-            // cada vuelta costaría hasta SweepGruposMaximo solves extra cuyo resultado se descarta.
-            var gruposResponsablesIniciales = resultadoFactibilidad.GruposResponsablesIds;
+            // Sin diagnóstico por grupo (hasta SweepGruposMaximo solves extra): la falta de aulas
+            // suele resolverse emparejando, y ese diagnóstico se tiraría. Se calcula una sola vez,
+            // abajo, sobre el estado que de verdad falló.
+            var resultadoFactibilidad = await ColorearYResolverAsync(diagnosticarPorGrupo: false);
 
             // ── Activación de la Semana B (reactiva) ────────────────────────────────────
             // Si Fase 2 dice que no hay configuración válida POR FALTA DE AULAS, se cede una pareja
@@ -384,6 +384,23 @@ namespace SOEA.Application.Features.Horario
             {
                 logs.Add($"[ERROR] Fase 2 falló en {swFase2.ElapsedMilliseconds}ms [{resultadoFactibilidad.Motivo}]: {resultadoFactibilidad.MensajeError}");
 
+                // Qué grupos mirar, calculado sobre el estado final (con las parejas que sí quedaron).
+                // Un timeout no prueba nada que diagnosticar. El diagnóstico es un extra: si el plazo se
+                // agota a mitad, se responde con la infactibilidad ya probada.
+                if (resultadoFactibilidad.Motivo != MotivoInfactibilidad.Timeout)
+                {
+                    try
+                    {
+                        var diagnosticado = await ColorearYResolverAsync(diagnosticarPorGrupo: true);
+                        if (!diagnosticado.EsFactible && diagnosticado.Motivo != MotivoInfactibilidad.Timeout)
+                            resultadoFactibilidad = diagnosticado;
+                    }
+                    catch (OperationCanceledException) when (!ctCliente.IsCancellationRequested)
+                    {
+                        logs.Add("[WARN] El plazo se agotó buscando los grupos responsables; se responde sin ese detalle.");
+                    }
+                }
+
                 // Nada se virtualiza en silencio: si el horario no cabe y la alternancia no puede
                 // absorberlo, se falla nombrando qué quedó fuera y por qué no encontró pareja.
                 var mensaje = resultadoFactibilidad.MensajeError;
@@ -400,8 +417,7 @@ namespace SOEA.Application.Features.Horario
                     EsFactible    = false,
                     MensajeError  = mensaje,
                     MotivoInfactibilidad = resultadoFactibilidad.Motivo.ToString(),
-                    GruposEnConflicto = (resultadoFactibilidad.GruposResponsablesIds ?? gruposResponsablesIniciales)?
-                        .Select(id => id.ToString()).ToList() ?? new(),
+                    GruposEnConflicto = resultadoFactibilidad.GruposResponsablesIds?.Select(id => id.ToString()).ToList() ?? new(),
                     EspacioLimitanteId = resultadoFactibilidad.EspacioLimitanteId?.ToString(),
                     SesionesSinAlternanciaPosible = diagnosticoCesion,
                     Logs          = logs,

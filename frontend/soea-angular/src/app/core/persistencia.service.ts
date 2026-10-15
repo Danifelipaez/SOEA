@@ -215,7 +215,6 @@ export class PersistenciaService {
     dia: string;
     horaInicio: string;
     duracionHoras: number;
-    alternancia: string;
     tipoFlujo: 'Laboratorio' | 'AulaVirtual';
     esVirtual: boolean;
   }): Observable<Sesion[]> {

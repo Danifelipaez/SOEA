@@ -171,4 +171,26 @@ describe('HorarioComponent.grilla() — alternancia: horario completo y semana s
     expect(component.grilla().dias.find(d => d.valor === 'miercoles')!.tarjetas).toHaveLength(0);
     expect(component.grilla().total).toBe(1);
   });
+
+  it('filtrar por el grupo de una no le quita el ⇄: la pareja se busca en todo el horario', () => {
+    const component = crearComponente();
+    TestBed.inject(StateService).setSesiones(pareja());
+    component.setFiltro('grupo', 'gx');
+
+    const jueves = component.grilla().dias.find(d => d.valor === 'jueves')!;
+    expect(jueves.tarjetas).toHaveLength(1);
+    expect(jueves.tarjetas[0].m.contraparte?.asignaturaId).toBe('ay');
+  });
+
+  it('una TipoB sin pareja se ve en el horario completo (no tiene semana siguiente)', () => {
+    const component = crearComponente();
+    const suelta = sesion({ id: 'b', dia: 'martes', alternancia: 'TipoB', semana: 'B', espacioId: 'e1' });
+    const sueltaVirtual = { ...suelta, semana: 'A' as const, virtual: true, espacioId: undefined, espacioIdHogar: 'e1', esContraparteVirtual: true };
+    TestBed.inject(StateService).setSesiones([...pareja(), suelta, sueltaVirtual]);
+
+    const martes = component.grilla().dias.find(d => d.valor === 'martes')!;
+    expect(martes.tarjetas.map(t => t.m.virtual)).toEqual([false]);
+    component.selectWeek('B');
+    expect(component.grilla().dias.find(d => d.valor === 'martes')!.tarjetas).toHaveLength(0);
+  });
 });

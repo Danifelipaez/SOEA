@@ -117,6 +117,7 @@ namespace SOEA.Tests.Application.Horario
         private sealed class FakeMotorSiempreInfactiblePorEspacio : IMotorConstraintProgramming
         {
             public int Llamadas;
+            public int ConDiagnostico;
             public Task<ResultadoFactibilidad> ResolverFactibilidadAsync(
                 IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloques, IEnumerable<Espacio> espacios,
                 IEnumerable<Grupo>? grupos = null, IEnumerable<Guid>? sesionesFijasIds = null,
@@ -124,6 +125,7 @@ namespace SOEA.Tests.Application.Horario
                 CancellationToken ct = default, bool diagnosticarPorGrupo = true)
             {
                 Interlocked.Increment(ref Llamadas);
+                if (diagnosticarPorGrupo) Interlocked.Increment(ref ConDiagnostico);
                 return Task.FromResult(new ResultadoFactibilidad(
                     false, Array.Empty<AsignacionSemanal>(), "saturación de espacio", MotivoInfactibilidad.Espacio));
             }
@@ -199,10 +201,13 @@ namespace SOEA.Tests.Application.Horario
                 $"El loop de cesión tardó {cronometro.ElapsedMilliseconds}ms — sugiere que no está acotando iteraciones.");
             // Cada iteración cede exactamente 1 par (2 sesiones de grupos distintos); con 60
             // sesiones candidatas eso son 30 pares como máximo antes de agotarlas. +1 porque Fase 2
-            // se llama una vez más antes de que el loop detecte "sin más candidatos".
+            // se llama una vez más antes de que el loop detecte "sin más candidatos", y otra para
+            // diagnosticar los grupos responsables del fallo final.
             const int totalSesiones = totalGrupos * 2;
-            Assert.True(fase2.Llamadas <= totalSesiones / 2 + 1,
+            Assert.True(fase2.Llamadas <= totalSesiones / 2 + 2,
                 $"Fase 2 se invocó {fase2.Llamadas} veces — más de lo que los pares disponibles permiten.");
+            // El diagnóstico por grupo (caro: hasta SweepGruposMaximo solves) corre una sola vez, al fallar.
+            Assert.Equal(1, fase2.ConDiagnostico);
         }
     }
 }

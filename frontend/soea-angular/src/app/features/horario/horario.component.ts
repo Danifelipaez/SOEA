@@ -202,7 +202,7 @@ import { ProgressDialogComponent } from './progress-dialog.component';
                 </details>
               }
 
-              @if (choquesEspacio().length > 0) {
+              @if (avisosGlobalesVisibles() && choquesEspacio().length > 0) {
                 <details class="soft fuera" [open]="enBorrador()">
                   <summary><b>⚠ {{ choquesEspacio().length }} clase(s) en un espacio ya ocupado a esa hora</b></summary>
                   <ul>
@@ -213,7 +213,7 @@ import { ProgressDialogComponent } from './progress-dialog.component';
                 </details>
               }
 
-              @if (fueraGrupo().length > 0) {
+              @if (avisosGlobalesVisibles() && fueraGrupo().length > 0) {
                 <details class="soft fuera">
                   <summary><b>⚠ {{ fueraGrupo().length }} clase(s) fuera del horario disponible de su grupo</b></summary>
                   <div>Vuelva a generar el horario, o ajuste la disponibilidad del grupo en Catálogo si cambió.</div>
@@ -225,7 +225,7 @@ import { ProgressDialogComponent } from './progress-dialog.component';
                 </details>
               }
 
-              @if (choquesDocente().length > 0 || fueraDeDisponibilidad() > 0) {
+              @if (avisosGlobalesVisibles() && (choquesDocente().length > 0 || fueraDeDisponibilidad() > 0)) {
                 <details class="soft fuera" [open]="enBorrador() && choquesDocente().length > 0">
                   <summary><b>⚠ Avisos del docente ({{ choquesDocente().length + fueraDeDisponibilidad() }}) — no impiden usar el horario</b></summary>
                   @if (choquesDocente().length > 0) {
@@ -518,7 +518,7 @@ export class HorarioComponent implements OnInit {
       from(nuevas).pipe(
         concatMap(s => this.persistencia.crearSesionManual({
           horarioId, asignaturaId: s.asignaturaId, docenteId: s.docenteId ?? null, espacioId: s.espacioId ?? null,
-          grupoId: s.grupoId!, dia: s.dia, horaInicio: s.horaInicio, duracionHoras: s.duracionHoras, alternancia: s.alternancia,
+          grupoId: s.grupoId!, dia: s.dia, horaInicio: s.horaInicio, duracionHoras: s.duracionHoras,
           tipoFlujo: s.tipoFlujo ?? 'AulaVirtual', esVirtual: s.virtual
         }).pipe(
           map(creadas => ({ s, creadas, error: '' })),
@@ -630,9 +630,13 @@ export class HorarioComponent implements OnInit {
 
   /** Horario completo: todo lo que no es exclusivamente de la semana siguiente (lo que no alterna
    *  y cada pareja con el miembro que usa el aula esta semana). Semana siguiente: SOLO las parejas
-   *  que alternan — el resto de la cuadrícula queda vacío a propósito (es el mismo horario). */
+   *  que alternan — el resto de la cuadrícula queda vacío a propósito (es el mismo horario).
+   *  Una TipoA/TipoB SIN pareja (laboratorio que heredó la alternancia de su asignatura, o datos
+   *  viejos) no tiene "semana siguiente": se muestra siempre en el horario completo, sin importar
+   *  en qué semana caiga su fila; si no, una TipoB suelta desaparecía de la cuadrícula. */
   private sesionVisibleEnSemana(s: Sesion): boolean {
-    return this.semanaVista() === 'B' ? s.semana === 'B' : s.semana !== 'B';
+    const deLaSiguiente = s.semana === 'B' && !!s.parejaId;
+    return this.semanaVista() === 'B' ? deLaSiguiente : !deLaSiguiente;
   }
 
   /** Sesiones visibles en el chip/semana actual, ya plegadas con su contraparte de alternancia.
@@ -641,7 +645,10 @@ export class HorarioComponent implements OnInit {
     // "Todos los espacios" = sin spaceId: sesionPerteneceAlEspacio deja pasar todo, virtuales incluidas.
     const spaceId = this.todosEspacios() ? undefined : this.modoVirtual() ? this.ESPACIO_VIRTUAL : this.activeSpace()?.id;
     const pasa = this.pasaFiltros();
-    const visibles = this.sesiones().filter(s => this.sesionPerteneceAlEspacio(s, spaceId) && this.sesionVisibleEnSemana(s) && pasa(s));
+    // Los filtros (grupo, docente…) deciden qué tarjetas se ven, no con quién alterna cada una: la
+    // pareja suele ser de otro grupo, y filtrarla antes del pliegue borraba el ⇄ de la tarjeta.
+    const enVista = this.sesiones().filter(s => this.sesionPerteneceAlEspacio(s, spaceId) && this.sesionVisibleEnSemana(s));
+    const visibles = enVista.filter(pasa);
 
     // La contraparte virtual se pliega como sub-caja DENTRO de la tarjeta presencial solo si
     // coincide exactamente en pareja + día + hora con una presencial visible — antes se indexaba
@@ -650,7 +657,7 @@ export class HorarioComponent implements OnInit {
     const clave = (s: { parejaId?: string; dia: string; horaInicio: string; horaFin: string }) =>
       `${s.parejaId}|${s.dia}|${s.horaInicio}|${s.horaFin}`;
     const contrapartes = new Map<string, Sesion>();
-    for (const s of visibles) if (s.esContraparteVirtual && s.parejaId) contrapartes.set(clave(s), s);
+    for (const s of enVista) if (s.esContraparteVirtual && s.parejaId) contrapartes.set(clave(s), s);
 
     const plegadas = new Set<string>();
     const resultado: MergedSesion[] = [];
@@ -664,7 +671,7 @@ export class HorarioComponent implements OnInit {
     }
     // Contrapartes que no se plegaron (su presencial no está visible en esta vista/semana, o no
     // coincidió exactamente en franja): tarjeta propia en vez de perderse.
-    for (const [k, s] of contrapartes) if (!plegadas.has(k)) resultado.push(this.aMerged(s));
+    for (const [k, s] of contrapartes) if (!plegadas.has(k) && pasa(s)) resultado.push(this.aMerged(s));
     return resultado;
   });
 
@@ -742,6 +749,9 @@ export class HorarioComponent implements OnInit {
     return `${base}${ctx ? ' · ' + ctx : ''} · ${docente} · ${espacio}${contraparte}${choque}${choqueAula}. ${accion}.`;
   }
 
+  /** Los avisos de debajo de la cuadrícula cuentan TODO el horario: en la vista "semana siguiente"
+   *  (solo lo que alterna) confundirían, así que solo se muestran en el horario completo. */
+  avisosGlobalesVisibles = computed(() => this.semanaVista() === 'A');
   /** Avisos del docente (no bloquean) de todo el horario — ver avisosDocentePorSesion. */
   avisosDocente = computed(() =>
     avisosDocentePorSesion(this.sesiones(), this.state.docentes(), this.state.asignaturas(), this.state.grupos()));

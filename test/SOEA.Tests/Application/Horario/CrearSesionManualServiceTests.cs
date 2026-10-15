@@ -40,7 +40,7 @@ namespace SOEA.Tests.Application.Horario
         }
 
         [Fact]
-        public async Task Laboratorio_ConAlternanciaTipoA_GeneraUnaFilaPresencialEnSemanaA()
+        public async Task Laboratorio_NuncaAlterna_UnaFilaPresencialParaTodasLasSemanas()
         {
             var (svc, horario) = Crear();
 
@@ -54,14 +54,14 @@ namespace SOEA.Tests.Application.Horario
                 Dia = "lunes",
                 HoraInicio = "07:00",
                 DuracionHoras = 2m,
-                Alternancia = "TipoA",
                 TipoFlujo = "Laboratorio"
             });
 
-            // Una sola fila persistida: la presencial de la semana A. La contraparte virtual de
-            // la semana B no reserva aula, así que la deriva la grilla, no el servicio.
+            // Regla 10: solo el generador empareja. La sesión manual ocupa su aula todas las semanas
+            // (semana vacía en el DTO) y no deja una "Semana B" suelta que la grilla no mostraría.
             var a = Assert.Single(resultado);
-            Assert.Equal("A", a.Semana);
+            Assert.Equal("SinAlternancia", a.Alternancia);
+            Assert.Equal("", a.Semana);
             Assert.False(a.Virtual);
             Assert.Equal(Lab.ToString(), a.EspacioId);
         }
@@ -91,7 +91,7 @@ namespace SOEA.Tests.Application.Horario
         }
 
         [Fact]
-        public async Task TeoriaPresencial_IgnoraAlternanciaDelRequest()
+        public async Task TeoriaPresencial_NuncaAlterna()
         {
             var (svc, horario) = Crear();
 
@@ -105,7 +105,6 @@ namespace SOEA.Tests.Application.Horario
                 Dia = "miercoles",
                 HoraInicio = "09:00",
                 DuracionHoras = 2m,
-                Alternancia = "TipoA", // decisión: teoría nunca alterna — se ignora
                 TipoFlujo = "AulaVirtual",
                 EsVirtual = false
             });
