@@ -56,7 +56,7 @@ export interface EditarSesionResult { sesion?: Sesion; advertencias: string[]; }
       </div>
 
       @if (esLaboratorio()) {
-        <div class="dfield" data-testid="alternancia-solo-lectura"><label>Semanas en que se dicta</label>
+        <div class="dfield" data-testid="alternancia-solo-lectura"><label>Semanas en que usa el espacio</label>
           <div style="font-size:13px">{{ etiquetaAlternancia }}</div>
           <small class="text-muted" style="font-size:11px">Se define al generar el horario; no se cambia desde aquí.</small>
         </div>
@@ -96,7 +96,7 @@ export class EditarSesionDialogComponent {
   readonly semana: 'A' | 'B' | undefined =
     this.alternancia === 'TipoA' ? 'A' : this.alternancia === 'TipoB' ? 'B' : undefined;
   readonly etiquetaAlternancia =
-    this.alternancia === 'TipoA' ? 'Semana A' : this.alternancia === 'TipoB' ? 'Semana B' : 'Todas las semanas';
+    this.alternancia === 'TipoA' ? 'Semanas 1, 3, 5… (las demás, virtual)' : this.alternancia === 'TipoB' ? 'Semanas 2, 4, 6… (las demás, virtual)' : 'Todas las semanas';
   guardando = signal(false);
   advertencias = signal<string[]>([]);
   errorServidor = signal('');

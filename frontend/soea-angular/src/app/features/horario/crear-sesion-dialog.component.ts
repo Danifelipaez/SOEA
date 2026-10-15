@@ -76,8 +76,8 @@ export interface CrearSesionDialogData { asignaturas: Asignatura[]; docentes: Do
       @if (tipoSesion() === 'Laboratorio') {
         <div class="dfield"><label>Alternancia <span class="rq">*</span></label>
           <div class="seg" style="flex-wrap:wrap">
-            <label class="seg-opt" [class.on]="alternancia==='TipoA'" (click)="alternancia='TipoA'; recheck()">TipoA</label>
-            <label class="seg-opt" [class.on]="alternancia==='TipoB'" (click)="alternancia='TipoB'; recheck()">Semana B</label>
+            <label class="seg-opt" [class.on]="alternancia==='TipoA'" (click)="alternancia='TipoA'; recheck()">Semanas 1, 3, 5…</label>
+            <label class="seg-opt" [class.on]="alternancia==='TipoB'" (click)="alternancia='TipoB'; recheck()">Semanas 2, 4, 6…</label>
             <label class="seg-opt" [class.on]="alternancia==='SinAlternancia'" (click)="alternancia='SinAlternancia'; recheck()">Todas las semanas</label>
           </div>
         </div>

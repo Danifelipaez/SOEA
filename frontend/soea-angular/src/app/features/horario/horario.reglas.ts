@@ -29,8 +29,6 @@ export interface MergedSesion {
 export interface TarjetaGrilla {
   key: string; m: MergedSesion;
   fila: string; col: string;
-  /** No alterna, mostrada en gris en Semana B: ocupa el aula todas las semanas. */
-  siempre: boolean;
   /** Menos de 2 horas: la tarjeta solo muestra asignatura y grupo (ver plantilla). */
   g1h: boolean;
   texto: string;

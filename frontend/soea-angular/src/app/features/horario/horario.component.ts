@@ -47,10 +47,10 @@ import { ProgressDialogComponent } from './progress-dialog.component';
       <!-- toolbar -->
       <div class="toolbar">
         @if (hayAlternancia()) {
-          <span class="tb-lbl" id="lbl-semana">Semana</span>
+          <span class="tb-lbl" id="lbl-semana">Ver</span>
           <div class="seg" role="radiogroup" aria-labelledby="lbl-semana">
-            <label class="seg-opt" role="radio" [attr.aria-checked]="semanaVista() === 'A'" [class.on]="semanaVista() === 'A'" (click)="selectWeek('A')">Semana A · horario completo</label>
-            <label class="seg-opt" role="radio" [attr.aria-checked]="semanaVista() === 'B'" [class.on]="semanaVista() === 'B'" (click)="selectWeek('B')">Semana B · lo que alterna (el resto en gris)</label>
+            <label class="seg-opt" role="radio" [attr.aria-checked]="semanaVista() === 'A'" [class.on]="semanaVista() === 'A'" (click)="selectWeek('A')">Horario completo</label>
+            <label class="seg-opt" role="radio" [attr.aria-checked]="semanaVista() === 'B'" [class.on]="semanaVista() === 'B'" (click)="selectWeek('B')">Semana siguiente · solo lo que alterna</label>
           </div>
         }
         <div class="legend">
@@ -140,11 +140,11 @@ import { ProgressDialogComponent } from './progress-dialog.component';
                 @if (hayFiltros()) {
                   No hay clases con estos filtros{{ todosEspacios() ? '' : ' en esta vista' }}.
                 } @else if (todosEspacios()) {
-                  No hay sesiones{{ hayAlternancia() ? ' en la Semana ' + semanaVista() : '' }}.
+                  No hay sesiones{{ semanaVista() === 'B' ? ' que alternen' : '' }}.
                 } @else if (modoVirtual()) {
-                  No hay sesiones virtuales{{ hayAlternancia() ? ' en la Semana ' + semanaVista() : '' }}.
+                  No hay sesiones virtuales{{ semanaVista() === 'B' ? ' que alternen' : '' }}.
                 } @else {
-                  {{ activeSpace()?.nombre }} no tiene sesiones{{ hayAlternancia() ? ' en la Semana ' + semanaVista() : '' }}.
+                  {{ activeSpace()?.nombre }} no tiene sesiones{{ semanaVista() === 'B' ? ' que alternen' : '' }}.
                 }
               </p>
             }
@@ -163,16 +163,16 @@ import { ProgressDialogComponent } from './progress-dialog.component';
                       <div class="wk-cerrado" [style.grid-row]="d.filaCierre + ' / -1'" aria-hidden="true">Cerrado</div>
                     }
                     @for (t of d.tarjetas; track t.key) {
-                      <button type="button" class="gcell" [class.gvirt]="t.m.virtual" [class.gsiempre]="t.siempre" [class.g1h]="t.g1h" [class.gnueva]="t.m.sesiones[0].deBorrador"
+                      <button type="button" class="gcell" [class.gvirt]="t.m.virtual" [class.g1h]="t.g1h" [class.gnueva]="t.m.sesiones[0].deBorrador"
                               [style.grid-row]="t.fila" [style.grid-column]="t.col"
-                              [style.background]="t.siempre ? null : gcellBg(t.m)" [style.border-left-color]="altColor(t.m)"
+                              [style.background]="gcellBg(t.m)" [style.border-left-color]="altColor(t.m)"
                               [title]="t.texto" [attr.aria-label]="t.texto" (click)="abrirEditarSesion(t.m)">
-                        <span class="s">@if (tieneChoque(t.m)) { <span class="nodoc">⚠</span> }@if (t.m.virtual) { ⌁ }{{ getAsignaturaName(t.m) }}</span>
-                        <span class="g">{{ t.siempre ? 'todas las semanas' : (grupoSuffix(t.m).slice(3) || '—') }}</span>
+                        <span class="s">@if (tieneChoque(t.m)) { <span class="nodoc">⚠</span> }@if (t.m.virtual) { ⌁ }@if (t.m.contraparte) { <span class="galt" aria-hidden="true">⇄</span> }{{ getAsignaturaName(t.m) }}</span>
+                        <span class="g">{{ grupoSuffix(t.m).slice(3) || '—' }}</span>
                         <span class="det">
                           <span [class.nodoc]="!t.m.docenteId">{{ t.m.docenteId ? getDocenteName(t.m) : 'sin docente' }}</span>
                           <span class="t">{{ celdaEspacio(t.m) }} · {{ t.m.horaInicio }}–{{ t.m.horaFin }}</span>
-                          @if (t.m.contraparte; as otra) { <span class="gsub">⌁ {{ getAsignaturaName(otra) }}{{ grupoSuffix(otra) }} · virtual</span> }
+                          @if (t.m.contraparte; as otra) { <span class="gsub"><span aria-hidden="true">⇄</span> Próx. semana: {{ getAsignaturaName(otra) }}{{ grupoSuffix(otra) }}</span> }
                         </span>
                       </button>
                     }
@@ -344,7 +344,7 @@ import { ProgressDialogComponent } from './progress-dialog.component';
     .gcell .nodoc { color: var(--err-bd); font-weight: 500; }
     .gcell.g1h .s { -webkit-line-clamp: 1; } .gcell.g1h .det { display: none; }
     .gnueva { outline: 2px dashed var(--color-accent); outline-offset: -4px; }
-    .gsiempre { background: var(--color-neutral-100); border-color: var(--color-neutral-500); border-left-color: var(--color-neutral-500) !important; }
+    .gcell .galt { color: var(--color-accent); font-weight: 700; margin-right: 2px; }
     .gcell .gsub { margin-top: 2px; padding: 2px 4px; border: 1px dashed var(--color-neutral-500);
                    background: repeating-linear-gradient(-45deg, var(--color-bg) 0 5px, color-mix(in srgb, var(--color-accent) 12%, transparent) 5px 8px);
                    color: var(--color-neutral-700); font-size: 10px; line-height: 1.2; }
@@ -620,20 +620,19 @@ export class HorarioComponent implements OnInit {
     return false;
   }
 
-  /** Hay alternancia activa cuando alguna sesión tiene pareja. Sin ella la Semana B no existe
-   *  y el selector ni siquiera se muestra: la Semana A es el horario completo. */
+  /** Hay alternancia activa cuando alguna sesión tiene pareja. Sin ella no hay "semana siguiente"
+   *  distinta y el selector ni siquiera se muestra: el horario completo es todo. */
   hayAlternancia = computed(() => this.sesiones().some(s => !!s.parejaId));
 
   /** La semana efectivamente mostrada: si ya no hay alternancia (p. ej. tras regenerar sin
    *  parejas) no se queda pegada en B sin selector visible para volver a A. */
   semanaVista = computed<'A' | 'B'>(() => this.hayAlternancia() ? this.activeWeek() : 'A');
 
-  /** Semana A: todo lo que no es exclusivamente B. Semana B: todo lo que no es exclusivamente A
-   *  — incluye lo que no alterna (`semana` vacío/ausente), que la grilla pinta en gris como
-   *  "ocupa el aula todas las semanas" en vez de dejar el aula viéndose libre (antes solo se
-   *  mostraba lo emparejado y el resto de las aulas ocupadas parecían disponibles). */
+  /** Horario completo: todo lo que no es exclusivamente de la semana siguiente (lo que no alterna
+   *  y cada pareja con el miembro que usa el aula esta semana). Semana siguiente: SOLO las parejas
+   *  que alternan — el resto de la cuadrícula queda vacío a propósito (es el mismo horario). */
   private sesionVisibleEnSemana(s: Sesion): boolean {
-    return this.semanaVista() === 'B' ? s.semana !== 'A' : s.semana !== 'B';
+    return this.semanaVista() === 'B' ? s.semana === 'B' : s.semana !== 'B';
   }
 
   /** Sesiones visibles en el chip/semana actual, ya plegadas con su contraparte de alternancia.
@@ -715,7 +714,6 @@ export class HorarioComponent implements OnInit {
           key: item.m.key, m: item.m,
           fila: `${item.fila0} / ${item.fila1}`,
           col: `${carril * ancho + 1} / span ${ancho}`,
-          siempre: this.semanaVista() === 'B' && !item.m.semana,
           g1h: (item.fila1 - item.fila0) < 2,
           texto: this.describir(item.m),
         };
@@ -737,13 +735,11 @@ export class HorarioComponent implements OnInit {
     const ctx = this.getContextLabel(m);
     const docente = m.docenteId ? this.getDocenteName(m) : 'sin docente';
     const espacio = this.celdaEspacio(m);
-    const semana = m.semana === 'A' ? ' · Semana A' : m.semana === 'B' ? ' · Semana B' : '';
-    const siempre = this.semanaVista() === 'B' && !m.semana ? ' · ocupa el aula todas las semanas' : '';
-    const contraparte = m.contraparte ? ` · alterna con ${this.getAsignaturaName(m.contraparte)}${this.grupoSuffix(m.contraparte)} (virtual)` : '';
+    const contraparte = m.contraparte ? ` · alterna con ${this.getAsignaturaName(m.contraparte)}${this.grupoSuffix(m.contraparte)}: la próxima semana este espacio es suyo y esta clase pasa a virtual` : '';
     const choque = this.tieneChoque(m) ? ' · ⚠ el docente tiene otra clase a la misma hora' : '';
     const choqueAula = this.tieneChoqueEspacio(m) ? ' · ⚠ el espacio ya está ocupado a esa hora' : '';
     const accion = this.enBorrador() ? (m.sesiones[0].deBorrador ? 'Clic para quitarla del borrador' : 'Clase del horario real') : 'Clic para editar';
-    return `${base}${ctx ? ' · ' + ctx : ''} · ${docente} · ${espacio}${semana}${siempre}${contraparte}${choque}${choqueAula}. ${accion}.`;
+    return `${base}${ctx ? ' · ' + ctx : ''} · ${docente} · ${espacio}${contraparte}${choque}${choqueAula}. ${accion}.`;
   }
 
   /** Avisos del docente (no bloquean) de todo el horario — ver avisosDocentePorSesion. */

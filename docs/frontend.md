@@ -9,7 +9,7 @@ Un solo operador, la coordinación académica, **sin login ni roles**. Los texto
 | Paso | Ruta | Componente | Qué hace |
 |---|---|---|---|
 | 1 | `/catalogo` | `IngestaComponent` | Pestañas Asignaturas (los grupos como filas expandibles), Docentes, Espacios y Alternancia (criterios de cesión). Carga de Excel |
-| 2–3 | `/horario` | `HorarioComponent` | Generar (diálogo de progreso), ver la grilla por aula, "Virtual" o grupo, editar sesión (`/reacomodar`, docente), agregar clase manual, limpiar horario |
+| 2–3 | `/horario` | `HorarioComponent` | Generar (diálogo de progreso), ver la grilla por aula, "Virtual" o grupo, editar sesión (`/reacomodar`, docente), agregar clase manual, limpiar horario <br>Con parejas de alternancia aparece el selector **Horario completo / Semana siguiente**: el horario completo muestra todo y marca con ⇄ la clase que alterna e indica qué asignatura usa ese espacio la próxima semana; la semana siguiente muestra solo las parejas que alternan (el resto vacío, porque es el mismo horario) |
 | 4 | `/revisar` | `DashboardAdminComponent` | KPIs de solo lectura: ocupación en horas-aula (88 h por aula y semana), presencialidad, conflictos |
 | 5 | `/publicar` | `PublicarComponent` | Bloqueado hasta que exista `PublicarHorarioService` |
 

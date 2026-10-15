@@ -11,7 +11,7 @@ import { Espacio, Sesion } from '../../core/models';
  * grilla() reemplaza la tabla con rowspan (mergedByCell/coveredCells) que ocultaba sesiones
  * simultáneas/escalonadas y descuadraba columnas (auditoría UI 2026-09, ver grilla-carriles.spec.ts
  * para las funciones puras). Estos tests cubren el ensamblado completo: filtro por espacio/semana,
- * pliegue de contraparte y el caso "siempre" de Semana B — con datos reales pasados por StateService,
+ * pliegue de contraparte y las dos vistas de la alternancia — con datos reales pasados por StateService,
  * no solo los items sintéticos de distribuirEnCarriles().
  */
 function sesion(overrides: Partial<Sesion> = {}): Sesion {
@@ -134,33 +134,41 @@ describe('HorarioComponent.grilla() — pliegue de contraparte de alternancia', 
   });
 });
 
-describe('HorarioComponent.grilla() — Semana B: lo que no alterna se ve ocupado', () => {
-  it('una sesión SinAlternancia se muestra en gris ("siempre") en vez de dejar el aula libre', () => {
-    const component = crearComponente();
-    const state = TestBed.inject(StateService);
-    // hayAlternancia() exige al menos una sesión con parejaId para que el selector de semana exista.
-    const conPareja = sesion({ id: 'x1', dia: 'lunes', espacioId: 'e1', parejaId: 'parX', semana: 'A' });
-    const contraparteX = sesion({
-      id: 'x1', dia: 'lunes', parejaId: 'parX', semana: 'B', virtual: true, espacioId: undefined, espacioIdHogar: 'e1', esContraparteVirtual: true,
-    });
+describe('HorarioComponent.grilla() — alternancia: horario completo y semana siguiente', () => {
+  // Datos tal como los arma el backend: X (TipoA) e Y (TipoB) comparten jueves 15:00 en e1; cada
+  // una tiene su fila presencial y su contraparte virtual derivada en la semana opuesta.
+  function pareja() {
+    const x = sesion({ id: 'x', asignaturaId: 'ax', grupoId: 'gx', dia: 'jueves', horaInicio: '15:00', horaFin: '17:00',
+      alternancia: 'TipoA', semana: 'A', parejaId: 'par', espacioId: 'e1' });
+    const xVirtual = { ...x, semana: 'B' as const, virtual: true, espacioId: undefined, espacioIdHogar: 'e1', esContraparteVirtual: true };
+    const y = sesion({ id: 'y', asignaturaId: 'ay', grupoId: 'gy', dia: 'jueves', horaInicio: '15:00', horaFin: '17:00',
+      alternancia: 'TipoB', semana: 'B', parejaId: 'par', espacioId: 'e1' });
+    const yVirtual = { ...y, semana: 'A' as const, virtual: true, espacioId: undefined, espacioIdHogar: 'e1', esContraparteVirtual: true };
     const fija = sesion({ id: 'fija', dia: 'miercoles', espacioId: 'e1', alternancia: 'SinAlternancia', semana: undefined });
-    state.setSesiones([conPareja, contraparteX, fija]);
-    expect(component.hayAlternancia()).toBe(true);
+    return [x, xVirtual, y, yVirtual, fija];
+  }
 
-    component.selectWeek('B');
+  it('horario completo: todo el horario, y la tarjeta que alterna dice quién usa el espacio la próxima semana', () => {
+    const component = crearComponente();
+    TestBed.inject(StateService).setSesiones(pareja());
 
-    const dia = component.grilla().dias.find(d => d.valor === 'miercoles')!;
-    expect(dia.tarjetas).toHaveLength(1);
-    expect(dia.tarjetas[0].siempre).toBe(true);
+    const jueves = component.grilla().dias.find(d => d.valor === 'jueves')!;
+    expect(jueves.tarjetas).toHaveLength(1);
+    expect(jueves.tarjetas[0].m.asignaturaId).toBe('ax');
+    expect(jueves.tarjetas[0].m.contraparte?.asignaturaId).toBe('ay');
+    expect(component.grilla().dias.find(d => d.valor === 'miercoles')!.tarjetas).toHaveLength(1);
   });
 
-  it('en Semana A la misma sesión no se marca "siempre" (solo aplica en B)', () => {
+  it('semana siguiente: solo las parejas que alternan, el resto vacío', () => {
     const component = crearComponente();
-    const state = TestBed.inject(StateService);
-    const fija = sesion({ id: 'fija', dia: 'miercoles', espacioId: 'e1', alternancia: 'SinAlternancia', semana: undefined });
-    state.setSesiones([fija]);
+    TestBed.inject(StateService).setSesiones(pareja());
+    component.selectWeek('B');
 
-    const dia = component.grilla().dias.find(d => d.valor === 'miercoles')!;
-    expect(dia.tarjetas[0].siempre).toBe(false);
+    const jueves = component.grilla().dias.find(d => d.valor === 'jueves')!;
+    expect(jueves.tarjetas).toHaveLength(1);
+    expect(jueves.tarjetas[0].m.asignaturaId).toBe('ay');
+    expect(jueves.tarjetas[0].m.contraparte?.asignaturaId).toBe('ax');
+    expect(component.grilla().dias.find(d => d.valor === 'miercoles')!.tarjetas).toHaveLength(0);
+    expect(component.grilla().total).toBe(1);
   });
 });
