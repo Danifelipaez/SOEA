@@ -1,4 +1,4 @@
-import { ubicarEnGrilla, distribuirEnCarriles, MAX_CARRILES } from './horario.component';
+import { ubicarEnGrilla, distribuirEnCarriles, MAX_CARRILES } from './horario.reglas';
 
 /** Convierte "HH:mm" a minutos, para construir los items de prueba sin repetir el cálculo. */
 function min(hhmm: string): number {

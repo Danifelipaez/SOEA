@@ -33,12 +33,14 @@ Fuente única compartida por las tres fases y el validador:
 | Servicio | Responsabilidad |
 |---|---|
 | `GrillaInstitucional` | Bloques de 1 h: L–V 06:00–22:00, sábado 06:00–14:00 (88 bloques). IDs deterministas por día+hora |
-| `CalculadorDominioSesion` | Inicios válidos de una sesión (cabe en el día + HC-G01 + HC-VH) |
-| `CalculadorEspaciosSesion` | Aulas candidatas (HC-S03 tipo, HC-S05 aula fija, HC-CAP aforo) |
+| `CalculadorDominioSesion` | Inicios válidos de una sesión (cabe en el día + HC-G01 + HC-VH); `BloquesPermitidosPorGrupo` arma el índice HC-G01 de todos los grupos |
+| `CalculadorEspaciosSesion` | Aulas candidatas (HC-S03 tipo, HC-S05 aula fija), `RequisitoDe` (requisito del grupo para el tipo de sesión) y `CumpleAforo` (HC-CAP) |
 | `ModalidadSemanal` | Modalidad por semana y semanas en que una sesión ocupa aula (fuente de ALT-05) |
 | `EvaluadorParejaAlternancia` | Decide si dos sesiones pueden emparejarse (Semana B) |
 | `BloquesPlanner`, `ReglasSesion` | Encaje de sesiones multi-hora y reglas de sesión compartidas |
 | `DetectorDocentesDuplicados` | Detección de docentes repetidos para la fusión |
+
+`Sesion.DuracionBloques` (= `ceil(DuracionHoras)`, mínimo 1) es la única conversión de horas a bloques de la grilla. Ningún motor ni servicio debe recalcularla, ni volver a armar por su cuenta el índice HC-G01, el requisito de espacio o el filtro de aforo.
 
 ## API REST (`src/SOEA.API/Controllers`)
 

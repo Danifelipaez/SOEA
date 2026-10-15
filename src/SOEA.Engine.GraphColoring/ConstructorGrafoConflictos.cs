@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using SOEA.Domain.Entities;
-using SOEA.Domain.Enums;
+using SOEA.Domain.Services;
 
 namespace SOEA.Engine.GraphColoring
 {
@@ -49,19 +49,10 @@ namespace SOEA.Engine.GraphColoring
             if (s1.GrupoId == s2.GrupoId)
                 return true;
 
-            // 2. Mismo Espacio (Laboratorio/Salón)
-            if (s1.EspacioId.HasValue && s1.EspacioId != Guid.Empty && s1.EspacioId == s2.EspacioId)
-            {
-                // Regla ALT-01: TipoA y TipoB pueden compartir espacio
-                if ((s1.Alternancia == TipoAlternancia.TipoA && s2.Alternancia == TipoAlternancia.TipoB) ||
-                    (s1.Alternancia == TipoAlternancia.TipoB && s2.Alternancia == TipoAlternancia.TipoA))
-                {
-                    return false;
-                }
-                return true;
-            }
-
-            return false;
+            // 2. Mismo espacio fijo, si lo ocupan alguna semana en común (ALT-01: una TipoA y una
+            //    TipoB lo comparten sin chocar). Misma regla que CP-SAT y el validador.
+            return s1.EspacioId.HasValue && s1.EspacioId != Guid.Empty && s1.EspacioId == s2.EspacioId
+                && ModalidadSemanal.CompartenSemanaDeEspacio(s1, s2);
         }
     }
 }

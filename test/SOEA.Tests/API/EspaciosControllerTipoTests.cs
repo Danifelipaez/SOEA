@@ -21,7 +21,7 @@ namespace SOEA.Tests.Api
             var repo = new FakeEspacioRepo();
             var servicio = new EspacioService(repo, new FakeGrupoRepo(),
                 new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
-            return (new EspaciosController(repo, servicio), repo);
+            return (new EspaciosController(servicio), repo);
         }
 
         [Theory]

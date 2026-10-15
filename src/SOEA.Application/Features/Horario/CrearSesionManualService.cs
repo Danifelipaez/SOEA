@@ -5,6 +5,7 @@ using SOEA.Domain.Enums;
 using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.Services;
+using SOEA.Domain.ValueObjects;
 
 namespace SOEA.Application.Features.Horario
 {
@@ -129,12 +130,11 @@ namespace SOEA.Application.Features.Horario
             // ── HC-I01: docente ocupado ── fuera del validador: el docente no es eje de generación (CR-08).
             if (req.DocenteId is Guid docenteId)
             {
-                static int Bloques(Sesion s) => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
                 var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloquesGrid);
                 var choque = asignaciones.FirstOrDefault(a =>
                     sesionPorId[a.SesionId].DocenteId == docenteId &&
                     idxPorBloque.TryGetValue(a.BloqueTiempoId, out var inicioOtra) &&
-                    BloquesPlanner.Solapan(idxPorBloque[bloque.Id], Bloques(sesion), inicioOtra, Bloques(sesionPorId[a.SesionId]), diaPorIdx));
+                    BloquesPlanner.Solapan(idxPorBloque[bloque.Id], sesion.DuracionBloques, inicioOtra, sesionPorId[a.SesionId].DuracionBloques, diaPorIdx));
                 if (choque is not null)
                 {
                     string Nombre(Guid asignaturaId) => asignaturas.FirstOrDefault(x => x.Id == asignaturaId)?.Nombre ?? "asignatura sin nombre";
@@ -183,16 +183,6 @@ namespace SOEA.Application.Features.Horario
         }
 
         /// <summary>internal (no private): reutilizado por <see cref="ReacomodarHorarioService"/> (P5).</summary>
-        internal static DiaDeSemana? MapearDia(string dia) =>
-            dia.ToLowerInvariant().Trim() switch
-            {
-                "lunes"     => DiaDeSemana.Lunes,
-                "martes"    => DiaDeSemana.Martes,
-                "miercoles" => DiaDeSemana.Miercoles,
-                "jueves"    => DiaDeSemana.Jueves,
-                "viernes"   => DiaDeSemana.Viernes,
-                "sabado"    => DiaDeSemana.Sábado,
-                _           => null
-            };
+        internal static DiaDeSemana? MapearDia(string dia) => DisponibilidadSemanal.ParseDia(dia);
     }
 }

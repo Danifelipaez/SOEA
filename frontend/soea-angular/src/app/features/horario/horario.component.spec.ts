@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
-import { EditarSesionDialogComponent } from './horario.component';
+import { EditarSesionDialogComponent } from './editar-sesion-dialog.component';
 import { Asignatura, Docente, Espacio, Grupo, Sesion } from '../../core/models';
 
 /**

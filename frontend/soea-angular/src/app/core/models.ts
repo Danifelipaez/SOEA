@@ -18,12 +18,25 @@ export interface Espacio {
   piso?: number;
 }
 
+/** Disponibilidad declarada de un día, tal como la serializa DisponibilidadEditorComponent.
+ *  `tipo`: 'Franja general' (usa `franjaGeneral`) o 'Franja específica' (usa `desde`/`hasta`, "HH:mm"). */
+export interface DisponibilidadDia {
+  noDisponible?: boolean;
+  tipo?: string;
+  franjaGeneral?: string;
+  desde?: string;
+  hasta?: string;
+}
+
+/** Disponibilidad por día, con clave 'lunes' … 'sabado'. Un día ausente: ver quien la lea (docente = abierto, grupo = cerrado). */
+export type DisponibilidadUi = Record<string, DisponibilidadDia>;
+
 export interface Docente {
   id: string;
   nombre: string;
   cedula: string;
   maxHoras: number;
-  disponibilidad: any; // { lunes: { noDisponible, tipo, franjaGeneral, desde, hasta }, ... }
+  disponibilidad: DisponibilidadUi;
 }
 
 /** Requisito de espacio de un grupo por tipo de sesión (HC-S03/HC-S05). Reemplaza a

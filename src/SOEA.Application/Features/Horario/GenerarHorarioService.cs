@@ -298,26 +298,33 @@ namespace SOEA.Application.Features.Horario
             // ── 2. Fase 1 — Coloración de Grafo (pre-asignación de bloques) ────
             // HC-G01/HC-VH: se pasan grupos y ventanas para que el warm-start caiga siempre dentro
             // del dominio que CP-SAT va a exigir (misma fuente: CalculadorDominioSesion).
-            logs.Add("[INFO] Fase 1: Pre-procesamiento (Coloración de grafos) iniciada.");
-            var swFase1 = System.Diagnostics.Stopwatch.StartNew();
-            var sesionesColoreadas = (await _fase1.AsignarBloquesDeTiempoAsync(
-                sesiones, bloques, grupos, ventanaPorAsig,
-                sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null, ct: ct)).ToList();
-            swFase1.Stop();
-            logs.Add($"[INFO] Fase 1 completada en {swFase1.ElapsedMilliseconds}ms.");
+            var fijasONull = sesionesFijasIds.Count > 0 ? sesionesFijasIds : null;
+            List<Sesion> sesionesColoreadas = sesiones;
 
-            // ── 3. Fase 2 — Constraint Programming (factibilidad) ─────────────
-            // HC-G01: se pasan los grupos para que CP-SAT aplique la disponibilidad horaria
-            // como restricción dura (presencial-first: el pipeline se optimiza alrededor del
-            // horario de los grupos, no de los docentes).
-            logs.Add("[INFO] Fase 2: Viabilidad (CP-SAT) iniciada.");
+            // Fase 1 (warm-start) + Fase 2 (factibilidad) sobre el estado actual de alternancia. La
+            // usan el intento inicial y cada vuelta del bucle de Semana B.
+            async Task<ResultadoFactibilidad> ColorearYResolverAsync(bool diagnosticarPorGrupo)
+            {
+                sesionesColoreadas = (await _fase1.AsignarBloquesDeTiempoAsync(
+                    sesiones, bloques, grupos, ventanaPorAsig, sesionesFijasIds: fijasONull, ct: ct)).ToList();
+                // HC-G01: se pasan los grupos para que CP-SAT aplique la disponibilidad horaria
+                // como restricción dura (el pipeline se optimiza alrededor del horario de los grupos).
+                return await _fase2.ResolverFactibilidadAsync(
+                    sesionesColoreadas, bloques, espacios,
+                    grupos: grupos,
+                    sesionesFijasIds: fijasONull,
+                    ventanaPorAsignatura: ventanaPorAsig,
+                    ct: ct,
+                    diagnosticarPorGrupo: diagnosticarPorGrupo);
+            }
+
+            // ── 2-3. Fase 1 (coloración) + Fase 2 (CP-SAT) ─────────────────────────
+            logs.Add("[INFO] Fase 1 (coloración de grafos) y Fase 2 (viabilidad, CP-SAT) iniciadas.");
             var swFase2 = System.Diagnostics.Stopwatch.StartNew();
-            var resultadoFactibilidad = await _fase2.ResolverFactibilidadAsync(
-                sesionesColoreadas, bloques, espacios,
-                grupos: grupos,
-                sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null,
-                ventanaPorAsignatura: ventanaPorAsig,
-                ct);
+            var resultadoFactibilidad = await ColorearYResolverAsync(diagnosticarPorGrupo: true);
+            // El diagnóstico por grupo solo se calcula en este primer intento: en el bucle de Semana B
+            // cada vuelta costaría hasta SweepGruposMaximo solves extra cuyo resultado se descarta.
+            var gruposResponsablesIniciales = resultadoFactibilidad.GruposResponsablesIds;
 
             // ── Activación de la Semana B (reactiva) ────────────────────────────────────
             // Si Fase 2 dice que no hay configuración válida POR FALTA DE AULAS, se cede una pareja
@@ -346,15 +353,7 @@ namespace SOEA.Application.Features.Horario
                 var (s1, s2) = (cesion.S1!, cesion.S2!);
                 var previo = resultadoFactibilidad;
 
-                sesionesColoreadas = (await _fase1.AsignarBloquesDeTiempoAsync(
-                    sesiones, bloques, grupos, ventanaPorAsig,
-                    sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null, ct: ct)).ToList();
-                resultadoFactibilidad = await _fase2.ResolverFactibilidadAsync(
-                    sesionesColoreadas, bloques, espacios,
-                    grupos: grupos,
-                    sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null,
-                    ventanaPorAsignatura: ventanaPorAsig,
-                    ct);
+                resultadoFactibilidad = await ColorearYResolverAsync(diagnosticarPorGrupo: false);
 
                 if (!resultadoFactibilidad.EsFactible &&
                     resultadoFactibilidad.Motivo is not (MotivoInfactibilidad.Espacio or MotivoInfactibilidad.Timeout))
@@ -401,7 +400,8 @@ namespace SOEA.Application.Features.Horario
                     EsFactible    = false,
                     MensajeError  = mensaje,
                     MotivoInfactibilidad = resultadoFactibilidad.Motivo.ToString(),
-                    GruposEnConflicto = resultadoFactibilidad.GruposResponsablesIds?.Select(id => id.ToString()).ToList() ?? new(),
+                    GruposEnConflicto = (resultadoFactibilidad.GruposResponsablesIds ?? gruposResponsablesIniciales)?
+                        .Select(id => id.ToString()).ToList() ?? new(),
                     EspacioLimitanteId = resultadoFactibilidad.EspacioLimitanteId?.ToString(),
                     SesionesSinAlternanciaPosible = diagnosticoCesion,
                     Logs          = logs,
@@ -440,6 +440,14 @@ namespace SOEA.Application.Features.Horario
             var estadoPreFase3 = sesionesColoreadas.ToDictionary(
                 s => s.Id,
                 s => (s.Modalidad, s.Alternancia, s.PatronAlternanciaId, s.ParejaAlternanciaId, s.CedidaPorSaturacion));
+            void RestaurarEstadoPreFase3()
+            {
+                foreach (var s in sesionesColoreadas)
+                {
+                    var e = estadoPreFase3[s.Id];
+                    s.RestaurarEstadoAlternancia(e.Modalidad, e.Alternancia, e.PatronAlternanciaId, e.ParejaAlternanciaId, e.CedidaPorSaturacion);
+                }
+            }
 
             var swFase3 = System.Diagnostics.Stopwatch.StartNew();
             ResultadoOptimizacion resultadoGA;
@@ -451,7 +459,7 @@ namespace SOEA.Application.Features.Horario
                     config: configuracionGa,
                     infoAsignatura: infoAsignatura,
                     ventanaPorAsignatura: ventanaPorAsig,   // HC-VH: el GA no puede sacar sesiones de su ventana
-                    sesionesFijasIds: sesionesFijasIds.Count > 0 ? sesionesFijasIds : null, // regla 8: el GA no mueve el horario base
+                    sesionesFijasIds: fijasONull, // regla 8: el GA no mueve el horario base
                     sesionesCedidasParaRevertir: sesionesCedidasEnOrden.Count > 0 ? sesionesCedidasEnOrden : null,
                     ct: ct);
             }
@@ -461,13 +469,7 @@ namespace SOEA.Application.Features.Horario
             catch (OperationCanceledException) when (!ctCliente.IsCancellationRequested)
             {
                 logs.Add("[WARN] El plazo total se agotó durante la Fase 3 (optimización); se usa la solución de Fase 2, sin optimizar.");
-                foreach (var s in sesionesColoreadas)
-                {
-                    var estado = estadoPreFase3[s.Id];
-                    s.RestaurarEstadoAlternancia(
-                        estado.Modalidad, estado.Alternancia, estado.PatronAlternanciaId,
-                        estado.ParejaAlternanciaId, estado.CedidaPorSaturacion);
-                }
+                RestaurarEstadoPreFase3();
                 resultadoGA = new ResultadoOptimizacion(resultadoFactibilidad.Asignaciones, 0m, 0, UsoFallback: true);
             }
             swFase3.Stop();
@@ -497,9 +499,7 @@ namespace SOEA.Application.Features.Horario
                 RequisitosPorGrupo: grupos.ToDictionary(g => g.Id, g => g.RequisitosEspacio),
                 // G2/G7 auditoría: sin esto, los mensajes de conflicto degradan a "sin nombre" —
                 // la fuente ya existe (AsignaturaDto.Nombre / Grupo.Nombre), es gratis pasarla.
-                NombrePorAsignatura: request.Asignaturas
-                    .Where(dto => Guid.TryParse(dto.Id, out _))
-                    .ToDictionary(dto => Guid.Parse(dto.Id), dto => dto.Nombre),
+                NombrePorAsignatura: asignaturasConIdValido.ToDictionary(dto => Guid.Parse(dto.Id), dto => dto.Nombre),
                 NombrePorGrupo: grupos.ToDictionary(g => g.Id, g => g.Nombre));
 
             var conflictos = ValidadorRestriccionesDuras.Validar(asignaciones, sesionPorIdValidacion, bloqueIndex, contextoValidacion);
@@ -519,13 +519,7 @@ namespace SOEA.Application.Features.Horario
                 // haya aplicado, para que sesionPorIdValidacion vuelva a reflejar el estado que
                 // resultadoFactibilidad.Asignaciones sí vio. sesionPorIdValidacion apunta a estos
                 // mismos objetos, así que no hace falta reconstruir el diccionario.
-                foreach (var s in sesionesColoreadas)
-                {
-                    var estado = estadoPreFase3[s.Id];
-                    s.RestaurarEstadoAlternancia(
-                        estado.Modalidad, estado.Alternancia, estado.PatronAlternanciaId,
-                        estado.ParejaAlternanciaId, estado.CedidaPorSaturacion);
-                }
+                RestaurarEstadoPreFase3();
 
                 asignaciones   = resultadoFactibilidad.Asignaciones;
                 puntajeFitness = 0m;
@@ -868,8 +862,7 @@ namespace SOEA.Application.Features.Horario
             foreach (var sesion in sesiones)
             {
                 if (espacioHogarPorSesion.ContainsKey(sesion.Id)) continue;
-                if (!requisitosPorGrupoDto.TryGetValue(sesion.GrupoId, out var reqs)) continue;
-                var requisito = reqs.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion));
+                var requisito = CalculadorEspaciosSesion.RequisitoDe(sesion, requisitosPorGrupoDto.GetValueOrDefault(sesion.GrupoId));
                 if (requisito?.EspacioId is Guid espacioHogar)
                     espacioHogarPorSesion[sesion.Id] = espacioHogar.ToString();
             }
@@ -1186,36 +1179,23 @@ namespace SOEA.Application.Features.Horario
             var grupoPorId = grupos.ToDictionary(g => g.Id);
             var rangos = BloquesPlanner.RangosPorDia(bloques);
             var diaPorIdx = BloquesPlanner.DiaPorBloqueIdx(bloques);
-
-            var permitidosPorGrupo = new Dictionary<Guid, HashSet<int>>();
-            foreach (var grupo in grupoPorId.Values)
-            {
-                if (grupo.Id == Guid.Empty) continue;
-                var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.ObtenerDisponibilidadSemanal());
-                if (permitidos is not null) permitidosPorGrupo[grupo.Id] = permitidos;
-            }
+            var permitidosPorGrupo = CalculadorDominioSesion.BloquesPermitidosPorGrupo(bloques, grupos);
 
             var dominios = new Dictionary<Guid, int[]>();
             var aulas = new Dictionary<Guid, IReadOnlyList<int>>();
             foreach (var sesion in sesiones)
             {
-                int dur = Math.Max(1, (int)Math.Ceiling(sesion.DuracionHoras));
-
-                HashSet<int>? permGrupo = null;
-                permitidosPorGrupo.TryGetValue(sesion.GrupoId, out permGrupo);
-                (TimeOnly? min, TimeOnly? max) ventana = default;
-                ventanaPorAsignatura.TryGetValue(sesion.AsignaturaId, out ventana);
+                var ventana = ventanaPorAsignatura.GetValueOrDefault(sesion.AsignaturaId);
                 dominios[sesion.Id] = CalculadorDominioSesion.StartsPermitidos(
-                    dur, bloques, rangos, diaPorIdx, permGrupo, ventana.min, ventana.max);
+                    sesion.DuracionBloques, bloques, rangos, diaPorIdx,
+                    permitidosPorGrupo.GetValueOrDefault(sesion.GrupoId), ventana.min, ventana.max);
 
-                RequisitoEspacio? requisito = grupoPorId.TryGetValue(sesion.GrupoId, out var g)
-                    ? g.RequisitosEspacio.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion))
-                    : null;
-                int estudiantes = grupoPorId.TryGetValue(sesion.GrupoId, out var g2)
-                    ? g2.EstudiantesInscritos : 0;
+                var grupo = grupoPorId.GetValueOrDefault(sesion.GrupoId);
+                var requisito = CalculadorEspaciosSesion.RequisitoDe(sesion, grupo?.RequisitosEspacio);
+                int estudiantes = grupo?.EstudiantesInscritos ?? 0;
 
                 aulas[sesion.Id] = CalculadorEspaciosSesion.Candidatos(sesion, espacios, requisito)
-                    .Where(e => estudiantes == 0 || espacios[e].Capacidad >= estudiantes)
+                    .Where(e => CalculadorEspaciosSesion.CumpleAforo(espacios[e], estudiantes))
                     .ToList();
             }
 

@@ -105,7 +105,7 @@ namespace SOEA.Tests.Application.Horario
                 IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloques, IEnumerable<Espacio> espacios,
                 IEnumerable<Grupo>? grupos = null, IEnumerable<Guid>? sesionesFijasIds = null,
                 IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
-                CancellationToken ct = default) =>
+                CancellationToken ct = default, bool diagnosticarPorGrupo = true) =>
                 Task.FromResult(new ResultadoFactibilidad(
                     false, Array.Empty<AsignacionSemanal>(),
                     "El modelo no tiene solución factible. Diagnóstico adicional: al excluir cualquiera de los grupos en conflicto el modelo pasa a ser factible.",

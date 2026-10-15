@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using OfficeOpenXml;  // EPPlus 8 license
 using SOEA.API;
 using SOEA.Application.Features.Asignaturas;
 using SOEA.Application.Features.CriteriosCesionAlternancia;
@@ -21,8 +20,6 @@ using SOEA.Infrastructure.Data.Context;
 using SOEA.Infrastructure.Data.Repositories;
 using SOEA.Infrastructure.Data.Seeding;
 using SOEA.Infrastructure.Excel;
-
-ExcelPackage.License.SetNonCommercialPersonal("SOEA");
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -77,8 +74,8 @@ builder.Services.AddScoped<IFacultadRepositorio, FacultadRepositorio>();
 builder.Services.AddScoped<IProgramaRepositorio, ProgramaRepositorio>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-// ── Excel reader ──────────────────────────────────────────────────────────────
-builder.Services.AddScoped<ILectorExcel, LectorExcel>();
+// ── Excel reader (registra LectorExcel y fija la licencia de EPPlus) ──────────
+builder.Services.AddExcelInfrastructure();
 
 // ── Motores de scheduling ─────────────────────────────────────────────────────
 builder.Services.AddGraphColoringEngine();

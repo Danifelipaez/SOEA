@@ -213,7 +213,7 @@ namespace SOEA.Application.Features.Horario
             {
                 if (!sesionPorId.TryGetValue(a.SesionId, out var s)) { sinSesion++; continue; }
                 if (!bloqueIndex.TryGetValue(a.BloqueTiempoId, out var inicio)) { sinBloque++; continue; }
-                int duracion = Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
+                int duracion = s.DuracionBloques;
                 items.Add(new Intervalo(a, s, inicio, duracion));
             }
             if (sinSesion > 0)
@@ -247,6 +247,17 @@ namespace SOEA.Application.Features.Horario
         private static void ValidarConContexto(
             List<Intervalo> items, ContextoValidacion ctx, List<string> conflictos)
         {
+            // HC-G01: un cálculo por grupo, no uno por sesión.
+            var permitidosPorGrupo = new Dictionary<Guid, HashSet<int>?>();
+            HashSet<int>? PermitidosDe(Guid grupoId)
+            {
+                if (!permitidosPorGrupo.TryGetValue(grupoId, out var p))
+                    permitidosPorGrupo[grupoId] = p = ctx.DisponibilidadPorGrupo.TryGetValue(grupoId, out var disp)
+                        ? CalculadorDominioSesion.BloquesPermitidos(ctx.Bloques, disp)
+                        : null;
+                return p;
+            }
+
             foreach (var item in items)
             {
                 var (a, s, inicio, dur) = (item.Asignacion, item.Sesion, item.Inicio, item.Duracion);
@@ -280,9 +291,9 @@ namespace SOEA.Application.Features.Horario
                 // no-disponible toda la semana es, para ellos, "sin dato" — para el chequeo viejo,
                 // cada uno de sus bloques quedaba fuera de PermiteBloque y TODAS sus sesiones se
                 // reportaban como violación aunque los motores las hubieran programado sin problema).
-                if (!esFija && ctx.DisponibilidadPorGrupo.TryGetValue(s.GrupoId, out var disp))
+                if (!esFija)
                 {
-                    var permitidos = CalculadorDominioSesion.BloquesPermitidos(ctx.Bloques, disp);
+                    var permitidos = PermitidosDe(s.GrupoId);
                     if (permitidos is not null)
                     {
                         bool cabeEnFranja = true;
@@ -325,16 +336,14 @@ namespace SOEA.Application.Features.Horario
                 // HC-S03 — tipo de espacio según TipoSesion (A2/A3), con el requisito del grupo
                 // si existe (misma fuente que CP-SAT/GA: CalculadorEspaciosSesion).
                 var tipoSesion = CalculadorEspaciosSesion.TipoSesionDe(s);
-                RequisitoEspacio? requisito = (ctx.RequisitosPorGrupo?.TryGetValue(s.GrupoId, out var reqs) ?? false)
-                    ? reqs!.FirstOrDefault(r => r.TipoSesion == tipoSesion)
-                    : null;
+                var requisito = CalculadorEspaciosSesion.RequisitoDe(s, ctx.RequisitosPorGrupo?.GetValueOrDefault(s.GrupoId));
                 if (!CalculadorEspaciosSesion.CumpleTipo(espacio, tipoSesion, requisito))
                     conflictos.Add($"HC-S03: {Describir(s, ctx)} ({tipoSesion}) asignada al espacio " +
                                    $"'{espacio.Nombre}' (tipo {espacio.Tipo}), que no cumple su requisito de espacio (semana {a.Semana}).");
 
                 // HC-CAP — aforo suficiente para los estudiantes del grupo.
-                if (ctx.EstudiantesPorGrupo.TryGetValue(s.GrupoId, out var estudiantes) &&
-                    estudiantes > 0 && espacio.Capacidad < estudiantes)
+                int estudiantes = ctx.EstudiantesPorGrupo.GetValueOrDefault(s.GrupoId);
+                if (!CalculadorEspaciosSesion.CumpleAforo(espacio, estudiantes))
                 {
                     conflictos.Add($"HC-CAP: {Describir(s, ctx)} en espacio '{espacio.Nombre}' (aforo {espacio.Capacidad}) " +
                                    $"para un grupo de {estudiantes} estudiantes (semana {a.Semana}).");
@@ -363,10 +372,11 @@ namespace SOEA.Application.Features.Horario
 
             // HC-SEP — separación mínima de días entre sesiones semanales del mismo
             // (grupo, asignatura, tipo de sesión). Eje temporal ⇒ independiente de la semana
-            // (ALT-05: la sesión cae el mismo día todas las semanas). Sesiones fijas del horario
-            // base quedan fuera (mismo criterio que HC-VH/HC-G01: CP-SAT no les aplica este dominio).
+            // (ALT-05: la sesión cae el mismo día todas las semanas). Mismo criterio que CP-SAT y el
+            // GA: una sesión fija cuenta frente a sus hermanas libres; dos fijas entre sí no se
+            // comparan (su franja es dato de entrada, regla 8).
+            bool EsFijaItem(Intervalo i) => ctx.SesionesFijas?.Contains(i.Sesion.Id) == true;
             foreach (var grupo in items
-                         .Where(i => ctx.SesionesFijas?.Contains(i.Sesion.Id) != true)
                          .GroupBy(i => (GrupoId: i.Sesion.GrupoId, i.Sesion.AsignaturaId,
                                         Tipo: CalculadorEspaciosSesion.TipoSesionDe(i.Sesion))))
             {
@@ -374,6 +384,7 @@ namespace SOEA.Application.Features.Horario
                 for (int x = 0; x < lista.Count; x++)
                     for (int y = x + 1; y < lista.Count; y++)
                     {
+                        if (EsFijaItem(lista[x]) && EsFijaItem(lista[y])) continue;
                         var diaX = ctx.Bloques[lista[x].Inicio].Dia;
                         var diaY = ctx.Bloques[lista[y].Inicio].Dia;
                         if (!ReglasSesion.SeparacionDiasOk(diaX, diaY))

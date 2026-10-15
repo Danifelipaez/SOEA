@@ -46,6 +46,12 @@ namespace SOEA.Application.Features.Import
             _bloques    = bloques;
         }
 
+        /// <summary>Catálogo de bloques por (día, hora de inicio), el que necesita <c>ILectorExcel.ConstruirCurriculum</c>.</summary>
+        public async Task<IReadOnlyDictionary<(DiaDeSemana, TimeOnly), BloqueTiempo>> CatalogoBloquesAsync() =>
+            (await _bloques.GetAllAsync())
+                .GroupBy(b => (b.Dia, b.HoraInicio))
+                .ToDictionary(g => g.Key, g => g.First());
+
         public async Task<ImportarCurriculumStats> EjecutarAsync(CurriculumExcelResult resultado)
         {
             var stats           = new ImportarCurriculumStats();

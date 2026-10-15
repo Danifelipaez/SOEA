@@ -121,7 +121,7 @@ namespace SOEA.Tests.Application.Horario
                 IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloques, IEnumerable<Espacio> espacios,
                 IEnumerable<Grupo>? grupos = null, IEnumerable<Guid>? sesionesFijasIds = null,
                 IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
-                CancellationToken ct = default)
+                CancellationToken ct = default, bool diagnosticarPorGrupo = true)
             {
                 Interlocked.Increment(ref Llamadas);
                 return Task.FromResult(new ResultadoFactibilidad(

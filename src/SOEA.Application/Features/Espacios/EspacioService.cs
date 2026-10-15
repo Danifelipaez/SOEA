@@ -1,3 +1,5 @@
+using SOEA.Domain.Entities;
+using SOEA.Domain.Enums;
 using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
 using SOEA.Application.Features.Sesiones;
@@ -35,6 +37,28 @@ public class EspacioService
         var otro = await _repo.GetByNombreAsync((nombre ?? "").Trim());
         if (otro is not null && otro.Id != id)
             throw new BusinessRuleViolationException($"Ya existe un espacio llamado '{otro.Nombre}'.");
+    }
+
+    public Task<List<Espacio>> ListarAsync() => _repo.GetAllAsync();
+
+    public async Task<Espacio> CrearAsync(Guid id, string nombre, TipoEspacio tipo, int capacidad, string? edificio, int? piso)
+    {
+        if (id == Guid.Empty) id = Guid.NewGuid();
+        await ExigirNombreUnicoAsync(nombre, id);
+        var espacio = new Espacio(id, nombre, tipo, capacidad, edificio, piso);
+        await _repo.AddAsync(espacio);
+        return espacio;
+    }
+
+    public async Task<Espacio> ActualizarAsync(Guid id, string nombre, TipoEspacio tipo, int capacidad, string? edificio, int? piso)
+    {
+        var existing = await _repo.GetByIdAsync(id)
+            ?? throw new KeyNotFoundException($"Espacio con ID {id} no encontrado.");
+        await ExigirNombreUnicoAsync(nombre, id);
+        existing.ActualizarDatos(nombre, tipo, edificio, piso);
+        existing.ActualizarCapacidad(capacidad);
+        await _repo.UpdateAsync(existing);
+        return existing;
     }
 
     public async Task DeleteAsync(Guid id)

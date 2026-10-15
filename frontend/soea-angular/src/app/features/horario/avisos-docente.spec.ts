@@ -2,8 +2,9 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
-import { avisosDocentePorSesion, choquesEspacioPorSesion, EditarSesionDialogComponent, fueraDisponibilidadGrupo } from './horario.component';
-import { Asignatura, Docente, Grupo, Sesion } from '../../core/models';
+import { avisosDocentePorSesion, choquesEspacioPorSesion, fueraDisponibilidadGrupo } from './horario.reglas';
+import { EditarSesionDialogComponent } from './editar-sesion-dialog.component';
+import { Asignatura, DisponibilidadUi, Docente, Grupo, Sesion } from '../../core/models';
 import { StateService } from '../../core/state.service';
 
 /**
@@ -12,7 +13,7 @@ import { StateService } from '../../core/state.service';
  */
 const asignaturas = [{ id: 'a1', nombre: 'Química General' }, { id: 'a2', nombre: 'Bioquímica' }] as Asignatura[];
 const grupos = [{ id: 'g1', nombre: 'Grupo 1' }, { id: 'g2', nombre: 'Grupo 2' }] as Grupo[];
-const docente = (disponibilidad: Record<string, unknown> = {}): Docente =>
+const docente = (disponibilidad: DisponibilidadUi = {}): Docente =>
   ({ id: 'd1', nombre: 'Alex Chimenty', cedula: '', maxHoras: 40, disponibilidad });
 const sesion = (o: Partial<Sesion> = {}): Sesion => ({
   id: 's1', asignaturaId: 'a1', grupoId: 'g1', docenteId: 'd1', dia: 'jueves', horaInicio: '15:00', horaFin: '17:00',
@@ -38,7 +39,7 @@ describe('avisosDocentePorSesion', () => {
   });
 
   it('avisa fuera de disponibilidad: día cerrado, franja específica y franja general', () => {
-    const casos: [Record<string, unknown>, string | undefined][] = [
+    const casos: [DisponibilidadUi, string | undefined][] = [
       [{ jueves: { noDisponible: true } }, 'Fuera de la disponibilidad de Alex Chimenty: marcó el jueves como no disponible.'],
       [{ jueves: { noDisponible: false, tipo: 'Franja específica', desde: '14:00', hasta: '16:00' } }, 'Fuera de la disponibilidad de Alex Chimenty: el jueves solo está disponible de 14:00 a 16:00.'],
       [{ jueves: { noDisponible: false, tipo: 'Franja general', franjaGeneral: 'Matutino (06:00–12:00)' } }, 'Fuera de la disponibilidad de Alex Chimenty: el jueves solo está disponible de 06:00 a 12:00.'],

@@ -87,7 +87,7 @@ namespace SOEA.Application.Features.Horario
             // asumen que dos spans que no cruzan día y se solapan numéricamente están en el MISMO
             // día; romper esa premisa producía falsos positivos/negativos de conflicto.
             {
-                int durParaCabeEnDia = Math.Max(1, (int)Math.Ceiling(sesionEditada.DuracionHoras));
+                int durParaCabeEnDia = sesionEditada.DuracionBloques;
                 var rangosPorDia = BloquesPlanner.RangosPorDia(bloquesGrid);
                 var diaPorIdxGrid = BloquesPlanner.DiaPorBloqueIdx(bloquesGrid);
                 if (!BloquesPlanner.CabeEnDia(inicioEditada, durParaCabeEnDia, rangosPorDia, diaPorIdxGrid))
@@ -111,7 +111,7 @@ namespace SOEA.Application.Features.Horario
                 a => a.Id, a => ((TimeOnly?)a.HoraInicioMin, (TimeOnly?)a.HoraFinMax));
 
             // ── Detectar SOLO las sesiones que ahora chocan con la editada en su nuevo slot ──
-            int duracionEditada = Math.Max(1, (int)Math.Ceiling(sesionEditada.DuracionHoras));
+            int duracionEditada = sesionEditada.DuracionBloques;
             int finEditada = inicioEditada + duracionEditada;
             bool Solapa(int inicio, int duracion) => inicio < finEditada && inicioEditada < inicio + duracion;
 
@@ -133,7 +133,7 @@ namespace SOEA.Application.Features.Horario
             foreach (var s in sesiones.Where(s => s.Id != sesionEditada.Id))
             {
                 if (!asignPorSesion.TryGetValue(s.Id, out var asigs)) continue;
-                int dur = Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
+                int dur = s.DuracionBloques;
                 bool choca = asigs.Any(a =>
                     idxPorBloque.TryGetValue(a.BloqueTiempoId, out var inicio) &&
                     Solapa(inicio, dur) &&

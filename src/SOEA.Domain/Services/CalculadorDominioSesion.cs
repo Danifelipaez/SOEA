@@ -54,6 +54,25 @@ namespace SOEA.Domain.Services
         }
 
         /// <summary>
+        /// <see cref="BloquesPermitidos"/> para cada grupo con una restricción real (los grupos sin
+        /// restricción no aparecen: ausente = todo bloque permitido). Antes Fase 1, CP-SAT, el GA y la
+        /// cesión armaban este mismo índice cada uno por su cuenta.
+        /// </summary>
+        public static Dictionary<Guid, HashSet<int>> BloquesPermitidosPorGrupo(
+            IReadOnlyList<BloqueTiempo> bloques,
+            IEnumerable<Grupo>? grupos)
+        {
+            var porGrupo = new Dictionary<Guid, HashSet<int>>();
+            foreach (var grupo in grupos ?? Enumerable.Empty<Grupo>())
+            {
+                if (grupo.Id == Guid.Empty || porGrupo.ContainsKey(grupo.Id)) continue;
+                var permitidos = BloquesPermitidos(bloques, grupo.ObtenerDisponibilidadSemanal());
+                if (permitidos is not null) porGrupo[grupo.Id] = permitidos;
+            }
+            return porGrupo;
+        }
+
+        /// <summary>
         /// Dominio completo de inicios para una sesión de <paramref name="duracion"/> horas:
         /// cabe-en-día ∩ HC-G01 (si <paramref name="bloquesPermitidosGrupo"/> no es null)
         /// ∩ HC-VH (si hay ventana). El resultado puede ser vacío: el llamador decide si eso es

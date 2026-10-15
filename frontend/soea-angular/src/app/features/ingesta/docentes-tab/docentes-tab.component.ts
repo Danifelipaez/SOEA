@@ -7,7 +7,7 @@ import { PersistenciaService } from '../../../core/persistencia.service';
 import { CatalogoService } from '../../../core/catalogo.service';
 import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
-import { Docente } from '../../../core/models';
+import { DisponibilidadUi, Docente } from '../../../core/models';
 import { nuevoId } from '../../../core/id.util';
 import { porNombre } from '../../../core/orden';
 import { MatSnackBar } from '@angular/material/snack-bar';
@@ -217,7 +217,7 @@ export class DocenteDialogComponent {
   data = inject(MAT_DIALOG_DATA);
 
   form: FormGroup;
-  disponibilidad = signal<Record<string, any>>(this.data?.disponibilidad ?? {});
+  disponibilidad = signal<DisponibilidadUi>(this.data?.disponibilidad ?? {});
 
   readonly opcionesFranja: FranjaOption[] = [
     { value: 'todo', label: 'Todo el día (06:00–22:00)' },

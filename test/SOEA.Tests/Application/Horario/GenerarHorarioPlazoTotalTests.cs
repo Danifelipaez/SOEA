@@ -34,7 +34,7 @@ namespace SOEA.Tests.Application.Horario
                 IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloques, IEnumerable<Espacio> espacios,
                 IEnumerable<Grupo>? grupos = null, IEnumerable<Guid>? sesionesFijasIds = null,
                 IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
-                CancellationToken ct = default)
+                CancellationToken ct = default, bool diagnosticarPorGrupo = true)
             {
                 RecibioToken = ct.CanBeCanceled;
                 await Task.Delay(Timeout.Infinite, ct);

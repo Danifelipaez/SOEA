@@ -28,7 +28,7 @@ POST /api/horario/generar  (catálogo enviado por el frontend + semestre + confi
 
 `SOEA.Engine.GraphColoring` (`ConstructorGrafoConflictos`, `AgendadorColoracionGrafo`).
 
-- Arista si dos sesiones comparten **grupo**, o comparten **aula** salvo que sean TipoA/TipoB opuestos (ALT-01).
+- Arista si dos sesiones comparten **grupo**, o comparten aula fija y la ocupan alguna semana en común (`ModalidadSemanal.CompartenSemanaDeEspacio`; una TipoA y una TipoB no chocan, ALT-01).
 - Orden por grado descendente; a cada sesión se le da el primer inicio de su dominio (`CalculadorDominioSesion`: HC-G01 + HC-VH) libre de vecinos, recorriendo los días en round-robin para no amontonar el lunes.
 
 ## Fase 2 — CP-SAT (OR-Tools)
@@ -36,9 +36,11 @@ POST /api/horario/generar  (catálogo enviado por el frontend + semestre + confi
 `SOEA.Engine.ConstraintProg` (`MotorConstraintProgramming`). Timeout por solve: `CpSat:TimeoutSegundos` (120 s).
 
 - **Variables:** un inicio por sesión (ALT-05 es estructural) con dominio = `CalculadorDominioSesion`; para cada (sesión presencial, semana en que ocupa aula) un literal por aula candidata (`CalculadorEspaciosSesion`: HC-S03, HC-S05, HC-CAP) con `AddExactlyOne`.
-- **Restricciones:** NoOverlap por grupo (HC-C01, independiente de la semana); NoOverlap de intervalos opcionales por (aula, semana) (HC-S01); `AddElement` sobre el día para HC-SEP; igualdad de bloque y aula en parejas (HC-ALT); igualdad en sesiones fijas (HC-BASE). Hints desde Fase 1.
+- **Restricciones:** NoOverlap por grupo (HC-C01, independiente de la semana); NoOverlap de intervalos opcionales por (aula, semana) (HC-S01); `AddElement` sobre el día para HC-SEP (una sesión fija cuenta frente a sus hermanas libres; dos fijas entre sí no se comparan); igualdad de bloque y aula en parejas (HC-ALT); igualdad en sesiones fijas (HC-BASE). Hints desde Fase 1.
+- **Restricción redundante:** un `Cumulative` por (semana, clase de aula) — laboratorios vs. salones/auditorios — sobre las sesiones cuyas aulas candidatas son todas de esa clase, con capacidad = número de aulas de la clase. No cambia las soluciones; acelera la prueba de "no alcanzan las aulas", que es el INFEASIBLE que repite cada vuelta del bucle de Semana B.
+- **Parámetros:** `max_time_in_seconds`, `random_seed` y `num_workers` (el antiguo `num_search_workers` está obsoleto en OR-Tools).
 - **Pre-chequeos** antes de construir el modelo (demanda vs. capacidad por clase de aula, datos incoherentes) → infactibilidad explicada sin resolver.
-- **Clasificación:** ante un INFEASIBLE sin explicación, reintenta sin restricciones de aula (`ClasificarInfactibilidadEspacio`); si así es factible, el motivo es `Espacio`. Opcionalmente (`SweepGrupos`) reintenta excluyendo cada grupo para nombrar al culpable.
+- **Clasificación:** ante un INFEASIBLE sin explicación, reintenta sin restricciones de aula (`ClasificarInfactibilidadEspacio`); si así es factible, el motivo es `Espacio`. Opcionalmente (`SweepGrupos`) reintenta excluyendo cada grupo para nombrar al culpable. El diagnóstico por grupo (grupos contradictorios en solitario + barrido) solo corre en el primer intento (`diagnosticarPorGrupo`): en las vueltas del bucle de Semana B se descartaría y costaría hasta `SweepGruposMaximo` solves por vuelta. Si la generación falla dentro del bucle, la respuesta reutiliza los grupos del primer diagnóstico.
 
 ## Semana B reactiva
 
@@ -81,7 +83,7 @@ Solo se activa si Fase 2 devuelve `Espacio`:
 | HC-S01 aula | — | NoOverlap (aula, semana) | asignador exacto | ✓ |
 | HC-S03 / S05 / CAP | — | candidatos | asignador exacto | ✓ |
 | HC-G01 / VH | dominio | dominio | dominio | ✓ |
-| HC-SEP | — | `AddElement` | reparación | ✓ |
+| HC-SEP | — | `AddElement` (fijas como obstáculo) | reparación (fijas como obstáculo) | ✓ (ídem) |
 | HC-ALT | — | igualdad | reparación | ✓ |
 | HC-BASE | — | igualdad | gen congelado | ✓ |
 | ALT-05 | — | un inicio por sesión | un gen por sesión | — |

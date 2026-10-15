@@ -71,7 +71,7 @@ Una violación impide publicar. "Validador" = `ValidadorRestriccionesDuras`, que
 | HC-S05 | Si el requisito fija un aula concreta, se usa esa | Candidatos de aula, validador |
 | HC-G01 | La sesión cae dentro de la disponibilidad del grupo | Dominio de inicios (3 fases), validador |
 | HC-VH | La sesión cae dentro de `[HoraInicioMin, HoraFinMax]` de la asignatura | Dominio de inicios, validador |
-| HC-SEP | ≥ 2 sesiones semanales del mismo (grupo, asignatura, tipo) quedan separadas al menos 2 días | Fase 2, GA, validador |
+| HC-SEP | ≥ 2 sesiones semanales del mismo (grupo, asignatura, tipo) quedan separadas al menos 2 días. Una sesión fija cuenta frente a sus hermanas libres; dos fijas entre sí no se comparan | Fase 2, GA, validador |
 | HC-ALT | Una pareja tiene tipos opuestos, mismo bloque y misma aula | Fase 2, GA, validador |
 | HC-BASE | Las sesiones fijas conservan su franja y aula | Fase 2 (igualdad), GA (gen congelado), validador |
 | HC-T01/T03 | Dentro de la jornada; sesiones multi-hora no cruzan de día | Implícito en la grilla y `BloquesPlanner` |

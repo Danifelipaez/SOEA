@@ -114,7 +114,7 @@ namespace SOEA.Tests.Application.Horario
                 IEnumerable<Sesion> sesiones, IEnumerable<BloqueTiempo> bloques, IEnumerable<Espacio> espacios,
                 IEnumerable<Grupo>? grupos = null, IEnumerable<Guid>? sesionesFijasIds = null,
                 IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
-                CancellationToken ct = default)
+                CancellationToken ct = default, bool diagnosticarPorGrupo = true)
             {
                 // Las sesiones no fijas llegan con el bloque provisional de la Fase 1 falsa (un Guid que no está en la
                 // grilla); un solver real les da un bloque de la grilla. VAL-1 (2026-09-28): el validador ya no ignora

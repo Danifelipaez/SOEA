@@ -58,7 +58,8 @@ namespace SOEA.Engine.ConstraintProg
             IEnumerable<Grupo>? grupos = null,
             IEnumerable<Guid>? sesionesFijasIds = null,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            bool diagnosticarPorGrupo = true)
         {
             var s     = sesiones.ToList();
             var b     = bloques.ToList();
@@ -68,16 +69,9 @@ namespace SOEA.Engine.ConstraintProg
                 ? new HashSet<Guid>(sesionesFijasIds)
                 : new HashSet<Guid>();
             var ventanas = ventanaPorAsignatura ?? new Dictionary<Guid, (TimeOnly?, TimeOnly?)>();
-            return Task.Run(() => ResolverSincrono(s, b, e, g, fijas, ventanas, ct, permitirSweep: true), ct);
+            return Task.Run(() => ResolverSincrono(s, b, e, g, fijas, ventanas, ct, permitirSweep: true,
+                diagnosticarPorGrupo: diagnosticarPorGrupo), ct);
         }
-
-        /// <summary>
-        /// Modalidad derivada para una semana concreta. Dato fijo, no lo decide el solver.
-        /// Una sesión marcada como Virtual (asignatura totalmente en línea) es virtual en ambas
-        /// semanas; solo las sesiones presenciales alternan según TipoA/TipoB (regla 9).
-        /// </summary>
-        private static Modalidad ModalidadDe(Sesion sesion, SemanaAcademica semana)
-            => ModalidadSemanal.Derivar(sesion, semana); // fuente única de la regla 9 (Domain)
 
         private static IReadOnlyList<AsignacionSemanal> SinAsignaciones => Array.Empty<AsignacionSemanal>();
 
@@ -90,7 +84,8 @@ namespace SOEA.Engine.ConstraintProg
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)> ventanaPorAsignatura,
             CancellationToken ct,
             bool permitirSweep,
-            bool omitirRestriccionAulas = false)
+            bool omitirRestriccionAulas = false,
+            bool diagnosticarPorGrupo = true)
         {
             if (!sesiones.Any() || !bloques.Any())
             {
@@ -113,10 +108,15 @@ namespace SOEA.Engine.ConstraintProg
             // rompe la separación con alguno de los tres). Antes esto caía en INFEASIBLE genérico,
             // que el catch-all final etiquetaba como MotivoInfactibilidad.Espacio — disparando en
             // falso el bucle de cesión de laboratorios (M5 del análisis).
+            // Una fija cuenta frente a las libres (ver HC-SEP más abajo), pero dos fijas no se comparan entre
+            // sí: el conjunto que debe quedar separado es "todas las libres + una fija".
             foreach (var cluster in sesiones
-                         .Where(s => !sesionesFijasIds.Contains(s.Id))
                          .GroupBy(s => (Grupo: s.GrupoId, Asignatura: s.AsignaturaId, Tipo: CalculadorEspaciosSesion.TipoSesionDe(s)))
-                         .Where(g => g.Count() >= 4))
+                         .Where(g =>
+                         {
+                             int libres = g.Count(s => !sesionesFijasIds.Contains(s.Id));
+                             return libres > 0 && libres + Math.Min(1, g.Count() - libres) >= 4;
+                         }))
             {
                 var msg = $"No es posible programar esta asignatura: el grupo '{NombreGrupo(cluster.Key.Grupo)}' tiene " +
                           $"{cluster.Count()} sesiones semanales de tipo {cluster.Key.Tipo}, pero la separación " +
@@ -153,9 +153,7 @@ namespace SOEA.Engine.ConstraintProg
             {
                 if (bolsaPorSesion.TryGetValue(s.Id, out var conocida)) return conocida;
                 var tipoSesion = CalculadorEspaciosSesion.TipoSesionDe(s);
-                RequisitoEspacio? requisito = requisitosPorGrupo.TryGetValue(s.GrupoId, out var reqs)
-                    ? reqs.FirstOrDefault(r => r.TipoSesion == tipoSesion)
-                    : null;
+                var requisito = CalculadorEspaciosSesion.RequisitoDe(s, requisitosPorGrupo.GetValueOrDefault(s.GrupoId));
                 var candidatos = CalculadorEspaciosSesion.Candidatos(s, espacios, requisito).ToList();
                 bool? usaLab =
                     candidatos.Count == 0 ? tipoSesion == TipoSesion.Laboratorio // sin candidatos: la regla por defecto
@@ -231,14 +229,7 @@ namespace SOEA.Engine.ConstraintProg
             // quedan confinados a los bloques que caen dentro de esa franja (hard constraint).
             // Criterio de franja centralizado en CalculadorDominioSesion (misma fuente que el GA
             // y el validador post-generación).
-            var bloquesPermitidosPorGrupo = new Dictionary<Guid, HashSet<int>>();
-            foreach (var grupo in grupos)
-            {
-                if (grupo.Id == Guid.Empty) continue;
-                var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.ObtenerDisponibilidadSemanal());
-                if (permitidos is not null)
-                    bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
-            }
+            var bloquesPermitidosPorGrupo = CalculadorDominioSesion.BloquesPermitidosPorGrupo(bloques, grupos);
 
             // ── HC-G01 agregada: carga propia del grupo vs. su ventana declarada ──────
             // HC-C01 (NoOverlap por grupo) implica que si la suma de bloques que las sesiones
@@ -252,7 +243,7 @@ namespace SOEA.Engine.ConstraintProg
                 .Select(g => new
                 {
                     GrupoId = g.Key,
-                    Requeridos = g.Sum(s => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras))),
+                    Requeridos = g.Sum(s => s.DuracionBloques),
                     Permitidos = bloquesPermitidosPorGrupo[g.Key].Count
                 })
                 .Where(x => x.Requeridos > x.Permitidos)
@@ -286,7 +277,7 @@ namespace SOEA.Engine.ConstraintProg
 
             foreach (var sesion in sesiones)
             {
-                int duracion = Math.Max(1, (int)Math.Ceiling(sesion.DuracionHoras));
+                int duracion = sesion.DuracionBloques;
                 duraciones[sesion.Id] = duracion;
 
                 var startVar = model.NewIntVar(0, bloques.Count - duracion, $"start_{sesion.Id}");
@@ -456,13 +447,15 @@ namespace SOEA.Engine.ConstraintProg
             // (grupo, asignatura, tipo de sesión) — petición 11 (A5, ReglasSesion). Canaliza el
             // día de cada start con AddElement y exige, por cada par, que el día difiera en ≥2
             // posiciones (lunes/martes no; lunes/miércoles sí). Es un eje TEMPORAL, así que no
-            // depende de la semana: la sesión cae el mismo día todas las semanas. Sesiones fijas
-            // quedan fuera: ya están fijadas por igualdad y no participan de este dominio.
+            // depende de la semana: la sesión cae el mismo día todas las semanas. Una sesión fija
+            // participa como obstáculo (su día ya está decidido) para sus hermanas libres; dos fijas
+            // entre sí no se restringen, porque su franja es dato de entrada (regla 8). Antes las fijas
+            // se excluían del todo, así que el modelo podía dejar una hermana libre al día siguiente
+            // de una fija — el GA sí lo reparaba y /reacomodar lo rechazaba después en el validador.
             var diaConstPorIdx = bloques.Select(bl => model.NewConstant((int)bl.Dia)).ToArray();
             var gruposSeparacion = sesiones
-                .Where(s => !sesionesFijasIds.Contains(s.Id))
                 .GroupBy(s => (s.GrupoId, s.AsignaturaId, Tipo: CalculadorEspaciosSesion.TipoSesionDe(s)))
-                .Where(g => g.Count() >= 2);
+                .Where(g => g.Count(s => !sesionesFijasIds.Contains(s.Id)) >= 1 && g.Count() >= 2);
             foreach (var grupo in gruposSeparacion)
             {
                 var lista = grupo.ToList();
@@ -476,6 +469,7 @@ namespace SOEA.Engine.ConstraintProg
                 for (int i = 0; i < diaVars.Count; i++)
                     for (int j = i + 1; j < diaVars.Count; j++)
                     {
+                        if (sesionesFijasIds.Contains(lista[i].Id) && sesionesFijasIds.Contains(lista[j].Id)) continue;
                         var b = model.NewBoolVar($"sep_{lista[i].Id}_{lista[j].Id}");
                         model.Add(diaVars[i] - diaVars[j] >= 2).OnlyEnforceIf(b);
                         model.Add(diaVars[j] - diaVars[i] >= 2).OnlyEnforceIf(b.Not());
@@ -529,9 +523,7 @@ namespace SOEA.Engine.ConstraintProg
 
                     // HC-S05 (espacio fijo, de la sesión o del requisito del grupo) ∩ HC-S03
                     // (tipo de espacio según TipoSesion — A2/A3, fuente única).
-                    RequisitoEspacio? requisito = requisitosPorGrupo.TryGetValue(sesion.GrupoId, out var reqs)
-                        ? reqs.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion))
-                        : null;
+                    var requisito = CalculadorEspaciosSesion.RequisitoDe(sesion, requisitosPorGrupo.GetValueOrDefault(sesion.GrupoId));
                     var lista = CalculadorEspaciosSesion.Candidatos(sesion, espacios, requisito).ToList();
 
                     if (lista.Count == 0)
@@ -543,10 +535,10 @@ namespace SOEA.Engine.ConstraintProg
                     }
 
                     // HC-CAP: descartar espacios con aforo insuficiente para el grupo de la sesión.
-                    int estudiantes = estudiantesPorGrupo.TryGetValue(sesion.GrupoId, out var nEst) ? nEst : 0;
+                    int estudiantes = estudiantesPorGrupo.GetValueOrDefault(sesion.GrupoId);
                     if (estudiantes > 0)
                     {
-                        var conAforo = lista.Where(e => espacios[e].Capacidad >= estudiantes).ToList();
+                        var conAforo = lista.Where(e => CalculadorEspaciosSesion.CumpleAforo(espacios[e], estudiantes)).ToList();
                         if (conAforo.Count == 0)
                         {
                             var mayor = espacios[lista.MaxBy(e => espacios[e].Capacidad)];
@@ -614,6 +606,27 @@ namespace SOEA.Engine.ConstraintProg
                     if (par.Value.Count > 1)
                         model.AddNoOverlap(par.Value);
                 }
+
+                // Restricción REDUNDANTE (no cambia el conjunto de soluciones): en cada (semana, bloque)
+                // no puede haber más sesiones simultáneas cuyas aulas candidatas son todas laboratorios
+                // que laboratorios hay (ídem salones/auditorios). Los NoOverlap por aula, con la elección
+                // de aula aún abierta, propagan mal ese conteo agregado; el Cumulative sobre el intervalo
+                // principal lo ve directo y prueba antes la falta de aulas — que es justo el INFEASIBLE que
+                // repite cada vuelta del bucle de Semana B. Práctica estándar en scheduling con máquinas
+                // paralelas idénticas.
+                foreach (var semana in Semanas)
+                    foreach (var esLab in new[] { true, false })
+                    {
+                        long capacidad = espacios.Count(e => (e.Tipo == TipoEspacio.Laboratorio) == esLab);
+                        var demanda = candidatosPorSesion
+                            .Where(kv => kv.Value.All(e => (espacios[e].Tipo == TipoEspacio.Laboratorio) == esLab)
+                                         && ModalidadSemanal.SemanasQueOcupanEspacio(sesionPorIdModelo[kv.Key]).Contains(semana))
+                            .Select(kv => intervalVars[kv.Key])
+                            .ToList();
+                        if (demanda.Count <= capacidad) continue;
+                        var cumulativo = model.AddCumulative(capacidad);
+                        foreach (var intervalo in demanda) cumulativo.AddDemand(intervalo, 1);
+                    }
             }
 
             // ── RESOLVER ────────────────────────────────────────────────────────────────
@@ -635,7 +648,7 @@ namespace SOEA.Engine.ConstraintProg
             solver.StringParameters =
                 $"max_time_in_seconds:{_options.TimeoutSegundos}" +
                 $",random_seed:{_options.RandomSeed}" +
-                (_options.NumWorkers > 0 ? $",num_search_workers:{_options.NumWorkers}" : "");
+                (_options.NumWorkers > 0 ? $",num_workers:{_options.NumWorkers}" : "");
 
             _logger.LogInformation("Resolviendo modelo CP-SAT (timeout: {T}s)...", _options.TimeoutSegundos);
             using var reg = ct.Register(() => solver.StopSearch());
@@ -735,7 +748,7 @@ namespace SOEA.Engine.ConstraintProg
             IReadOnlyList<Guid>? gruposResponsablesIds = null;
             try
             {
-                if (permitirSweep && !omitirRestriccionAulas && !esFaltaDeAulas)
+                if (permitirSweep && diagnosticarPorGrupo && !omitirRestriccionAulas && !esFaltaDeAulas)
                 {
                     var autoContradictorios = GruposInfactiblesEnSolitario(
                         sesiones, bloques, espacios, grupos, sesionesFijasIds, ventanaPorAsignatura, ct);
@@ -757,7 +770,7 @@ namespace SOEA.Engine.ConstraintProg
                 // (emparejar / añadir aulas) y el barrido dice A QUIÉN mirar. Son complementarios.
                 // Causa real no explicada por ningún pre-check estructural: si está habilitado, el
                 // barrido reintenta el solve una vez por grupo excluyéndolo para nombrar culpables.
-                if (permitirSweep)
+                if (permitirSweep && diagnosticarPorGrupo)
                 {
                     var gruposResponsables = EjecutarSweepDiagnostico(
                         sesiones, bloques, espacios, grupos, sesionesFijasIds, ventanaPorAsignatura, ct);

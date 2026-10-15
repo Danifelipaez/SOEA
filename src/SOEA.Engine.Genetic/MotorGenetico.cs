@@ -94,7 +94,7 @@ namespace SOEA.Engine.Genetic
             var bloqueIndex = Enumerable.Range(0, bloques.Count).ToDictionary(i => bloques[i].Id, i => i);
 
             var diaPorIdx  = BloquesPlanner.DiaPorBloqueIdx(bloques);
-            var duraciones = sesiones.Select(s => Math.Max(1, (int)Math.Ceiling(s.DuracionHoras))).ToArray();
+            var duraciones = sesiones.Select(s => s.DuracionBloques).ToArray();
 
             // ── Semilla: el único inicio de cada sesión, desde su fila de Fase 2 ─────────
             var startSemilla = SembrarInicios(sesiones, asignacionesFase2, bloqueIndex);

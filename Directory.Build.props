@@ -1,0 +1,6 @@
+<Project>
+  <!-- La solución compila sin advertencias: se mantiene así haciendo que cualquier advertencia nueva rompa el build. -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

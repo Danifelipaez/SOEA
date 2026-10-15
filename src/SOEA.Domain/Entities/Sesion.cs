@@ -24,6 +24,14 @@ namespace SOEA.Domain.Entities
         public Modalidad Modalidad { get; private set; }
         public EstadoSesion Estado { get; private set; }
         public decimal DuracionHoras { get; private set; }
+
+        /// <summary>
+        /// Bloques de 1 h que ocupa la sesión en la grilla: <c>ceil(DuracionHoras)</c>, mínimo 1.
+        /// Redondeo conservador (sobre-reserva, nunca sub-reserva). Fuente única para motores,
+        /// validador y ediciones; no se persiste (EF no mapea propiedades de solo lectura).
+        /// </summary>
+        public int DuracionBloques => Math.Max(1, (int)Math.Ceiling(DuracionHoras));
+
         public bool EsBloque { get; private set; }
         public bool EstaDividida { get; private set; }
         public string MotivoConflicto { get; private set; } = string.Empty;

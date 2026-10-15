@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, of, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion } from './models';
+import { Asignatura, ConfiguracionAlgoritmo, DisponibilidadUi, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion } from './models';
 import { environment } from '../../environments/environment';
 import { mensajeErrorHttp } from './http-error.util';
 import { SEMESTRE_POR_DEFECTO } from './semestre';
@@ -90,15 +90,8 @@ export interface DocenteApiDto {
   id: string;
   nombre: string;
   maxHoras: number;
-  disponibilidad: Record<string, DisponibilidadDiaDto>;
-}
-
-export interface DisponibilidadDiaDto {
-  noDisponible: boolean;
-  tipo?: string;
-  franjaGeneral?: string;
-  desde?: string;
-  hasta?: string;
+  /** DisponibilidadDiaDto (C#): un noDisponible ausente llega como false. */
+  disponibilidad: DisponibilidadUi;
 }
 
 export interface EspacioApiDto {
