@@ -28,6 +28,15 @@ describe('avisosDocentePorSesion', () => {
     expect(av.get('s2')?.choques[0]).toContain('Química General · Grupo 1 (jueves 15:00–17:00)');
   });
 
+  it('con el programa, distingue grupos importados homónimos y no repite la asignatura', () => {
+    const asigs = [{ id: 'a1', nombre: 'BIOQUIMICA', programaId: 'p1' }, { id: 'a2', nombre: 'BIOQUIMICA', programaId: 'p2' }] as Asignatura[];
+    const grs = [{ id: 'g1', nombre: 'BIOQUIMICA - Grupo 1' }, { id: 'g2', nombre: 'BIOQUIMICA - Grupo 1' }] as Grupo[];
+    const progs = new Map([['p1', { nombre: 'MEDICINA' }], ['p2', { nombre: 'BIOLOGÍA' }]]);
+    const av = avisosDocentePorSesion([sesion(), otra], [docente()], asigs, grs, progs);
+    expect(av.get('s1')?.choques[0]).toContain('BIOQUIMICA - Grupo 1 · BIOLOGÍA (jueves 16:00–18:00)');
+    expect(av.get('s2')?.choques[0]).toContain('BIOQUIMICA - Grupo 1 · MEDICINA (jueves 15:00–17:00)');
+  });
+
   it('no avisa clases consecutivas, de otro día ni la contraparte virtual de la misma sesión', () => {
     const av = avisosDocentePorSesion([
       sesion(),

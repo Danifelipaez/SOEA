@@ -52,14 +52,20 @@ export interface ItemGrilla extends PosicionGrilla { m: MergedSesion; }
  * "Cálculo I · G1 (lunes 08:00–10:00)" — identifica una sesión en un mensaje de conflicto por
  * asignatura/grupo, día y hora, para que "Sesión 1"/"Sesión 2" no queden indistinguibles cuando
  * ambas son de la misma asignatura (p. ej. dos grupos distintos en el mismo horario).
+ * Con programaById agrega el programa: el import nombra los grupos "BIOQUIMICA - Grupo 1" en
+ * cada programa, así que sin él dos grupos distintos se leían igual en un aviso de choque.
  */
 export function describirSesionConflicto(
   s: { asignaturaId: string; grupoId?: string; dia: string; horaInicio: string; horaFin: string },
-  asignaturas: Asignatura[], grupos: Grupo[]
+  asignaturas: Asignatura[], grupos: Grupo[], programaById?: ReadonlyMap<string, { nombre: string }>
 ): string {
-  const asig = asignaturas.find(a => a.id === s.asignaturaId)?.nombre ?? 'asignatura sin nombre';
+  const a = asignaturas.find(x => x.id === s.asignaturaId);
+  const asig = a?.nombre ?? 'asignatura sin nombre';
   const grupo = s.grupoId ? grupos.find(g => g.id === s.grupoId)?.nombre : undefined;
-  const nombre = grupo ? `${asig} · ${grupo}` : asig;
+  // "QUIMICA GENERAL · QUIMICA GENERAL - Grupo 4" repetía la asignatura: el nombre del grupo importado ya la trae.
+  let nombre = !grupo ? asig : grupo.startsWith(asig) ? grupo : `${asig} · ${grupo}`;
+  const programa = a && programaById?.get(a.programaId)?.nombre;
+  if (programa) nombre += ` · ${programa}`;
   return `${nombre} (${s.dia} ${s.horaInicio}–${s.horaFin})`;
 }
 
@@ -204,7 +210,7 @@ export function fueraDisponibilidadGrupo(sesiones: Sesion[], grupos: Grupo[]): M
  *    alterna se sigue dictando virtual la semana contraria, en la misma franja).
  *  - fueraDeDisponibilidad (HC-I02, degradada a aviso): la franja cae fuera de lo que declaró el docente.
  */
-export function avisosDocentePorSesion(sesiones: Sesion[], docentes: Docente[], asignaturas: Asignatura[], grupos: Grupo[]): Map<string, AvisosDocente> {
+export function avisosDocentePorSesion(sesiones: Sesion[], docentes: Docente[], asignaturas: Asignatura[], grupos: Grupo[], programaById?: ReadonlyMap<string, { nombre: string }>): Map<string, AvisosDocente> {
   const avisos = new Map<string, AvisosDocente>();
   const de = (id: string) => avisos.get(id) ?? avisos.set(id, { choques: [], conIds: [] }).get(id)!;
   const docentePorId = new Map(docentes.map(d => [d.id, d]));
@@ -223,9 +229,9 @@ export function avisosDocentePorSesion(sesiones: Sesion[], docentes: Docente[], 
         const a = lista[i], b = lista[j];
         if (!(minutosDe(a.horaInicio) < minutosDe(b.horaFin) && minutosDe(b.horaInicio) < minutosDe(a.horaFin))) continue;
         const nombre = nombreDe(a.docenteId!);
-        de(a.id).choques.push(`${nombre} tiene otra clase a la misma hora: ${describirSesionConflicto(b, asignaturas, grupos)}.`);
+        de(a.id).choques.push(`${nombre} tiene otra clase a la misma hora: ${describirSesionConflicto(b, asignaturas, grupos, programaById)}.`);
         de(a.id).conIds.push(b.id);
-        de(b.id).choques.push(`${nombre} tiene otra clase a la misma hora: ${describirSesionConflicto(a, asignaturas, grupos)}.`);
+        de(b.id).choques.push(`${nombre} tiene otra clase a la misma hora: ${describirSesionConflicto(a, asignaturas, grupos, programaById)}.`);
         de(b.id).conIds.push(a.id);
       }
     }
@@ -250,7 +256,7 @@ export function avisosDocentePorSesion(sesiones: Sesion[], docentes: Docente[], 
  * debería tener ninguno; sirve sobre todo para el modo borrador, donde las clases se agregan a mano.
  * Mismo formato que avisosDocentePorSesion (choques + conIds) para listar cada par una sola vez.
  */
-export function choquesEspacioPorSesion(sesiones: Sesion[], espacios: Espacio[], asignaturas: Asignatura[], grupos: Grupo[]): Map<string, AvisosDocente> {
+export function choquesEspacioPorSesion(sesiones: Sesion[], espacios: Espacio[], asignaturas: Asignatura[], grupos: Grupo[], programaById?: ReadonlyMap<string, { nombre: string }>): Map<string, AvisosDocente> {
   const choques = new Map<string, AvisosDocente>();
   const de = (id: string) => choques.get(id) ?? choques.set(id, { choques: [], conIds: [] }).get(id)!;
   const nombreEspacio = new Map(espacios.map(e => [e.id, e.nombre]));
@@ -267,9 +273,9 @@ export function choquesEspacioPorSesion(sesiones: Sesion[], espacios: Espacio[],
         if (nuncaCoexisteEnSemana(a.semana, b.semana)) continue;
         if (!(minutosDe(a.horaInicio) < minutosDe(b.horaFin) && minutosDe(b.horaInicio) < minutosDe(a.horaFin))) continue;
         const aula = nombreEspacio.get(a.espacioId!) ?? 'El espacio';
-        de(a.id).choques.push(`${aula} ya está ocupado a esa hora por ${describirSesionConflicto(b, asignaturas, grupos)}.`);
+        de(a.id).choques.push(`${aula} ya está ocupado a esa hora por ${describirSesionConflicto(b, asignaturas, grupos, programaById)}.`);
         de(a.id).conIds.push(b.id);
-        de(b.id).choques.push(`${aula} ya está ocupado a esa hora por ${describirSesionConflicto(a, asignaturas, grupos)}.`);
+        de(b.id).choques.push(`${aula} ya está ocupado a esa hora por ${describirSesionConflicto(a, asignaturas, grupos, programaById)}.`);
         de(b.id).conIds.push(a.id);
       }
     }
@@ -278,7 +284,7 @@ export function choquesEspacioPorSesion(sesiones: Sesion[], espacios: Espacio[],
 }
 
 /** Filas de resumen (una por sesión, cada par listado una sola vez) de un mapa de choques por sesión. */
-export function filasDeChoques(sesiones: Sesion[], choques: Map<string, AvisosDocente>, asignaturas: Asignatura[], grupos: Grupo[]) {
+export function filasDeChoques(sesiones: Sesion[], choques: Map<string, AvisosDocente>, asignaturas: Asignatura[], grupos: Grupo[], programaById?: ReadonlyMap<string, { nombre: string }>) {
   const listadas = new Set<string>();
   const filas: { s: Sesion; etiqueta: string; detalle: string }[] = [];
   for (const s of sesiones) {
@@ -286,7 +292,7 @@ export function filasDeChoques(sesiones: Sesion[], choques: Map<string, AvisosDo
     if (s.esContraparteVirtual || !av?.choques.length) continue;
     const nuevos = av.choques.filter((_, i) => !listadas.has(av.conIds[i]));
     listadas.add(s.id);
-    if (nuevos.length) filas.push({ s, etiqueta: describirSesionConflicto(s, asignaturas, grupos), detalle: nuevos.join(' ') });
+    if (nuevos.length) filas.push({ s, etiqueta: describirSesionConflicto(s, asignaturas, grupos, programaById), detalle: nuevos.join(' ') });
   }
   return filas;
 }

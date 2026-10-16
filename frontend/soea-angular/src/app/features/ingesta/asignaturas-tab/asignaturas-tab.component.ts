@@ -825,6 +825,9 @@ export class AsignaturaDialogComponent {
     // del FormGroup por sí solo no bastaba para deshabilitar "Guardar".
     if (v.horaInicioMin && v.horaFinMax && v.horaInicioMin >= v.horaFinMax) return false;
     if (this.gruposSinDiasSeparados().length > 0) return false;
+    // G6: un grupo a medio llenar en la cápsula que no cumple la separación de días se descartaba
+    // en silencio al guardar (confirmarGrupoPendiente() no lo agrega). El aviso en rojo ya explica qué falta.
+    if (this.agregandoGrupo() && this.nuevoGrupoNombre.trim() && this.errorSeparacionPendiente()) return false;
     const s = this.sesiones();
     return (s.presencial + s.virtual + s.lab) > 0;
   }

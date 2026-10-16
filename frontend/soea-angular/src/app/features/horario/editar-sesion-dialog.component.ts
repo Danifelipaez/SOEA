@@ -135,8 +135,8 @@ export class EditarSesionDialogComponent {
     const horaFinNueva = this.horasDisponibles[endIdx] ?? inicio;
     const sesion1 = () => describirSesionConflicto(
       { asignaturaId: this.orig.asignaturaId, grupoId: this.orig.grupoId, dia, horaInicio: inicio, horaFin: horaFinNueva },
-      this.data.asignaturas, this.state.grupos());
-    const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.state.grupos());
+      this.data.asignaturas, this.state.grupos(), this.data.programaById);
+    const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.state.grupos(), this.data.programaById);
 
     if (espacioId && !this.data.sesion.virtual) {
       const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.espacioId === espacioId && s.dia === dia && !s.virtual && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
@@ -173,7 +173,7 @@ export class EditarSesionDialogComponent {
       horaInicio: inicio, horaFin: hhmm(parseInt(inicio, 10) + Math.round(this.data.sesion.duracionHoras ?? 2)),
     };
     const av = avisosDocentePorSesion([...this.data.sesiones.filter(s => s.id !== editada.id), editada],
-      this.data.docentes, this.data.asignaturas, this.state.grupos()).get(editada.id);
+      this.data.docentes, this.data.asignaturas, this.state.grupos(), this.data.programaById).get(editada.id);
     return [...(this.cambiaDocenteOFranja() ? [] : av?.choques ?? []), ...(av?.fueraDeDisponibilidad ? [av.fueraDeDisponibilidad] : [])];
   });
 

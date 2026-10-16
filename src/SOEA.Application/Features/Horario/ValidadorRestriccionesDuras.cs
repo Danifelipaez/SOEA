@@ -94,7 +94,9 @@ namespace SOEA.Application.Features.Horario
         private static string Describir(Sesion s, ContextoValidacion? ctx)
         {
             var asig = NombreAsignatura(s.AsignaturaId, ctx);
-            return $"{asig} · {NombreGrupo(s.GrupoId, ctx)}";
+            var grupo = NombreGrupo(s.GrupoId, ctx);
+            // El grupo importado ya trae la asignatura ("QUIMICA GENERAL - Grupo 4"): no repetirla.
+            return grupo.StartsWith(asig, StringComparison.Ordinal) ? grupo : $"{asig} · {grupo}";
         }
 
         /// <summary>

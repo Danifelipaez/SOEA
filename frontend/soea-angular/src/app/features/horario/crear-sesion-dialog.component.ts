@@ -208,8 +208,8 @@ export class CrearSesionDialogComponent {
     const horaFinNueva = this.horasDisponibles[endIdx] ?? this.horaInicio;
     const sesion1 = () => describirSesionConflicto(
       { asignaturaId: this.asignaturaId, grupoId: this.grupoIdSel(), dia: this.dia, horaInicio: this.horaInicio, horaFin: horaFinNueva },
-      this.data.asignaturas, this.data.grupos);
-    const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.data.grupos);
+      this.data.asignaturas, this.data.grupos, this.data.programaById);
+    const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.data.grupos, this.data.programaById);
     // La clase nueva no alterna: ocupa todas las semanas, así que choca con cualquier otra.
     const semanaActual: Sesion['semana'] = undefined;
 

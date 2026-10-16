@@ -433,7 +433,12 @@ export class HorarioComponent implements OnInit {
       return (!this.fPrograma() || programaId === this.fPrograma())
         && (!this.fFacultad() || progs.get(programaId ?? '')?.facultadId === this.fFacultad());
     }).sort(porNombre);
-    return [{ value: '', label: 'Todos los grupos' }, ...grupos.map(g => ({ value: g.id, label: g.nombre, sub: asig.get(g.asignaturaId)?.nombre }))];
+    // El programa distingue "BIOQUIMICA - Grupo 1" de Medicina del de Biología (el import repite el nombre).
+    return [{ value: '', label: 'Todos los grupos' }, ...grupos.map(g => {
+      const a = asig.get(g.asignaturaId);
+      const sub = [a && !g.nombre.startsWith(a.nombre) ? a.nombre : '', progs.get(a?.programaId ?? '')?.nombre ?? ''].filter(Boolean).join(' · ');
+      return { value: g.id, label: g.nombre, sub };
+    })];
   });
   opcDocentes = computed<SearchableOption[]>(() =>
     [{ value: '', label: 'Todos los docentes' }, ...[...this.state.docentes()].sort(porNombre).map(d => ({ value: d.id, label: d.nombre }))]);
@@ -492,7 +497,7 @@ export class HorarioComponent implements OnInit {
   private quitarDelBorrador(s: Sesion) {
     const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
       width: '320px',
-      data: { title: 'Quitar del borrador', message: `Se quitará "${describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos())}" del borrador.`, confirmText: 'Quitar' }
+      data: { title: 'Quitar del borrador', message: `Se quitará "${describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos(), this.state.programaById())}" del borrador.`, confirmText: 'Quitar' }
     });
     ref.afterClosed().subscribe(ok => { if (ok) this.state.borrador.update(b => (b ?? []).filter(x => x.id !== s.id)); });
   }
@@ -522,7 +527,7 @@ export class HorarioComponent implements OnInit {
           tipoFlujo: s.tipoFlujo ?? 'AulaVirtual', esVirtual: s.virtual
         }).pipe(
           map(creadas => ({ s, creadas, error: '' })),
-          catchError(err => of({ s, creadas: [] as Sesion[], error: `${describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos())}: ${mensajeErrorHttp(err)}` }))
+          catchError(err => of({ s, creadas: [] as Sesion[], error: `${describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos(), this.state.programaById())}: ${mensajeErrorHttp(err)}` }))
         )),
         toArray()
       ).subscribe(resultados => {
@@ -738,7 +743,7 @@ export class HorarioComponent implements OnInit {
    *  "fuera de la cuadrícula". No se abrevia: es la única forma de leer el dato completo, ya que
    *  la tarjeta trunca según el alto disponible. */
   describir(m: MergedSesion): string {
-    const base = describirSesionConflicto(m, this.state.asignaturas(), this.state.grupos());
+    const base = describirSesionConflicto(m, this.state.asignaturas(), this.state.grupos(), this.state.programaById());
     const ctx = this.getContextLabel(m);
     const docente = m.docenteId ? this.getDocenteName(m) : 'sin docente';
     const espacio = this.celdaEspacio(m);
@@ -754,19 +759,19 @@ export class HorarioComponent implements OnInit {
   avisosGlobalesVisibles = computed(() => this.semanaVista() === 'A');
   /** Avisos del docente (no bloquean) de todo el horario — ver avisosDocentePorSesion. */
   avisosDocente = computed(() =>
-    avisosDocentePorSesion(this.sesiones(), this.state.docentes(), this.state.asignaturas(), this.state.grupos()));
+    avisosDocentePorSesion(this.sesiones(), this.state.docentes(), this.state.asignaturas(), this.state.grupos(), this.state.programaById()));
   /** Clases con el docente en dos clases a la vez: se listan bajo la cuadrícula para poder abrirlas. */
-  choquesDocente = computed(() => filasDeChoques(this.sesiones(), this.avisosDocente(), this.state.asignaturas(), this.state.grupos()));
+  choquesDocente = computed(() => filasDeChoques(this.sesiones(), this.avisosDocente(), this.state.asignaturas(), this.state.grupos(), this.state.programaById()));
   /** Dos clases en el mismo espacio a la vez (sobre todo en el borrador) — ver choquesEspacioPorSesion. */
   choquesEspacioMap = computed(() =>
-    choquesEspacioPorSesion(this.sesiones(), this.state.espacios(), this.state.asignaturas(), this.state.grupos()));
-  choquesEspacio = computed(() => filasDeChoques(this.sesiones(), this.choquesEspacioMap(), this.state.asignaturas(), this.state.grupos()));
+    choquesEspacioPorSesion(this.sesiones(), this.state.espacios(), this.state.asignaturas(), this.state.grupos(), this.state.programaById()));
+  choquesEspacio = computed(() => filasDeChoques(this.sesiones(), this.choquesEspacioMap(), this.state.asignaturas(), this.state.grupos(), this.state.programaById()));
   /** Clases fuera de la disponibilidad de su grupo — ver fueraDisponibilidadGrupo. */
   fueraGrupo = computed(() => {
     const motivos = fueraDisponibilidadGrupo(this.sesiones(), this.state.grupos());
     return this.sesiones()
       .filter(s => motivos.has(s.id) && !s.esContraparteVirtual)
-      .map(s => ({ s, etiqueta: describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos()), motivo: motivos.get(s.id)! }));
+      .map(s => ({ s, etiqueta: describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos(), this.state.programaById()), motivo: motivos.get(s.id)! }));
   });
   fueraDeDisponibilidad = computed(() => [...this.avisosDocente().values()].filter(a => a.fueraDeDisponibilidad).length);
   /** ⚠ de la tarjeta: choque de docente o de espacio. */
