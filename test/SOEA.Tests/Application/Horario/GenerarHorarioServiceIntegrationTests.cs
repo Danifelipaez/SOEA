@@ -267,9 +267,9 @@ namespace SOEA.Tests.Application.Horario
             var r = await svc.EjecutarAsync(request);
 
             Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
-            // 4 sesiones ⇒ 4 filas persistidas, más la contraparte virtual DERIVADA del lab TipoA
-            // (la única que alterna) = 5 DTOs. Sin alternancia no hay segunda semana que dibujar.
-            Assert.Equal(5, r.Sesiones.Count);
+            // 4 sesiones ⇒ 4 filas persistidas = 4 DTOs. Nada alterna (no faltaron aulas), así que
+            // no hay contraparte virtual que derivar.
+            Assert.Equal(4, r.Sesiones.Count);
 
             // HC-C01: cohorte sin solapes por semana.
             AssertSinSolapesDeCohorte(r.Sesiones);
@@ -297,16 +297,12 @@ namespace SOEA.Tests.Application.Horario
                     Assert.NotNull(s.EspacioId);
             }
 
-            // Regla 9 / ALT-05: el lab TipoA es presencial en A y su contraparte derivada es
-            // virtual en B, en la misma franja.
-            var labSesiones = r.Sesiones.Where(s => s.Alternancia == nameof(TipoAlternancia.TipoA)).ToList();
-            Assert.Equal(2, labSesiones.Count);
-            var labA = labSesiones.Single(s => s.Semana == "A");
-            var labB = labSesiones.Single(s => s.Semana == "B");
-            Assert.False(labA.Virtual);
-            Assert.True(labB.Virtual);
-            Assert.Equal(labA.HoraInicio, labB.HoraInicio);
-            Assert.Equal(labA.Dia, labB.Dia);
+            // Regla 10: la asignatura declara TipoA, pero emparejar es lo único que activa la
+            // alternancia. Sin pareja, el lab es presencial todas las semanas y ocupa su aula en ambas.
+            var lab = Assert.Single(r.Sesiones, s => s.AsignaturaId == QuimicaId);
+            Assert.Equal(nameof(TipoAlternancia.SinAlternancia), lab.Alternancia);
+            Assert.False(lab.Virtual);
+            Assert.Equal(string.Empty, lab.Semana);
 
             // Persistencia: 4 sesiones + 1 horario + 4 asignaciones (una por sesión), en una
             // transacción confirmada.

@@ -299,6 +299,49 @@ namespace SOEA.Tests.Application.Horario
         }
 
         /// <summary>
+        /// Regla 10: emparejar es lo único que activa la alternancia. Una fija TipoA/TipoB conserva su
+        /// tipo solo si su pareja también viene en la base; suelta, liberaría su aula en la semana
+        /// contraria sin que nadie la use, así que se fija sin alternancia.
+        /// </summary>
+        [Fact]
+        public async Task SesionFijaQueAlterna_SoloConservaLaAlternanciaSiSuParejaVieneEnLaBase()
+        {
+            var asigId = Guid.NewGuid().ToString();
+            var aulaId = Guid.NewGuid().ToString();
+            string g1 = Guid.NewGuid().ToString(), g2 = Guid.NewGuid().ToString(), g3 = Guid.NewGuid().ToString();
+            var pareja = Guid.NewGuid().ToString();
+            var request = new GenerarHorarioRequest
+            {
+                Semestre = "2026-1",
+                Espacios = new List<EspacioDto> { new() { Id = aulaId, Nombre = "Salón 1", Capacidad = 30, Tipo = "Salón" } },
+                Grupos = new List<GrupoDto>
+                {
+                    new() { Id = g1, Nombre = "G1", AsignaturaId = asigId },
+                    new() { Id = g2, Nombre = "G2", AsignaturaId = asigId },
+                    new() { Id = g3, Nombre = "G3", AsignaturaId = asigId }
+                },
+                SesionesFijas = new List<SesionFijaDto>
+                {
+                    new() { GrupoId = g1, AsignaturaId = asigId, EspacioId = aulaId, Dia = "lunes", HoraInicio = "07:00", Alternancia = "TipoA", ParejaId = pareja },
+                    new() { GrupoId = g2, AsignaturaId = asigId, EspacioId = aulaId, Dia = "lunes", HoraInicio = "07:00", Alternancia = "TipoB", ParejaId = pareja },
+                    // Suelta: su pareja no vino en la base.
+                    new() { GrupoId = g3, AsignaturaId = asigId, EspacioId = aulaId, Dia = "martes", HoraInicio = "07:00", Alternancia = "TipoA", ParejaId = Guid.NewGuid().ToString() }
+                }
+            };
+
+            var r = await CrearServicio().EjecutarAsync(request);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            var suelta = Assert.Single(r.Sesiones, s => s.GrupoId == g3);
+            Assert.Equal("SinAlternancia", suelta.Alternancia);
+            Assert.Equal(string.Empty, suelta.ParejaId);
+            var emparejadas = r.Sesiones.Where(s => s.GrupoId != g3 && !s.EsContraparteVirtual).ToList();
+            Assert.Equal(new[] { "TipoA", "TipoB" }, emparejadas.Select(s => s.Alternancia).OrderBy(a => a));
+            Assert.NotEqual(string.Empty, emparejadas[0].ParejaId);
+            Assert.Equal(emparejadas[0].ParejaId, emparejadas[1].ParejaId);
+        }
+
+        /// <summary>
         /// Regresión (auditoría de limpieza, hallazgo 1.7): un AsignaturaId que no parsea como
         /// Guid caía a Guid.NewGuid() — creaba una sesión FANTASMA (sin categoría, sin ventana
         /// horaria, "asignatura sin nombre" en cualquier mensaje de conflicto) en vez de omitirse

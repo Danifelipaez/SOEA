@@ -35,6 +35,8 @@ export interface SesionFijaApiDto {
   horaFin: string;
   duracionHoras: number;
   alternancia?: string;
+  /** Sin la pareja completa en la base, el backend la fija sin alternancia. */
+  parejaId?: string;
   virtual: boolean;
   /** Laboratorio | AulaVirtual. Null/no reconocido → Laboratorio (default histórico del backend). */
   tipoFlujo?: string;
@@ -170,6 +172,7 @@ export class HorarioApiService {
       horaFin:      s.horaFin,
       duracionHoras: s.duracionHoras,
       alternancia:  s.alternancia,
+      parejaId:     s.parejaId,
       virtual:      s.virtual,
       tipoFlujo:    s.tipoFlujo,
     }));

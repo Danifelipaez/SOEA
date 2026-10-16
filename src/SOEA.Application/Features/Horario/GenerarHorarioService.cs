@@ -665,6 +665,7 @@ namespace SOEA.Application.Features.Horario
 
             var resultado = new List<Sesion>();
             var omitidas  = new List<string>();
+            var conPareja = new List<(Sesion Sesion, TipoAlternancia Tipo, string ParejaId)>();
             foreach (var dto in dtos)
             {
                 if (!bloqueDict.TryGetValue((dto.Dia.ToLowerInvariant(), dto.HoraInicio), out var bloque))
@@ -697,9 +698,8 @@ namespace SOEA.Application.Features.Horario
                 // regenerar con horario base borraba el docente de todas sus sesiones fijas.
                 Guid? docId = Guid.TryParse(dto.DocenteId, out var did) ? did : null;
 
-                var alternancia = ParseTipoAlternancia(dto.Alternancia);
-
                 // Id siempre nuevo: la base puede venir de una corrida cuyas sesiones siguen en BD.
+                // Nace sin alternancia: solo la recupera abajo si su pareja también viene en la base.
                 var sesion = new Sesion(
                     id: Guid.NewGuid(),
                     asignaturaId: asigId,
@@ -707,7 +707,7 @@ namespace SOEA.Application.Features.Horario
                     bloqueId: bloque.Id,
                     espacioId: espId,
                     grupoId: grupoId,
-                    alternancia: alternancia,
+                    alternancia: TipoAlternancia.SinAlternancia,
                     modalidad: dto.Virtual ? Modalidad.Virtual : Modalidad.Presencial,
                     duracionHoras: dto.DuracionHoras > 0 ? dto.DuracionHoras : 2m,
                     esBloque: false,
@@ -721,6 +721,23 @@ namespace SOEA.Application.Features.Horario
                 if (espId.HasValue) sesion.AsignarEspacio(espId.Value);
 
                 resultado.Add(sesion);
+                var tipo = ParseTipoAlternancia(dto.Alternancia);
+                if (!dto.Virtual && tipo != TipoAlternancia.SinAlternancia && !string.IsNullOrEmpty(dto.ParejaId))
+                    conPareja.Add((sesion, tipo, dto.ParejaId));
+            }
+
+            // Regla 10: emparejar es lo único que activa la alternancia. Una fija conserva su
+            // TipoA/TipoB solo si la base trae su pareja completa (una TipoA y una TipoB con el mismo
+            // ParejaId); suelta, liberaría su aula una semana sin que nadie la use.
+            foreach (var par in conPareja.GroupBy(x => x.ParejaId))
+            {
+                var miembros = par.ToList();
+                if (miembros.Count != 2 || miembros[0].Tipo == miembros[1].Tipo) continue;
+                var parejaId = Guid.NewGuid();
+                foreach (var (s, tipo, _) in miembros)
+                    s.AplicarAlternancia(tipo,
+                        tipo == TipoAlternancia.TipoA ? TipoAlternanciaConfig.IdTipoA : TipoAlternanciaConfig.IdTipoB,
+                        parejaAlternanciaId: parejaId);
             }
             return (resultado, omitidas);
         }
@@ -801,9 +818,9 @@ namespace SOEA.Application.Features.Horario
                 // pipeline. El eje de conflicto y de optimización sigue siendo la cohorte
                 // (GrupoId). PATCH /api/sesiones/{id}/docente puede sobrescribirla después.
 
-                // Fix #5: case-insensitive alternancia matching. Solo aplica al track de
-                // laboratorio — teoría (presencial o virtual) siempre es SinAlternancia.
-                var alternanciaLab = ParseTipoAlternancia(dto.Alternancia);
+                // Toda sesión nace SinAlternancia, laboratorios incluidos (regla 10): la alternancia
+                // solo la activa CederSiguientePareja al emparejar. Asignatura.Alternancia es un resto
+                // del modelo "8+8" y aquí se ignora.
 
                 // HC-S05: espacio concreto exigido por el grupo para este tipo de sesión, si lo hay
                 // (reemplaza a Asignatura.EspacioFijoId — ver Grupo.RequisitosEspacio).
@@ -811,7 +828,7 @@ namespace SOEA.Application.Features.Horario
                     grupo.RequisitosEspacio.FirstOrDefault(r => r.TipoSesion == tipo)?.EspacioId;
 
                 void Agregar(int cantidad, int duracionHoras, TipoFlujo tipoFlujo, Modalidad modalidad,
-                    TipoAlternancia alternancia, TipoSesion tipoSesion)
+                    TipoSesion tipoSesion)
                 {
                     // Teoría virtual nunca tiene espacio (regla 9 CLAUDE.md): es sincrónica online.
                     Guid? espacioFijo = modalidad == Modalidad.Virtual ? null : EspacioFijoDe(tipoSesion);
@@ -824,7 +841,7 @@ namespace SOEA.Application.Features.Horario
                             bloqueId: bloqueTemp,
                             espacioId: espacioFijo,
                             grupoId: grupo.Id,
-                            alternancia: alternancia,
+                            alternancia: TipoAlternancia.SinAlternancia,
                             modalidad: modalidad,
                             duracionHoras: duracionHoras,
                             esBloque: false,
@@ -834,11 +851,11 @@ namespace SOEA.Application.Features.Horario
                 }
 
                 Agregar(dto.SesionesTeoriaPresencialSemana, dto.HorasTeoriaPresencial,
-                    TipoFlujo.AulaVirtual, Modalidad.Presencial, TipoAlternancia.SinAlternancia, TipoSesion.TeoriaPresencial);
+                    TipoFlujo.AulaVirtual, Modalidad.Presencial, TipoSesion.TeoriaPresencial);
                 Agregar(dto.SesionesTeoriaVirtualSemana, dto.HorasTeoriaVirtual,
-                    TipoFlujo.AulaVirtual, Modalidad.Virtual, TipoAlternancia.SinAlternancia, TipoSesion.TeoriaVirtual);
+                    TipoFlujo.AulaVirtual, Modalidad.Virtual, TipoSesion.TeoriaVirtual);
                 Agregar(dto.SesionesLaboratorioSemana, dto.HorasLaboratorio,
-                    TipoFlujo.Laboratorio, Modalidad.Presencial, alternanciaLab, TipoSesion.Laboratorio);
+                    TipoFlujo.Laboratorio, Modalidad.Presencial, TipoSesion.Laboratorio);
             }
             return (sesiones, advertencias);
         }

@@ -46,6 +46,8 @@ namespace SOEA.Application.Features.Horario.Requests
         public string  HoraInicio   { get; set; } = "07:00";
         public decimal DuracionHoras { get; set; } = 2m;
         public string? Alternancia  { get; set; }
+        /// <summary>Pareja de alternancia en la base. TipoA/TipoB solo se conserva si su pareja también viene fija (regla 10).</summary>
+        public string? ParejaId     { get; set; }
         public bool    Virtual      { get; set; }
         /// <summary>Laboratorio | AulaVirtual. Null/no reconocido → Laboratorio (default histórico).</summary>
         public string? TipoFlujo    { get; set; }
@@ -86,12 +88,12 @@ namespace SOEA.Application.Features.Horario.Requests
         public int SesionesTeoriaVirtualSemana { get; set; }
         /// <summary>Duración en horas de cada sesión de teoría virtual.</summary>
         public int HorasTeoriaVirtual { get; set; }
-        /// <summary>Sesiones de laboratorio por semana. Único track sujeto a Alternancia (TipoA/TipoB).</summary>
+        /// <summary>Sesiones de laboratorio por semana.</summary>
         public int SesionesLaboratorioSemana { get; set; }
         /// <summary>Duración en horas de cada sesión de laboratorio.</summary>
         public int HorasLaboratorio { get; set; }
         public string? ProgramaId  { get; set; }
-        /// <summary>TipoA | TipoB | SinAlternancia — solo aplica al track de laboratorio.</summary>
+        /// <summary>TipoA | TipoB | SinAlternancia. La generación la ignora: toda sesión nace sin alternancia y solo emparejar la activa (regla 10).</summary>
         public string? Alternancia    { get; set; }
         /// <summary>
         /// Categoría de la asignatura para priorizar la asignación presencial (SC-PRES).
