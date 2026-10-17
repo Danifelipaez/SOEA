@@ -46,4 +46,15 @@ describe('AsignaturaDialogComponent — ventana horaria invertida', () => {
     expect(component.form.valid).toBe(true);
     expect(component.canSave()).toBe(true);
   });
+
+  // G6: el grupo de la cápsula sin días separados se descartaba en silencio al pulsar Guardar.
+  it('un grupo a medio llenar sin días separados bloquea Guardar en vez de perderse', () => {
+    component.agregandoGrupo.set(true);
+    component.nuevoGrupoNombre = 'G1';
+    component.nuevoGrupoDisponibilidad.set({ lunes: { noDisponible: true } } as any);
+    expect(component.canSave()).toBe(false);
+
+    component.nuevoGrupoNombre = '';
+    expect(component.canSave()).toBe(true);
+  });
 });

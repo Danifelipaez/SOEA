@@ -1,6 +1,10 @@
 import { Component, computed, forwardRef, input, signal } from '@angular/core';
 import { CommonModule, TitleCasePipe } from '@angular/common';
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
+import { DisponibilidadDia, DisponibilidadUi } from '../../core/models';
+
+/** Estado de edición de un día. `tipo`: 'todo' | 'especifico' | el value de una FranjaOption. */
+interface EstadoDia { noDisponible: boolean; tipo: string; desde: string; hasta: string; }
 
 export interface FranjaOption {
   value: string;
@@ -28,7 +32,7 @@ export function sesionesMismoTipo(a?: { sesionesTeoriaPresencialSemana?: number;
  * día de por medio entre cada par. Devuelve el error a mostrar, o null si la disponibilidad
  * alcanza (o no se declaró ninguna: sin disponibilidad el grupo no restringe días).
  */
-export function errorSeparacionDias(disp: Record<string, any> | null | undefined, n: number): string | null {
+export function errorSeparacionDias(disp: DisponibilidadUi | null | undefined, n: number): string | null {
   if (n < 2 || !disp || Object.keys(disp).length === 0) return null;
   if (n > 3) return `Con ${n} sesiones del mismo tipo por semana no hay forma de dejar un día libre entre todas (caben como máximo 3: lunes, miércoles y viernes). Reduzca las sesiones por semana de la asignatura.`;
   // Voraz: tomar siempre el primer día disponible que respete la separación es óptimo en una línea.
@@ -124,19 +128,19 @@ export class DisponibilidadEditorComponent implements ControlValueAccessor {
   /** Sesiones semanales del mismo tipo que el grupo debe repartir con un día de por medio
    *  (ver sesionesMismoTipo). 0/1 = sin requisito; ≥2 muestra la explicación y el error. */
   sesionesSeparadas = input(0);
-  private valor = signal<Record<string, unknown>>({});
+  private valor = signal<DisponibilidadUi>({});
   errorSeparacion = computed(() => errorSeparacionDias(this.valor(), this.sesionesSeparadas()));
 
   dias = DIAS_SEMANA;
-  disp: Record<string, { noDisponible: boolean; tipo: string; desde: string; hasta: string }> = {};
+  disp: Record<string, EstadoDia> = {};
 
-  private onChange: (v: Record<string, unknown>) => void = () => {};
+  private onChange: (v: DisponibilidadUi) => void = () => {};
   private onTouched: () => void = () => {};
 
-  writeValue(value: Record<string, any> | null): void {
+  writeValue(value: DisponibilidadUi | null): void {
     const src = value ?? {};
     this.dias.forEach(dia => {
-      const d = src[dia] ?? {};
+      const d: DisponibilidadDia = src[dia] ?? {};
       const tipoRaw = d.tipo ?? 'todo';
       const tipo = tipoRaw === 'Franja específica' ? 'especifico'
         : tipoRaw === 'Franja general' ? this.tipoDesdeFranjaGeneral(d.franjaGeneral)
@@ -154,12 +158,12 @@ export class DisponibilidadEditorComponent implements ControlValueAccessor {
     this.valor.set(this.construirValor());
     this.onChange(this.valor());
   }
-  registerOnChange(fn: any): void { this.onChange = fn; }
-  registerOnTouched(fn: any): void { this.onTouched = fn; }
+  registerOnChange(fn: (v: DisponibilidadUi) => void): void { this.onChange = fn; }
+  registerOnTouched(fn: () => void): void { this.onTouched = fn; }
 
-  getDisp(dia: string, field: string): any { return this.disp[dia]?.[field as keyof typeof this.disp[string]]; }
+  getDisp(dia: string, field: keyof EstadoDia): string | boolean { return this.disp[dia]?.[field]; }
 
-  setDisp(dia: string, field: string, value: any): void {
+  setDisp(dia: string, field: keyof EstadoDia, value: string | boolean): void {
     this.disp[dia] = { ...this.disp[dia], [field]: value };
     this.emitir();
   }
@@ -176,8 +180,8 @@ export class DisponibilidadEditorComponent implements ControlValueAccessor {
       ?? 'todo';
   }
 
-  private construirValor(): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
+  private construirValor(): DisponibilidadUi {
+    const out: DisponibilidadUi = {};
     this.dias.forEach(dia => {
       const d = this.disp[dia];
       if (d.noDisponible) { out[dia] = { noDisponible: true }; }

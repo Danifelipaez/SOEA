@@ -11,9 +11,9 @@ namespace SOEA.Domain.Services
     /// de la sesión o del requisito del grupo) ∩ HC-S03 (tipo de espacio según <see cref="TipoSesion"/>).
     /// Espejo de <see cref="CalculadorDominioSesion"/> pero para el eje espacial. Antes esta lógica
     /// vivía cuadruplicada: MotorConstraintProgramming, AsignadorEspacios, ValidadorRestriccionesDuras
-    /// y horario.component.ts. HC-CAP (aforo) se aplica aparte por cada llamador, que ya conoce los
-    /// estudiantes del grupo y necesita distinguir "sin candidato por tipo" de "sin candidato por aforo"
-    /// para su propio mensaje de error.
+    /// y horario.component.ts. HC-CAP (aforo, <see cref="CumpleAforo"/>) se filtra aparte de
+    /// <see cref="Candidatos"/>: CP-SAT necesita distinguir "sin candidato por tipo" de "sin candidato
+    /// por aforo" para su mensaje de error.
     /// </summary>
     public static class CalculadorEspaciosSesion
     {
@@ -40,6 +40,20 @@ namespace SOEA.Domain.Services
                 "laboratorio" => TipoFlujo.Laboratorio,
                 _             => TipoFlujo.AulaVirtual
             };
+
+        /// <summary>Requisito de espacio que el grupo declara para el tipo de sesión de <paramref name="sesion"/>, si lo hay.</summary>
+        public static RequisitoEspacio? RequisitoDe(Sesion sesion, IEnumerable<RequisitoEspacio>? requisitosDelGrupo)
+        {
+            if (requisitosDelGrupo is null) return null;
+            var tipo = TipoSesionDe(sesion);
+            foreach (var r in requisitosDelGrupo)
+                if (r.TipoSesion == tipo) return r;
+            return null;
+        }
+
+        /// <summary>HC-CAP: el aforo alcanza para el grupo. Sin estudiantes conocidos (≤ 0) no restringe.</summary>
+        public static bool CumpleAforo(Espacio espacio, int estudiantes) =>
+            estudiantes <= 0 || espacio.Capacidad >= estudiantes;
 
         /// <summary>
         /// HC-S03: true si <paramref name="espacio"/> es válido para <paramref name="tipoSesion"/>,

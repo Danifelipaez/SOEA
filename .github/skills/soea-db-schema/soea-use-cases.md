@@ -83,7 +83,7 @@ description: "Flujos de trabajo SOEA con referencias a queries SQL. Úsalo para:
 
 **Objetivo:** Verificar que el horario cumple todas las restricciones duras (HC-S, HC-I, HC-T, HC-C).
 
-> **Documento referencia:** [hard-constraints.md](../../docs/business-rules/hard-constraints.md)
+> **Documento referencia:** [domain.md](../../../docs/domain.md)
 
 ### 2.1 Detectar Conflictos de Espacio (HC-S01)
 **Query:** [query_HC_S01_detectar_conflictos_espacio](soea-queries-repository.md#query_HC_S01_detectar_conflictos_espacio)

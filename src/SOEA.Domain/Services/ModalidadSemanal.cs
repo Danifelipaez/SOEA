@@ -51,7 +51,7 @@ namespace SOEA.Domain.Services
         /// <summary>
         /// Semana de la ÚNICA fila <see cref="AsignacionSemanal"/> que se persiste para esta sesión:
         /// la semana en la que es presencial. TipoB ⇒ B; todo lo demás ⇒ A. Para una sesión que no
-        /// alterna, "A" significa "todas las semanas", no "solo la semana impar".
+        /// alterna, "A" significa "todas las semanas", no "solo la semana par".
         /// </summary>
         public static SemanaAcademica SemanaCanonica(Sesion sesion) =>
             sesion.Alternancia == TipoAlternancia.TipoB && sesion.Modalidad != Modalidad.Virtual
@@ -95,27 +95,21 @@ namespace SOEA.Domain.Services
         /// <paramref name="modalidad"/>, compartiría semana de aula con <paramref name="existente"/>.
         /// </summary>
         public static bool CompartenSemanaDeEspacio(
-            TipoAlternancia alternancia, Modalidad modalidad, Sesion existente)
-        {
-            var semanasNueva = SemanasQueOcupanEspacio(alternancia, modalidad);
-            var semanasOtra  = SemanasQueOcupanEspacio(existente);
-            foreach (var w in semanasNueva)
-                foreach (var o in semanasOtra)
-                    if (w == o) return true;
-            return false;
-        }
+            TipoAlternancia alternancia, Modalidad modalidad, Sesion existente) =>
+            SeIntersecan(SemanasQueOcupanEspacio(alternancia, modalidad), SemanasQueOcupanEspacio(existente));
 
         /// <summary>
         /// True si las dos sesiones pueden coincidir físicamente en algún aula: comparten al menos
         /// una semana de ocupación. Dos miembros de una pareja (TipoA/TipoB) devuelven false — por
         /// eso pueden compartir bloque y aula sin ser un conflicto.
         /// </summary>
-        public static bool CompartenSemanaDeEspacio(Sesion a, Sesion b)
+        public static bool CompartenSemanaDeEspacio(Sesion a, Sesion b) =>
+            SeIntersecan(SemanasQueOcupanEspacio(a), SemanasQueOcupanEspacio(b));
+
+        private static bool SeIntersecan(IReadOnlyList<SemanaAcademica> a, IReadOnlyList<SemanaAcademica> b)
         {
-            var semanasA = SemanasQueOcupanEspacio(a);
-            var semanasB = SemanasQueOcupanEspacio(b);
-            foreach (var semana in semanasA)
-                foreach (var otra in semanasB)
+            foreach (var semana in a)
+                foreach (var otra in b)
                     if (semana == otra) return true;
             return false;
         }

@@ -67,7 +67,7 @@ namespace SOEA.Engine.Genetic
 
             _duraciones = new int[sesiones.Count];
             for (int i = 0; i < sesiones.Count; i++)
-                _duraciones[i] = Math.Max(1, (int)Math.Ceiling(sesiones[i].DuracionHoras));
+                _duraciones[i] = sesiones[i].DuracionBloques;
 
             // CR-08: el docente sale del pipeline; el eje de ergonomía es la cohorte (GrupoId).
             // El grupo no declara disponibilidad, así que SC-06 balancea sobre los días con carga.

@@ -99,9 +99,7 @@ namespace SOEA.Domain.Services
         private static bool RequisitosCompatibles(Sesion a, Sesion b, IReadOnlyDictionary<Guid, Grupo> grupoPorId)
         {
             RequisitoEspacio? RequisitoDe(Sesion s) =>
-                grupoPorId.TryGetValue(s.GrupoId, out var g)
-                    ? g.RequisitosEspacio.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(s))
-                    : null;
+                CalculadorEspaciosSesion.RequisitoDe(s, grupoPorId.GetValueOrDefault(s.GrupoId)?.RequisitosEspacio);
 
             var ra = RequisitoDe(a);
             var rb = RequisitoDe(b);

@@ -2,73 +2,53 @@
 
 ## 1 — Identidad del proyecto
 
-SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanales universitarios para instituciones con modelo de alternancia (presencial/virtual por semanas alternas). Dado un conjunto de asignaturas, docentes y espacios, ejecuta un pipeline de 3 fases de optimización y retorna un horario factible. La institución objetivo es la Universidad del Magdalena.
+SOEA (Sistema de Optimización de Espacios Académicos) genera horarios semanales universitarios con alternancia presencial/virtual por semanas para la Universidad del Magdalena. A partir de asignaturas, grupos, docentes y espacios, un pipeline de 3 fases (coloración de grafos → CP-SAT → algoritmo genético) produce un horario que cumple todas las restricciones duras.
 
 **Stack:** ASP.NET Core 10 Web API · PostgreSQL · Angular 21 · Google OR-Tools CP-SAT · Clean Architecture.
 
-## 2 — Reglas de arquitectura (no negociables)
+**Documentación** (`docs/`, verificada contra el código el 2026-10-14): [README](docs/README.md) · [architecture](docs/architecture.md) · [domain](docs/domain.md) (entidades, reglas HC/SC/ALT, esquema) · [algorithms](docs/algorithms.md) · [frontend](docs/frontend.md) · [operacion](docs/operacion.md) (tests, migraciones, CI/CD, Azure) · [pendientes](docs/pendientes.md). Si cambias el comportamiento que describe un doc, actualízalo en el mismo cambio.
 
-1. Dependencias fluyen: `API → Application → Domain ← Infrastructure / Engines`. Nunca al revés.
+## 2 — Reglas de arquitectura y dominio (no negociables)
+
+1. Dependencias: `API → Application → Domain ← Infrastructure / Engines`. Nunca al revés (lo verifican `ArchitectureTests`).
 2. `SOEA.Domain` no importa nada externo: ni EF Core, ni OR-Tools, ni EPPlus, ni ASP.NET.
-3. Toda nueva entidad sigue el orden: entidad en Domain → interfaz `IXRepositorio` en Domain → repositorio en Infrastructure.Data → configuración EF Core → registro en `Program.cs`.
-4. Los motores (GraphColoring, ConstraintProg, Genetic) son stateless y solo dependen de Domain.
-5. Nunca poner lógica de negocio en controllers ni en repositories.
-6. La duración de cada sesión es un dato de entrada fijo — el algoritmo NO la modifica.
-7. Las asignaturas Tipo A (8+8) son hard constraint — el algoritmo NO puede alterar su distribución.
-8. El horario se genera desde cero en cada ejecución. Un horario base es un conjunto de restricciones de entrada (sesiones con franja/espacio predefinidos) que CP-SAT trata como hard constraints de igualdad — el algoritmo no itera sobre ellas sino que planifica el resto alrededor.
-9. Sesión virtual = sincrónica online; se registra con la misma franja que su contraparte presencial. `EspacioId = null` en BD.
-10. **Semana A es EL horario** (ALT-05): la franja y el aula de una sesión aplican a todas las semanas del semestre; solo la modalidad puede variar. La Semana B únicamente existe cuando la alternancia se activa, de forma reactiva, tras comprobar que no hay configuración válida por falta de aulas; contiene solo las sesiones emparejadas. Emparejar es el ÚNICO mecanismo que libera capacidad: una sesión que no alterna ocupa su aula en las dos semanas. Fuente única: `ModalidadSemanal`. Se persiste UNA fila `AsignacionSemanal` por sesión; la contraparte virtual se deriva al construir el DTO.
+3. Nueva entidad: entidad en Domain → `IXRepositorio` en Domain → repositorio en Infrastructure.Data → configuración EF → registro en `Program.cs` → migración (skill `/add-entity`).
+4. Los motores (GraphColoring, ConstraintProg, Genetic) son stateless y solo dependen de Domain. Las reglas compartidas viven en `SOEA.Domain/Services` (`CalculadorDominioSesion`, `CalculadorEspaciosSesion`, `ModalidadSemanal`…): no dupliques una regla en un motor.
+5. Nunca lógica de negocio en controllers ni en repositories.
+6. La duración de cada sesión es un dato de entrada fijo: el algoritmo NO la modifica.
+7. **El grupo es el eje.** Jerarquía obligatoria Sesión → Grupo → Asignatura → Programa → Facultad. Cada grupo tiene su propio `GrupoId` y el no-solape (HC-C01), la disponibilidad (HC-G01) y la ergonomía se aplican por grupo. **El docente está fuera de la generación**: se asigna después y solo genera avisos (el choque de docente es duro únicamente al editar).
+8. El horario se genera desde cero en cada ejecución. Un horario base (sesiones con franja/aula predefinidas) son restricciones de igualdad en CP-SAT: se planifica el resto alrededor.
+9. Sesión virtual = sincrónica online, con la misma franja que su contraparte presencial. `EspacioId = null`.
+10. **La Semana A es EL horario** (ALT-05): franja y aula valen para todo el semestre; solo puede variar la modalidad. La Semana B solo existe cuando, tras comprobar que no hay configuración válida por falta de aulas, el generador empareja sesiones. Emparejar es el ÚNICO mecanismo que libera capacidad; una sesión que no alterna ocupa su aula en las dos semanas. Nunca se virtualiza una sesión en silencio: si no cabe, la generación falla explicando por qué. Fuente única: `ModalidadSemanal`. Se persiste UNA fila `AsignacionSemanal` por sesión; la contraparte virtual se deriva al construir el DTO.
+11. TipoA/TipoB solo indican en qué semana es presencial una sesión. La antigua regla "8+8 inmodificable" (HC-SU01) es obsoleta.
 
-## 3 — Estado actual del proyecto
+## 3 — Estado actual (2026-10-14)
 
-**Backend**
-- [x] Entidades de dominio: `Asignatura`, `BloqueTiempo`, `Docente`, `Espacio`, `Facultad`, `Grupo`, `Horario`, `Programa`, `Sesion`
-- [x] Interfaces de repositorio: `IAsignaturaRepositorio`, `IDocenteRepositorio`, `IEspacioRepositorio`, `IGrupoRepositorio`, `IHorarioRepositorio`, `ISesionRepositorio`, `IRepositorio<T>`
-- [x] Interfaces de motor: `IMotorColoracionGrafo`, `IMotorConstraintProgramming`, `IMotorGenetico` — corrección: `IMotorOptimizacion` no existe en el código
-- [x] Enums: `TipoAlternancia`, `TipoEspacio`, `TipoSesion`, `Modalidad`, `DiaDeSemana`, `EstadoHorario`, `EstadoSesion`, `FranjaHoraria`, `SemanaAcademica`, `PatronBaseAlternancia`, `TipoFlujo`, `CategoriaAsignatura`, `CriterioElegibilidadAlternancia`
-- [x] Value Objects: `DisponibilidadSemanal`, `NormalizadorTexto`, `RequisitoEspacio` — corrección: `CodigoCohorte`/`CodigoEspacio`/`TipoRestriccion` (D5 auditoría, sin ninguna referencia) e `IntervaloTiempo` (nunca existió) se eliminaron
-- [x] Presencial-First Etapa 1 (datos) + lógica de motor (completada, ya no pendiente): `Sesion.TipoFlujo`/`PatronAlternanciaId?`/`Bloqueada`, `Asignatura.Categoria`/`HoraInicioMin?`/`HoraFinMax?` + migración `EtapaInicialPresencialFirst`. La lógica que los consume (`GenerarHorarioService.AplicarPrioridadPresencial`/`CederSiguienteCandidatoLab`, reversión post-Fase 3) está implementada — ver `docs/algorithms.md` sección Presencial-First
-- [x] Presencial-First Etapa 2 (CR-02): `Sesion.DocenteId` nullable (docente opcional) + null-guards en motores/validador + migración `Etapa2DocenteOpcional`. **HC-I02 degradada**: la disponibilidad docente ya no es hard constraint de generación (Fase 2/Fase 3); solo preferencia blanda (SC-06)
-- [x] Presencial-First Etapa 3 (CR-08 cerrado): **grupo/cohorte como eje** de conflicto y optimización. Cohorte implícita (un run = un grupo; `GrupoId` sintético por run). Fase 1 arista por `GrupoId`; Fase 2 **HC-C01** NoOverlap por `(grupo, semana)`; Fase 3 ergonomía por cohorte. HC-I01/HC-I03 fuera de generación; **docente fuera del pipeline** (se asigna después de generar). Sin migración (`grupo_id` ya existía). HU-04 (editar sesión) y multi-cohorte → etapas posteriores
-- [x] Presencial-First Etapa 4 (CR-02 2º rol): **docente post-generación**. Mutador `Sesion.AsignarDocente(Guid?)` + `AsignarDocenteSesionService` (solape duro → 409; disponibilidad/carga → advertencias) + `PATCH /api/sesiones/{id}/docente` (nuevo `SesionesController`). Sin migración. 224/224 verde.
-- [x] `SOEA.Engine.GraphColoring`: `AgendadorColoracionGrafo`, `ConstructorGrafoConflictos`
-- [x] `SOEA.Engine.ConstraintProg`: `MotorConstraintProgramming` (OR-Tools CP-SAT, 120 s timeout)
-- [x] `SOEA.Engine.Genetic`: `CromosomaHorario`, `EvaluadorFitness`, `MotorGenetico`, `OperadoresGeneticos` (200 gen, pop 50, convergencia 30)
-- [x] `SOEA.Infrastructure.Data`: `SOEABdContext`, 9 configuraciones EF, 7 repositorios, **28 migraciones** (`InitialCreate` → `M19_JerarquiaSesionGrupoAsignatura`, 2026-09-29; se aplican solas al arrancar el API). M19: jerarquía obligatoria Sesión → Grupo → Asignatura → Programa → Facultad (`Sesion.GrupoId` y `Grupo.AsignaturaId` NOT NULL, `Grupos.programa_id`/`facultad_id` eliminados, FK compuesta `(grupo_id, asignatura_id)` en SQL)
-- [x] `SOEA.Infrastructure.Excel`: `LectorExcel` (3 modos: curriculum, modo2, disponibilidad)
-- [x] `SOEA.Application`: `AsignaturaService` (CRUD completo, un solo servicio), `CrearSesionManualService`, `DocenteService`, `FusionDocentesService`, `CriterioCesionAlternanciaService`, `GenerarHorarioService`, `ImportarCurriculumService`, `AsignarDocenteSesionService`, `ReacomodarHorarioService`
-- [x] `SOEA.API`: **10 controllers** (`AsignaturaController`, `CriteriosCesionAlternanciaController`, `DocentesController`, `EspaciosController`, `FacultadesController`, `GruposController`, `HorarioController`, `ImportController`, `ProgramasController`, `SesionesController`) — corrección: no existe `TiposAlternanciaController`; `TipoAlternanciaConfig` no tiene endpoint REST propio
-- [x] Tests: arquitectura (NetArchTest), entidades de dominio, motores, value objects (~500 pruebas en ~70 archivos; unas 20 corren contra PostgreSQL real — ver `SOEA_TEST_DB` en Comandos)
-- [x] Validador post-generación de hard constraints (`ValidadorRestriccionesDuras` en Application, wired en `GenerarHorarioService` paso 4b — fallback a Fase 2 si el GA viola alguna de las **10 reglas** verificadas: HC-C01, HC-S01, HC-ALT, HC-BASE, HC-VH, HC-G01, HC-S03, HC-CAP, HC-S05, HC-SEP)
-- [x] "Grupo como eje" completado a nivel de datos (migración `P1_GrupoComoEje`, 2026-08-06): `Grupo` absorbió `DocenteId` (desde `Fase2DocenteEnGrupo`) y `RequisitosEspacio` (reemplaza `Asignatura.EspacioFijoId`, ya eliminado)
-- [x] Alternancia por parejas / "Tipo C" dinámico (migración `P2_ParejaAlternancia`, 2026-08-07): `Sesion.ParejaAlternanciaId` + hard constraint HC-ALT en CP-SAT y en el validador
-- [ ] `PublicarHorarioService` — impide publicar con violaciones > 0
-- [ ] Autenticación JWT y control de acceso por rol — sigue sin implementarse; la aplicación real (backend y frontend) es de un solo operador sin login, no de 4 roles. **La API está expuesta sin autenticación:** hasta decidir cómo restringir el acceso (lista de IP o Easy Auth) y activar `httpsOnly` en la App Service, no debe tratarse como un servicio protegido (auditoría pre-producción 2026-09-28, SEC-2/SEC-3)
+**Hecho:** dominio completo (13 entidades, 28 migraciones hasta `M19_JerarquiaSesionGrupoAsignatura`, aplicadas solas al arrancar el API); 3 motores; validador post-generación de 10 reglas duras con fallback a Fase 2; Semana B reactiva por parejas; reacomodo mínimo al editar; sesión manual; asignación de docente posterior; importación de Excel en dos pasos con revisión de filas; fusión de docentes duplicados; 10 controllers; frontend por recorrido (`/catalogo`, `/horario`, `/revisar`, `/publicar` bloqueado); CI en GitHub Actions y despliegue automático a Azure al hacer push a `main`. Pruebas: ~500 backend (20 contra PostgreSQL real) y ~150 frontend.
 
-**Frontend** (`frontend/soea-angular`)
-- [x] Rutas actuales, organizadas por journey (rediseño completo, ver `docs/DESIGN_BRIEF.md`): `/catalogo` (paso 1: preparar catálogo), `/horario` (pasos 2–3: generar y ajustar), `/revisar` (paso 4: KPIs), `/publicar` (paso 5, bloqueado). **Las rutas antiguas (`/ingesta`, `/dashboard-admin`, `/dashboard-developer`, `/horario-docente`, `/tipos-alternancia`, `/configuracion-alternancia`) ya no existen** — este archivo las listaba desactualizadas.
-- [x] `StateService` (signals reactivos), `PersistenciaService`, `CatalogoService` (hidratación inicial), `HorarioApiService`
-- [x] Tabs en `/catalogo`: Asignaturas (con Grupos como fila expandible, no pestaña propia), Docentes, Espacios, Alternancia
-- [x] Carga de Excel en `/catalogo`
-- [ ] Vista de reporte de conflictos
-- [ ] Control de acceso por rol en UI — no aplica: no hay roles ni login en el diseño actual (un solo operador)
+**Falta** (detalle en [docs/pendientes.md](docs/pendientes.md)):
+- `PublicarHorarioService` (impedir publicar con violaciones > 0) y la vista de reporte de conflictos.
+- **La API está expuesta sin autenticación.** No hay login ni roles (un solo operador). Hasta decidir cómo restringir el acceso (lista de IP o Easy Auth) y activar `httpsOnly`, no tratarla como un servicio protegido.
 
 ## 4 — Datos bloqueantes
 
-El agente NO debe asumir ni inventar estos valores — provienen de Rosa (coordinadora académica):
+No asumir ni inventar estos valores; los define Rosa (coordinadora académica):
 
-- Capacidad exacta de cada espacio (laboratorio, salón, auditorio)
-- Clasificación de prioridad de cursos (1 / 2 / 3)
-- Lista definitiva de asignaturas Tipo A y Tipo B
-- Duración fija por asignatura (horas por sesión y sesiones por semana)
+- Capacidad exacta de cada espacio (laboratorio, salón, auditorio).
+- Clasificación de prioridad de cursos (1 / 2 / 3).
+- Lista definitiva de asignaturas Tipo A y Tipo B.
+- Duración fija por asignatura (horas por sesión y sesiones por semana).
+- Rango de la jornada (hoy L–V 06:00–22:00, sábado 06:00–14:00) y la semántica de HC-ALT (marcada `VERIFICA`).
 
-## 5 — Convenciones de código
+## 5 — Convenciones
 
-- **Idioma:** clases y archivos en inglés; comentarios y docs en español
-- **Enums clave:** `TipoAlternancia { TipoA, TipoB, SinAlternancia }` · `TipoEspacio { Salon, Laboratorio, Auditorio }` · `TipoFlujo { Laboratorio, AulaVirtual }` · `CategoriaAsignatura { Obligatoria, Optativa, Electiva }`
-- **Tests:** xUnit · dobles a mano en `test/SOEA.Tests/Fakes/RepositorioFakes.cs` (no se usa NSubstitute ni existe `TestData/`) · PostgreSQL real para las pruebas de integración (`test/SOEA.Tests/Integracion`)
-- **DI:** cada proyecto de infraestructura/motor expone `AddX()`. Application registra servicios concretos con `AddScoped<ConcreteService>()` — sin interfaz adicional.
-- **Docs:** `docs/architecture.md`, `docs/domain.md`, `docs/algorithms.md`
+- **Idioma:** identificadores en español o inglés según el código vecino (dominio en español); comentarios, docs y textos de UI en español.
+- **Textos de UI:** los usuarios son coordinadores no técnicos; nada de jerga ("fallback", "CP-SAT", "hard constraint").
+- **Enums clave:** `TipoAlternancia { TipoA, TipoB, SinAlternancia }` · `TipoEspacio { Salon, Laboratorio, Auditorio }` · `TipoSesion { TeoriaPresencial, TeoriaVirtual, Laboratorio }` · `TipoFlujo { Laboratorio, AulaVirtual }` · `CategoriaAsignatura { Obligatoria, Optativa, Electiva }`.
+- **Errores de API:** lanzar excepciones que `GlobalExceptionHandler` traduce a ProblemDetails en español; no devolver `BadRequest("…")` desde controllers.
+- **Tests:** xUnit con dobles a mano en `test/SOEA.Tests/Fakes/RepositorioFakes.cs` (no NSubstitute, no `TestData/`); PostgreSQL real en `test/SOEA.Tests/Integracion`. Frontend con vitest.
+- **DI:** cada proyecto de infraestructura/motor expone `AddX()`. Application registra servicios concretos con `AddScoped<ConcreteService>()`, sin interfaz.
+- **Migraciones:** nombre `M<n>_<Descripción>`; si agregan una FK, sanean antes los huérfanos.
 
 ## Comandos
 
@@ -76,12 +56,10 @@ El agente NO debe asumir ni inventar estos valores — provienen de Rosa (coordi
 # Backend (raíz de la solución)
 dotnet build SOEA.sln
 dotnet run --project src/SOEA.API          # API → http://localhost:5066
-dotnet test SOEA.sln                        # las pruebas de Postgres se omiten si no hay servidor: define SOEA_TEST_DB
-                                           # (cadena con servidor y credenciales; crea y borra BDs soea_it_*, nunca toca SOEAdb)
-                                           # y comprueba que el resumen diga "Omitido: 0". Con SOEA_TEST_DB definida y sin
-                                           # servidor alcanzable, fallan en vez de omitirse.
+dotnet test SOEA.sln                        # las pruebas de Postgres se omiten sin SOEA_TEST_DB; con ella
+                                           # (servidor + credenciales; crea y borra BDs soea_it_*, nunca toca SOEAdb)
+                                           # deben dar "Omitido: 0", y fallan si el servidor no responde.
 dotnet test --filter "FullyQualifiedName~Architecture"
-dotnet test --filter "DisplayName~BloqueTiempo"
 
 # Migraciones (desde src/SOEA.Infrastructure.Data)
 dotnet ef migrations add <Nombre> --startup-project ../SOEA.API
@@ -94,28 +72,12 @@ npm run build
 npm test         # vitest
 ```
 
-## Base de datos
+## Base de datos y configuración
 
-PostgreSQL `localhost:5432`, DB `SOEAdb`. Configuraciones EF en `SOEA.Infrastructure.Data/Configurations/`.
-
-**Cadena de conexión (sin credenciales en el repo — P0.1 auditoría):**
-- `src/SOEA.API/appsettings.json` tiene `DefaultConnection` vacío.
-- En desarrollo la cadena real vive en `src/SOEA.API/appsettings.Development.json` (gitignored). Crear ese archivo localmente con `ConnectionStrings:DefaultConnection`.
-- Las migraciones design-time (`SOEABdContextFactory`) resuelven la cadena desde la variable de entorno `SOEA_DESIGN_TIME_DB` o, en su defecto, desde el `appsettings.Development.json` del API.
-- En staging/producción usar variables de entorno o user-secrets, nunca un archivo commiteado.
-
-**Motor CP-SAT:** la sección `CpSat` de configuración controla `ExportarModelo` (volcado de `cp_model_debug.txt`, default `false`) y `TimeoutSegundos` (default 120).
-
-`ILectorExcel` (los lectores de "modo 2" y de disponibilidad de docentes ya no existen). **Import en dos pasos** (2026-10-03): `POST /api/import/excel/revisar` → `LeerFilasAsync` + `ValidarFilas` (filas crudas + incoherencias, no guarda nada); si hay incoherencias el frontend abre `ImportRevisionDialogComponent` (editar/borrar filas, `POST /api/import/filas/revisar`); `POST /api/import/filas` → `ConstruirCurriculum` + `ImportarCurriculumService` (422 si queda algún error). Errores (bloquean): campo obligatorio vacío, día/hora ilegible, Final ≤ Hora, duración ≠ Final−Hora, misma asignatura con duraciones distintas (la duración es de la asignatura), fila repetida, grupo con clases que se cruzan. Avisos: choque de aula o de docente, sin día/hora, sin duración.
-- Formato de columnas — columnas detectadas por cabecera (no por posición): Facultad, Programa, Asignatura, Código (opcional), TipoEspacio (opcional), Espacio/Curso/Salón/Aula, Duración/Horas/Reales [h], Día, Hora, Docente, Grupo (opcional, número real de grupo/sección), Final (opcional, hora de fin explícita — si no viene, se deriva de Hora+Duración). Acepta tanto el formato legado (A–J fijo) como el formato real de Rosa (Facultad, Programa, Asignatura, Grupo, Docente, Reales [h], Espacio, Dia, Hora, Final).
-
-## Architecture tests
-
-`test/SOEA.Tests/Architecture/ArchitectureTests.cs` usa NetArchTest para verificar:
-- Domain no depende de Application, Infrastructure ni API.
-- Application no depende de Infrastructure.
-- Infrastructure no depende de API.
-- Repositorios residen en `SOEA.Infrastructure.Data.Repositories`.
+- PostgreSQL `localhost:5432`, BD `SOEAdb`. Configuraciones EF en `src/SOEA.Infrastructure.Data/Configurations/`.
+- Sin credenciales en el repo: `appsettings.json` tiene `DefaultConnection` vacío; en desarrollo la cadena vive en `src/SOEA.API/appsettings.Development.json` (gitignored). Las migraciones design-time la toman de `SOEA_DESIGN_TIME_DB` o de ese archivo. En producción, variables de entorno de la App Service.
+- Sección `CpSat`: `TimeoutSegundos` (120), `ClasificarInfactibilidadEspacio` (true), `SweepGrupos` (false; `true` en prod), `ExportarModelo` (false). Detalle en [docs/architecture.md](docs/architecture.md#configuración-appsettings--variables-de-entorno).
+- Importación de Excel (dos pasos, columnas por cabecera, errores vs. avisos): [docs/frontend.md](docs/frontend.md#importación-de-excel-dos-pasos).
 
 ## graphify
 

@@ -33,9 +33,9 @@ Extract from the user's request:
 ### Step 2: Load Architecture Context
 
 Before proposing any code:
-1. Read [`docs/architecture/SOEA_Estructura_Carpetas.md`](../../docs/architecture/SOEA_Estructura_Carpetas.md) for folder organization
-2. Read [`docs/architecture/module-map.md`](../../docs/architecture/module-map.md) to identify the owning project
-3. Read [`docs/business-rules/hard-constraints.md`](../../docs/business-rules/hard-constraints.md), [`soft-constraints.md`](../../docs/business-rules/soft-constraints.md), or [`alternancia.md`](../../docs/business-rules/alternancia.md) if the change involves constraints
+1. Read [`docs/architecture.md`](../../../docs/architecture.md) for folder organization
+2. Read [`docs/architecture.md`](../../../docs/architecture.md) to identify the owning project
+3. Read [`docs/domain.md`](../../../docs/domain.md) if the change involves constraints
 
 ### Step 3: Validate Clean Architecture Compliance
 
@@ -81,8 +81,8 @@ If this is a multi-step task, create `Status_Task.md` in the root with:
 - [Decision 2]: [Rationale]
 
 ## Related Docs
-- [`docs/business-rules/...`](docs/business-rules/...)
-- [`docs/architecture/module-map.md`](docs/architecture/module-map.md)
+- [`docs/domain.md`](../../../docs/domain.md)
+- [`docs/architecture.md`](../../../docs/architecture.md)
 ```
 
 ### Step 5: Propose Changes Layer by Layer
@@ -130,8 +130,8 @@ After implementing each layer:
 - **Where**: Domain (new entity), Application (new validation service), Infrastructure (new column/config), API (new endpoint)
 
 **Step 2:** Load context
-- Read `docs/business-rules/hard-constraints.md` → understand existing constraints structure
-- Read `docs/architecture/module-map.md` → identify which project owns "Constraints"
+- Read `docs/domain.md` → understand existing constraints structure
+- Read `docs/architecture.md` → identify which project owns "Constraints"
 
 **Step 3:** Validate Clean Architecture
 - ❌ Don't: Create a `SummerAvailabilityService` in API and have it import EF Core
@@ -196,9 +196,9 @@ Before asking "what's next?":
 
 ## Related Documentation
 
-- [SOEA Folder Structure](../../docs/architecture/SOEA_Estructura_Carpetas.md)
-- [Module Map](../../docs/architecture/module-map.md)
-- [Architecture Overview](../../docs/architecture/architecture-overview.md)
-- [Hard Constraints](../../docs/business-rules/hard-constraints.md)
-- [Soft Constraints](../../docs/business-rules/soft-constraints.md)
-- [Alternancia Rules](../../docs/business-rules/alternancia.md)
+- [SOEA Folder Structure](../../../docs/architecture.md)
+- [Module Map](../../../docs/architecture.md)
+- [Architecture Overview](../../../docs/architecture.md)
+- [Hard Constraints](../../../docs/domain.md)
+- [Soft Constraints](../../../docs/domain.md)
+- [Alternancia Rules](../../../docs/domain.md)

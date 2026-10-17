@@ -2,7 +2,7 @@ import { vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
-import { CrearSesionDialogComponent } from './horario.component';
+import { CrearSesionDialogComponent } from './crear-sesion-dialog.component';
 import { StateService } from '../../core/state.service';
 import { PersistenciaService } from '../../core/persistencia.service';
 import { Asignatura, Docente, Grupo } from '../../core/models';

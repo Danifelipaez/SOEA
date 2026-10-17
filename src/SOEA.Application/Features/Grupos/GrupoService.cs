@@ -1,8 +1,18 @@
+using SOEA.Domain.Entities;
 using SOEA.Domain.Interfaces;
 using SOEA.Domain.ValueObjects;
 using SOEA.Application.Features.Sesiones;
 
 namespace SOEA.Application.Features.Grupos;
+
+/// <summary>Datos editables de un grupo al crearlo o editarlo desde el catálogo.</summary>
+public record GrupoDatos(
+    Guid? AsignaturaId, string Nombre, string? Codigo, int EstudiantesInscritos,
+    Guid? DocenteId, string? DisponibilidadUiJson, List<RequisitoEspacio> RequisitosEspacio);
+
+/// <summary>Grupo con su programa y facultad, derivados de la asignatura (Grupo → Asignatura → Programa → Facultad).
+/// ProgramaId = Guid.Empty si la asignatura no existe.</summary>
+public record GrupoConJerarquia(Grupo Grupo, Guid ProgramaId, Guid? FacultadId);
 
 /// <summary>
 /// Borrado de Grupo con purga en cascada de sus Sesiones generadas (y AsignacionSemanal) — antes
@@ -15,13 +25,101 @@ public class GrupoService
     private readonly IGrupoRepositorio _repository;
     private readonly SesionCascadeService _sesionCascade;
     private readonly IUnitOfWork _uow;
+    private readonly IAsignaturaRepositorio _asignaturas;
+    private readonly IProgramaRepositorio _programas;
 
-    public GrupoService(IGrupoRepositorio repository, SesionCascadeService sesionCascade, IUnitOfWork uow)
+    public GrupoService(IGrupoRepositorio repository, SesionCascadeService sesionCascade, IUnitOfWork uow,
+        IAsignaturaRepositorio asignaturas, IProgramaRepositorio programas)
     {
         _repository = repository;
         _sesionCascade = sesionCascade;
         _uow = uow;
+        _asignaturas = asignaturas;
+        _programas = programas;
     }
+
+    public async Task<List<GrupoConJerarquia>> ListarAsync()
+    {
+        var facultadPorPrograma = (await _programas.GetAllAsync()).ToDictionary(p => p.Id, p => p.FacultadId);
+        var programaPorAsignatura = (await _asignaturas.GetAllAsync()).ToDictionary(a => a.Id, a => a.ProgramaId);
+        return (await _repository.GetAllAsync()).Select(g =>
+            programaPorAsignatura.TryGetValue(g.AsignaturaId, out var programaId)
+                ? new GrupoConJerarquia(g, programaId, facultadPorPrograma.TryGetValue(programaId, out var f) ? f : null)
+                : new GrupoConJerarquia(g, Guid.Empty, null)).ToList();
+    }
+
+    public async Task<GrupoConJerarquia> ObtenerAsync(Guid id)
+    {
+        var grupo = await _repository.GetByIdAsync(id)
+            ?? throw new KeyNotFoundException($"Grupo con ID {id} no encontrado.");
+        return await ConJerarquiaAsync(grupo, await _asignaturas.GetByIdAsync(grupo.AsignaturaId));
+    }
+
+    public async Task<List<GrupoConJerarquia>> ListarPorAsignaturaAsync(Guid asignaturaId)
+    {
+        var grupos = await _repository.GetByAsignaturaIdAsync(asignaturaId);
+        var asignatura = await _asignaturas.GetByIdAsync(asignaturaId);
+        Guid? facultadId = asignatura is null ? null : (await _programas.GetByIdAsync(asignatura.ProgramaId))?.FacultadId;
+        return grupos.Select(g => new GrupoConJerarquia(g, asignatura?.ProgramaId ?? Guid.Empty, facultadId)).ToList();
+    }
+
+    public async Task<GrupoConJerarquia> CrearAsync(Guid id, GrupoDatos datos)
+    {
+        var asignatura = await AsignaturaValidaAsync(datos);
+        // ERR2 auditoría: sin catch — GlobalExceptionHandler traduce ArgumentException a 400 y
+        // DbUpdateException (p. ej. código de grupo repetido, ix_grupo_codigo) a 409.
+        var grupo = new Grupo(
+            id == Guid.Empty ? Guid.NewGuid() : id,
+            datos.Nombre,
+            asignatura.Id,
+            datos.EstudiantesInscritos,
+            docenteId: datos.DocenteId,
+            codigo: datos.Codigo);
+        grupo.ActualizarDisponibilidadUi(datos.DisponibilidadUiJson);
+        grupo.ActualizarRequisitosEspacio(datos.RequisitosEspacio);
+
+        await _repository.AddAsync(grupo);
+        return await ConJerarquiaAsync(grupo, asignatura);
+    }
+
+    public async Task<GrupoConJerarquia> ActualizarAsync(Guid id, GrupoDatos datos)
+    {
+        var grupo = await _repository.GetByIdAsync(id)
+            ?? throw new KeyNotFoundException($"Grupo con ID {id} no encontrado.");
+        var asignatura = await AsignaturaValidaAsync(datos);
+
+        grupo.ActualizarNombre(datos.Nombre);
+        grupo.ActualizarCodigo(datos.Codigo);
+        grupo.ActualizarEstudiantes(datos.EstudiantesInscritos);
+        // Si cambia la asignatura, la FK compuesta de Sesiones (ON UPDATE CASCADE) mueve con él
+        // las sesiones del grupo: nunca quedan de una asignatura distinta a la de su grupo.
+        grupo.ActualizarAsignatura(asignatura.Id);
+        grupo.AsignarDocente(datos.DocenteId);
+        grupo.ActualizarDisponibilidadUi(datos.DisponibilidadUiJson);
+        grupo.ActualizarRequisitosEspacio(datos.RequisitosEspacio);
+
+        await _repository.UpdateAsync(grupo);
+        return await ConJerarquiaAsync(grupo, asignatura);
+    }
+
+    /// <summary>Todo grupo debe estar atado a una asignatura existente, y sus datos deben ser válidos para ella.</summary>
+    private async Task<Asignatura> AsignaturaValidaAsync(GrupoDatos datos)
+    {
+        if (datos.AsignaturaId is not { } asignaturaId || asignaturaId == Guid.Empty)
+            throw new ArgumentException("AsignaturaId es obligatorio.");
+        var asignatura = await _asignaturas.GetByIdAsync(asignaturaId)
+            ?? throw new ArgumentException($"No existe la asignatura con Id '{asignaturaId}'.");
+
+        ValidarDatos(datos.DisponibilidadUiJson, datos.RequisitosEspacio);
+        if (ErrorDiasSeparados(datos.DisponibilidadUiJson, asignatura.SesionesMismoTipoSemana, datos.Nombre) is { } errorDias)
+            throw new ArgumentException(errorDias);
+        return asignatura;
+    }
+
+    private async Task<GrupoConJerarquia> ConJerarquiaAsync(Grupo grupo, Asignatura? asignatura) =>
+        asignatura is null
+            ? new GrupoConJerarquia(grupo, Guid.Empty, null)
+            : new GrupoConJerarquia(grupo, asignatura.ProgramaId, (await _programas.GetByIdAsync(asignatura.ProgramaId))?.FacultadId);
 
     /// <summary>
     /// Reglas de los datos editables de un grupo al guardarlo desde el catálogo. Una disponibilidad ilegible

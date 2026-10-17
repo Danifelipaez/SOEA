@@ -205,7 +205,7 @@ namespace SOEA.Application.Features.Horario
             // sí usa la duración completa. Ahora comprueba TODA la franja de la sesión.
             if (docente.BloquesDisponibles.Count > 0 && bloqueDict.TryGetValue(sesion.BloqueTiempoId, out var bloqueSesion))
             {
-                int dur = Math.Max(1, (int)Math.Ceiling(sesion.DuracionHoras));
+                int dur = sesion.DuracionBloques;
                 bool todaLaFranjaDisponible = true;
                 for (int k = 0; k < dur; k++)
                 {

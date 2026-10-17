@@ -6,7 +6,7 @@ description: "Base de conocimiento del esquema PostgreSQL SOEAdb. Úsalo cuando 
 
 # Skill: Base de Conocimiento PostgreSQL SOEAdb
 
-> **Arquitectura:** Alineada con Clean Architecture. No duplica especificación de negocio (en `docs/business-rules/`).
+> **Arquitectura:** Alineada con Clean Architecture. No duplica especificación de negocio (en `docs/domain.md`).
 
 ## 📚 Índice de Documentación
 

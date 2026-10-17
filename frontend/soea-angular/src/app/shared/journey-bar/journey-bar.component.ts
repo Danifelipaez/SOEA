@@ -19,7 +19,7 @@ const STEPS: JourneyStep[] = [
   { path: '/publicar', label: 'Publicar', badge: '5', disabled: true },
 ];
 
-/** Barra de navegación por flujo (journey), reemplaza el navbar plano anterior — ver docs/MAPEO_FLUJOS_FRONTEND.md */
+/** Barra de navegación por flujo (journey), reemplaza el navbar plano anterior — ver docs/frontend.md */
 @Component({
   selector: 'app-journey-bar',
   standalone: true,

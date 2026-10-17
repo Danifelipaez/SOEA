@@ -30,7 +30,7 @@ namespace SOEA.Tests.Application
             var grupo = Existente(Guid.NewGuid());
             var grupoRepo = new FakeGrupoRepo(grupo);
             var service = new GrupoService(
-                grupoRepo, new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+                grupoRepo, new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeAsignaturaRepo(), new FakeProgramaRepo());
 
             await service.DeleteAsync(grupo.Id);
 
@@ -41,7 +41,7 @@ namespace SOEA.Tests.Application
         public async Task LanzaKeyNotFound_SiElGrupoNoExiste()
         {
             var service = new GrupoService(
-                new FakeGrupoRepo(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork());
+                new FakeGrupoRepo(), new SesionCascadeService(new FakeSesionRepo(), new FakeAsignacionRepo()), new FakeUnitOfWork(), new FakeAsignaturaRepo(), new FakeProgramaRepo());
 
             await Assert.ThrowsAsync<KeyNotFoundException>(() => service.DeleteAsync(Guid.NewGuid()));
         }
@@ -55,7 +55,7 @@ namespace SOEA.Tests.Application
             var sesionRepo = new FakeSesionRepo(sesion);
             var asignacionRepo = new FakeAsignacionRepo(
                 new AsignacionSemanal(Guid.NewGuid(), sesion.Id, SemanaAcademica.A, Guid.NewGuid(), null, Modalidad.Presencial));
-            var service = new GrupoService(grupoRepo, new SesionCascadeService(sesionRepo, asignacionRepo), new FakeUnitOfWork());
+            var service = new GrupoService(grupoRepo, new SesionCascadeService(sesionRepo, asignacionRepo), new FakeUnitOfWork(), new FakeAsignaturaRepo(), new FakeProgramaRepo());
 
             await service.DeleteAsync(grupo.Id);
 

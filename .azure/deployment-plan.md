@@ -7,7 +7,7 @@
 **Recipe Type:** azcli (App Service + Static Web App)
 **Environment:** Production (rg-soea)
 
-⚠️ Deploy es 100% manual — no hay CI/CD (`.github/workflows/ci.yml` solo build+test). No confíes en el timestamp de un deploy sin verificar el commit real contra `az webapp deployment list` y, si aplica, un campo de respuesta ligado a un commit conocido.
+⚠️ El deploy es automático con `.github/workflows/deploy.yml` en cada push a `main` (ver docs/operacion.md); el procedimiento manual de abajo queda como alternativa. No confíes en el timestamp de un deploy sin verificar el commit real contra `az webapp deployment list` y, si aplica, un campo de respuesta ligado a un commit conocido.
 
 ---
 

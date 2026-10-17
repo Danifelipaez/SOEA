@@ -210,7 +210,9 @@ namespace SOEA.Domain.ValueObjects
             return (new TimeOnly(6, 0), new TimeOnly(22, 0));
         }
 
-        private static DiaDeSemana? ParseDia(string dia) => dia.Trim().ToLowerInvariant() switch
+        /// <summary>Nombre de día en español (con o sin tilde) → <see cref="DiaDeSemana"/>; null si no se reconoce.
+        /// Fuente única también para los endpoints de edición (antes tenían su copia sin tildes).</summary>
+        public static DiaDeSemana? ParseDia(string dia) => dia.Trim().ToLowerInvariant() switch
         {
             "lunes"     => DiaDeSemana.Lunes,
             "martes"    => DiaDeSemana.Martes,

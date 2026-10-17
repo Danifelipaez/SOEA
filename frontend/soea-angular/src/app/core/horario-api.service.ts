@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, of, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { Asignatura, ConfiguracionAlgoritmo, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion } from './models';
+import { Asignatura, ConfiguracionAlgoritmo, DisponibilidadUi, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion } from './models';
 import { environment } from '../../environments/environment';
 import { mensajeErrorHttp } from './http-error.util';
 import { SEMESTRE_POR_DEFECTO } from './semestre';
@@ -35,6 +35,8 @@ export interface SesionFijaApiDto {
   horaFin: string;
   duracionHoras: number;
   alternancia?: string;
+  /** Sin la pareja completa en la base, el backend la fija sin alternancia. */
+  parejaId?: string;
   virtual: boolean;
   /** Laboratorio | AulaVirtual. Null/no reconocido → Laboratorio (default histórico del backend). */
   tipoFlujo?: string;
@@ -90,15 +92,8 @@ export interface DocenteApiDto {
   id: string;
   nombre: string;
   maxHoras: number;
-  disponibilidad: Record<string, DisponibilidadDiaDto>;
-}
-
-export interface DisponibilidadDiaDto {
-  noDisponible: boolean;
-  tipo?: string;
-  franjaGeneral?: string;
-  desde?: string;
-  hasta?: string;
+  /** DisponibilidadDiaDto (C#): un noDisponible ausente llega como false. */
+  disponibilidad: DisponibilidadUi;
 }
 
 export interface EspacioApiDto {
@@ -177,6 +172,7 @@ export class HorarioApiService {
       horaFin:      s.horaFin,
       duracionHoras: s.duracionHoras,
       alternancia:  s.alternancia,
+      parejaId:     s.parejaId,
       virtual:      s.virtual,
       tipoFlujo:    s.tipoFlujo,
     }));

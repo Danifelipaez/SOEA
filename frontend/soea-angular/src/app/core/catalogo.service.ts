@@ -2,7 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, forkJoin, of, throwError } from 'rxjs';
 import { map, catchError, tap } from 'rxjs/operators';
-import { PersistenciaService } from './persistencia.service';
+import { AsignaturaApi, DocenteApi, EspacioApi, GrupoApi, PersistenciaService } from './persistencia.service';
 import { StateService } from './state.service';
 import { HorarioApiService } from './horario-api.service';
 import { mensajeErrorHttp } from './http-error.util';
@@ -18,6 +18,14 @@ export interface ResumenCatalogo {
 }
 
 export type EntidadCatalogo = 'asignatura' | 'docente' | 'espacio' | 'grupo' | 'facultad' | 'programa';
+
+/** Modelo del frontend de cada entidad del catálogo. */
+export interface EntidadesCatalogo {
+  asignatura: Asignatura; docente: Docente; espacio: Espacio; grupo: Grupo; facultad: Facultad; programa: Programa;
+}
+
+/** Tipo y entidad juntos: un switch sobre `tipo` acota `entidad` a su modelo, sin any. */
+type ParCatalogo = { [K in EntidadCatalogo]: { tipo: K; entidad: EntidadesCatalogo[K] } }[EntidadCatalogo];
 
 /**
  * Fuente de verdad única para hidratar el StateService desde la BD.
@@ -81,35 +89,34 @@ export class CatalogoService {
    * state como si existiera — "se creó… y luego no está" al recargar desde BD) y el caller
    * sigue siendo quien decide cómo mostrar el fallo (snackbar, estado por fila, etc.).
    */
-  guardar(tipo: 'asignatura', entidad: Asignatura): Observable<Asignatura>;
-  guardar(tipo: 'docente', entidad: Docente): Observable<Docente>;
-  guardar(tipo: 'espacio', entidad: Espacio): Observable<Espacio>;
-  guardar(tipo: 'grupo', entidad: Grupo): Observable<Grupo>;
-  guardar(tipo: 'facultad', entidad: Facultad): Observable<Facultad>;
-  guardar(tipo: 'programa', entidad: Programa): Observable<Programa>;
-  guardar(tipo: EntidadCatalogo, entidad: any): Observable<any> {
+  guardar<K extends EntidadCatalogo>(tipo: K, entidad: EntidadesCatalogo[K]): Observable<EntidadesCatalogo[K]> {
+    // La firma ya ata `entidad` a `tipo`; ParCatalogo se lo hace visible a los switch de abajo.
+    const par = { tipo, entidad } as ParCatalogo;
     const anterior = this.buscarEnState(tipo, entidad.id);
-    this.actualizarEnState(tipo, entidad);
+    this.actualizarEnState(par);
     const esNueva = !this.estaEnBd(tipo, entidad.id);
-    return this.peticionGuardar(tipo, entidad, esNueva).pipe(
-      map(raw => this.mapearRespuesta(tipo, raw, entidad)),
+    return this.guardarEnApi(par, esNueva).pipe(
       tap(guardada => {
-        this.marcarEnBd(tipo, guardada.id);
-        this.actualizarEnState(tipo, guardada);
+        this.marcarEnBd(tipo, guardada.entidad.id);
+        this.actualizarEnState(guardada);
         // El backend mueve en cascada las sesiones de un grupo que cambia de asignatura (FK
         // compuesta): sin esto el horario en memoria las seguía mostrando con la asignatura vieja.
-        if (tipo === 'grupo') this.state.sesiones.update(v => v.some(s => s.grupoId === guardada.id && s.asignaturaId !== guardada.asignaturaId)
-          ? v.map(s => s.grupoId === guardada.id ? { ...s, asignaturaId: guardada.asignaturaId } : s) : v);
+        if (guardada.tipo === 'grupo') {
+          const g = guardada.entidad;
+          this.state.sesiones.update(v => v.some(s => s.grupoId === g.id && s.asignaturaId !== g.asignaturaId)
+            ? v.map(s => s.grupoId === g.id ? { ...s, asignaturaId: g.asignaturaId } : s) : v);
+        }
       }),
+      map(guardada => guardada.entidad as EntidadesCatalogo[K]),
       catchError(err => {
         if (esNueva) this.eliminarDeState(tipo, entidad.id);
-        else if (anterior) this.actualizarEnState(tipo, anterior);
+        else if (anterior) this.actualizarEnState({ tipo, entidad: anterior } as ParCatalogo);
         return throwError(() => err);
       })
     );
   }
 
-  private buscarEnState(tipo: EntidadCatalogo, id: string): any {
+  private buscarEnState(tipo: EntidadCatalogo, id: string): EntidadesCatalogo[EntidadCatalogo] | undefined {
     switch (tipo) {
       case 'asignatura': return this.state.asignaturas().find(x => x.id === id);
       case 'docente':    return this.state.docentes().find(x => x.id === id);
@@ -137,47 +144,53 @@ export class CatalogoService {
     }));
   }
 
-  private peticionGuardar(tipo: EntidadCatalogo, entidad: any, esNueva: boolean): Observable<any> {
-    switch (tipo) {
-      case 'asignatura': return esNueva ? this.persistencia.crearAsignatura(entidad) : this.persistencia.actualizarAsignatura(entidad);
-      case 'docente':    return esNueva ? this.persistencia.guardarDocente(entidad) : this.persistencia.actualizarDocente(entidad);
-      case 'espacio':    return esNueva ? this.persistencia.guardarEspacio(entidad) : this.persistencia.actualizarEspacio(entidad);
-      case 'grupo':      return esNueva ? this.persistencia.guardarGrupo(entidad) : this.persistencia.actualizarGrupo(entidad);
-      case 'facultad':   return esNueva ? this.persistencia.guardarFacultad(entidad) : this.persistencia.actualizarFacultad(entidad);
-      case 'programa':   return esNueva ? this.persistencia.guardarPrograma(entidad) : this.persistencia.actualizarPrograma(entidad);
-    }
-  }
-
-  private mapearRespuesta(tipo: EntidadCatalogo, raw: any, entidad: any): any {
-    switch (tipo) {
-      case 'asignatura': return this.mapAsignatura({ ...entidad, ...raw });
-      case 'docente':    return this.mapDocente(raw);
-      case 'espacio':    return this.mapEspacio(raw);
-      case 'grupo':      return this.mapGrupo(raw);
+  /** POST (nueva) o PUT contra el backend, con la respuesta ya convertida al modelo del frontend. */
+  private guardarEnApi(par: ParCatalogo, esNueva: boolean): Observable<ParCatalogo> {
+    const p = this.persistencia;
+    switch (par.tipo) {
+      case 'asignatura': {
+        const a = par.entidad;
+        return (esNueva ? p.crearAsignatura(a) : p.actualizarAsignatura(a))
+          .pipe(map(raw => ({ tipo: par.tipo, entidad: this.mapAsignatura({ ...a, ...raw }) })));
+      }
+      case 'docente':
+        return (esNueva ? p.guardarDocente(par.entidad) : p.actualizarDocente(par.entidad))
+          .pipe(map(raw => ({ tipo: par.tipo, entidad: this.mapDocente(raw) })));
+      case 'espacio':
+        return (esNueva ? p.guardarEspacio(par.entidad) : p.actualizarEspacio(par.entidad))
+          .pipe(map(raw => ({ tipo: par.tipo, entidad: this.mapEspacio(raw) })));
+      case 'grupo':
+        return (esNueva ? p.guardarGrupo(par.entidad) : p.actualizarGrupo(par.entidad))
+          .pipe(map(raw => ({ tipo: par.tipo, entidad: this.mapGrupo(raw) })));
       case 'facultad':
-      case 'programa':   return raw;
+        return (esNueva ? p.guardarFacultad(par.entidad) : p.actualizarFacultad(par.entidad))
+          .pipe(map(raw => ({ tipo: par.tipo, entidad: raw })));
+      case 'programa':
+        return (esNueva ? p.guardarPrograma(par.entidad) : p.actualizarPrograma(par.entidad))
+          .pipe(map(raw => ({ tipo: par.tipo, entidad: raw })));
     }
   }
 
-  private actualizarEnState(tipo: EntidadCatalogo, entidad: any) {
-    switch (tipo) {
+  private actualizarEnState(par: ParCatalogo) {
+    const s = this.state;
+    switch (par.tipo) {
       case 'asignatura':
-        this.state.asignaturas().some(x => x.id === entidad.id) ? this.state.updateAsignatura(entidad) : this.state.addAsignatura(entidad);
+        s.asignaturas().some(x => x.id === par.entidad.id) ? s.updateAsignatura(par.entidad) : s.addAsignatura(par.entidad);
         break;
       case 'docente':
-        this.state.docentes().some(x => x.id === entidad.id) ? this.state.updateDocente(entidad) : this.state.addDocente(entidad);
+        s.docentes().some(x => x.id === par.entidad.id) ? s.updateDocente(par.entidad) : s.addDocente(par.entidad);
         break;
       case 'espacio':
-        this.state.espacios().some(x => x.id === entidad.id) ? this.state.updateEspacio(entidad) : this.state.addEspacio(entidad);
+        s.espacios().some(x => x.id === par.entidad.id) ? s.updateEspacio(par.entidad) : s.addEspacio(par.entidad);
         break;
       case 'grupo':
-        this.state.grupos().some(x => x.id === entidad.id) ? this.state.updateGrupo(entidad) : this.state.addGrupo(entidad);
+        s.grupos().some(x => x.id === par.entidad.id) ? s.updateGrupo(par.entidad) : s.addGrupo(par.entidad);
         break;
       case 'facultad':
-        this.state.facultades().some(x => x.id === entidad.id) ? this.state.updateFacultad(entidad) : this.state.addFacultad(entidad);
+        s.facultades().some(x => x.id === par.entidad.id) ? s.updateFacultad(par.entidad) : s.addFacultad(par.entidad);
         break;
       case 'programa':
-        this.state.programas().some(x => x.id === entidad.id) ? this.state.updatePrograma(entidad) : this.state.addPrograma(entidad);
+        s.programas().some(x => x.id === par.entidad.id) ? s.updatePrograma(par.entidad) : s.addPrograma(par.entidad);
         break;
     }
   }
@@ -208,7 +221,7 @@ export class CatalogoService {
       // M7: solo un 404 (sin grupos creados aún) se trata como "lista vacía" — cualquier otro
       // error (backend caído, 500) debe propagarse en vez de disfrazarse de "no hay grupos".
       grupos:      this.persistencia.cargarGrupos().pipe(
-        catchError((err: HttpErrorResponse) => err.status === 404 ? of([]) : throwError(() => err))
+        catchError((err: HttpErrorResponse) => err.status === 404 ? of<GrupoApi[]>([]) : throwError(() => err))
       ),
       // FE13 auditoría: antes solo HorarioComponent rehidrataba el horario persistido (P6), así
       // que aterrizar directo en /revisar tras un F5 mostraba "aún no hay horario" aunque siguiera
@@ -222,14 +235,14 @@ export class CatalogoService {
       }))
     }).pipe(
       map(({ facultades, programas, asignaturas, docentes, espacios, grupos, horario }) => {
-        this.state.facultades.set(facultades.map((f: any) => ({ id: f.id, nombre: f.nombre })));
-        this.state.programas.set(programas.map((p: any) => ({
+        this.state.facultades.set(facultades.map(f => ({ id: f.id, nombre: f.nombre })));
+        this.state.programas.set(programas.map(p => ({
           id: p.id, nombre: p.nombre, facultadId: p.facultadId
         })));
         this.state.docentes.set(docentes.map(d => this.mapDocente(d)));
         this.state.espacios.set(espacios.map(e => this.mapEspacio(e)));
-        this.state.setAsignaturas(asignaturas.map((a: any) => this.mapAsignatura(a)));
-        this.state.grupos.set((grupos as any[]).map(g => this.mapGrupo(g)));
+        this.state.setAsignaturas(asignaturas.map(a => this.mapAsignatura(a)));
+        this.state.grupos.set(grupos.map(g => this.mapGrupo(g)));
         if (horario) {
           this.state.errorHorarioActual.set(null);
           this.state.setSesiones(this.horarioApi.mapearSesiones(horario.sesiones));
@@ -237,12 +250,12 @@ export class CatalogoService {
           this.state.horarioId.set(horario.horarioId);
         }
 
-        this.asignaturasEnBd.set(new Set(asignaturas.map((a: any) => a.id as string)));
+        this.asignaturasEnBd.set(new Set(asignaturas.map(a => a.id)));
         this.docentesEnBd.set(new Set(docentes.map(d => d.id)));
         this.espaciosEnBd.set(new Set(espacios.map(e => e.id)));
-        this.gruposEnBd.set(new Set((grupos as any[]).map(g => g.id as string)));
-        this.facultadesEnBd.set(new Set(facultades.map((f: any) => f.id as string)));
-        this.programasEnBd.set(new Set(programas.map((p: any) => p.id as string)));
+        this.gruposEnBd.set(new Set(grupos.map(g => g.id)));
+        this.facultadesEnBd.set(new Set(facultades.map(f => f.id)));
+        this.programasEnBd.set(new Set(programas.map(p => p.id)));
 
         return {
           facultades: facultades.length,
@@ -250,7 +263,7 @@ export class CatalogoService {
           asignaturas: asignaturas.length,
           docentes: docentes.length,
           espacios: espacios.length,
-          grupos: (grupos as any[]).length
+          grupos: grupos.length
         };
       })
     );
@@ -258,7 +271,7 @@ export class CatalogoService {
 
   // ── Mapeos canónicos DTO → modelo del frontend ───────────────────────────────
 
-  private mapDocente(d: any): Docente {
+  private mapDocente(d: DocenteApi): Docente {
     return {
       id: d.id,
       nombre: d.nombre,
@@ -268,7 +281,7 @@ export class CatalogoService {
     };
   }
 
-  private mapEspacio(e: any): Espacio {
+  private mapEspacio(e: EspacioApi): Espacio {
     return {
       id: e.id,
       nombre: e.nombre,
@@ -279,7 +292,8 @@ export class CatalogoService {
     };
   }
 
-  private mapAsignatura(a: any): Asignatura {
+  /** Tras guardar llega mezclada con la entidad local, que aporta grupoNumero (el API no lo devuelve). */
+  private mapAsignatura(a: AsignaturaApi & { grupoNumero?: number }): Asignatura {
     return {
       id: a.id,
       codigo: a.codigo ?? '',
@@ -303,7 +317,7 @@ export class CatalogoService {
     };
   }
 
-  private mapGrupo(g: any): Grupo {
+  private mapGrupo(g: GrupoApi): Grupo {
     return {
       id: g.id,
       asignaturaId: g.asignaturaId ?? '',
@@ -334,8 +348,8 @@ function claveDia(clave: string): string {
  * donde entra todo dato de la API, para no depender de que cada lector lo recuerde. Las claves que
  * no son un día se dejan tal cual.
  */
-export function normalizarClavesDia(disp: Record<string, any>): Record<string, any> {
-  const salida: Record<string, any> = {};
+export function normalizarClavesDia<T>(disp: Record<string, T>): Record<string, T> {
+  const salida: Record<string, T> = {};
   for (const [clave, valor] of Object.entries(disp ?? {})) {
     const c = claveDia(clave);
     salida[DIAS_CANONICOS.includes(c) ? c : clave] = valor;

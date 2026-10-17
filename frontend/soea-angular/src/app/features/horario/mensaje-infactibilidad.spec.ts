@@ -1,4 +1,4 @@
-import { mensajeInfactibilidadAmigable } from './horario.component';
+import { mensajeInfactibilidadAmigable } from './horario.reglas';
 import { Grupo } from '../../core/models';
 
 /**

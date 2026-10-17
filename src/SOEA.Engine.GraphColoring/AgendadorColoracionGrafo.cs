@@ -67,17 +67,7 @@ namespace SOEA.Engine.GraphColoring
             var diaPorIdx    = BloquesPlanner.DiaPorBloqueIdx(bloques);
 
             // HC-G01: mismo cálculo de franjas por grupo que CP-SAT/GA (CalculadorDominioSesion).
-            var bloquesPermitidosPorGrupo = new Dictionary<Guid, HashSet<int>>();
-            if (grupos != null)
-            {
-                foreach (var grupo in grupos)
-                {
-                    if (grupo.Id == Guid.Empty) continue;
-                    var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.ObtenerDisponibilidadSemanal());
-                    if (permitidos is not null)
-                        bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
-                }
-            }
+            var bloquesPermitidosPorGrupo = CalculadorDominioSesion.BloquesPermitidosPorGrupo(bloques, grupos);
 
             // 3. Pre-calcular duración por sesión y starts candidatos: cabe-en-día ∩ HC-G01 ∩ HC-VH,
             //    reordenados round-robin por día para no amontonar el warm-start en lunes temprano
@@ -86,7 +76,7 @@ namespace SOEA.Engine.GraphColoring
             var startsValidosPorSesion = new Dictionary<Guid, int[]>();
             foreach (var s in sesiones)
             {
-                int dur = Math.Max(1, (int)Math.Ceiling(s.DuracionHoras));
+                int dur = s.DuracionBloques;
                 duraciones[s.Id] = dur;
 
                 HashSet<int>? permGrupo = null;

@@ -20,18 +20,15 @@ namespace SOEA.API.Controllers
     {
         private readonly ImportarCurriculumService _importService;
         private readonly ILectorExcel _lectorExcel;
-        private readonly IBloqueTiempoRepositorio _bloques;
         private readonly ILogger<ImportController> _logger;
 
         public ImportController(
             ImportarCurriculumService importService,
             ILectorExcel lectorExcel,
-            IBloqueTiempoRepositorio bloques,
             ILogger<ImportController> logger)
         {
             _importService = importService;
             _lectorExcel   = lectorExcel;
-            _bloques       = bloques;
             _logger        = logger;
         }
 
@@ -83,11 +80,7 @@ namespace SOEA.API.Controllers
             if (revision.Incoherencias.Any(i => i.EsError))
                 return UnprocessableEntity(revision);
 
-            var bloquesCatalogo = await _bloques.GetAllAsync();
-            var catalogoLookup = bloquesCatalogo
-                .GroupBy(b => (b.Dia, b.HoraInicio))
-                .ToDictionary(g => g.Key, g => g.First())
-                as IReadOnlyDictionary<(DiaDeSemana, TimeOnly), BloqueTiempo>;
+            var catalogoLookup = await _importService.CatalogoBloquesAsync();
 
             CurriculumExcelResult resultado;
             try

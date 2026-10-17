@@ -4,6 +4,7 @@ using System.Linq;
 using SOEA.Application.Features.Horario;
 using SOEA.Application.Features.Horario.Requests;
 using SOEA.Domain.Entities;
+using SOEA.Domain.Enums;
 using Xunit;
 
 namespace SOEA.Tests.Application.Horario
@@ -66,6 +67,29 @@ namespace SOEA.Tests.Application.Horario
 
             Assert.Empty(sesiones);
             Assert.Contains(advertencias, a => a.Contains("Grupo Huérfano"));
+        }
+
+        /// <summary>
+        /// Regla 10: la alternancia declarada en la asignatura (resto del modelo "8+8") no se
+        /// hereda. Un laboratorio nace sin alternancia; solo emparejar le da TipoA/TipoB.
+        /// </summary>
+        [Fact]
+        public void LaboratorioDeAsignaturaTipoA_NaceSinAlternancia()
+        {
+            var asigId = Guid.NewGuid();
+            var grupo = new Grupo(Guid.NewGuid(), "G1", asigId, 30);
+            var asignatura = new AsignaturaDto
+            {
+                Id = asigId.ToString(), Nombre = "Química Orgánica",
+                SesionesLaboratorioSemana = 1, HorasLaboratorio = 2, Alternancia = "TipoA"
+            };
+
+            var (sesiones, _) = GenerarHorarioService.MapearSesionesIniciales(
+                new List<Grupo> { grupo }, new List<AsignaturaDto> { asignatura });
+
+            var lab = Assert.Single(sesiones);
+            Assert.Equal(TipoAlternancia.SinAlternancia, lab.Alternancia);
+            Assert.Null(lab.ParejaAlternanciaId);
         }
 
         [Fact]

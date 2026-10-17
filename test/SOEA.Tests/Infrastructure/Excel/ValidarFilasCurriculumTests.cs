@@ -20,6 +20,15 @@ namespace SOEA.Tests.Infrastructure.Excel
             => new(n, facultad, "LIC QUIMICA", asig, "", "", espacio, reales, dia, hora, final, docente, grupo);
 
         [Fact]
+        public void G1_DocenteEnUnaFilaPosteriorDelMismoGrupo_SeAsignaAlGrupo()
+        {
+            var r = Lector.ConstruirCurriculum(new[] { Fila(2, docente: ""), Fila(3, dia: "VIERNES") });
+
+            var grupo = Assert.Single(r.Grupos);
+            Assert.Equal(Assert.Single(r.Docentes).Id, grupo.DocenteId);
+        }
+
+        [Fact]
         public void FilaCoherente_NoTieneIncoherencias()
             => Assert.Empty(Lector.ValidarFilas(new[] { Fila(2) }));
 

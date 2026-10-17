@@ -68,15 +68,11 @@ namespace SOEA.Engine.ConstraintProg
             foreach (var idx in ocupanAula)
             {
                 var sesion = sesiones[idx];
-                int estudiantes = estudiantesPorGrupo != null &&
-                    estudiantesPorGrupo.TryGetValue(sesion.GrupoId, out var nEst) ? nEst : 0;
-                RequisitoEspacio? requisito = requisitosPorGrupo != null &&
-                    requisitosPorGrupo.TryGetValue(sesion.GrupoId, out var reqs)
-                    ? reqs.FirstOrDefault(r => r.TipoSesion == CalculadorEspaciosSesion.TipoSesionDe(sesion))
-                    : null;
+                int estudiantes = estudiantesPorGrupo?.GetValueOrDefault(sesion.GrupoId) ?? 0;
+                var requisito = CalculadorEspaciosSesion.RequisitoDe(sesion, requisitosPorGrupo?.GetValueOrDefault(sesion.GrupoId));
 
                 var candidatos = CalculadorEspaciosSesion.Candidatos(sesion, espacios, requisito)
-                    .Where(e => estudiantes == 0 || espacios[e].Capacidad >= estudiantes)
+                    .Where(e => CalculadorEspaciosSesion.CumpleAforo(espacios[e], estudiantes))
                     .ToList();
                 if (candidatos.Count == 0) return null; // sin candidato: infactible (mismo criterio que el greedy)
 

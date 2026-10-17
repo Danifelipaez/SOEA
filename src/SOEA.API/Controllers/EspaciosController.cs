@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Mvc;
 using SOEA.Application.Features.Espacios;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
-using SOEA.Domain.Interfaces;
 using SOEA.Domain.ValueObjects;
 
 namespace SOEA.API.Controllers
@@ -25,45 +24,24 @@ namespace SOEA.API.Controllers
     [Route("api/[controller]")]
     public class EspaciosController : ControllerBase
     {
-        private readonly IEspacioRepositorio _repo;
         private readonly EspacioService _service;
 
-        public EspaciosController(IEspacioRepositorio repo, EspacioService service)
-        {
-            _repo = repo;
-            _service = service;
-        }
+        public EspaciosController(EspacioService service) => _service = service;
 
         [HttpGet]
-        public async Task<ActionResult<List<EspacioDto>>> GetAll()
-        {
-            var list = await _repo.GetAllAsync();
-            return Ok(list.Select(MapToDto));
-        }
+        public async Task<ActionResult<List<EspacioDto>>> GetAll() =>
+            Ok((await _service.ListarAsync()).Select(MapToDto));
 
         // ERR2 auditoría: sin catch — GlobalExceptionHandler traduce ArgumentException a 400,
         // KeyNotFoundException a 404 y BusinessRuleViolationException a 409.
         [HttpPost]
-        public async Task<ActionResult<EspacioDto>> Create([FromBody] EspacioDto dto)
-        {
-            var id = dto.Id == Guid.Empty ? Guid.NewGuid() : dto.Id;
-            await _service.ExigirNombreUnicoAsync(dto.Nombre, id);
-            var espacio = new Espacio(id, dto.Nombre, ParseTipo(dto.Tipo), dto.Capacidad, dto.Edificio, dto.Piso);
-            await _repo.AddAsync(espacio);
-            return StatusCode(StatusCodes.Status201Created, MapToDto(espacio));
-        }
+        public async Task<ActionResult<EspacioDto>> Create([FromBody] EspacioDto dto) =>
+            StatusCode(StatusCodes.Status201Created, MapToDto(
+                await _service.CrearAsync(dto.Id, dto.Nombre, ParseTipo(dto.Tipo), dto.Capacidad, dto.Edificio, dto.Piso)));
 
         [HttpPut("{id}")]
-        public async Task<ActionResult<EspacioDto>> Update(Guid id, [FromBody] EspacioDto dto)
-        {
-            var existing = await _repo.GetByIdAsync(id);
-            if (existing is null) throw new KeyNotFoundException($"Espacio con ID {id} no encontrado.");
-            await _service.ExigirNombreUnicoAsync(dto.Nombre, id);
-            existing.ActualizarDatos(dto.Nombre, ParseTipo(dto.Tipo), dto.Edificio, dto.Piso);
-            existing.ActualizarCapacidad(dto.Capacidad);
-            await _repo.UpdateAsync(existing);
-            return Ok(MapToDto(existing));
-        }
+        public async Task<ActionResult<EspacioDto>> Update(Guid id, [FromBody] EspacioDto dto) =>
+            Ok(MapToDto(await _service.ActualizarAsync(id, dto.Nombre, ParseTipo(dto.Tipo), dto.Capacidad, dto.Edificio, dto.Piso)));
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)

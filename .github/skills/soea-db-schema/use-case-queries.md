@@ -41,7 +41,7 @@ description: "Índice de consultas por caso de uso SOEA. Úsalo para: navegar a 
 
 **Flujo completo:** [soea-use-cases.md#caso-2-validar-horario-generado](soea-use-cases.md#caso-2-validar-horario-generado)  
 **Documentación:** [validation-rules.md](validation-rules.md)  
-**Especificación:** [hard-constraints.md](../../docs/business-rules/hard-constraints.md)
+**Especificación:** [domain.md](../../../docs/domain.md)
 
 ---
 
@@ -113,6 +113,6 @@ description: "Índice de consultas por caso de uso SOEA. Úsalo para: navegar a 
 | Queries SQL | [soea-queries-repository.md](soea-queries-repository.md) |
 | Casos de uso | [soea-use-cases.md](soea-use-cases.md) |
 | Validación HC | [validation-rules.md](validation-rules.md) |
-| Especificación HC | [hard-constraints.md](../../docs/business-rules/hard-constraints.md) |
-| Especificación SC | [soft-constraints.md](../../docs/business-rules/soft-constraints.md) |
+| Especificación HC | [domain.md](../../../docs/domain.md) |
+| Especificación SC | [domain.md](../../../docs/domain.md) |
 | Implementación validación | `SOEA.Application.Services.ConstraintValidator` |

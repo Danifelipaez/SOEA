@@ -11,7 +11,7 @@ import { mensajeErrorHttp } from '../../../core/http-error.util';
 import { ConfirmDeleteDialogComponent } from '../../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { ImportResultadoDialogComponent } from '../../../shared/import-resultado-dialog/import-resultado-dialog.component';
 import { ImportRevisionDialogComponent } from '../../../shared/import-revision-dialog/import-revision-dialog.component';
-import { Asignatura, Facultad, Grupo, Programa, RequisitoEspacio, TipoSesionUi } from '../../../core/models';
+import { Asignatura, DisponibilidadUi, Facultad, Grupo, Programa, RequisitoEspacio, TipoSesionUi } from '../../../core/models';
 import { nuevoId } from '../../../core/id.util';
 import { porNombre } from '../../../core/orden';
 import { MatSnackBar } from '@angular/material/snack-bar';
@@ -486,7 +486,7 @@ function ventanaHorariaValidaValidator(group: AbstractControl): ValidationErrors
 }
 
 /** disponibilidadUiJson ilegible o ausente = sin disponibilidad declarada (sin restricción). */
-function parseJson(json: string | undefined): Record<string, any> | null {
+function parseJson(json: string | undefined): DisponibilidadUi | null {
   try { return json ? JSON.parse(json) : null; } catch { return null; }
 }
 
@@ -650,7 +650,7 @@ export class AsignaturaDialogComponent {
   nuevoGrupoNombre = '';
   nuevoGrupoEstudiantes = 30;
   nuevoGrupoDocenteId = '';
-  nuevoGrupoDisponibilidad = signal<Record<string, any>>({});
+  nuevoGrupoDisponibilidad = signal<DisponibilidadUi>({});
   nuevoGrupoRequisitos = signal<RequisitoEspacio[]>([]);
 
   tiposRequisitoPendiente = computed<TipoSesionUi[]>(() => {
@@ -825,6 +825,9 @@ export class AsignaturaDialogComponent {
     // del FormGroup por sí solo no bastaba para deshabilitar "Guardar".
     if (v.horaInicioMin && v.horaFinMax && v.horaInicioMin >= v.horaFinMax) return false;
     if (this.gruposSinDiasSeparados().length > 0) return false;
+    // G6: un grupo a medio llenar en la cápsula que no cumple la separación de días se descartaba
+    // en silencio al guardar (confirmarGrupoPendiente() no lo agrega). El aviso en rojo ya explica qué falta.
+    if (this.agregandoGrupo() && this.nuevoGrupoNombre.trim() && this.errorSeparacionPendiente()) return false;
     const s = this.sesiones();
     return (s.presencial + s.virtual + s.lab) > 0;
   }

@@ -71,6 +71,11 @@ namespace SOEA.Domain.Interfaces
         /// Ventana horaria por asignatura (HC-VH, hard): si una asignatura declara [Min, Max],
         /// sus sesiones solo se asignan a bloques contenidos en ese rango. Null = sin restricción.
         /// </param>
+        /// <param name="diagnosticarPorGrupo">
+        /// false = ante una infactibilidad, no gastar solves extra en nombrar grupos culpables (grupos
+        /// contradictorios en solitario y barrido por exclusión). La clasificación Espacio/Otro se hace
+        /// igual. Para intentos intermedios cuyo diagnóstico se descarta (bucle de Semana B).
+        /// </param>
         Task<ResultadoFactibilidad> ResolverFactibilidadAsync(
             IEnumerable<Sesion> sesiones,
             IEnumerable<BloqueTiempo> bloques,
@@ -78,6 +83,7 @@ namespace SOEA.Domain.Interfaces
             IEnumerable<Grupo>? grupos = null,
             IEnumerable<Guid>? sesionesFijasIds = null,
             IReadOnlyDictionary<Guid, (TimeOnly? min, TimeOnly? max)>? ventanaPorAsignatura = null,
-            CancellationToken ct = default);
+            CancellationToken ct = default,
+            bool diagnosticarPorGrupo = true);
     }
 }

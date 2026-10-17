@@ -378,6 +378,11 @@ namespace SOEA.Infrastructure.Excel
                     gruposDict[claveGrupo] = grupoDocente;
                     gruposPorDefecto.Add(nombreGrupo);
                 }
+                else if (docente is not null && grupoDocente.DocenteId is null)
+                {
+                    // G1: la primera fila del grupo venía sin docente y esta sí lo trae — antes se perdía.
+                    grupoDocente.AsignarDocente(docente.Id);
+                }
 
                 // Bloque de la sesión (para la sesión predefinida) + ventana del grupo (HC-G01)
                 Guid bloqueIdParaSesion = Guid.Empty;

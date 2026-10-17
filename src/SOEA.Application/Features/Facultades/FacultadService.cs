@@ -1,3 +1,4 @@
+using SOEA.Domain.Entities;
 using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
 
@@ -25,6 +26,27 @@ public class FacultadService
         var otra = await _repo.GetByNombreAsync((nombre ?? "").Trim());
         if (otra is not null && otra.Id != id)
             throw new BusinessRuleViolationException($"Ya existe una facultad llamada '{otra.Nombre}'.");
+    }
+
+    public async Task<List<Facultad>> ListarAsync() => (await _repo.GetAllAsync()).OrderBy(f => f.Nombre).ToList();
+
+    public async Task<Facultad> CrearAsync(Guid id, string nombre)
+    {
+        if (id == Guid.Empty) id = Guid.NewGuid();
+        await ExigirNombreUnicoAsync(nombre, id);
+        var facultad = new Facultad(id, nombre);
+        await _repo.AddAsync(facultad);
+        return facultad;
+    }
+
+    public async Task<Facultad> ActualizarAsync(Guid id, string nombre)
+    {
+        var existing = await _repo.GetByIdAsync(id)
+            ?? throw new KeyNotFoundException($"Facultad con ID {id} no encontrada.");
+        await ExigirNombreUnicoAsync(nombre, id);
+        existing.ActualizarNombre(nombre);
+        await _repo.UpdateAsync(existing);
+        return existing;
     }
 
     public async Task DeleteAsync(Guid id)

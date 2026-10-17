@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
-import { EditarSesionDialogComponent } from './horario.component';
+import { EditarSesionDialogComponent } from './editar-sesion-dialog.component';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { PersistenciaService } from '../../core/persistencia.service';
 import { Sesion } from '../../core/models';
@@ -53,7 +53,7 @@ describe('EditarSesionDialogComponent — alternancia de solo lectura', () => {
     const fixture = crear();
 
     const bloque: HTMLElement = fixture.nativeElement.querySelector('[data-testid="alternancia-solo-lectura"]');
-    expect(bloque.textContent).toContain('Semana A');
+    expect(bloque.textContent).toContain('Semanas 2, 4, 6…');
     expect(fixture.nativeElement.querySelectorAll('.seg-opt').length).toBe(0);
   });
 

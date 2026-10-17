@@ -44,23 +44,13 @@ namespace SOEA.Engine.Genetic
             var rangos = BloquesPlanner.RangosPorDia(bloques);
 
             // HC-G01: índice de disponibilidad por GrupoId (misma fuente que CP-SAT Fase 2).
-            var bloquesPermitidosPorGrupo = new Dictionary<Guid, HashSet<int>>();
-            if (grupos != null)
-            {
-                foreach (var grupo in grupos)
-                {
-                    if (grupo.Id == Guid.Empty) continue;
-                    var permitidos = CalculadorDominioSesion.BloquesPermitidos(bloques, grupo.ObtenerDisponibilidadSemanal());
-                    if (permitidos is not null)
-                        bloquesPermitidosPorGrupo[grupo.Id] = permitidos;
-                }
-            }
+            var bloquesPermitidosPorGrupo = CalculadorDominioSesion.BloquesPermitidosPorGrupo(bloques, grupos);
 
             _duraciones    = new int[sesiones.Count];
             _startsValidos = new int[sesiones.Count][];
             for (int i = 0; i < sesiones.Count; i++)
             {
-                _duraciones[i] = Math.Max(1, (int)Math.Ceiling(sesiones[i].DuracionHoras));
+                _duraciones[i] = sesiones[i].DuracionBloques;
 
                 // Regla 8 (horario base): las sesiones fijas NO se mueven — dominio vacío = gen
                 // congelado en la franja que Fase 2 fijó por igualdad.

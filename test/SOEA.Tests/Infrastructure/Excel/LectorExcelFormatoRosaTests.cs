@@ -101,7 +101,7 @@ namespace SOEA.Tests.Infrastructure.Excel
             Assert.Empty(docenteLuis.BloquesDisponibles);
 
             // Los avisos de valores supuestos (DB-10) salen siempre: el formato no trae capacidad ni estudiantes.
-            Assert.Empty(resultado.Advertencias.Where(a => !a.Contains("supuest")));
+            Assert.DoesNotContain(resultado.Advertencias, a => !a.Contains("supuest"));
         }
 
         [Fact]
@@ -262,7 +262,7 @@ namespace SOEA.Tests.Infrastructure.Excel
 
             Assert.Equal(2, resultado.Facultades.Count);
             // Los avisos de valores supuestos (DB-10) salen siempre; aquí importa que no haya aviso de typo.
-            Assert.Empty(resultado.Advertencias.Where(a => !a.Contains("supuest")));
+            Assert.DoesNotContain(resultado.Advertencias, a => !a.Contains("supuest"));
         }
     }
 }

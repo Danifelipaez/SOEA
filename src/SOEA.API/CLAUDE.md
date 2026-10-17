@@ -46,7 +46,6 @@ SOEA.Engine.GraphColoring— Phase 1: Welsh-Powell graph-coloring pre-assignment
 SOEA.Engine.ConstraintProg— Phase 2: Google OR-Tools CP-SAT feasibility solver
 SOEA.Engine.Genetic      — Phase 3: Genetic algorithm soft-constraint optimizer
 SOEA.API                 — ASP.NET Core controllers + DI wiring
-SOEA.ConsoleRunner       — Standalone CLI entry point
 ```
 
 ### Schedule generation pipeline (`GenerarHorarioService`)

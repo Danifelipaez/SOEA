@@ -748,6 +748,33 @@ namespace SOEA.Tests.Application
             Assert.Empty(conflictos);
         }
 
+        [Fact]
+        public void HCSEP_FijaYLibreContiguas_Detecta_PeroDosFijasNo()
+        {
+            // Mismo criterio que CP-SAT y el GA: una fija cuenta frente a su hermana libre; dos fijas
+            // entre sí son dato de entrada (regla 8) y no se reportan.
+            var (bloques, indice) = CrearGrillaMultiDia();
+            var grupoId = Guid.NewGuid();
+            var asigId = Guid.NewGuid();
+            var fija = CrearSesionCompleta(asigId, grupoId, 1m);
+            var libre = CrearSesionCompleta(asigId, grupoId, 1m);
+            var otraFija = CrearSesionCompleta(asigId, grupoId, 1m);
+            AsignacionSemanal En(Sesion s, int dia) =>
+                new(Guid.NewGuid(), s.Id, SemanaAcademica.A, bloques[dia].Id, null, Modalidad.Virtual);
+
+            var conLibre = ValidadorRestriccionesDuras.Validar(
+                new[] { En(fija, 0), En(libre, 1) },
+                new Dictionary<Guid, Sesion> { [fija.Id] = fija, [libre.Id] = libre },
+                indice, Contexto(bloques, fijas: new HashSet<Guid> { fija.Id }));
+            Assert.Contains(conLibre, c => c.StartsWith("HC-SEP"));
+
+            var soloFijas = ValidadorRestriccionesDuras.Validar(
+                new[] { En(fija, 0), En(otraFija, 1) },
+                new Dictionary<Guid, Sesion> { [fija.Id] = fija, [otraFija.Id] = otraFija },
+                indice, Contexto(bloques, fijas: new HashSet<Guid> { fija.Id, otraFija.Id }));
+            Assert.DoesNotContain(soloFijas, c => c.StartsWith("HC-SEP"));
+        }
+
         // ── HC-BASE (regla 8): una sesión del horario base no puede moverse de su bloque
         // pre-asignado — nunca probada en el validador (sólo la exención de HC-VH lo era).
 

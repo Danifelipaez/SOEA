@@ -570,11 +570,12 @@ namespace SOEA.Tests.Engine.ConstraintProg
         }
 
         [Fact]
-        public async Task HCSEP_ClusterDeCuatroSesiones_SesionesFijasNoCuentanParaElCluster()
+        public async Task HCSEP_TresLibresMasUnaFija_EsInfactibleConMensajeClaro()
         {
-            // Las sesiones fijas del horario base quedan fuera de HC-SEP (mismo criterio que el
-            // dominio normal — ya están fijadas por igualdad). 3 libres + 1 fija = no dispara el
-            // pre-check, aunque haya 4 sesiones en total del mismo (grupo, asignatura, tipo).
+            // Una fija cuenta para HC-SEP frente a sus hermanas libres (mismo criterio que el GA y el
+            // validador): 3 libres + 1 fija son 4 días que deben quedar separados entre sí, imposible
+            // en una semana de 6 días. Antes CP-SAT eximía a la fija y devolvía un horario que el GA
+            // reparaba y /reacomodar rechazaba.
             var bloques = CrearBloquesMultiDia(5);
             var grupoId = Guid.NewGuid();
             var asigId = Guid.NewGuid();
@@ -598,7 +599,37 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 sesiones, bloques, Enumerable.Empty<Espacio>(),
                 sesionesFijasIds: new[] { fija.Id });
 
-            Assert.True(resultado.EsFactible, resultado.MensajeError);
+            Assert.False(resultado.EsFactible);
+            Assert.Contains("separación mínima de 2 días", resultado.MensajeError);
+        }
+
+        [Fact]
+        public async Task HCSEP_LibreNoCaeAlDiaSiguienteDeSuHermanaFija()
+        {
+            // Fija el martes (índice 1). La libre solo puede elegir lunes, martes o miércoles
+            // (ventana de 3 días): lunes y miércoles quedan a 1 día de la fija, martes choca por
+            // HC-C01 ⇒ infactible. Con 5 días, la única salida es jueves o viernes.
+            var grupoId = Guid.NewGuid();
+            var asigId = Guid.NewGuid();
+            Sesion Nueva(Guid bloqueId) => new(Guid.NewGuid(), asigId, null, bloqueId, null, grupoId,
+                TipoAlternancia.SinAlternancia, Modalidad.Virtual, 1m, false, false, tipoFlujo: TipoFlujo.AulaVirtual);
+
+            var tresDias = CrearBloquesMultiDia(3);
+            var fija3 = Nueva(tresDias[1].Id);
+            var sinSalida = await Motor.ResolverFactibilidadAsync(
+                new[] { fija3, Nueva(Guid.NewGuid()) }, tresDias, Enumerable.Empty<Espacio>(),
+                sesionesFijasIds: new[] { fija3.Id });
+            Assert.False(sinSalida.EsFactible);
+
+            var cincoDias = CrearBloquesMultiDia(5);
+            var fija5 = Nueva(cincoDias[1].Id);
+            var libre = Nueva(Guid.NewGuid());
+            var conSalida = await Motor.ResolverFactibilidadAsync(
+                new[] { fija5, libre }, cincoDias, Enumerable.Empty<Espacio>(),
+                sesionesFijasIds: new[] { fija5.Id });
+            Assert.True(conSalida.EsFactible, conSalida.MensajeError);
+            var bloqueLibre = conSalida.Asignaciones.Single(a => a.SesionId == libre.Id).BloqueTiempoId;
+            Assert.Contains(cincoDias.FindIndex(b => b.Id == bloqueLibre), new[] { 3, 4 });
         }
 
         // ── HC-S03: tipo de espacio según TipoSesion (A2/A3) — petición 7 (P2.2). Antes solo se

@@ -1,7 +1,7 @@
 import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
+import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatMenuModule } from '@angular/material/menu';
 import { RouterModule } from '@angular/router';
@@ -9,8 +9,7 @@ import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { PersistenciaService } from '../../core/persistencia.service';
 import { CatalogoService } from '../../core/catalogo.service';
-import { Asignatura, Docente, Espacio, Grupo, Sesion, TipoSesionUi, tipoFlujoDesde, esVirtualDesde } from '../../core/models';
-import { nuevoId } from '../../core/id.util';
+import { Espacio, Sesion } from '../../core/models';
 import { HORA_APERTURA, HORA_CIERRE, HORA_CIERRE_SABADO } from '../../core/jornada';
 import { mensajeErrorHttp, limpiarEtiquetaInterna } from '../../core/http-error.util';
 import { SearchableSelectComponent, SearchableOption } from '../../shared/searchable-select/searchable-select.component';
@@ -18,431 +17,10 @@ import { ConfirmDeleteDialogComponent } from '../../shared/confirm-delete-dialog
 import { porNombre } from '../../core/orden';
 import { from, of } from 'rxjs';
 import { catchError, concatMap, map, toArray } from 'rxjs/operators';
-
-/** Representación visual de una sesión atómica multi-slot. */
-interface MergedSesion {
-  key: string;
-  sesiones: Sesion[];
-  dia: string;
-  horaInicio: string;
-  horaFin: string;
-  virtual: boolean;
-  alternancia: string;
-  semana?: 'A' | 'B';
-  asignaturaId: string;
-  /** Grupo (cohorte) dueño de la sesión — distingue dos grupos de la misma asignatura. */
-  grupoId?: string;
-  docenteId?: string;
-  espacioId?: string;
-  espacioIdHogar?: string;
-  tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
-  /** Id de la pareja de alternancia; agrupa la presencial con su contraparte virtual. */
-  parejaId?: string;
-  /** Contraparte virtual de esta sesión, dibujada como sub-caja DENTRO de la misma celda:
-   *  la materia que ocupa el aula la semana contraria se sigue dictando, en línea. */
-  contraparte?: MergedSesion;
-}
-
-/** Una sesión ya ubicada en la cuadrícula (grid-row/grid-column resueltos) lista para el template. */
-interface TarjetaGrilla {
-  key: string; m: MergedSesion;
-  fila: string; col: string;
-  /** No alterna, mostrada en gris en Semana B: ocupa el aula todas las semanas. */
-  siempre: boolean;
-  /** Menos de 2 horas: la tarjeta solo muestra asignatura y grupo (ver plantilla). */
-  g1h: boolean;
-  texto: string;
-}
-/** Botón "+N" de un tramo con más de MAX_CARRILES-1 sesiones simultáneas. */
-interface GrupoMasGrilla { fila: string; items: MergedSesion[]; texto: string; }
-/** Sesión que no se pudo ubicar en la cuadrícula (ver ubicarEnGrilla) — nunca se descarta. */
-interface SesionFuera { m: MergedSesion; motivo: string; texto: string; }
-interface DiaGrilla {
-  valor: string; corto: string; etiqueta: string;
-  tarjetas: TarjetaGrilla[]; mas: GrupoMasGrilla[];
-  /** Fila donde empieza el bloque "Cerrado" — solo el sábado cierra antes que el resto. */
-  filaCierre?: number;
-}
-interface GrillaSemanal { dias: DiaGrilla[]; fuera: SesionFuera[]; total: number; }
-/** Item intermedio de distribuirEnCarriles: la posición ya resuelta (ini/fin en minutos, fila0/
- *  fila1 en filas de grid) más la sesión que representa. */
-interface ItemGrilla extends PosicionGrilla { m: MergedSesion; }
-
-/**
- * "Cálculo I · G1 (lunes 08:00–10:00)" — identifica una sesión en un mensaje de conflicto por
- * asignatura/grupo, día y hora, para que "Sesión 1"/"Sesión 2" no queden indistinguibles cuando
- * ambas son de la misma asignatura (p. ej. dos grupos distintos en el mismo horario).
- */
-function describirSesionConflicto(
-  s: { asignaturaId: string; grupoId?: string; dia: string; horaInicio: string; horaFin: string },
-  asignaturas: Asignatura[], grupos: Grupo[]
-): string {
-  const asig = asignaturas.find(a => a.id === s.asignaturaId)?.nombre ?? 'asignatura sin nombre';
-  const grupo = s.grupoId ? grupos.find(g => g.id === s.grupoId)?.nombre : undefined;
-  const nombre = grupo ? `${asig} · ${grupo}` : asig;
-  return `${nombre} (${s.dia} ${s.horaInicio}–${s.horaFin})`;
-}
-
-/** Espejo de horario-api.service.ts#diffHoras — usado solo como fallback cuando `duracionHoras`
- *  no viene poblada (FE11: sigue duplicado en varios sitios, fuera de alcance de este fix). */
-function diffHorasEntre(inicio: string, fin: string): number {
-  const [hi, mi] = inicio.split(':').map(Number);
-  const [hf, mf] = fin.split(':').map(Number);
-  return Math.max(1, (hf * 60 + mf - (hi * 60 + mi)) / 60);
-}
-
-/** Jornada institucional — espejo de SOEA.Domain/Services/GrillaInstitucional.cs. Única fuente:
- *  no declarar el rango horario en ningún otro sitio del componente ni de sus diálogos. */
-export { HORA_APERTURA, HORA_CIERRE, HORA_CIERRE_SABADO };
-export const hhmm = (h: number): string => `${String(h).padStart(2, '0')}:00`;
-export const HORAS_GRILLA: readonly string[] = Array.from({ length: HORA_CIERRE - HORA_APERTURA }, (_, i) => hhmm(HORA_APERTURA + i));
-export const DIAS_GRILLA: readonly { valor: string; corto: string; etiqueta: string }[] = [
-  { valor: 'lunes', corto: 'Lun', etiqueta: 'Lunes' },
-  { valor: 'martes', corto: 'Mar', etiqueta: 'Martes' },
-  { valor: 'miercoles', corto: 'Mié', etiqueta: 'Miércoles' },
-  { valor: 'jueves', corto: 'Jue', etiqueta: 'Jueves' },
-  { valor: 'viernes', corto: 'Vie', etiqueta: 'Viernes' },
-  { valor: 'sabado', corto: 'Sáb', etiqueta: 'Sábado' },
-];
-/** Hora de cierre de la jornada para ese día — el sábado cierra antes que el resto de la semana. */
-export function cierreDe(dia: string): number { return dia === 'sabado' ? HORA_CIERRE_SABADO : HORA_CIERRE; }
-
-/**
- * FE5/FE16/FE17 auditoría: estas tres reglas vivían duplicadas —y una de las copias, distinta—
- * entre los diálogos de crear, editar y fijar sesión. Fuente única aquí: CrearSesionDialogComponent
- * (también en modo sesión fija) y EditarSesionDialogComponent las usan en vez de reimplementarlas.
- */
-
-/** True si [newStart, newEnd) se solapa con el span horario de `s`, en índices de `horasDisponibles`. */
-export function seSolapanHorarios(s: Sesion, newStart: number, newEnd: number, horasDisponibles: readonly string[]): boolean {
-  const sStart = horasDisponibles.indexOf(s.horaInicio);
-  if (sStart < 0) return false;
-  const sDur = Math.max(1, Math.round(s.duracionHoras ?? diffHorasEntre(s.horaInicio, s.horaFin)));
-  return newStart < sStart + sDur && sStart < newEnd;
-}
-
-/**
- * Espejo (cliente) de ModalidadSemanal.CompartenSemanaDeEspacio (backend): dos sesiones solo
- * chocan por aula si ocupan el aula alguna semana en común. Lo que no alterna la ocupa las DOS,
- * así que choca con todo; una pareja TipoA/TipoB no choca nunca entre sí. FE5: el diálogo de
- * Crear no aplicaba esta exención — bloqueaba una franja legítima (una TipoB en el mismo
- * bloque/aula que una TipoA ya existente) por no descartar el caso en que las semanas nunca
- * coinciden.
- */
-export function nuncaCoexisteEnSemana(semanaA: Sesion['semana'], semanaB: Sesion['semana']): boolean {
-  return !!semanaA && !!semanaB && semanaA !== semanaB;
-}
-
-/**
- * FE16 auditoría: los diálogos acotaban el sábado a las 13:00 pero casi ninguno comprobaba el
- * límite general de L-V — un `endIdx` fuera de
- * `horasDisponibles` daba `undefined` al indexar, y cada diálogo caía a `?? horaInicio`, dejando
- * pasar un "fin = inicio" silencioso (p. ej. "lunes 21:00–21:00") en vez de rechazar el horario.
- */
-export function finDeJornadaOk(dia: string, endIdx: number, horasDisponibles: readonly string[]): boolean {
-  if (endIdx > horasDisponibles.length) return false;
-  if (dia === 'sabado' && endIdx > horasDisponibles.indexOf(hhmm(HORA_CIERRE_SABADO))) return false;
-  return true;
-}
-
-/**
- * Espejo (cliente) de CalculadorEspaciosSesion.Candidatos: HC-S05 (requisito de espacio del
- * grupo, si lo hay) ∩ HC-S03 (tipo por defecto según TipoSesion cuando no hay requisito). FE17:
- * solo el diálogo de Crear lo aplicaba — Editar dejaba mover un laboratorio a un salón cualquiera,
- * o una sesión con aula fija de grupo a un aula distinta de la exigida.
- */
-export function espaciosPermitidosPara(tipo: TipoSesionUi, grupo: Grupo | undefined, espacios: Espacio[]): Espacio[] {
-  if (tipo === 'TeoriaVirtual') return [];
-  const requisito = grupo?.requisitosEspacio?.find(r => r.tipoSesion === tipo);
-  if (requisito?.espacioId) return espacios.filter(e => e.id === requisito.espacioId);
-  if (requisito?.tipoEspacio) return espacios.filter(e => e.tipo === (requisito.tipoEspacio === 'Salon' ? 'Salón' : requisito.tipoEspacio));
-  return tipo === 'Laboratorio' ? espacios.filter(e => e.tipo === 'Laboratorio') : espacios.filter(e => e.tipo !== 'Laboratorio');
-}
-
-/** Minutos desde medianoche de "HH:mm", o NaN si el formato no es válido. */
-function minutosDe(horaHHmm: string): number {
-  const m = /^(\d{2}):(\d{2})$/.exec(horaHHmm ?? '');
-  return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
-}
-
-const hhmmDeMinutos = (m: number): string => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-
-/** Ventana declarada de un día en minutos [desde, hasta), o null si el día está marcado no disponible.
- *  Espejo de DisponibilidadSemanal.VentanaDe (backend): la franja general la decide el prefijo de la
- *  etiqueta; una franja específica ilegible o "Todo el día" no restringe. Una franja legible con
- *  desde >= hasta se devuelve tal cual, como en el backend: ventana vacía, ninguna clase cabe ese día. */
-function ventanaDelDia(d: { noDisponible?: boolean; tipo?: string; franjaGeneral?: string; desde?: string; hasta?: string }): { desde: number; hasta: number } | null {
-  if (d.noDisponible) return null;
-  if (d.tipo === 'Franja específica') {
-    const desde = minutosDe(d.desde ?? ''), hasta = minutosDe(d.hasta ?? '');
-    if (!Number.isNaN(desde) && !Number.isNaN(hasta)) return { desde, hasta };
-  }
-  const franja = (d.franjaGeneral ?? '').toLowerCase();
-  if (franja.startsWith('matutino')) return { desde: 6 * 60, hasta: 12 * 60 };
-  if (franja.startsWith('vespertino')) return { desde: 12 * 60, hasta: 18 * 60 };
-  if (franja.startsWith('nocturno')) return { desde: 18 * 60, hasta: 22 * 60 };
-  return { desde: HORA_APERTURA * 60, hasta: HORA_CIERRE * 60 };
-}
-
-/** conIds: ids de las sesiones con las que choca (mismo orden que choques) — permite listar cada
- *  par una sola vez en el resumen sin perder el aviso en ninguna de las dos sesiones. */
-export interface AvisosDocente { choques: string[]; conIds: string[]; fueraDeDisponibilidad?: string; }
-
-/**
- * Sesiones fuera de la disponibilidad declarada de su grupo (HC-G01), por id de sesión → motivo.
- * Espejo de Grupo.ObtenerDisponibilidadSemanal (backend, diaSinEntradaDisponible: false): JSON
- * nulo/vacío/{} = sin restricción; si declara algún día, un día ausente cuenta como cerrado.
- * El motor ya lo respeta al generar; esto avisa de horarios guardados con datos/reglas anteriores.
- */
-export function fueraDisponibilidadGrupo(sesiones: Sesion[], grupos: Grupo[]): Map<string, string> {
-  const fuera = new Map<string, string>();
-  const dispPorGrupo = new Map<string, Record<string, any>>();
-  for (const g of grupos) {
-    try {
-      const obj = g.disponibilidadUiJson ? JSON.parse(g.disponibilidadUiJson) : null;
-      if (obj && typeof obj === 'object' && Object.keys(obj).length > 0) dispPorGrupo.set(g.id, obj);
-    } catch { /* ilegible = sin restricción, igual que el backend */ }
-  }
-  for (const s of sesiones) {
-    if (s.esContraparteVirtual || !s.grupoId) continue;
-    const disp = dispPorGrupo.get(s.grupoId);
-    if (!disp) continue;
-    const declarado = disp[s.dia];
-    const v = declarado ? ventanaDelDia(declarado) : null;
-    if (v && minutosDe(s.horaInicio) >= v.desde && minutosDe(s.horaFin) <= v.hasta) continue;
-    const dia = DIAS_GRILLA.find(d => d.valor === s.dia)?.etiqueta.toLowerCase() ?? s.dia;
-    fuera.set(s.id, v
-      ? `el grupo solo está disponible el ${dia} de ${hhmmDeMinutos(v.desde)} a ${hhmmDeMinutos(v.hasta)}`
-      : `el grupo no está disponible el ${dia}`);
-  }
-  return fuera;
-}
-
-/**
- * Avisos del docente por id de sesión. NO bloquean: el docente está fuera de la generación (CR-08)
- * pero el import ya lo trae en el grupo, así que el horario generado puede dejarlo en dos clases a
- * la vez o fuera de su disponibilidad sin que nada lo impida — esto lo hace visible.
- *  - choques (HC-I01): otra clase del mismo docente que se solapa. Espejo de
- *    ValidadorRestriccionesDuras.ValidarDocentes: independiente de la semana (ALT-05 — la sesión que
- *    alterna se sigue dictando virtual la semana contraria, en la misma franja).
- *  - fueraDeDisponibilidad (HC-I02, degradada a aviso): la franja cae fuera de lo que declaró el docente.
- */
-export function avisosDocentePorSesion(sesiones: Sesion[], docentes: Docente[], asignaturas: Asignatura[], grupos: Grupo[]): Map<string, AvisosDocente> {
-  const avisos = new Map<string, AvisosDocente>();
-  const de = (id: string) => avisos.get(id) ?? avisos.set(id, { choques: [], conIds: [] }).get(id)!;
-  const docentePorId = new Map(docentes.map(d => [d.id, d]));
-  const nombreDe = (id: string) => docentePorId.get(id)?.nombre ?? 'El docente';
-  // La contraparte virtual derivada repite el id de su sesión: cada sesión cuenta una sola vez.
-  const propias = sesiones.filter(s => s.docenteId && !s.esContraparteVirtual && minutosDe(s.horaFin) > minutosDe(s.horaInicio));
-
-  const porDocenteDia = new Map<string, Sesion[]>();
-  for (const s of propias) {
-    const k = `${s.docenteId}|${s.dia}`;
-    porDocenteDia.set(k, [...(porDocenteDia.get(k) ?? []), s]);
-  }
-  for (const lista of porDocenteDia.values()) {
-    for (let i = 0; i < lista.length; i++) {
-      for (let j = i + 1; j < lista.length; j++) {
-        const a = lista[i], b = lista[j];
-        if (!(minutosDe(a.horaInicio) < minutosDe(b.horaFin) && minutosDe(b.horaInicio) < minutosDe(a.horaFin))) continue;
-        const nombre = nombreDe(a.docenteId!);
-        de(a.id).choques.push(`${nombre} tiene otra clase a la misma hora: ${describirSesionConflicto(b, asignaturas, grupos)}.`);
-        de(a.id).conIds.push(b.id);
-        de(b.id).choques.push(`${nombre} tiene otra clase a la misma hora: ${describirSesionConflicto(a, asignaturas, grupos)}.`);
-        de(b.id).conIds.push(a.id);
-      }
-    }
-  }
-
-  for (const s of propias) {
-    const declarado = docentePorId.get(s.docenteId!)?.disponibilidad?.[s.dia];
-    if (!declarado) continue; // día sin declarar = sin restricción (DisponibilidadSemanal.PermiteBloque)
-    const v = ventanaDelDia(declarado);
-    if (v && minutosDe(s.horaInicio) >= v.desde && minutosDe(s.horaFin) <= v.hasta) continue;
-    const dia = DIAS_GRILLA.find(d => d.valor === s.dia)?.etiqueta.toLowerCase() ?? s.dia;
-    de(s.id).fueraDeDisponibilidad = v
-      ? `Fuera de la disponibilidad de ${nombreDe(s.docenteId!)}: el ${dia} solo está disponible de ${hhmmDeMinutos(v.desde)} a ${hhmmDeMinutos(v.hasta)}.`
-      : `Fuera de la disponibilidad de ${nombreDe(s.docenteId!)}: marcó el ${dia} como no disponible.`;
-  }
-  return avisos;
-}
-
-/**
- * Choques de aula por id de sesión: dos clases presenciales en el mismo espacio, mismo día, con
- * franjas solapadas y alguna semana en común (ver nuncaCoexisteEnSemana). Un horario generado no
- * debería tener ninguno; sirve sobre todo para el modo borrador, donde las clases se agregan a mano.
- * Mismo formato que avisosDocentePorSesion (choques + conIds) para listar cada par una sola vez.
- */
-export function choquesEspacioPorSesion(sesiones: Sesion[], espacios: Espacio[], asignaturas: Asignatura[], grupos: Grupo[]): Map<string, AvisosDocente> {
-  const choques = new Map<string, AvisosDocente>();
-  const de = (id: string) => choques.get(id) ?? choques.set(id, { choques: [], conIds: [] }).get(id)!;
-  const nombreEspacio = new Map(espacios.map(e => [e.id, e.nombre]));
-  const porEspacioDia = new Map<string, Sesion[]>();
-  for (const s of sesiones) {
-    if (s.virtual || s.esContraparteVirtual || !s.espacioId || !(minutosDe(s.horaFin) > minutosDe(s.horaInicio))) continue;
-    const k = `${s.espacioId}|${s.dia}`;
-    porEspacioDia.set(k, [...(porEspacioDia.get(k) ?? []), s]);
-  }
-  for (const lista of porEspacioDia.values()) {
-    for (let i = 0; i < lista.length; i++) {
-      for (let j = i + 1; j < lista.length; j++) {
-        const a = lista[i], b = lista[j];
-        if (nuncaCoexisteEnSemana(a.semana, b.semana)) continue;
-        if (!(minutosDe(a.horaInicio) < minutosDe(b.horaFin) && minutosDe(b.horaInicio) < minutosDe(a.horaFin))) continue;
-        const aula = nombreEspacio.get(a.espacioId!) ?? 'El espacio';
-        de(a.id).choques.push(`${aula} ya está ocupado a esa hora por ${describirSesionConflicto(b, asignaturas, grupos)}.`);
-        de(a.id).conIds.push(b.id);
-        de(b.id).choques.push(`${aula} ya está ocupado a esa hora por ${describirSesionConflicto(a, asignaturas, grupos)}.`);
-        de(b.id).conIds.push(a.id);
-      }
-    }
-  }
-  return choques;
-}
-
-/** Filas de resumen (una por sesión, cada par listado una sola vez) de un mapa de choques por sesión. */
-function filasDeChoques(sesiones: Sesion[], choques: Map<string, AvisosDocente>, asignaturas: Asignatura[], grupos: Grupo[]) {
-  const listadas = new Set<string>();
-  const filas: { s: Sesion; etiqueta: string; detalle: string }[] = [];
-  for (const s of sesiones) {
-    const av = choques.get(s.id);
-    if (s.esContraparteVirtual || !av?.choques.length) continue;
-    const nuevos = av.choques.filter((_, i) => !listadas.has(av.conIds[i]));
-    listadas.add(s.id);
-    if (nuevos.length) filas.push({ s, etiqueta: describirSesionConflicto(s, asignaturas, grupos), detalle: nuevos.join(' ') });
-  }
-  return filas;
-}
-
-/** Ubicación de una sesión en la cuadrícula: fila1 es exclusiva (grid-row: "fila0 / fila1"),
- *  fila 1 = HORA_APERTURA. */
-export interface PosicionGrilla { ini: number; fin: number; fila0: number; fila1: number; }
-
-/**
- * Ubica una sesión en la cuadrícula por minutos de inicio/fin — no por índice de celda, que es lo
- * que hacía que una sesión desalineada (media hora, fuera de jornada) desapareciera en silencio o
- * corriera las columnas del resto del día (ver auditoría UI 2026-09). Nunca descarta: cuando la
- * sesión no cabe, devuelve el motivo para que el llamador la liste aparte en vez de perderla.
- */
-export function ubicarEnGrilla(dia: string, horaInicio: string, horaFin: string): PosicionGrilla | { motivo: string } {
-  if (!DIAS_GRILLA.some(d => d.valor === dia)) return { motivo: `día fuera de la cuadrícula (${dia || 'sin día'})` };
-  const ini = minutosDe(horaInicio), fin = minutosDe(horaFin);
-  if (!Number.isFinite(ini) || !Number.isFinite(fin) || !(fin > ini)) return { motivo: 'horario inválido' };
-  if (ini % 60 !== 0 || fin % 60 !== 0) return { motivo: 'no empieza o no termina en una hora en punto' };
-  if (ini < HORA_APERTURA * 60) return { motivo: `empieza antes de ${hhmm(HORA_APERTURA)}` };
-  if (fin > cierreDe(dia) * 60) return { motivo: `termina después del cierre de la jornada (${hhmm(cierreDe(dia))})` };
-  return { ini, fin, fila0: ini / 60 - HORA_APERTURA + 1, fila1: fin / 60 - HORA_APERTURA + 1 };
-}
-
-export const MAX_CARRILES = 3;
-export interface TarjetaEnCarril<T> { item: T; carril: number; carriles: number; }
-export interface GrupoDesbordado<T> { ini: number; fin: number; items: T[]; }
-export interface ResultadoCarriles<T> { tarjetas: TarjetaEnCarril<T>[]; mas: GrupoDesbordado<T>[]; }
-
-/**
- * Reparte sesiones simultáneas en carriles (columnas) lado a lado, sin ocultar ni encimar ninguna
- * — reemplaza el rowspan por celda de inicio de la tabla anterior, que perdía sesiones escalonadas
- * o solapadas (ver auditoría UI 2026-09). "Interval partitioning" greedy: ordena por inicio y
- * asigna a cada sesión el primer carril cuyo último fin ya pasó — O(n log n). Si un racimo (grupo
- * de sesiones conectadas transitivamente por solape) necesita más carriles que `max`, los primeros
- * `max - 1` quedan como tarjetas y el resto se agrupa en un "+N" por tramo solapado (un grupo de
- * un solo elemento se dibuja como tarjeta normal — un "+1" no aporta nada).
- */
-export function distribuirEnCarriles<T extends { ini: number; fin: number }>(
-  items: readonly T[], max = MAX_CARRILES
-): ResultadoCarriles<T> {
-  const tarjetas: TarjetaEnCarril<T>[] = [];
-  const desborde: { ini: number; fin: number; item: T }[] = [];
-  const orden = [...items].sort((a, b) => a.ini - b.ini || b.fin - a.fin);
-
-  for (let i = 0; i < orden.length; ) {
-    // Racimo: sesiones conectadas por solape con fin EXCLUSIVO — 08-10 y 10-12 no se conectan.
-    let j = i, finRacimo = -Infinity;
-    while (j < orden.length && (j === i || orden[j].ini < finRacimo)) { finRacimo = Math.max(finRacimo, orden[j].fin); j++; }
-
-    const finDeCarril: number[] = [];
-    const racimo = orden.slice(i, j).map(item => {
-      let carril = finDeCarril.findIndex(fin => fin <= item.ini);
-      if (carril < 0) carril = finDeCarril.length;
-      finDeCarril[carril] = item.fin;
-      return { item, carril };
-    });
-    i = j;
-
-    const k = finDeCarril.length;
-    if (k <= max) { racimo.forEach(r => tarjetas.push({ ...r, carriles: k })); continue; }
-    for (const r of racimo) {
-      if (r.carril < max - 1) tarjetas.push({ ...r, carriles: max });
-      else desborde.push({ ini: r.item.ini, fin: r.item.fin, item: r.item });
-    }
-  }
-
-  // Agrupa el desborde en tramos solapados propios — dos racimos están separados en el tiempo por
-  // construcción, así que un recorrido único (ordenado) basta, sin repetir el agrupamiento por racimo.
-  desborde.sort((a, b) => a.ini - b.ini);
-  const mas: GrupoDesbordado<T>[] = [];
-  for (const d of desborde) {
-    const ult = mas[mas.length - 1];
-    if (ult && d.ini < ult.fin) { ult.items.push(d.item); ult.fin = Math.max(ult.fin, d.fin); }
-    else mas.push({ ini: d.ini, fin: d.fin, items: [d.item] });
-  }
-  const solos = mas.filter(m => m.items.length === 1);
-  solos.forEach(m => tarjetas.push({ item: m.items[0], carril: max - 1, carriles: max }));
-
-  return { tarjetas, mas: mas.filter(m => m.items.length > 1) };
-}
-
-/**
- * El backend siempre reporta un MensajeError técnico ("status del solver: Infeasible", "HC-SEP",
- * "HC-ALT") pensado para quien lee el código, no para un coordinador académico — y el snackbar lo
- * reemplazaba por una frase genérica que tampoco ayuda ("No se encontró un horario factible para
- * N asignatura(s) en M espacio(s)."). Traduce motivoInfactibilidad (siempre real) a una guía
- * accionable en español simple, y si gruposEnConflicto trae Ids (diagnóstico opcional de Fase 2)
- * nombra los grupos reales en vez de un conteo vacío — nunca inventa una causa que el backend no
- * reportó; si no hay nada estructurado, cae a un mensaje genérico pero igual sin jerga interna.
- */
-export function mensajeInfactibilidadAmigable(
-  motivo: string | undefined,
-  gruposEnConflictoIds: string[] | undefined,
-  grupos: Grupo[],
-  totalAsignaturas: number,
-  totalEspacios: number,
-  /** Solo para motivo Capacidad: catálogo con el que nombrar asignatura, programa y espacio. */
-  capacidad?: { espacioLimitanteId?: string; espacios: Espacio[]; asignaturas: Asignatura[]; programaById: Map<string, { nombre: string }> }
-): string {
-  if (motivo === 'Capacidad') {
-    const g = grupos.find(x => x.id === gruposEnConflictoIds?.[0]);
-    const e = capacidad?.espacios.find(x => x.id === capacidad.espacioLimitanteId);
-    if (g && e) {
-      const asig = capacidad!.asignaturas.find(a => a.id === g.asignaturaId);
-      const prog = capacidad!.programaById.get(asig?.programaId ?? g.programaId);
-      return `El grupo ${g.nombre}${asig ? ` de la asignatura ${asig.nombre}` : ''}${prog ? ` del programa ${prog.nombre}` : ''} ` +
-        `tiene ${g.estudiantesInscritos} estudiantes y el ${e.tipo.toLowerCase()} ${e.nombre} (el más grande que puede usar) ` +
-        `solo tiene capacidad para ${e.capacidad}. Asígnele un espacio con más capacidad o reduzca el grupo.`;
-    }
-    return 'Un grupo tiene más estudiantes que la capacidad de los espacios que puede usar. Asígnele un espacio más grande o reduzca el grupo.';
-  }
-  const nombresConflicto = (gruposEnConflictoIds ?? [])
-    .map(id => grupos.find(g => g.id === id)?.nombre)
-    .filter((n): n is string => !!n);
-  if (nombresConflicto.length > 0) {
-    return `No se encontró un horario factible. Grupo(s) en conflicto: ${nombresConflicto.join(', ')} — revíselos en el catálogo (posible espacio compartido o pareja de alternancia) y vuelva a generar.`;
-  }
-  switch (motivo) {
-    case 'Espacio':
-      return 'No hay espacio físico suficiente para todas las sesiones presenciales en los horarios permitidos. Revise la disponibilidad de los grupos o libere algún espacio.';
-    case 'VentanaHoraria':
-      return 'Una o más asignaturas tienen una ventana horaria demasiado estrecha para todas sus sesiones. Revise la ventana horaria configurada en esas asignaturas.';
-    case 'FranjaGrupo':
-      return 'Uno o más grupos tienen más sesiones de las que caben en su disponibilidad horaria declarada. Revise la disponibilidad de esos grupos en el catálogo.';
-    case 'Datos':
-      return 'Faltan datos necesarios para generar el horario. Revise que haya asignaturas, docentes y espacios cargados.';
-    case 'Timeout':
-      return 'El sistema no pudo determinar si existe una solución a tiempo. Intente de nuevo, o reduzca el número de asignaturas o grupos en este intento.';
-    default:
-      return `No se encontró un horario factible para ${totalAsignaturas} asignatura(s) en ${totalEspacios} espacio(s). Pruebe con disponibilidad más flexible o menos requisitos de espacio fijo.`;
-  }
-}
+import { MergedSesion, SesionFuera, DiaGrilla, GrillaSemanal, ItemGrilla, describirSesionConflicto, hhmm, HORAS_GRILLA, DIAS_GRILLA, fueraDisponibilidadGrupo, avisosDocentePorSesion, choquesEspacioPorSesion, filasDeChoques, ubicarEnGrilla, distribuirEnCarriles, mensajeInfactibilidadAmigable } from './horario.reglas';
+import { EditarSesionDialogComponent, EditarSesionDialogData, EditarSesionResult } from './editar-sesion-dialog.component';
+import { CrearSesionDialogComponent, CrearSesionDialogData } from './crear-sesion-dialog.component';
+import { ProgressDialogComponent } from './progress-dialog.component';
 
 @Component({
   selector: 'app-horario',
@@ -469,10 +47,10 @@ export function mensajeInfactibilidadAmigable(
       <!-- toolbar -->
       <div class="toolbar">
         @if (hayAlternancia()) {
-          <span class="tb-lbl" id="lbl-semana">Semana</span>
+          <span class="tb-lbl" id="lbl-semana">Ver</span>
           <div class="seg" role="radiogroup" aria-labelledby="lbl-semana">
-            <label class="seg-opt" role="radio" [attr.aria-checked]="semanaVista() === 'A'" [class.on]="semanaVista() === 'A'" (click)="selectWeek('A')">Semana A · horario completo</label>
-            <label class="seg-opt" role="radio" [attr.aria-checked]="semanaVista() === 'B'" [class.on]="semanaVista() === 'B'" (click)="selectWeek('B')">Semana B · lo que alterna (el resto en gris)</label>
+            <label class="seg-opt" role="radio" [attr.aria-checked]="semanaVista() === 'A'" [class.on]="semanaVista() === 'A'" (click)="selectWeek('A')">Horario completo</label>
+            <label class="seg-opt" role="radio" [attr.aria-checked]="semanaVista() === 'B'" [class.on]="semanaVista() === 'B'" (click)="selectWeek('B')">Semana siguiente · solo lo que alterna</label>
           </div>
         }
         <div class="legend">
@@ -562,11 +140,11 @@ export function mensajeInfactibilidadAmigable(
                 @if (hayFiltros()) {
                   No hay clases con estos filtros{{ todosEspacios() ? '' : ' en esta vista' }}.
                 } @else if (todosEspacios()) {
-                  No hay sesiones{{ hayAlternancia() ? ' en la Semana ' + semanaVista() : '' }}.
+                  No hay sesiones{{ semanaVista() === 'B' ? ' que alternen' : '' }}.
                 } @else if (modoVirtual()) {
-                  No hay sesiones virtuales{{ hayAlternancia() ? ' en la Semana ' + semanaVista() : '' }}.
+                  No hay sesiones virtuales{{ semanaVista() === 'B' ? ' que alternen' : '' }}.
                 } @else {
-                  {{ activeSpace()?.nombre }} no tiene sesiones{{ hayAlternancia() ? ' en la Semana ' + semanaVista() : '' }}.
+                  {{ activeSpace()?.nombre }} no tiene sesiones{{ semanaVista() === 'B' ? ' que alternen' : '' }}.
                 }
               </p>
             }
@@ -585,16 +163,16 @@ export function mensajeInfactibilidadAmigable(
                       <div class="wk-cerrado" [style.grid-row]="d.filaCierre + ' / -1'" aria-hidden="true">Cerrado</div>
                     }
                     @for (t of d.tarjetas; track t.key) {
-                      <button type="button" class="gcell" [class.gvirt]="t.m.virtual" [class.gsiempre]="t.siempre" [class.g1h]="t.g1h" [class.gnueva]="t.m.sesiones[0].deBorrador"
+                      <button type="button" class="gcell" [class.gvirt]="t.m.virtual" [class.g1h]="t.g1h" [class.gnueva]="t.m.sesiones[0].deBorrador"
                               [style.grid-row]="t.fila" [style.grid-column]="t.col"
-                              [style.background]="t.siempre ? null : gcellBg(t.m)" [style.border-left-color]="altColor(t.m)"
+                              [style.background]="gcellBg(t.m)" [style.border-left-color]="altColor(t.m)"
                               [title]="t.texto" [attr.aria-label]="t.texto" (click)="abrirEditarSesion(t.m)">
-                        <span class="s">@if (tieneChoque(t.m)) { <span class="nodoc">⚠</span> }@if (t.m.virtual) { ⌁ }{{ getAsignaturaName(t.m) }}</span>
-                        <span class="g">{{ t.siempre ? 'todas las semanas' : (grupoSuffix(t.m).slice(3) || '—') }}</span>
+                        <span class="s">@if (tieneChoque(t.m)) { <span class="nodoc">⚠</span> }@if (t.m.virtual) { ⌁ }@if (t.m.contraparte) { <span class="galt" aria-hidden="true">⇄</span> }{{ getAsignaturaName(t.m) }}</span>
+                        <span class="g">{{ grupoSuffix(t.m).slice(3) || '—' }}</span>
                         <span class="det">
                           <span [class.nodoc]="!t.m.docenteId">{{ t.m.docenteId ? getDocenteName(t.m) : 'sin docente' }}</span>
                           <span class="t">{{ celdaEspacio(t.m) }} · {{ t.m.horaInicio }}–{{ t.m.horaFin }}</span>
-                          @if (t.m.contraparte; as otra) { <span class="gsub">⌁ {{ getAsignaturaName(otra) }}{{ grupoSuffix(otra) }} · virtual</span> }
+                          @if (t.m.contraparte; as otra) { <span class="gsub"><span aria-hidden="true">⇄</span> Próx. semana: {{ getAsignaturaName(otra) }}{{ grupoSuffix(otra) }}</span> }
                         </span>
                       </button>
                     }
@@ -624,7 +202,7 @@ export function mensajeInfactibilidadAmigable(
                 </details>
               }
 
-              @if (choquesEspacio().length > 0) {
+              @if (avisosGlobalesVisibles() && choquesEspacio().length > 0) {
                 <details class="soft fuera" [open]="enBorrador()">
                   <summary><b>⚠ {{ choquesEspacio().length }} clase(s) en un espacio ya ocupado a esa hora</b></summary>
                   <ul>
@@ -635,7 +213,7 @@ export function mensajeInfactibilidadAmigable(
                 </details>
               }
 
-              @if (fueraGrupo().length > 0) {
+              @if (avisosGlobalesVisibles() && fueraGrupo().length > 0) {
                 <details class="soft fuera">
                   <summary><b>⚠ {{ fueraGrupo().length }} clase(s) fuera del horario disponible de su grupo</b></summary>
                   <div>Vuelva a generar el horario, o ajuste la disponibilidad del grupo en Catálogo si cambió.</div>
@@ -647,7 +225,7 @@ export function mensajeInfactibilidadAmigable(
                 </details>
               }
 
-              @if (choquesDocente().length > 0 || fueraDeDisponibilidad() > 0) {
+              @if (avisosGlobalesVisibles() && (choquesDocente().length > 0 || fueraDeDisponibilidad() > 0)) {
                 <details class="soft fuera" [open]="enBorrador() && choquesDocente().length > 0">
                   <summary><b>⚠ Avisos del docente ({{ choquesDocente().length + fueraDeDisponibilidad() }}) — no impiden usar el horario</b></summary>
                   @if (choquesDocente().length > 0) {
@@ -766,7 +344,7 @@ export function mensajeInfactibilidadAmigable(
     .gcell .nodoc { color: var(--err-bd); font-weight: 500; }
     .gcell.g1h .s { -webkit-line-clamp: 1; } .gcell.g1h .det { display: none; }
     .gnueva { outline: 2px dashed var(--color-accent); outline-offset: -4px; }
-    .gsiempre { background: var(--color-neutral-100); border-color: var(--color-neutral-500); border-left-color: var(--color-neutral-500) !important; }
+    .gcell .galt { color: var(--color-accent); font-weight: 700; margin-right: 2px; }
     .gcell .gsub { margin-top: 2px; padding: 2px 4px; border: 1px dashed var(--color-neutral-500);
                    background: repeating-linear-gradient(-45deg, var(--color-bg) 0 5px, color-mix(in srgb, var(--color-accent) 12%, transparent) 5px 8px);
                    color: var(--color-neutral-700); font-size: 10px; line-height: 1.2; }
@@ -855,7 +433,12 @@ export class HorarioComponent implements OnInit {
       return (!this.fPrograma() || programaId === this.fPrograma())
         && (!this.fFacultad() || progs.get(programaId ?? '')?.facultadId === this.fFacultad());
     }).sort(porNombre);
-    return [{ value: '', label: 'Todos los grupos' }, ...grupos.map(g => ({ value: g.id, label: g.nombre, sub: asig.get(g.asignaturaId)?.nombre }))];
+    // El programa distingue "BIOQUIMICA - Grupo 1" de Medicina del de Biología (el import repite el nombre).
+    return [{ value: '', label: 'Todos los grupos' }, ...grupos.map(g => {
+      const a = asig.get(g.asignaturaId);
+      const sub = [a && !g.nombre.startsWith(a.nombre) ? a.nombre : '', progs.get(a?.programaId ?? '')?.nombre ?? ''].filter(Boolean).join(' · ');
+      return { value: g.id, label: g.nombre, sub };
+    })];
   });
   opcDocentes = computed<SearchableOption[]>(() =>
     [{ value: '', label: 'Todos los docentes' }, ...[...this.state.docentes()].sort(porNombre).map(d => ({ value: d.id, label: d.nombre }))]);
@@ -901,7 +484,7 @@ export class HorarioComponent implements OnInit {
   agregarAlBorrador() {
     const ref = this.dialog.open(CrearSesionDialogComponent, {
       width: '320px', maxHeight: '92vh',
-      data: { asignaturas: this.state.asignaturas(), docentes: this.state.docentes(), espacios: this.state.espacios(), grupos: this.state.grupos(), sesiones: this.sesiones(), programaById: this.state.programaById(), modoBorrador: true } satisfies DialogData
+      data: { asignaturas: this.state.asignaturas(), docentes: this.state.docentes(), espacios: this.state.espacios(), grupos: this.state.grupos(), sesiones: this.sesiones(), programaById: this.state.programaById(), modoBorrador: true } satisfies CrearSesionDialogData
     });
     ref.afterClosed().subscribe((nuevas: Sesion[] | undefined) => {
       if (!nuevas?.length) return;
@@ -914,7 +497,7 @@ export class HorarioComponent implements OnInit {
   private quitarDelBorrador(s: Sesion) {
     const ref = this.dialog.open(ConfirmDeleteDialogComponent, {
       width: '320px',
-      data: { title: 'Quitar del borrador', message: `Se quitará "${describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos())}" del borrador.`, confirmText: 'Quitar' }
+      data: { title: 'Quitar del borrador', message: `Se quitará "${describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos(), this.state.programaById())}" del borrador.`, confirmText: 'Quitar' }
     });
     ref.afterClosed().subscribe(ok => { if (ok) this.state.borrador.update(b => (b ?? []).filter(x => x.id !== s.id)); });
   }
@@ -940,11 +523,11 @@ export class HorarioComponent implements OnInit {
       from(nuevas).pipe(
         concatMap(s => this.persistencia.crearSesionManual({
           horarioId, asignaturaId: s.asignaturaId, docenteId: s.docenteId ?? null, espacioId: s.espacioId ?? null,
-          grupoId: s.grupoId!, dia: s.dia, horaInicio: s.horaInicio, duracionHoras: s.duracionHoras, alternancia: s.alternancia,
+          grupoId: s.grupoId!, dia: s.dia, horaInicio: s.horaInicio, duracionHoras: s.duracionHoras,
           tipoFlujo: s.tipoFlujo ?? 'AulaVirtual', esVirtual: s.virtual
         }).pipe(
           map(creadas => ({ s, creadas, error: '' })),
-          catchError(err => of({ s, creadas: [] as Sesion[], error: `${describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos())}: ${mensajeErrorHttp(err)}` }))
+          catchError(err => of({ s, creadas: [] as Sesion[], error: `${describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos(), this.state.programaById())}: ${mensajeErrorHttp(err)}` }))
         )),
         toArray()
       ).subscribe(resultados => {
@@ -1042,20 +625,23 @@ export class HorarioComponent implements OnInit {
     return false;
   }
 
-  /** Hay alternancia activa cuando alguna sesión tiene pareja. Sin ella la Semana B no existe
-   *  y el selector ni siquiera se muestra: la Semana A es el horario completo. */
+  /** Hay alternancia activa cuando alguna sesión tiene pareja. Sin ella no hay "semana siguiente"
+   *  distinta y el selector ni siquiera se muestra: el horario completo es todo. */
   hayAlternancia = computed(() => this.sesiones().some(s => !!s.parejaId));
 
   /** La semana efectivamente mostrada: si ya no hay alternancia (p. ej. tras regenerar sin
    *  parejas) no se queda pegada en B sin selector visible para volver a A. */
   semanaVista = computed<'A' | 'B'>(() => this.hayAlternancia() ? this.activeWeek() : 'A');
 
-  /** Semana A: todo lo que no es exclusivamente B. Semana B: todo lo que no es exclusivamente A
-   *  — incluye lo que no alterna (`semana` vacío/ausente), que la grilla pinta en gris como
-   *  "ocupa el aula todas las semanas" en vez de dejar el aula viéndose libre (antes solo se
-   *  mostraba lo emparejado y el resto de las aulas ocupadas parecían disponibles). */
+  /** Horario completo: todo lo que no es exclusivamente de la semana siguiente (lo que no alterna
+   *  y cada pareja con el miembro que usa el aula esta semana). Semana siguiente: SOLO las parejas
+   *  que alternan — el resto de la cuadrícula queda vacío a propósito (es el mismo horario).
+   *  Una TipoA/TipoB SIN pareja (laboratorio que heredó la alternancia de su asignatura, o datos
+   *  viejos) no tiene "semana siguiente": se muestra siempre en el horario completo, sin importar
+   *  en qué semana caiga su fila; si no, una TipoB suelta desaparecía de la cuadrícula. */
   private sesionVisibleEnSemana(s: Sesion): boolean {
-    return this.semanaVista() === 'B' ? s.semana !== 'A' : s.semana !== 'B';
+    const deLaSiguiente = s.semana === 'B' && !!s.parejaId;
+    return this.semanaVista() === 'B' ? deLaSiguiente : !deLaSiguiente;
   }
 
   /** Sesiones visibles en el chip/semana actual, ya plegadas con su contraparte de alternancia.
@@ -1064,7 +650,10 @@ export class HorarioComponent implements OnInit {
     // "Todos los espacios" = sin spaceId: sesionPerteneceAlEspacio deja pasar todo, virtuales incluidas.
     const spaceId = this.todosEspacios() ? undefined : this.modoVirtual() ? this.ESPACIO_VIRTUAL : this.activeSpace()?.id;
     const pasa = this.pasaFiltros();
-    const visibles = this.sesiones().filter(s => this.sesionPerteneceAlEspacio(s, spaceId) && this.sesionVisibleEnSemana(s) && pasa(s));
+    // Los filtros (grupo, docente…) deciden qué tarjetas se ven, no con quién alterna cada una: la
+    // pareja suele ser de otro grupo, y filtrarla antes del pliegue borraba el ⇄ de la tarjeta.
+    const enVista = this.sesiones().filter(s => this.sesionPerteneceAlEspacio(s, spaceId) && this.sesionVisibleEnSemana(s));
+    const visibles = enVista.filter(pasa);
 
     // La contraparte virtual se pliega como sub-caja DENTRO de la tarjeta presencial solo si
     // coincide exactamente en pareja + día + hora con una presencial visible — antes se indexaba
@@ -1073,7 +662,7 @@ export class HorarioComponent implements OnInit {
     const clave = (s: { parejaId?: string; dia: string; horaInicio: string; horaFin: string }) =>
       `${s.parejaId}|${s.dia}|${s.horaInicio}|${s.horaFin}`;
     const contrapartes = new Map<string, Sesion>();
-    for (const s of visibles) if (s.esContraparteVirtual && s.parejaId) contrapartes.set(clave(s), s);
+    for (const s of enVista) if (s.esContraparteVirtual && s.parejaId) contrapartes.set(clave(s), s);
 
     const plegadas = new Set<string>();
     const resultado: MergedSesion[] = [];
@@ -1087,7 +676,7 @@ export class HorarioComponent implements OnInit {
     }
     // Contrapartes que no se plegaron (su presencial no está visible en esta vista/semana, o no
     // coincidió exactamente en franja): tarjeta propia en vez de perderse.
-    for (const [k, s] of contrapartes) if (!plegadas.has(k)) resultado.push(this.aMerged(s));
+    for (const [k, s] of contrapartes) if (!plegadas.has(k) && pasa(s)) resultado.push(this.aMerged(s));
     return resultado;
   });
 
@@ -1137,7 +726,6 @@ export class HorarioComponent implements OnInit {
           key: item.m.key, m: item.m,
           fila: `${item.fila0} / ${item.fila1}`,
           col: `${carril * ancho + 1} / span ${ancho}`,
-          siempre: this.semanaVista() === 'B' && !item.m.semana,
           g1h: (item.fila1 - item.fila0) < 2,
           texto: this.describir(item.m),
         };
@@ -1155,34 +743,35 @@ export class HorarioComponent implements OnInit {
    *  "fuera de la cuadrícula". No se abrevia: es la única forma de leer el dato completo, ya que
    *  la tarjeta trunca según el alto disponible. */
   describir(m: MergedSesion): string {
-    const base = describirSesionConflicto(m, this.state.asignaturas(), this.state.grupos());
+    const base = describirSesionConflicto(m, this.state.asignaturas(), this.state.grupos(), this.state.programaById());
     const ctx = this.getContextLabel(m);
     const docente = m.docenteId ? this.getDocenteName(m) : 'sin docente';
     const espacio = this.celdaEspacio(m);
-    const semana = m.semana === 'A' ? ' · Semana A' : m.semana === 'B' ? ' · Semana B' : '';
-    const siempre = this.semanaVista() === 'B' && !m.semana ? ' · ocupa el aula todas las semanas' : '';
-    const contraparte = m.contraparte ? ` · alterna con ${this.getAsignaturaName(m.contraparte)}${this.grupoSuffix(m.contraparte)} (virtual)` : '';
+    const contraparte = m.contraparte ? ` · alterna con ${this.getAsignaturaName(m.contraparte)}${this.grupoSuffix(m.contraparte)}: la próxima semana este espacio es suyo y esta clase pasa a virtual` : '';
     const choque = this.tieneChoque(m) ? ' · ⚠ el docente tiene otra clase a la misma hora' : '';
     const choqueAula = this.tieneChoqueEspacio(m) ? ' · ⚠ el espacio ya está ocupado a esa hora' : '';
     const accion = this.enBorrador() ? (m.sesiones[0].deBorrador ? 'Clic para quitarla del borrador' : 'Clase del horario real') : 'Clic para editar';
-    return `${base}${ctx ? ' · ' + ctx : ''} · ${docente} · ${espacio}${semana}${siempre}${contraparte}${choque}${choqueAula}. ${accion}.`;
+    return `${base}${ctx ? ' · ' + ctx : ''} · ${docente} · ${espacio}${contraparte}${choque}${choqueAula}. ${accion}.`;
   }
 
+  /** Los avisos de debajo de la cuadrícula cuentan TODO el horario: en la vista "semana siguiente"
+   *  (solo lo que alterna) confundirían, así que solo se muestran en el horario completo. */
+  avisosGlobalesVisibles = computed(() => this.semanaVista() === 'A');
   /** Avisos del docente (no bloquean) de todo el horario — ver avisosDocentePorSesion. */
   avisosDocente = computed(() =>
-    avisosDocentePorSesion(this.sesiones(), this.state.docentes(), this.state.asignaturas(), this.state.grupos()));
+    avisosDocentePorSesion(this.sesiones(), this.state.docentes(), this.state.asignaturas(), this.state.grupos(), this.state.programaById()));
   /** Clases con el docente en dos clases a la vez: se listan bajo la cuadrícula para poder abrirlas. */
-  choquesDocente = computed(() => filasDeChoques(this.sesiones(), this.avisosDocente(), this.state.asignaturas(), this.state.grupos()));
+  choquesDocente = computed(() => filasDeChoques(this.sesiones(), this.avisosDocente(), this.state.asignaturas(), this.state.grupos(), this.state.programaById()));
   /** Dos clases en el mismo espacio a la vez (sobre todo en el borrador) — ver choquesEspacioPorSesion. */
   choquesEspacioMap = computed(() =>
-    choquesEspacioPorSesion(this.sesiones(), this.state.espacios(), this.state.asignaturas(), this.state.grupos()));
-  choquesEspacio = computed(() => filasDeChoques(this.sesiones(), this.choquesEspacioMap(), this.state.asignaturas(), this.state.grupos()));
+    choquesEspacioPorSesion(this.sesiones(), this.state.espacios(), this.state.asignaturas(), this.state.grupos(), this.state.programaById()));
+  choquesEspacio = computed(() => filasDeChoques(this.sesiones(), this.choquesEspacioMap(), this.state.asignaturas(), this.state.grupos(), this.state.programaById()));
   /** Clases fuera de la disponibilidad de su grupo — ver fueraDisponibilidadGrupo. */
   fueraGrupo = computed(() => {
     const motivos = fueraDisponibilidadGrupo(this.sesiones(), this.state.grupos());
     return this.sesiones()
       .filter(s => motivos.has(s.id) && !s.esContraparteVirtual)
-      .map(s => ({ s, etiqueta: describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos()), motivo: motivos.get(s.id)! }));
+      .map(s => ({ s, etiqueta: describirSesionConflicto(s, this.state.asignaturas(), this.state.grupos(), this.state.programaById()), motivo: motivos.get(s.id)! }));
   });
   fueraDeDisponibilidad = computed(() => [...this.avisosDocente().values()].filter(a => a.fueraDeDisponibilidad).length);
   /** ⚠ de la tarjeta: choque de docente o de espacio. */
@@ -1403,567 +992,3 @@ export class HorarioComponent implements OnInit {
     });
   }
 }
-
-// ═══ Diálogo: Editar sesión (REQUISITOS §2/§3 — incluye asignar docente con 409) ═══
-interface Check { ok: boolean; texto: string; }
-
-interface EditarSesionDialogData {
-  merged: MergedSesion; sesion: Sesion; asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[];
-  sesiones: Sesion[]; programaById: Map<string, { id: string; nombre: string; facultadId: string }>; facultadById: Map<string, { id: string; nombre: string }>;
-}
-/** `sesion` ausente = un cambio de día/hora/espacio ya refrescó el StateService completo (P5). */
-interface EditarSesionResult { sesion?: Sesion; advertencias: string[]; }
-
-@Component({
-  selector: 'app-editar-sesion-dialog',
-  standalone: true,
-  imports: [CommonModule, FormsModule, MatDialogModule],
-  template: `
-    <div class="pophd">Editar sesión <button type="button" class="pop-close" (click)="cancelar()" aria-label="Cerrar">✕</button></div>
-    <div class="popbd" style="max-height:80vh;overflow:auto">
-      <div class="text-muted" style="font-size:12px">{{ asignatura()?.nombre }} · {{ data.sesion.duracionHoras }}h {{ data.sesion.virtual ? '· virtual' : '· presencial' }}</div>
-
-      <div class="dfield"><label>Docente</label>
-        <select class="input" [ngModel]="docenteId()" (ngModelChange)="docenteId.set($event)">
-          <option value="">— Sin asignar —</option>
-          @for (d of data.docentes; track d.id) { <option [value]="d.id">{{ d.nombre }}</option> }
-        </select>
-        @if (hayCambioDocente()) { <small class="text-muted" style="font-size:11px">Si el docente ya tiene clase a esa hora no se podrá guardar; si está fuera de su disponibilidad, verá un aviso.</small> }
-      </div>
-      @for (w of avisosDocente(); track w) { <div class="soft"><b>⚠ Aviso (no bloquea):</b> {{ w }}</div> }
-
-      <div class="dfield"><label>Día · Hora inicio</label>
-        <div style="display:flex;gap:6px">
-          <select class="input" style="flex:1" [ngModel]="dia()" (ngModelChange)="dia.set($event)">
-            @for (d of diasOpciones; track d.valor) { <option [value]="d.valor">{{ d.etiqueta }}</option> }
-          </select>
-          <select class="input" style="width:80px" [ngModel]="horaInicio()" (ngModelChange)="horaInicio.set($event)">
-            @for (h of horasDisponibles; track h) { <option [value]="h">{{ h }}</option> }
-          </select>
-        </div>
-      </div>
-
-      <div class="dfield"><label>Espacio</label>
-        <select class="input" [ngModel]="espacioId()" (ngModelChange)="espacioId.set($event)">
-          <option value="">— Sin espacio (virtual) —</option>
-          @for (e of espaciosDisponibles(); track e.id) { <option [value]="e.id">{{ e.nombre }}</option> }
-        </select>
-      </div>
-
-      @if (esLaboratorio()) {
-        <div class="dfield" data-testid="alternancia-solo-lectura"><label>Semanas en que se dicta</label>
-          <div style="font-size:13px">{{ etiquetaAlternancia }}</div>
-          <small class="text-muted" style="font-size:11px">Se define al generar el horario; no se cambia desde aquí.</small>
-        </div>
-      }
-
-      @for (c of validaciones(); track c.texto) {
-        <div [class]="c.ok ? 'okb' : 'errb'">{{ c.ok ? '✓' : '✕' }} {{ c.texto }}</div>
-      }
-      @for (w of advertencias(); track w) { <div class="soft"><b>⚠ Aviso (no bloquea):</b> {{ w }}</div> }
-      @if (errorServidor()) { <div class="errb"><b>✕ {{ errorServidor() }}</b></div> }
-
-      <div class="popfoot">
-        <button class="btn btn-secondary" (click)="cancelar()" [disabled]="guardando()">Cancelar</button>
-        <button class="btn btn-primary" [disabled]="!puedeGuardar() || guardando()" (click)="guardar()">{{ guardando() ? 'Guardando…' : 'Guardar' }}</button>
-      </div>
-    </div>
-  `
-})
-export class EditarSesionDialogComponent {
-  private dialogRef = inject(MatDialogRef<EditarSesionDialogComponent>);
-  readonly data: EditarSesionDialogData = inject(MAT_DIALOG_DATA);
-  private persistencia = inject(PersistenciaService);
-  private horarioApi = inject(HorarioApiService);
-  private state = inject(StateService);
-  private readonly orig = this.data.merged;
-
-  docenteId = signal(this.orig.docenteId ?? '');
-  dia = signal(this.orig.dia);
-  horaInicio = signal(this.orig.horaInicio);
-  espacioId = signal(this.orig.espacioId ?? '');
-  /** NEW-8 auditoría 2026-09-28: de solo lectura. Antes se podía cambiar en este diálogo, pero el
-   *  cambio solo se aplicaba en memoria (ni /reacomodar ni el PATCH de docente la reciben) y se perdía
-   *  al recargar. Por ALT-05 la alternancia la fija el generador al emparejar sesiones; un cambio a
-   *  mano tampoco podría dejar pareja y aula coherentes (HC-ALT). */
-  readonly alternancia = this.orig.alternancia as 'TipoA' | 'TipoB' | 'SinAlternancia';
-  /** Derivada: TipoA ocupa el aula en la semana A, TipoB en la B, y lo que no alterna la ocupa en las dos. */
-  readonly semana: 'A' | 'B' | undefined =
-    this.alternancia === 'TipoA' ? 'A' : this.alternancia === 'TipoB' ? 'B' : undefined;
-  readonly etiquetaAlternancia =
-    this.alternancia === 'TipoA' ? 'Semana A' : this.alternancia === 'TipoB' ? 'Semana B' : 'Todas las semanas';
-  guardando = signal(false);
-  advertencias = signal<string[]>([]);
-  errorServidor = signal('');
-
-  asignatura = computed(() => this.data.asignaturas.find(a => a.id === this.orig.asignaturaId));
-  esLaboratorio = computed(() => this.data.sesion.tipoFlujo === 'Laboratorio');
-  private tipoSesionActual = computed<TipoSesionUi>(() =>
-    this.esLaboratorio() ? 'Laboratorio' : this.data.sesion.virtual ? 'TeoriaVirtual' : 'TeoriaPresencial');
-  /** FE17 auditoría: antes listaba data.espacios sin filtrar — permitía mover un laboratorio a
-   *  un salón cualquiera, o una sesión con aula fija de grupo a un aula distinta de la exigida. */
-  espaciosDisponibles = computed(() => {
-    const grupo = this.orig.grupoId ? this.state.grupos().find(g => g.id === this.orig.grupoId) : undefined;
-    return espaciosPermitidosPara(this.tipoSesionActual(), grupo, this.data.espacios);
-  });
-  hayCambioDocente = computed(() => this.docenteId() !== (this.orig.docenteId ?? ''));
-  /** Petición 13: mover día/hora/espacio ya no es una mutación local — pasa por /reacomodar. */
-  hayCambioSlot = computed(() =>
-    this.dia() !== this.orig.dia || this.horaInicio() !== this.orig.horaInicio || this.espacioId() !== (this.orig.espacioId ?? ''));
-  hayCambios = computed(() => this.hayCambioDocente() || this.hayCambioSlot());
-
-  readonly horasDisponibles = HORAS_GRILLA;
-  readonly diasOpciones = DIAS_GRILLA;
-
-  validaciones = computed<Check[]>(() => {
-    const dia = this.dia(), inicio = this.horaInicio(), espacioId = this.espacioId(), docenteId = this.docenteId();
-    const semanaActual = this.semana;
-    const sesionId = this.data.sesion.id, dur = this.data.sesion.duracionHoras ?? 2;
-    const chks: Check[] = [];
-    if (!dia || !inicio) return chks;
-    const startIdx = this.horasDisponibles.indexOf(inicio), endIdx = startIdx + Math.round(dur);
-    // FE16 auditoría: antes solo se acotaba el sábado — un fin de jornada fuera de rango en L-V
-    // pasaba sin aviso y horaFinNueva caía a "?? inicio" (un "fin = inicio" silencioso).
-    if (!finDeJornadaOk(dia, endIdx, this.horasDisponibles)) {
-      chks.push({ ok: false, texto: dia === 'sabado' ? `Sábado solo tiene jornada hasta las ${hhmm(HORA_CIERRE_SABADO)}` : 'La sesión no cabe en la jornada de ese día.' });
-    }
-    const horaFinNueva = this.horasDisponibles[endIdx] ?? inicio;
-    const sesion1 = () => describirSesionConflicto(
-      { asignaturaId: this.orig.asignaturaId, grupoId: this.orig.grupoId, dia, horaInicio: inicio, horaFin: horaFinNueva },
-      this.data.asignaturas, this.state.grupos());
-    const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.state.grupos());
-
-    if (espacioId && !this.data.sesion.virtual) {
-      const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.espacioId === espacioId && s.dia === dia && !s.virtual && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
-      const nombre = this.data.espacios.find(e => e.id === espacioId)?.nombre ?? espacioId;
-      const texto = conflicto
-        ? `${nombre} ya está ocupado en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflicto)}. ` +
-          'Elija otro espacio o cambie el horario de una de las dos sesiones.'
-        : `${nombre} está libre`;
-      chks.push({ ok: !conflicto, texto });
-    }
-    if (docenteId && this.cambiaDocenteOFranja()) {
-      const conflicto = this.data.sesiones.find(s => s.id !== sesionId && s.docenteId === docenteId && s.dia === dia && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
-      const nombre = this.data.docentes.find(d => d.id === docenteId)?.nombre ?? 'El docente';
-      const texto = conflicto
-        ? `${nombre} ya tiene otra sesión en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflicto)}. ` +
-          'Elija otro docente o cambie el horario de una de las dos sesiones.'
-        : `${nombre} está libre en esa franja`;
-      chks.push({ ok: !conflicto, texto });
-    }
-    return chks;
-  });
-
-  /** Un choque de docente que introduce ESTA edición (cambia el docente o la franja) bloquea en
-   *  validaciones(), igual que el 409 de asignar docente y /reacomodar. El que la sesión ya traía de
-   *  la generación (CR-08) solo se avisa: bloquearlo impedía hasta cambiarle el aula. */
-  private cambiaDocenteOFranja = computed(() =>
-    this.hayCambioDocente() || this.dia() !== this.orig.dia || this.horaInicio() !== this.orig.horaInicio);
-
-  /** Avisos del docente con los valores editados — ver avisosDocentePorSesion. */
-  avisosDocente = computed<string[]>(() => {
-    const inicio = this.horaInicio();
-    const editada: Sesion = {
-      ...this.data.sesion, esContraparteVirtual: false, docenteId: this.docenteId() || undefined, dia: this.dia(),
-      horaInicio: inicio, horaFin: hhmm(parseInt(inicio, 10) + Math.round(this.data.sesion.duracionHoras ?? 2)),
-    };
-    const av = avisosDocentePorSesion([...this.data.sesiones.filter(s => s.id !== editada.id), editada],
-      this.data.docentes, this.data.asignaturas, this.state.grupos()).get(editada.id);
-    return [...(this.cambiaDocenteOFranja() ? [] : av?.choques ?? []), ...(av?.fueraDeDisponibilidad ? [av.fueraDeDisponibilidad] : [])];
-  });
-
-  conflictosDuros = computed(() => this.validaciones().some(c => !c.ok));
-  puedeGuardar = computed(() => this.hayCambios() && !this.conflictosDuros() && !this.guardando());
-
-  guardar() {
-    if (!this.puedeGuardar()) return;
-    this.guardando.set(true); this.errorServidor.set(''); this.advertencias.set([]);
-    if (this.hayCambioDocente()) {
-      this.persistencia.asignarDocente(this.data.sesion.id, this.docenteId() || null).subscribe({
-        next: (resp) => {
-          this.advertencias.set(resp.advertencias ?? []);
-          // FE4 auditoría: el PATCH de docente ya quedó comprometido en el backend en este punto.
-          // Antes, si el reacomodo que sigue fallaba, el store seguía mostrando el docente viejo
-          // — divergía de lo que ya había en BD sin que nada lo avisara. Se refleja de inmediato.
-          this.state.updateSesion({ ...this.data.sesion, docenteId: this.docenteId() || undefined });
-          this.continuar();
-        },
-        error: (err: any) => {
-          this.guardando.set(false);
-          const msg = mensajeErrorHttp(err);
-          this.errorServidor.set(err?.status === 409 ? `Cruce de horario: ${msg}` : msg);
-        }
-      });
-    } else { this.continuar(); }
-  }
-
-  private continuar() {
-    if (this.hayCambioSlot()) this.reacomodar();
-    else this.commitLocal();
-  }
-
-  /** Petición 13: mover día/hora/espacio ya no muta memoria — pasa por /reacomodar y refresca
-   * el StateService completo desde la respuesta (puede haber liberado y reubicado otras sesiones). */
-  private reacomodar() {
-    const horarioId = this.state.horarioId();
-    if (!horarioId) {
-      this.guardando.set(false);
-      this.errorServidor.set('Primero genere el horario para poder mover clases.');
-      return;
-    }
-    this.horarioApi.reacomodar({
-      horarioId,
-      sesionEditadaId: this.data.sesion.id,
-      dia: this.dia(),
-      horaInicio: this.horaInicio(),
-      espacioId: this.espacioId() || undefined
-    }).subscribe({
-      next: (resp) => {
-        if (!resp.esFactible) {
-          this.guardando.set(false);
-          this.errorServidor.set(resp.mensajeError || 'No se pudo mover la clase a ese horario.');
-          return;
-        }
-        this.state.setSesiones(this.horarioApi.mapearSesiones(resp.sesiones));
-        const avisos = [...this.advertencias(), ...resp.advertencias];
-        this.guardando.set(false);
-        this.dialogRef.close({ advertencias: avisos } satisfies EditarSesionResult);
-      },
-      error: (err: any) => {
-        this.guardando.set(false);
-        // ERR3 auditoría: manejarError() de HorarioApiService reenvía el body 422 (esFactible:false)
-        // TAL CUAL (no anidado bajo `.error`) — err.mensajeError se comprueba antes por eso;
-        // mensajeErrorHttp cubre el resto de formas (ProblemDetails, { error }, Error de red).
-        this.errorServidor.set(err?.mensajeError ?? mensajeErrorHttp(err));
-      }
-    });
-  }
-
-  /** Solo el docente: ya quedó persistido por PATCH, esto refleja el resultado en el StateService. */
-  private commitLocal() {
-    const updated: Sesion = { ...this.data.sesion, docenteId: this.docenteId() || undefined };
-    // Si sólo hubo aviso blando, se dejó ver 1.2s antes de cerrar.
-    if (this.advertencias().length) { setTimeout(() => { this.guardando.set(false); this.dialogRef.close({ sesion: updated, advertencias: this.advertencias() }); }, 1200); }
-    else { this.guardando.set(false); this.dialogRef.close({ sesion: updated, advertencias: [] }); }
-  }
-
-  cancelar() { this.dialogRef.close(); }
-  // FE5 auditoría: overlaps/nuncaCoexiste vivían duplicados aquí y en CrearSesionDialogComponent
-  // — ahora son las funciones de módulo seSolapanHorarios/nuncaCoexisteEnSemana, usadas por
-  // validaciones() arriba. addH/diffH quedaban sin uso salvo ese overlaps().
-}
-
-// ═══ Diálogo: Crear sesión manual (REQUISITOS §2) ═══
-/** `modoFija`: la sesión va a un horario base (se devuelve a quien abrió el diálogo) en vez de crearse en el servidor.
- *  `modoBorrador`: igual, pero va al borrador; los choques avisan en vez de bloquear y el docente se puede cambiar. */
-interface DialogData { asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[]; grupos: Grupo[]; sesiones: Sesion[]; programaById: Map<string, { id: string; nombre: string }>; modoFija?: boolean; modoBorrador?: boolean; }
-
-@Component({
-  selector: 'app-crear-sesion-dialog',
-  standalone: true,
-  imports: [CommonModule, FormsModule, MatDialogModule, MatSnackBarModule, SearchableSelectComponent],
-  template: `
-    <div class="pophd">{{ modoFija ? 'Fijar clase antes de generar' : modoBorrador ? 'Agregar clase al borrador' : 'Agregar clase' }} <button type="button" class="pop-close" (click)="cancelar()" aria-label="Cerrar">✕</button></div>
-    <div class="popbd" style="max-height:80vh;overflow:auto">
-      <div class="dfield"><label>Asignatura <span class="rq">*</span></label>
-        <app-searchable-select [(ngModel)]="asignaturaId" (ngModelChange)="onAsignaturaChange($event)"
-                                [options]="asignaturaOptions" placeholder="— Seleccione —"></app-searchable-select>
-      </div>
-
-      @if (asignaturaSeleccionada()) {
-        <div class="dfield"><label>Grupo <span class="rq">*</span></label>
-          <app-searchable-select [(ngModel)]="grupoId" (ngModelChange)="onGrupoChange()"
-                                  [options]="grupoOptions()" placeholder="— Seleccione grupo —"></app-searchable-select>
-        </div>
-        <div class="dfield"><label>Tipo de sesión <span class="rq">*</span></label>
-          <div class="seg" style="flex-wrap:wrap">
-            @for (t of tiposDisponibles(); track t.tipo) { <label class="seg-opt" [class.on]="tipoSesion() === t.tipo" (click)="setTipoSesion(t.tipo)">{{ t.label }}</label> }
-          </div>
-        </div>
-        @if (modoBorrador) {
-          <div class="dfield"><label>Docente</label>
-            <app-searchable-select [ngModel]="docenteActual()" (ngModelChange)="docenteElegido = $event; recheck()"
-                                    [options]="docenteOptions" placeholder="— Sin docente —"></app-searchable-select>
-          </div>
-          <div class="text-muted" style="font-size:12px">⏱ {{ duracionSeleccionada() }}h por sesión (fijo)</div>
-        } @else {
-          <div class="text-muted" style="font-size:12px">👤 {{ docenteDelGrupo() }} · ⏱ {{ duracionSeleccionada() }}h por sesión (fijo)</div>
-        }
-      }
-
-      <div class="dfield"><label>Día <span class="rq">*</span></label>
-        <select class="input" [(ngModel)]="dia" (ngModelChange)="recheck()">
-          <option value="">— Seleccione —</option>
-          @for (d of dias; track d.valor) { <option [value]="d.valor">{{ d.etiqueta }}</option> }
-        </select>
-      </div>
-      <div style="display:flex;gap:8px">
-        <div class="dfield" style="flex:1"><label>Inicio <span class="rq">*</span></label>
-          <select class="input" [(ngModel)]="horaInicio" (ngModelChange)="recheck()">
-            <option value="">—</option>
-            @for (h of horasDisponibles; track h) { <option [value]="h">{{ h }}</option> }
-          </select>
-        </div>
-        <div class="dfield" style="flex:1"><label>Espacio {{ tipoSesion() === 'TeoriaVirtual' ? '(virtual)' : '' }}</label>
-          @if (tipoSesion() === 'TeoriaVirtual') { <div class="selval text-muted">Sin espacio físico</div> }
-          @else {
-            <app-searchable-select [(ngModel)]="espacioId" (ngModelChange)="recheck()" [disabled]="espacioFijoBloqueado()"
-                                    [options]="espacioOptions()" placeholder="— Seleccione —"></app-searchable-select>
-          }
-        </div>
-      </div>
-
-      @if (tipoSesion() === 'Laboratorio') {
-        <div class="dfield"><label>Alternancia <span class="rq">*</span></label>
-          <div class="seg" style="flex-wrap:wrap">
-            <label class="seg-opt" [class.on]="alternancia==='TipoA'" (click)="alternancia='TipoA'; recheck()">TipoA</label>
-            <label class="seg-opt" [class.on]="alternancia==='TipoB'" (click)="alternancia='TipoB'; recheck()">Semana B</label>
-            <label class="seg-opt" [class.on]="alternancia==='SinAlternancia'" (click)="alternancia='SinAlternancia'; recheck()">Todas las semanas</label>
-          </div>
-        </div>
-      }
-
-      @if (asignaturaId && dia && horaInicio && (espacioId || tipoSesion() === 'TeoriaVirtual')) {
-        <!-- En el borrador un choque no bloquea: se avisa y la clase se puede agregar igual. -->
-        @for (c of checks(); track c.texto) { <div [class]="c.ok ? 'okb' : modoBorrador ? 'soft' : 'errb'">{{ c.ok ? '✓' : modoBorrador ? '⚠' : '✕' }} {{ c.texto }}</div> }
-        @for (w of avisos(); track w) { <div class="soft"><b>⚠ Aviso (no bloquea):</b> {{ w }}</div> }
-      }
-      @if (errorServidor()) { <div class="errb"><b>✕ {{ errorServidor() }}</b></div> }
-      @if (modoFija) {
-        <p class="text-muted" style="font-size:11.5px;margin:0;border-top:1px dashed var(--color-neutral-300);padding-top:8px">Esta clase quedará fija; al generar, el resto del horario se acomoda alrededor.</p>
-      }
-
-      <div class="popfoot">
-        <button class="btn btn-secondary" (click)="cancelar()" [disabled]="guardando()">Cancelar</button>
-        <button class="btn btn-primary" [disabled]="!puedeCrear() || guardando()" (click)="crear()">{{ guardando() ? 'Creando…' : modoFija ? 'Fijar sesión' : modoBorrador ? 'Agregar al borrador' : 'Crear' }}</button>
-      </div>
-    </div>
-  `
-})
-export class CrearSesionDialogComponent {
-  private dialogRef = inject(MatDialogRef<CrearSesionDialogComponent>);
-  private data: DialogData = inject(MAT_DIALOG_DATA);
-  private persistencia = inject(PersistenciaService);
-  private state = inject(StateService);
-  readonly modoFija = !!this.data.modoFija;
-  readonly modoBorrador = !!this.data.modoBorrador;
-  /** Solo en el borrador: docente elegido a mano. null = el del grupo; '' = sin docente. */
-  docenteElegido: string | null = null;
-  readonly docenteOptions: SearchableOption[] = [{ value: '', label: 'Sin docente' },
-    ...[...this.data.docentes].sort(porNombre).map(d => ({ value: d.id, label: d.nombre }))];
-  docenteActual(): string { return this.docenteElegido ?? this.docenteIdDelGrupo(); }
-
-  asignaturaId = ''; dia = ''; horaInicio = ''; espacioId = '';
-  alternancia: 'TipoA' | 'TipoB' | 'SinAlternancia' = 'SinAlternancia';
-  guardando = signal(false); errorServidor = signal('');
-
-  readonly dias = DIAS_GRILLA;
-  readonly horasDisponibles = HORAS_GRILLA;
-
-  asignaturaSeleccionada = signal<Asignatura | undefined>(undefined);
-  tipoSesion = signal<TipoSesionUi>('Laboratorio');
-  espacioFijoBloqueado = signal(false);
-  checks = signal<Check[]>([]);
-  checksOk = signal(false);
-  /** Disponibilidad del docente del grupo (no bloquea) — ver avisosDocentePorSesion. El choque de
-   *  docente no va aquí: una clase nueva que lo provoca ya se bloquea en checks. */
-  avisos = signal<string[]>([]);
-
-  // item 9: lista plana buscable (sin optgroup por programa) — el programa va como "sub".
-  readonly asignaturaOptions: SearchableOption[] = this.data.asignaturas
-    .map(a => ({
-      value: a.id,
-      label: a.nombre + (a.codigo ? ` (${a.codigo})` : ''),
-      sub: this.data.programaById.get(a.programaId)?.nombre
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label));
-
-  espacioOptions = computed<SearchableOption[]>(() =>
-    this.espaciosDisponibles().map(e => ({ value: e.id, label: e.nombre })));
-
-  // Fase 2: el docente se deriva del GRUPO (la misma asignatura la dictan docentes distintos).
-  grupoId = '';
-  grupoIdSel = signal('');
-  grupoOptions = computed<SearchableOption[]>(() => {
-    const asigId = this.asignaturaSeleccionada()?.id;
-    if (!asigId) return [];
-    return this.data.grupos.filter(g => g.asignaturaId === asigId)
-      .map(g => ({ value: g.id, label: g.nombre, sub: g.docenteId ? this.nombreDocente(g.docenteId) : 'sin docente' }));
-  });
-  private docenteIdDelGrupo(): string {
-    return this.data.grupos.find(g => g.id === this.grupoIdSel())?.docenteId ?? '';
-  }
-  docenteDelGrupo(): string {
-    const id = this.docenteIdDelGrupo();
-    return id ? this.nombreDocente(id) : '— sin docente en el grupo —';
-  }
-  onGrupoChange() { this.grupoIdSel.set(this.grupoId); this.espacioId = ''; this.docenteElegido = null; this.recheck(); }
-
-  tiposDisponibles = computed<{ tipo: TipoSesionUi; label: string }[]>(() => {
-    const a = this.asignaturaSeleccionada();
-    if (!a) return [];
-    const list: { tipo: TipoSesionUi; label: string }[] = [];
-    if (a.sesionesTeoriaPresencialSemana > 0) list.push({ tipo: 'TeoriaPresencial', label: 'Teoría presencial' });
-    if (a.sesionesTeoriaVirtualSemana > 0) list.push({ tipo: 'TeoriaVirtual', label: 'Teoría virtual' });
-    if (a.sesionesLaboratorioSemana > 0) list.push({ tipo: 'Laboratorio', label: 'Laboratorio' });
-    return list;
-  });
-
-  duracionSeleccionada = computed(() => {
-    const a = this.asignaturaSeleccionada();
-    if (!a) return 2;
-    switch (this.tipoSesion()) { case 'TeoriaVirtual': return a.horasTeoriaVirtual; case 'Laboratorio': return a.horasLaboratorio; default: return a.horasTeoriaPresencial; }
-  });
-
-  // FE17: espejo (cliente) de CalculadorEspaciosSesion.Candidatos — ahora la función de módulo
-  // compartida espaciosPermitidosPara, también usada por EditarSesionDialogComponent.
-  espaciosDisponibles = computed(() =>
-    espaciosPermitidosPara(this.tipoSesion(), this.data.grupos.find(g => g.id === this.grupoIdSel()), this.data.espacios));
-
-  /** Método, no computed(): lee campos planos (asignaturaId, dia…). Como computed, su primera evaluación
-   *  cortaba en `!!this.asignaturaId` sin leer ningún signal, quedaba sin dependencias y congelado en
-   *  false — el botón Crear/Fijar nunca se habilitaba. */
-  puedeCrear(): boolean {
-    return !!this.asignaturaId && !!this.grupoIdSel() && !!this.dia && !!this.horaInicio && (!!this.espacioId || this.tipoSesion() === 'TeoriaVirtual') && this.checksOk() && !this.guardando();
-  }
-
-  onAsignaturaChange(id: string) {
-    const a = this.data.asignaturas.find(x => x.id === id);
-    this.asignaturaSeleccionada.set(a);
-    // Reiniciar el grupo: sus opciones dependen de la asignatura elegida.
-    this.grupoId = ''; this.grupoIdSel.set('');
-    this.tipoSesion.set(a && a.sesionesTeoriaPresencialSemana > 0 ? 'TeoriaPresencial' : a && a.sesionesLaboratorioSemana > 0 ? 'Laboratorio' : a && a.sesionesTeoriaVirtualSemana > 0 ? 'TeoriaVirtual' : 'TeoriaPresencial');
-    this.aplicarReglasTipo(); this.recheck();
-  }
-  setTipoSesion(tipo: TipoSesionUi) { this.tipoSesion.set(tipo); this.aplicarReglasTipo(); this.recheck(); }
-
-  private aplicarReglasTipo() {
-    const a = this.asignaturaSeleccionada(), tipo = this.tipoSesion();
-    if (tipo === 'Laboratorio' && a?.alternancia && a.alternancia !== 'SinAlternancia') this.alternancia = a.alternancia as 'TipoA' | 'TipoB';
-    else this.alternancia = 'SinAlternancia';
-    this.espacioFijoBloqueado.set(false);
-    if (tipo === 'TeoriaVirtual') this.espacioId = '';
-  }
-
-  recheck() {
-    const a = this.asignaturaSeleccionada(), dur = this.duracionSeleccionada(), esVirtual = this.tipoSesion() === 'TeoriaVirtual';
-    const chks: Check[] = []; let ok = true;
-    if (!a || !this.dia || !this.horaInicio || (!this.espacioId && !esVirtual)) { this.checks.set([]); this.checksOk.set(false); this.avisos.set([]); return; }
-    const startIdx = this.horasDisponibles.indexOf(this.horaInicio), endIdx = startIdx + dur;
-    // FE16 auditoría: antes solo se acotaba el sábado — ver mismo fix en EditarSesionDialogComponent.
-    if (!finDeJornadaOk(this.dia, endIdx, this.horasDisponibles)) {
-      chks.push({ ok: false, texto: this.dia === 'sabado' ? `Sábado solo tiene jornada hasta las ${hhmm(HORA_CIERRE_SABADO)}` : 'La sesión no cabe en la jornada de ese día.' });
-      ok = false;
-    }
-    const horaFinNueva = this.horasDisponibles[endIdx] ?? this.horaInicio;
-    const sesion1 = () => describirSesionConflicto(
-      { asignaturaId: this.asignaturaId, grupoId: this.grupoIdSel(), dia: this.dia, horaInicio: this.horaInicio, horaFin: horaFinNueva },
-      this.data.asignaturas, this.data.grupos);
-    const sesion2 = (s: Sesion) => describirSesionConflicto(s, this.data.asignaturas, this.data.grupos);
-    // FE5 auditoría: una sesión nueva TipoA/TipoB comparte semana con su propio par — la exención
-    // de "nunca coexiste" debe considerar la semana que ESTA sesión ocuparía, igual que Editar.
-    const semanaActual: Sesion['semana'] = this.alternancia === 'TipoA' ? 'A' : this.alternancia === 'TipoB' ? 'B' : undefined;
-
-    const docenteId = this.docenteActual();
-    if (docenteId) {
-      const conflictoDocente = this.data.sesiones.find(s => s.docenteId === docenteId && s.dia === this.dia && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
-      if (conflictoDocente) ok = false;
-      const texto = conflictoDocente
-        ? `El docente ya tiene otra sesión en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflictoDocente)}. ` +
-          'Elija otro docente o cambie el horario de una de las dos sesiones.'
-        : 'El docente está libre en esa franja';
-      chks.push({ ok: !conflictoDocente, texto });
-    }
-    if (!esVirtual) {
-      // FE5 auditoría: faltaba la exención de semana que Editar ya tenía — una TipoB nueva en el
-      // mismo bloque/aula que una TipoA existente es válida (nunca comparten semana), pero esto
-      // la bloqueaba igual por mirar solo solape de horario.
-      const conflictoEspacio = this.data.sesiones.find(s => s.espacioId === this.espacioId && s.dia === this.dia && !s.virtual && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
-      if (conflictoEspacio) ok = false;
-      const espNombre = this.data.espacios.find(e => e.id === this.espacioId)?.nombre ?? this.espacioId;
-      const texto = conflictoEspacio
-        ? `${espNombre} ya está ocupado en esa franja — Sesión 1: ${sesion1()}; Sesión 2: ${sesion2(conflictoEspacio)}. ` +
-          'Elija otro espacio o cambie el horario de una de las dos sesiones.'
-        : `${espNombre} está libre en esa franja`;
-      chks.push({ ok: !conflictoEspacio, texto });
-    }
-    // En el borrador un choque solo avisa: con los campos completos siempre se puede agregar.
-    this.checks.set(chks); this.checksOk.set(ok || this.modoBorrador);
-    const nueva: Sesion = {
-      id: '', asignaturaId: a.id, grupoId: this.grupoIdSel(), docenteId: docenteId || undefined, dia: this.dia, horaInicio: this.horaInicio,
-      horaFin: hhmm(parseInt(this.horaInicio, 10) + Math.round(dur)), duracionHoras: dur, virtual: esVirtual, alternancia: this.alternancia,
-    };
-    const fuera = avisosDocentePorSesion([nueva], this.data.docentes, [], []).get('')?.fueraDeDisponibilidad;
-    this.avisos.set(fuera ? [fuera] : []);
-  }
-
-  crear() {
-    if (!this.puedeCrear()) return;
-    const a = this.asignaturaSeleccionada()!, tipo = this.tipoSesion(), duracion = this.duracionSeleccionada();
-    // Grupo sin docente → null: '' no es un Guid y el servidor lo rechazaba con 400.
-    const docenteId = this.docenteActual() || null;
-    const espacioId = tipo === 'TeoriaVirtual' ? null : (this.espacioId || null);
-    if (this.modoFija || this.modoBorrador) {
-      const [hh, mm] = this.horaInicio.split(':').map(Number);
-      const sesion: Sesion = {
-        id: nuevoId(), asignaturaId: a.id, grupoId: this.grupoIdSel(), docenteId: docenteId ?? undefined,
-        dia: this.dia, horaInicio: this.horaInicio, duracionHoras: duracion,
-        horaFin: `${String(hh + duracion).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
-        espacioId: espacioId ?? undefined, virtual: esVirtualDesde(tipo), alternancia: this.alternancia, tipoFlujo: tipoFlujoDesde(tipo),
-        ...(this.modoBorrador ? { deBorrador: true } : {})
-      };
-      this.dialogRef.close([sesion]);
-      return;
-    }
-    // P0-5 auditoría: la sesión se agrega al horario vigente; sin uno generado no hay dónde guardarla.
-    const horarioId = this.state.horarioId();
-    if (!horarioId) { this.errorServidor.set('Genere el horario antes de agregar clases.'); return; }
-    this.guardando.set(true); this.errorServidor.set('');
-    this.persistencia.crearSesionManual({
-      horarioId, asignaturaId: a.id, docenteId, espacioId,
-      // R2 auditoría: el diálogo ya exige elegir grupo (puedeCrear()) — antes se descartaba aquí.
-      grupoId: this.grupoIdSel(),
-      dia: this.dia, horaInicio: this.horaInicio, duracionHoras: duracion, alternancia: this.alternancia,
-      tipoFlujo: tipoFlujoDesde(tipo), esVirtual: esVirtualDesde(tipo)
-    }).subscribe({
-      next: (sesiones: Sesion[]) => { this.guardando.set(false); this.dialogRef.close(sesiones); },
-      error: (err: any) => { this.guardando.set(false); this.errorServidor.set(mensajeErrorHttp(err)); }
-    });
-  }
-
-  cancelar() { this.dialogRef.close(); }
-  // FE5 auditoría: overlaps/diffH vivían duplicados aquí y en EditarSesionDialogComponent — ahora
-  // son las funciones de módulo seSolapanHorarios/diffHorasEntre, usadas por recheck() arriba.
-  nombreDocente(id?: string): string { return this.data.docentes.find(d => d.id === id)?.nombre ?? '—'; }
-}
-
-// ═══ Diálogo de progreso (HF-3 · B — generando) ═══
-// FE15 auditoría: antes mostraba "Fase 1/3 · GraphColoring" → "2/3 · CP-SAT" → "3/3 · Algoritmo
-// genético" avanzando con setTimeout a los 2s y 10s fijos, sin relación con el progreso real del
-// backend (que puede tardar segundos o, en un caso patológico, mucho más — ver PERF1). Le mostraba
-// al coordinador (no técnico) jerga de motor y una barra que mentía sobre cuánto faltaba. Sin
-// progreso real que reportar (el backend no transmite eventos de avance), es más honesto un
-// indicador indeterminado que no finge saber en qué fase va.
-@Component({
-  selector: 'app-progress-dialog',
-  standalone: true,
-  imports: [CommonModule, MatDialogModule],
-  template: `
-    <div class="popbd" style="align-items:center;text-align:center;gap:13px;padding:26px 22px">
-      <div class="spinner"></div>
-      <div class="opt">GENERANDO EL HORARIO…</div>
-      <div class="prog"><i></i></div>
-      <div class="text-muted" style="font-size:12px">Puede tardar hasta 2 min. No cierres la ventana.</div>
-    </div>
-  `,
-  styles: [`
-    :host { display: block; }
-    .spinner { width: 44px; height: 44px; border: 3px solid var(--color-accent-200); border-top-color: var(--color-accent); border-radius: 50%; animation: soea-spin .9s linear infinite; }
-    @keyframes soea-spin { to { transform: rotate(360deg); } }
-    .opt { font: 600 15px var(--font-heading); letter-spacing: .06em; color: var(--color-accent); }
-    .prog { width: 100%; height: 12px; border: 1px solid var(--color-neutral-700); position: relative; overflow: hidden; }
-    .prog > i { position: absolute; inset: 0 auto 0 0; width: 30%; background: var(--color-accent); animation: soea-prog 2.4s ease-in-out infinite; }
-    @keyframes soea-prog { 0% { width: 12%; } 50% { width: 70%; } 100% { width: 92%; } }
-  `]
-})
-export class ProgressDialogComponent {}

@@ -112,10 +112,10 @@ Agent (using this skill):
 ## Integration with SOEA Documentation
 
 This skill references and enforces:
-- [`docs/architecture/SOEA_Estructura_Carpetas.md`](../../docs/architecture/SOEA_Estructura_Carpetas.md) — folder structure
-- [`docs/architecture/module-map.md`](../../docs/architecture/module-map.md) — layer ownership
-- [`docs/business-rules/hard-constraints.md`](../../docs/business-rules/hard-constraints.md) — constraints reference
-- [`docs/requirements/glossary.md`](../../docs/requirements/glossary.md) — domain terms
+- [`docs/architecture.md`](../../../docs/architecture.md) — folder structure
+- [`docs/architecture.md`](../../../docs/architecture.md) — layer ownership
+- [`docs/domain.md`](../../../docs/domain.md) — constraints reference
+- [`docs/domain.md`](../../../docs/domain.md) — domain terms
 
 All decisions are justified against these docs.
 

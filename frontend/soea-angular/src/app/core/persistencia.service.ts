@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { Asignatura, CriterioCesionAlternancia, Docente, Espacio, Facultad, Grupo, Programa, Sesion } from './models';
+import { Asignatura, CriterioCesionAlternancia, DisponibilidadUi, Docente, Espacio, Facultad, Grupo, Programa, RequisitoEspacio, Sesion } from './models';
 import { environment } from '../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
@@ -45,18 +45,18 @@ export class PersistenciaService {
 
   // ── Docentes ───────────────────────────────────────────────────────────────────
 
-  cargarDocentes(): Observable<Docente[]> {
-    return this.http.get<Docente[]>(`${this.base}/docentes`);
+  cargarDocentes(): Observable<DocenteApi[]> {
+    return this.http.get<DocenteApi[]>(`${this.base}/docentes`);
   }
 
-  guardarDocente(d: Docente): Observable<Docente> {
+  guardarDocente(d: Docente): Observable<DocenteApi> {
     const body = { id: d.id, nombre: d.nombre, cedula: d.cedula, maxHoras: d.maxHoras, disponibilidad: d.disponibilidad };
-    return this.http.post<Docente>(`${this.base}/docentes`, body);
+    return this.http.post<DocenteApi>(`${this.base}/docentes`, body);
   }
 
-  actualizarDocente(d: Docente): Observable<Docente> {
+  actualizarDocente(d: Docente): Observable<DocenteApi> {
     const body = { id: d.id, nombre: d.nombre, cedula: d.cedula, maxHoras: d.maxHoras, disponibilidad: d.disponibilidad };
-    return this.http.put<Docente>(`${this.base}/docentes/${d.id}`, body);
+    return this.http.put<DocenteApi>(`${this.base}/docentes/${d.id}`, body);
   }
 
   eliminarDocenteBD(id: string): Observable<void> {
@@ -76,18 +76,18 @@ export class PersistenciaService {
 
   // ── Espacios ───────────────────────────────────────────────────────────────────
 
-  cargarEspacios(): Observable<Espacio[]> {
-    return this.http.get<Espacio[]>(`${this.base}/espacios`);
+  cargarEspacios(): Observable<EspacioApi[]> {
+    return this.http.get<EspacioApi[]>(`${this.base}/espacios`);
   }
 
-  guardarEspacio(e: Espacio): Observable<Espacio> {
+  guardarEspacio(e: Espacio): Observable<EspacioApi> {
     const body = { id: e.id, nombre: e.nombre, tipo: e.tipo, capacidad: e.capacidad, edificio: e.edificio, piso: e.piso };
-    return this.http.post<Espacio>(`${this.base}/espacios`, body);
+    return this.http.post<EspacioApi>(`${this.base}/espacios`, body);
   }
 
-  actualizarEspacio(e: Espacio): Observable<Espacio> {
+  actualizarEspacio(e: Espacio): Observable<EspacioApi> {
     const body = { id: e.id, nombre: e.nombre, tipo: e.tipo, capacidad: e.capacidad, edificio: e.edificio, piso: e.piso };
-    return this.http.put<Espacio>(`${this.base}/espacios/${e.id}`, body);
+    return this.http.put<EspacioApi>(`${this.base}/espacios/${e.id}`, body);
   }
 
   eliminarEspacioBD(id: string): Observable<void> {
@@ -96,12 +96,12 @@ export class PersistenciaService {
 
   // ── Grupos ────────────────────────────────────────────────────────────────────
 
-  cargarGrupos(): Observable<Grupo[]> {
-    return this.http.get<Grupo[]>(`${this.base}/grupos`);
+  cargarGrupos(): Observable<GrupoApi[]> {
+    return this.http.get<GrupoApi[]>(`${this.base}/grupos`);
   }
 
-  guardarGrupo(g: Grupo): Observable<Grupo> {
-    return this.http.post<Grupo>(`${this.base}/grupos`, {
+  guardarGrupo(g: Grupo): Observable<GrupoApi> {
+    return this.http.post<GrupoApi>(`${this.base}/grupos`, {
       id: g.id, asignaturaId: g.asignaturaId, nombre: g.nombre,
       estudiantesInscritos: g.estudiantesInscritos,
       programaId: g.programaId, facultadId: g.facultadId ?? null,
@@ -111,8 +111,8 @@ export class PersistenciaService {
     });
   }
 
-  actualizarGrupo(g: Grupo): Observable<Grupo> {
-    return this.http.put<Grupo>(`${this.base}/grupos/${g.id}`, {
+  actualizarGrupo(g: Grupo): Observable<GrupoApi> {
+    return this.http.put<GrupoApi>(`${this.base}/grupos/${g.id}`, {
       id: g.id, asignaturaId: g.asignaturaId, nombre: g.nombre,
       estudiantesInscritos: g.estudiantesInscritos,
       programaId: g.programaId, facultadId: g.facultadId ?? null,
@@ -128,11 +128,11 @@ export class PersistenciaService {
 
   // ── Asignaturas (usa el AsignaturasController existente) ──────────────────────
 
-  cargarAsignaturas(): Observable<any[]> {
-    return this.http.get<any[]>(`${this.base}/asignaturas`);
+  cargarAsignaturas(): Observable<AsignaturaApi[]> {
+    return this.http.get<AsignaturaApi[]>(`${this.base}/asignaturas`);
   }
 
-  crearAsignatura(a: Asignatura): Observable<any> {
+  crearAsignatura(a: Asignatura): Observable<AsignaturaApi> {
     const body = {
       id: a.id,
       nombre: a.nombre,
@@ -150,10 +150,10 @@ export class PersistenciaService {
       horaInicioMin: a.horaInicioMin ?? null,
       horaFinMax: a.horaFinMax ?? null
     };
-    return this.http.post<any>(`${this.base}/asignaturas`, body);
+    return this.http.post<AsignaturaApi>(`${this.base}/asignaturas`, body);
   }
 
-  actualizarAsignatura(a: Asignatura): Observable<any> {
+  actualizarAsignatura(a: Asignatura): Observable<AsignaturaApi> {
     const body = {
       nombre: a.nombre,
       codigo: a.codigo,
@@ -170,7 +170,7 @@ export class PersistenciaService {
       horaInicioMin: a.horaInicioMin ?? null,
       horaFinMax: a.horaFinMax ?? null
     };
-    return this.http.put<any>(`${this.base}/asignaturas/${a.id}`, body);
+    return this.http.put<AsignaturaApi>(`${this.base}/asignaturas/${a.id}`, body);
   }
 
   actualizarElegibilidadAlternancia(id: string, elegible: boolean): Observable<void> {
@@ -215,7 +215,6 @@ export class PersistenciaService {
     dia: string;
     horaInicio: string;
     duracionHoras: number;
-    alternancia: string;
     tipoFlujo: 'Laboratorio' | 'AulaVirtual';
     esVirtual: boolean;
   }): Observable<Sesion[]> {
@@ -272,4 +271,31 @@ export interface FusionDocentesResultado {
   canonicoId: string;
   docentesEliminados: number;
   gruposReasignados: number;
+}
+// ── Respuestas del API ──────────────────────────────────────────────────────────
+// Forma real de los DTOs del backend: lo opcional llega como null, no como ausente. Los map* de
+// CatalogoService las convierten al modelo del frontend (models.ts).
+
+/** AsignaturaResponse (C#). */
+export interface AsignaturaApi {
+  id: string; nombre: string; codigo: string;
+  sesionesTeoriaPresencialSemana: number; horasTeoriaPresencial: number;
+  sesionesTeoriaVirtualSemana: number; horasTeoriaVirtual: number;
+  sesionesLaboratorioSemana: number; horasLaboratorio: number; sesionesLaboratorioSemestre: number;
+  alternancia: Asignatura['alternancia']; categoria: NonNullable<Asignatura['categoria']>;
+  programaId: string; esCandidataAlternancia: boolean;
+  horaInicioMin: string | null; horaFinMax: string | null;
+}
+
+/** DocenteUiDto (C#). */
+export interface DocenteApi { id: string; nombre: string; cedula: string | null; maxHoras: number; disponibilidad: DisponibilidadUi | null; }
+
+/** EspacioDto (C#). */
+export interface EspacioApi { id: string; nombre: string; tipo: Espacio['tipo']; capacidad: number; edificio: string | null; piso: number | null; }
+
+/** GrupoDto (C#). */
+export interface GrupoApi {
+  id: string; asignaturaId: string | null; programaId: string; facultadId: string | null; docenteId: string | null;
+  nombre: string; codigo: string | null; estudiantesInscritos: number; disponibilidadUiJson: string | null;
+  requisitosEspacio: RequisitoEspacio[];
 }

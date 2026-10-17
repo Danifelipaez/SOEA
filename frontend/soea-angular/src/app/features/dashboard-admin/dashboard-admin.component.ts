@@ -4,7 +4,7 @@ import { StateService } from '../../core/state.service';
 import { HORAS_AULA_SEMANA } from '../../core/jornada';
 import { CatalogoService } from '../../core/catalogo.service';
 import { RouterModule } from '@angular/router';
-import { mensajeInfactibilidadAmigable } from '../horario/horario.component';
+import { mensajeInfactibilidadAmigable } from '../horario/horario.reglas';
 
 /** Paso 4 del journey (HF-4) — KPIs de solo lectura sobre el horario generado. */
 @Component({

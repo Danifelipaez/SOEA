@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators, FormGroup } from '@angular/forms';
 import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { StateService } from '../../../core/state.service';
-import { Grupo, Programa, RequisitoEspacio, TipoSesionUi } from '../../../core/models';
+import { DisponibilidadUi, Grupo, Programa, RequisitoEspacio, TipoSesionUi } from '../../../core/models';
 import { SearchableSelectComponent, SearchableOption } from '../../../shared/searchable-select/searchable-select.component';
 import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/requisitos-espacio.component';
 import { DisponibilidadEditorComponent, errorSeparacionDias, sesionesMismoTipo } from '../../../shared/disponibilidad-editor/disponibilidad-editor.component';
@@ -100,7 +100,7 @@ export class GrupoDialogComponent {
       : (this.data?.asignaturaId ?? '');
 
   form: FormGroup;
-  disponibilidad = signal<Record<string, any>>(
+  disponibilidad = signal<DisponibilidadUi>(
     this.grupo?.disponibilidadUiJson ? this.parseDisponibilidad(this.grupo.disponibilidadUiJson) : {});
 
   programasFiltrados = signal<Programa[]>([]);
@@ -181,7 +181,7 @@ export class GrupoDialogComponent {
     }
   }
 
-  private parseDisponibilidad(json: string): Record<string, any> {
+  private parseDisponibilidad(json: string): DisponibilidadUi {
     try { return JSON.parse(json); } catch { return {}; }
   }
 

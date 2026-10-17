@@ -1,3 +1,4 @@
+using SOEA.Domain.Entities;
 using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
 
@@ -25,6 +26,27 @@ public class ProgramaService
         var otro = await _repo.GetByNombreYFacultadAsync((nombre ?? "").Trim(), facultadId);
         if (otro is not null && otro.Id != id)
             throw new BusinessRuleViolationException($"Ya existe un programa llamado '{otro.Nombre}' en esa facultad.");
+    }
+
+    public async Task<List<Programa>> ListarAsync() => (await _repo.GetAllAsync()).OrderBy(p => p.Nombre).ToList();
+
+    public async Task<Programa> CrearAsync(Guid id, string nombre, Guid facultadId)
+    {
+        if (id == Guid.Empty) id = Guid.NewGuid();
+        await ExigirNombreUnicoAsync(nombre, facultadId, id);
+        var programa = new Programa(id, nombre, facultadId);
+        await _repo.AddAsync(programa);
+        return programa;
+    }
+
+    public async Task<Programa> ActualizarAsync(Guid id, string nombre, Guid facultadId)
+    {
+        var existing = await _repo.GetByIdAsync(id)
+            ?? throw new KeyNotFoundException($"Programa con ID {id} no encontrado.");
+        await ExigirNombreUnicoAsync(nombre, facultadId, id);
+        existing.ActualizarDatos(nombre, facultadId);
+        await _repo.UpdateAsync(existing);
+        return existing;
     }
 
     public async Task DeleteAsync(Guid id)
