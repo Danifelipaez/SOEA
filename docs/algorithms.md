@@ -22,7 +22,7 @@ POST /api/horario/generar  (catálogo enviado por el frontend + semestre + confi
 
 - Plazo total: 200 s (`PlazoTotalPorDefecto`). Si vence antes de Fase 2 → 422 `Timeout`; si vence en Fase 3 → se publica la solución de Fase 2.
 - Una generación a la vez (429 si hay otra en curso). Parámetros del GA validados por rango (400).
-- Infactible → 422 con `motivoInfactibilidad` ∈ {`Espacio`, `Capacidad`, `VentanaHoraria`, `FranjaGrupo`, `Datos`, `Timeout`, `Otro`} y un mensaje que nombra lo que no cupo.
+- Infactible → 422 con `motivoInfactibilidad` ∈ {`Espacio`, `Capacidad`, `VentanaHoraria`, `FranjaGrupo`, `Datos`, `Timeout`, `Otro`} y un mensaje que nombra lo que no cupo. Con `FranjaGrupo` (pre-check HC-G01: la suma de horas del grupo supera su disponibilidad, o una clase no cabe en ningún día), `gruposEnConflicto` trae los grupos y la UI los nombra con su programa; el catálogo marca esos mismos grupos en "Con datos incompletos" antes de generar (`gruposQueNoCaben`, espejo del pre-check).
 
 ## Fase 1 — Coloración (Welsh-Powell)
 

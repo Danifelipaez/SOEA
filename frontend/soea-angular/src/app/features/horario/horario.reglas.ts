@@ -167,6 +167,34 @@ export function ventanaDelDia(d: { noDisponible?: boolean; tipo?: string; franja
   return { desde: HORA_APERTURA * 60, hasta: HORA_CIERRE * 60 };
 }
 
+/**
+ * Grupos cuyas clases semanales no caben en su disponibilidad declarada, por id de grupo → motivo.
+ * Espejo de los dos pre-checks HC-G01 de MotorConstraintProgramming (motivo FranjaGrupo): la suma de
+ * horas supera las horas declaradas, o una clase dura más que la ventana más larga de un día.
+ * Bloques de 1 h dentro de la jornada, como la grilla institucional; un día sin entrada está cerrado.
+ */
+export function gruposQueNoCaben(grupos: Grupo[], asignaturaById: ReadonlyMap<string, Asignatura>): Map<string, string> {
+  const res = new Map<string, string>();
+  for (const g of grupos) {
+    const disp = disponibilidadDe(g), a = asignaturaById.get(g.asignaturaId);
+    if (!disp || !a) continue;
+    const horasPorDia = DIAS_GRILLA.map(d => {
+      const v = disp[d.valor] ? ventanaDelDia(disp[d.valor]) : null;
+      let n = 0;
+      for (let h = HORA_APERTURA; v && h < cierreDe(d.valor); h++) if (h * 60 >= v.desde && (h + 1) * 60 <= v.hasta) n++;
+      return n;
+    });
+    const duraciones = ([[a.sesionesTeoriaPresencialSemana, a.horasTeoriaPresencial], [a.sesionesTeoriaVirtualSemana, a.horasTeoriaVirtual],
+      [a.sesionesLaboratorioSemana, a.horasLaboratorio]] as const)
+      .flatMap(([n, h]) => Array<number>(Math.max(0, n || 0)).fill(Math.max(1, Math.ceil(h || 0))));
+    const requeridas = duraciones.reduce((x, y) => x + y, 0), permitidas = horasPorDia.reduce((x, y) => x + y, 0);
+    const masLarga = Math.max(0, ...duraciones), mejorDia = Math.max(...horasPorDia);
+    if (requeridas > permitidas) res.set(g.id, `necesita ${requeridas} h de clase a la semana y su disponibilidad solo permite ${permitidas} h`);
+    else if (masLarga > mejorDia) res.set(g.id, `tiene una clase de ${masLarga} h y ningún día de su disponibilidad tiene ${masLarga} h seguidas (máximo ${mejorDia} h)`);
+  }
+  return res;
+}
+
 /** conIds: ids de las sesiones con las que choca (mismo orden que choques) — permite listar cada
  *  par una sola vez en el resumen sin perder el aviso en ninguna de las dos sesiones. */
 export interface AvisosDocente { choques: string[]; conIds: string[]; fueraDeDisponibilidad?: string; }
@@ -177,14 +205,20 @@ export interface AvisosDocente { choques: string[]; conIds: string[]; fueraDeDis
  * nulo/vacío/{} = sin restricción; si declara algún día, un día ausente cuenta como cerrado.
  * El motor ya lo respeta al generar; esto avisa de horarios guardados con datos/reglas anteriores.
  */
+/** Disponibilidad declarada del grupo, o null si no restringe (JSON nulo, vacío, {} o ilegible, igual que el backend). */
+function disponibilidadDe(g: Grupo): DisponibilidadUi | null {
+  try {
+    const obj = g.disponibilidadUiJson ? JSON.parse(g.disponibilidadUiJson) : null;
+    return obj && typeof obj === 'object' && Object.keys(obj).length > 0 ? obj : null;
+  } catch { return null; }
+}
+
 export function fueraDisponibilidadGrupo(sesiones: Sesion[], grupos: Grupo[]): Map<string, string> {
   const fuera = new Map<string, string>();
   const dispPorGrupo = new Map<string, DisponibilidadUi>();
   for (const g of grupos) {
-    try {
-      const obj = g.disponibilidadUiJson ? JSON.parse(g.disponibilidadUiJson) : null;
-      if (obj && typeof obj === 'object' && Object.keys(obj).length > 0) dispPorGrupo.set(g.id, obj);
-    } catch { /* ilegible = sin restricción, igual que el backend */ }
+    const disp = disponibilidadDe(g);
+    if (disp) dispPorGrupo.set(g.id, disp);
   }
   for (const s of sesiones) {
     if (s.esContraparteVirtual || !s.grupoId) continue;
@@ -390,9 +424,24 @@ export function mensajeInfactibilidadAmigable(
   grupos: Grupo[],
   totalAsignaturas: number,
   totalEspacios: number,
-  /** Solo para motivo Capacidad: catálogo con el que nombrar asignatura, programa y espacio. */
+  /** Motivos Capacidad y FranjaGrupo: catálogo con el que nombrar asignatura, programa y espacio. */
   capacidad?: { espacioLimitanteId?: string; espacios: Espacio[]; asignaturas: Asignatura[]; programaById: Map<string, { nombre: string }> }
 ): string {
+  if (motivo === 'FranjaGrupo') {
+    const conflicto = grupos.filter(g => gruposEnConflictoIds?.includes(g.id));
+    if (conflicto.length > 0) {
+      const asigById = new Map((capacidad?.asignaturas ?? []).map(a => [a.id, a]));
+      const motivos = gruposQueNoCaben(conflicto, asigById);
+      // El import repite "QUIMICA GENERAL - Grupo 1" en varios programas: sin el programa no se sabe cuál abrir.
+      const lista = conflicto.map(g => {
+        const prog = capacidad?.programaById.get(asigById.get(g.asignaturaId)?.programaId ?? g.programaId)?.nombre;
+        const m = motivos.get(g.id);
+        return `${g.nombre}${prog ? ` (${prog})` : ''}${m ? `: ${m}` : ''}`;
+      });
+      return `Estos grupos tienen más horas de clase de las que caben en su disponibilidad declarada — ${lista.join('; ')}. ` +
+        'Amplíe su disponibilidad en el catálogo o ajuste las sesiones de la asignatura.';
+    }
+  }
   if (motivo === 'Capacidad') {
     const g = grupos.find(x => x.id === gruposEnConflictoIds?.[0]);
     const e = capacidad?.espacios.find(x => x.id === capacidad.espacioLimitanteId);

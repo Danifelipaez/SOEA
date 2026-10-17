@@ -35,11 +35,14 @@ namespace SOEA.Tests.Engine.ConstraintProg
                     new TimeOnly(7 + i, 0), new TimeOnly(8 + i, 0)))
                 .ToList();
 
-        private static Grupo GrupoConVentana(string dia, string desde, string hasta)
+        private static Grupo GrupoConVentana(string dia, string desde, string hasta) =>
+            GrupoConVentanas((dia, desde, hasta));
+
+        private static Grupo GrupoConVentanas(params (string dia, string desde, string hasta)[] ventanas)
         {
             var grupo = new Grupo(Guid.NewGuid(), $"Grupo-{Guid.NewGuid():N}".Substring(0, 12), Guid.NewGuid(), 20);
-            grupo.ActualizarDisponibilidadUi(
-                $"{{\"{dia}\":{{\"noDisponible\":false,\"tipo\":\"Franja específica\",\"desde\":\"{desde}\",\"hasta\":\"{hasta}\"}}}}");
+            grupo.ActualizarDisponibilidadUi("{" + string.Join(",", ventanas.Select(v =>
+                $"\"{v.dia}\":{{\"noDisponible\":false,\"tipo\":\"Franja específica\",\"desde\":\"{v.desde}\",\"hasta\":\"{v.hasta}\"}}")) + "}");
             return grupo;
         }
 
@@ -59,6 +62,8 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.Equal(MotivoInfactibilidad.FranjaGrupo, resultado.Motivo);
             Assert.Contains(grupo.Nombre, resultado.MensajeError);
             Assert.Contains("3 bloque", resultado.MensajeError);
+            // La UI nombra el grupo (con su programa) a partir de estos ids.
+            Assert.Equal(new[] { grupo.Id }, resultado.GruposResponsablesIds);
         }
 
         [Fact]
@@ -78,6 +83,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.Equal(MotivoInfactibilidad.FranjaGrupo, resultado.Motivo);
             Assert.Contains(grupoA.Nombre, resultado.MensajeError);
             Assert.Contains(grupoB.Nombre, resultado.MensajeError);
+            Assert.Equal(new[] { grupoA.Id, grupoB.Id }.OrderBy(x => x), resultado.GruposResponsablesIds!.OrderBy(x => x));
         }
 
         [Fact]
@@ -151,6 +157,23 @@ namespace SOEA.Tests.Engine.ConstraintProg
 
         // Confirma que el chequeo agregado nuevo es no-op para runs sin ningún Grupo —
         // bloquesPermitidosPorGrupo queda vacío y el nuevo loop no encuentra nada que agrupar.
+        [Fact]
+        public async Task SesionMasLargaQueSuVentana_NombraElGrupo()
+        {
+            var bloques = CrearBloquesLunesYMartes();
+            // Suma OK (2 bloques declarados, 2 requeridos) pero una sesión de 2h no cabe en ningún
+            // día: el lunes y el martes solo abren 1h cada uno.
+            var grupo = GrupoConVentanas(("lunes", "07:00", "08:00"), ("martes", "07:00", "08:00"));
+            var sesiones = new List<Sesion> { CrearSesion(grupo.Id, 2m) };
+
+            var resultado = await Motor.ResolverFactibilidadAsync(
+                sesiones, bloques, Enumerable.Empty<Espacio>(), new[] { grupo });
+
+            Assert.False(resultado.EsFactible);
+            Assert.Equal(MotivoInfactibilidad.FranjaGrupo, resultado.Motivo);
+            Assert.Equal(new[] { grupo.Id }, resultado.GruposResponsablesIds);
+        }
+
         [Fact]
         public async Task SinGrupos_NoInterfiereConElCatchAllExistente()
         {

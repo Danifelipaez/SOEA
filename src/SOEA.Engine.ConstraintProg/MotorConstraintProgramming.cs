@@ -263,7 +263,8 @@ namespace SOEA.Engine.ConstraintProg
                 var msg = $"Disponibilidad insuficiente: {detalle}. Amplíe la disponibilidad declarada de ese/esos grupo(s) " +
                           "o reduzca/redistribuya sus sesiones semanales.";
                 _logger.LogError(msg);
-                return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.FranjaGrupo);
+                return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.FranjaGrupo,
+                    GruposResponsablesIds: gruposSobrecargados.Select(x => x.GrupoId).ToList());
             }
 
             // HC-CAP: estudiantes por grupo. Un espacio solo es candidato si su aforo alcanza
@@ -422,7 +423,8 @@ namespace SOEA.Engine.ConstraintProg
                         : $"No hay bloques válidos para una sesión de {dur}h (no cabe sin cruzar día en la grilla canónica).";
                     _logger.LogError(msg);
                     var motivo = permitidosPorGrupo is not null ? MotivoInfactibilidad.FranjaGrupo : MotivoInfactibilidad.Otro;
-                    return new ResultadoFactibilidad(false, SinAsignaciones, msg, motivo);
+                    return new ResultadoFactibilidad(false, SinAsignaciones, msg, motivo,
+                        GruposResponsablesIds: permitidosPorGrupo is not null ? new[] { sesion.GrupoId } : null);
                 }
 
                 // HC-VH: ventana horaria de la asignatura (hard). El intervalo completo

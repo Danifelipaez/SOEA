@@ -20,6 +20,7 @@ import { SearchableSelectComponent, SearchableOption } from '../../../shared/sea
 import { GrupoDialogComponent, GrupoDialogData } from '../grupo-tab/grupo-tab.component';
 import { DisponibilidadEditorComponent, errorSeparacionDias, sesionesMismoTipo } from '../../../shared/disponibilidad-editor/disponibilidad-editor.component';
 import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/requisitos-espacio.component';
+import { gruposQueNoCaben } from '../../horario/horario.reglas';
 
 @Component({
   selector: 'app-asignaturas-tab',
@@ -100,6 +101,7 @@ import { RequisitosEspacioComponent } from '../../../shared/requisitos-espacio/r
                           <td>
                             @if (g.disponibilidadUiJson) {
                               <span [class.text-muted]="!sinDiasDisponibles(g)" [class.text-error]="sinDiasDisponibles(g)" style="font-size:12.5px">{{ dispResumenGrupo(g) }}</span>
+                              @if (noCaben().get(g.id); as m) { <div class="text-error" style="font-size:12px">⚠ No caben sus clases: {{ m }}</div> }
                             } @else { <span style="color:var(--err-bd);font-size:12.5px">Sin declarar</span> }
                           </td>
                           <td>
@@ -249,10 +251,14 @@ export class AsignaturasTabComponent {
     } catch { return 0; }
   }
 
-  /** Sin requisito de espacio o sin ningún día disponible: el grupo quedaría fuera del
-   *  pipeline de generación en la práctica (regla por defecto de espacio, o HC-G01 vacío). */
+  /** Grupos que el generador rechazaría de entrada porque sus clases no caben en su disponibilidad. */
+  noCaben = computed(() => gruposQueNoCaben(this.state.grupos(), this.state.asignaturaById()));
+
+  /** Sin requisito de espacio o sin ningún día disponible: el grupo quedaría fuera del pipeline de generación
+   *  en la práctica (regla por defecto de espacio, o HC-G01 vacío). Con más clases de las que caben en su
+   *  disponibilidad, impide generar el horario entero. */
   grupoIncompleto(g: Grupo): boolean {
-    return !g.requisitosEspacio?.length || this.diasDisponibles(g) === 0;
+    return !g.requisitosEspacio?.length || this.diasDisponibles(g) === 0 || this.noCaben().has(g.id);
   }
 
   /** El backend (diagnóstico opcional de Fase 2) señaló este grupo como responsable de que la
@@ -275,6 +281,7 @@ export class AsignaturasTabComponent {
     if (!g.requisitosEspacio?.length) motivos.push('no indicó qué aula necesita (se usará salón para teoría y laboratorio para prácticas)');
     if (!g.disponibilidadUiJson) motivos.push('sin disponibilidad horaria declarada');
     else if (this.diasDisponibles(g) === 0) motivos.push('sin ningún día habilitado en su disponibilidad horaria');
+    else if (this.noCaben().has(g.id)) motivos.push(`sus clases no caben en su disponibilidad: ${this.noCaben().get(g.id)}`);
     return motivos.length ? `Datos incompletos: ${motivos.join('; ')}.` : '';
   }
 
