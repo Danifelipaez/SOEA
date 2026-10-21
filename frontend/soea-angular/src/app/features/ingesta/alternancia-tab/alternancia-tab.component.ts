@@ -229,7 +229,7 @@ export class AlternanciaTabComponent implements OnInit {
   }
 
   /** Las tres opciones con su diagnóstico: se ve de antemano cuál deja la alternancia sin parejas. */
-  opcionesTipo = computed(() => ([['Todos', 'Todas las clases'], ['Laboratorio', 'Solo laboratorios'], ['Salon', 'Solo salones']] as [TipoEspacioAlternancia, string][])
+  opcionesTipo = computed(() => ([['Todos', 'Todas las clases'], ['Laboratorio', 'Solo laboratorios'], ['Salon', 'Solo salones y auditorios']] as [TipoEspacioAlternancia, string][])
     .map(([valor, etiqueta]) => ({
       valor, etiqueta,
       diag: diagnosticarAlternancia(this.state.asignaturas(), this.state.grupos(), this.state.espacios(), this.criterios(), valor),

@@ -400,6 +400,26 @@ namespace SOEA.Tests.Application.Horario
         }
 
         [Fact]
+        public void SoloSalon_IncluyeTeoriasDeAuditorio()
+        {
+            // "Solo salones" = aulas de teoría: una teoría sin requisito puede caer en un auditorio, así
+            // que el límite no puede distinguirlos; lo que sí excluye son los laboratorios.
+            var t1 = Pres(Guid.NewGuid(), Guid.NewGuid()); var t2 = Pres(Guid.NewGuid(), Guid.NewGuid());
+            var sesiones = new List<Sesion> { t1, t2 };
+            var criterios = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)>
+                { CriterioElegible(sesiones.Select(s => s.AsignaturaId).ToHashSet()) };
+            var ctx = Ctx(sesiones) with
+            {
+                TipoEspacioPorSesion = new Dictionary<Guid, TipoEspacio> { [t1.Id] = TipoEspacio.Auditorio, [t2.Id] = TipoEspacio.Salon }
+            };
+
+            var r = GenerarHorarioService.CederSiguientePareja(sesiones, criterios, new HashSet<Guid>(),
+                ctx, new HashSet<(Guid, Guid)>(), TipoEspacio.Salon);
+
+            Assert.True(r.Cedio);
+        }
+
+        [Fact]
         public void TipoEspacioDe_TeoriaConRequisitoDeLaboratorio_CuentaComoLaboratorio()
         {
             // El import marca aulas fijas de laboratorio también en teoría: esa sesión usa un lab.

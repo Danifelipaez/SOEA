@@ -46,7 +46,8 @@ export function diagnosticarAlternancia(
       for (const [tipoSesion, n, horas] of tracks) {
         const requisito = g.requisitosEspacio?.find(r => r.tipoSesion === tipoSesion);
         const tipoEspacio = tipoEspacioDe(tipoSesion, requisito, espacios);
-        if (tipo !== 'Todos' && tipoEspacio !== tipo) continue;
+        // Laboratorio vs. aula de teoría (salón o auditorio), igual que CederSiguientePareja.
+        if (tipo !== 'Todos' && (tipoEspacio === 'Laboratorio') !== (tipo === 'Laboratorio')) continue;
         for (let i = 0; i < n; i++) candidatas.push({ asignaturaId: a.id, grupoId: g.id, horas, tipoEspacio, requisito });
       }
     }
@@ -55,7 +56,7 @@ export function diagnosticarAlternancia(
   if (!candidatas.length)
     return vacio(tipo === 'Todos'
       ? `Las ${asigs.length} asignatura(s) que pueden alternar no tienen grupos con clases presenciales.`
-      : `Ninguna de las ${asigs.length} asignatura(s) que pueden alternar tiene clases en ${tipo === 'Laboratorio' ? 'laboratorio' : 'salón'}. Cambie el tipo de espacio o marque otras asignaturas.`);
+      : `Ninguna de las ${asigs.length} asignatura(s) que pueden alternar tiene clases en ${tipo === 'Laboratorio' ? 'laboratorio' : 'salón o auditorio'}. Cambie el tipo de espacio o marque otras asignaturas.`);
 
   const hayPareja = candidatas.some((a, i) => candidatas.some((b, j) => j > i && formanPareja(a, b)));
   return hayPareja

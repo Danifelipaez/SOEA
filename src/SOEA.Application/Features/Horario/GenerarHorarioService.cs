@@ -1339,10 +1339,16 @@ namespace SOEA.Application.Features.Horario
 
             if (soloTipoEspacio is TipoEspacio tipo)
             {
+                // El límite separa laboratorios de aulas de teoría (salón o auditorio), no salón de
+                // auditorio: CP-SAT elige el aula que comparte la pareja entre sus candidatas, y una
+                // teoría sin requisito puede caer en cualquiera de las dos. Lo que sí está garantizado
+                // (CalculadorEspaciosSesion.CumpleTipo) es que las candidatas de una sesión son todas
+                // laboratorio o todas no-laboratorio, así que este filtro acota también el aula liberada.
                 // Sin contexto de tipos (pruebas unitarias) rige el de por defecto de su tipo de sesión.
                 TipoEspacio TipoDe(Sesion s) => ctx.TipoEspacioPorSesion?.GetValueOrDefault(s.Id)
                     ?? CalculadorEspaciosSesion.TipoEspacioDe(s, null, Array.Empty<Espacio>());
-                elegibles = elegibles.Where(s => TipoDe(s) == tipo).ToList();
+                bool soloLabs = tipo == TipoEspacio.Laboratorio;
+                elegibles = elegibles.Where(s => (TipoDe(s) == TipoEspacio.Laboratorio) == soloLabs).ToList();
                 if (elegibles.Count == 0)
                     return new ResultadoCesion(null, null, new[]
                     {
@@ -1385,7 +1391,10 @@ namespace SOEA.Application.Features.Horario
                 : new[] { "No hay ninguna pareja de sesiones que pueda alternar entre las candidatas disponibles." });
         }
 
-        /// <summary>"Laboratorio" / "Salon" → tipo; cualquier otro valor (null, "Todos") = sin límite.</summary>
+        /// <summary>
+        /// "Laboratorio" → solo laboratorios; "Salon" (o "Auditorio") → solo aulas de teoría, salón o
+        /// auditorio indistintamente; cualquier otro valor (null, "Todos") = sin límite.
+        /// </summary>
         internal static TipoEspacio? ParseTipoEspacioAlternancia(string? valor) =>
             valor?.Trim().ToLowerInvariant() switch
             {
@@ -1395,12 +1404,8 @@ namespace SOEA.Application.Features.Horario
                 _ => null
             };
 
-        private static string NombreTipoEspacio(TipoEspacio tipo) => tipo switch
-        {
-            TipoEspacio.Laboratorio => "laboratorio",
-            TipoEspacio.Salon => "salón",
-            _ => "auditorio"
-        };
+        private static string NombreTipoEspacio(TipoEspacio tipo) =>
+            tipo == TipoEspacio.Laboratorio ? "laboratorio" : "salón o auditorio";
 
         /// <summary>Clave simétrica de pareja: (a,b) y (b,a) son la misma.</summary>
         internal static (Guid, Guid) ClaveDePareja(Guid a, Guid b) => a.CompareTo(b) <= 0 ? (a, b) : (b, a);

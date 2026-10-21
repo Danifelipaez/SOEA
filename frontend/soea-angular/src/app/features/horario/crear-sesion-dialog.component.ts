@@ -61,7 +61,7 @@ export interface CrearSesionDialogData {
         <div class="dfield" style="flex:1"><label>Espacio {{ tipoSesion() === 'TeoriaVirtual' ? '(virtual)' : '' }}</label>
           @if (tipoSesion() === 'TeoriaVirtual') { <div class="selval text-muted">Sin espacio físico</div> }
           @else {
-            <app-searchable-select [(ngModel)]="espacioId" (ngModelChange)="recheck()" [disabled]="espacioFijoBloqueado()"
+            <app-searchable-select [(ngModel)]="espacioId" (ngModelChange)="espacioPropuesto = false; recheck()" [disabled]="espacioFijoBloqueado()"
                                     [options]="espacioOptions()" placeholder="— Seleccione —"></app-searchable-select>
           }
         </div>
@@ -96,6 +96,8 @@ export class CrearSesionDialogComponent {
   }
 
   asignaturaId = ''; dia = ''; horaInicio = ''; espacioId = '';
+  /** true mientras el aula la propuso recheck() y no el usuario: se vuelve a proponer al cambiar día u hora. */
+  espacioPropuesto = false;
   /** Una clase agregada a mano nunca alterna: emparejar es cosa del generador (regla 10). */
   readonly alternancia = 'SinAlternancia' as const;
   guardando = signal(false); errorServidor = signal('');
@@ -191,9 +193,14 @@ export class CrearSesionDialogComponent {
     const chks: Check[] = []; let ok = true;
     const startIdx = this.horasDisponibles.indexOf(this.horaInicio), endIdx = startIdx + dur;
     const ocupa = (s: Sesion, espacioId: string) => s.espacioId === espacioId && s.dia === this.dia && !s.virtual && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles);
-    // Con día y hora elegidos se propone la primera aula permitida libre; se puede cambiar.
-    if (a && this.dia && this.horaInicio && !esVirtual && !this.espacioId)
-      this.espacioId = this.espaciosDisponibles().find(e => !this.data.sesiones.some(s => ocupa(s, e.id)))?.id ?? '';
+    // Con día y hora elegidos se propone la primera aula permitida libre (o, si no hay ninguna, la
+    // primera permitida, para que el aviso diga que está ocupada). La propuesta sigue al día y la hora
+    // hasta que se elige un aula a mano.
+    if (a && this.dia && this.horaInicio && !esVirtual && (!this.espacioId || this.espacioPropuesto)) {
+      const permitidos = this.espaciosDisponibles();
+      this.espacioId = (permitidos.find(e => !this.data.sesiones.some(s => ocupa(s, e.id))) ?? permitidos[0])?.id ?? '';
+      this.espacioPropuesto = true;
+    }
     if (!a || !this.dia || !this.horaInicio || (!this.espacioId && !esVirtual)) { this.checks.set([]); this.checksOk.set(false); this.avisos.set([]); return; }
     // FE16 auditoría: antes solo se acotaba el sábado — ver mismo fix en EditarSesionDialogComponent.
     if (!finDeJornadaOk(this.dia, endIdx, this.horasDisponibles)) {

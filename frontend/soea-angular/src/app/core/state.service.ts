@@ -249,20 +249,35 @@ export class StateService {
   quitarClaseFija(id: string) { this.guardarFijas(this.clasesFijas().filter(c => c.sesion.id !== id)); }
   private guardarFijas(v: ClaseFija[]) { this.clasesFijas.set(v); escribirLocal('soea_clases_fijas', v); }
 
+  /** Lo que se manda como fijo al generar: el punto de partida elegido más las clases fijas activas. */
+  readonly sesionesFijasParaGenerar = computed<Sesion[]>(() => this.fijasSobre(this.baseSeleccionada()?.sesiones ?? []));
+
+  /** Cuántas clases de ese tipo pide la asignatura de la sesión por semana (0 si ya no existe). */
+  topeClasesDelTipo(s: Sesion): number {
+    const a = this.asignaturaById().get(s.asignaturaId);
+    if (!a) return 0;
+    return s.tipoFlujo === 'Laboratorio' ? a.sesionesLaboratorioSemana
+      : s.virtual ? a.sesionesTeoriaVirtualSemana : a.sesionesTeoriaPresencialSemana;
+  }
+
   /**
-   * Lo que se manda como fijo al generar: el punto de partida elegido más las clases fijas activas.
-   * Una clase fija reemplaza a una sesión del punto de partida del mismo grupo, asignatura y tipo
-   * (si no, el grupo quedaría con una clase de más: el servidor suma la fija que no reemplaza nada).
+   * `base` (punto de partida, o el horario guardado al buscar lugar para las pendientes) más las
+   * clases fijas activas. Una fija reemplaza a la clase de la base del mismo grupo, asignatura y tipo
+   * en su misma franja, o a otra de ellas si el grupo ya tiene todas las de ese tipo (si no, quedaría
+   * con una de más: el servidor suma la fija que no reemplaza nada). Si a la base le falta esa clase
+   * (una pendiente), la fija se suma sin quitar ninguna.
    */
-  readonly sesionesFijasParaGenerar = computed<Sesion[]>(() => {
-    const base = [...(this.baseSeleccionada()?.sesiones ?? [])].filter(s => !s.esContraparteVirtual);
-    const fijas = this.clasesFijas().filter(c => c.activa).map(c => c.sesion);
-    for (const f of fijas) {
-      const i = base.findIndex(s => claveTipoSesion(s) === claveTipoSesion(f));
-      if (i >= 0) base.splice(i, 1);
+  fijasSobre(base: readonly Sesion[]): Sesion[] {
+    const res = base.filter(s => !s.esContraparteVirtual);
+    for (const f of this.clasesFijas().filter(c => c.activa).map(c => c.sesion)) {
+      const mismas = res.filter(s => claveTipoSesion(s) === claveTipoSesion(f));
+      const reemplazada = mismas.find(s => s.dia === f.dia && s.horaInicio === f.horaInicio)
+        ?? (mismas.length >= this.topeClasesDelTipo(f) ? mismas[0] : undefined);
+      if (reemplazada) res.splice(res.indexOf(reemplazada), 1);
+      res.push(f);
     }
-    return [...base, ...fijas];
-  });
+    return res;
+  }
 
   // ── Alternancia ──────────────────────────────────────────────────────────────
   /** Qué sesiones pueden alternar según el espacio que usan (pestaña Alternancia). */

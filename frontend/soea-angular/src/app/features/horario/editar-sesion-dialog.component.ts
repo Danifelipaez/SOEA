@@ -8,7 +8,7 @@ import { PersistenciaService } from '../../core/persistencia.service';
 import { Asignatura, Docente, Espacio, Sesion, TipoSesionUi } from '../../core/models';
 import { HORA_CIERRE_SABADO } from '../../core/jornada';
 import { mensajeErrorHttp } from '../../core/http-error.util';
-import { MergedSesion, describirSesionConflicto, hhmm, HORAS_GRILLA, DIAS_GRILLA, seSolapanHorarios, nuncaCoexisteEnSemana, finDeJornadaOk, espaciosPermitidosPara, avisosDocentePorSesion, Check } from './horario.reglas';
+import { MergedSesion, describirSesionConflicto, hhmm, HORAS_GRILLA, DIAS_GRILLA, seSolapanHorarios, nuncaCoexisteEnSemana, finDeJornadaOk, espaciosPermitidosPara, fueraDisponibilidadGrupo, avisosDocentePorSesion, Check } from './horario.reglas';
 
 // ═══ Diálogo: Editar sesión (REQUISITOS §2/§3 — incluye asignar docente con 409) ═══
 
@@ -68,10 +68,11 @@ export interface EditarSesionResult { sesion?: Sesion; advertencias: string[]; f
       }
       @for (w of advertencias(); track w) { <div class="soft"><b>⚠ Aviso (no bloquea):</b> {{ w }}</div> }
       @if (errorServidor()) { <div class="errb"><b>✕ {{ errorServidor() }}</b></div> }
+      @if (motivoNoFijar()) { <small class="text-muted" style="font-size:11.5px">📌 {{ motivoNoFijar() }}</small> }
 
       <div class="popfoot">
-        <button class="btn btn-secondary" (click)="fijar()" [disabled]="guardando() || !cabeEnJornada()"
-                title="No cambia el horario guardado: deja esta clase fija en el día y la hora elegidos para probar">📌 Fijar para pruebas</button>
+        <button class="btn btn-secondary" (click)="fijar()" [disabled]="guardando() || !puedeFijar()"
+                [title]="motivoNoFijar() || 'No cambia el horario guardado: deja esta clase fija en el día y la hora elegidos para probar'">📌 Fijar para pruebas</button>
         <button class="btn btn-secondary" (click)="cancelar()" [disabled]="guardando()">Cancelar</button>
         <button class="btn btn-primary" [disabled]="!puedeGuardar() || guardando()" (click)="guardar()">{{ guardando() ? 'Guardando…' : 'Guardar' }}</button>
       </div>
@@ -257,21 +258,34 @@ export class EditarSesionDialogComponent {
 
   cancelar() { this.dialogRef.close(); }
 
-  cabeEnJornada = computed(() =>
-    finDeJornadaOk(this.dia(), this.horasDisponibles.indexOf(this.horaInicio()) + Math.round(this.data.sesion.duracionHoras ?? 2), this.horasDisponibles));
+  /** La clase tal como quedaría fija. Movida, pierde su pareja de alternancia: la pareja comparte
+   *  franja y aula, así que ya no se puede rearmar al probar. */
+  private sesionFijada = computed<Sesion>(() => {
+    const inicio = this.horaInicio(), dur = Math.round(this.data.sesion.duracionHoras ?? 2);
+    return {
+      ...this.data.sesion, esContraparteVirtual: false, docenteId: this.docenteId() || undefined, dia: this.dia(),
+      horaInicio: inicio, horaFin: hhmm(parseInt(inicio, 10) + dur), espacioId: this.espacioId() || undefined,
+      virtual: this.data.sesion.virtual && !this.espacioId(),
+      ...(this.hayCambioSlot() ? { alternancia: 'SinAlternancia' as const, parejaId: undefined } : {}),
+    };
+  });
 
   /** Para las pruebas solo importa dónde queda la clase: los choques con el horario guardado no
-   *  cuentan, porque al probar se vuelve a acomodar todo lo demás. */
+   *  cuentan (al probar se vuelve a acomodar todo lo demás), pero la jornada y el horario del grupo
+   *  sí — una clase fija fuera de ellos haría fallar todas las pruebas y generaciones siguientes. */
+  motivoNoFijar = computed(() => {
+    const dur = Math.round(this.data.sesion.duracionHoras ?? 2);
+    if (!finDeJornadaOk(this.dia(), this.horasDisponibles.indexOf(this.horaInicio()) + dur, this.horasDisponibles))
+      return 'No se puede fijar: la clase no cabe en la jornada de ese día.';
+    const s = this.sesionFijada();
+    const fuera = fueraDisponibilidadGrupo([s], this.state.grupos()).get(s.id);
+    return fuera ? `No se puede fijar: ${fuera}.` : '';
+  });
+  puedeFijar = computed(() => !this.motivoNoFijar());
+
   fijar() {
-    const inicio = this.horaInicio(), dur = Math.round(this.data.sesion.duracionHoras ?? 2);
-    const virtual = this.data.sesion.virtual && !this.espacioId();
-    this.dialogRef.close({
-      advertencias: [],
-      fijar: {
-        ...this.data.sesion, esContraparteVirtual: false, docenteId: this.docenteId() || undefined, dia: this.dia(),
-        horaInicio: inicio, horaFin: hhmm(parseInt(inicio, 10) + dur), espacioId: this.espacioId() || undefined, virtual,
-      },
-    } satisfies EditarSesionResult);
+    if (!this.puedeFijar()) return;
+    this.dialogRef.close({ advertencias: [], fijar: this.sesionFijada() } satisfies EditarSesionResult);
   }
   // FE5 auditoría: overlaps/nuncaCoexiste vivían duplicados aquí y en CrearSesionDialogComponent
   // — ahora son las funciones de módulo seSolapanHorarios/nuncaCoexisteEnSemana, usadas por

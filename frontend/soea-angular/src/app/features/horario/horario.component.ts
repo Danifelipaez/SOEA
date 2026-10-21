@@ -115,9 +115,19 @@ import { GeneracionFallidaComponent } from '../../shared/generacion-fallida/gene
         </div>
       }
 
+      <!-- Una prueba que no encontró horario: el horario guardado y el aviso de la última generación
+           real no cambian, así que su motivo se muestra aparte. -->
+      @if (errorPrueba()) {
+        <div class="fail">
+          <div class="errb" role="alert"><b>✕ La prueba no encontró un horario</b> (el horario guardado no cambió). {{ errorPrueba() }}
+            <button type="button" class="btn-link" (click)="errorPrueba.set('')">Cerrar</button></div>
+        </div>
+      }
+
       <!-- Estado C (HF-3): sin solución, haya o no un horario guardado. El registro técnico del backend
-           (Fase 1/2/3, HC-…, ms) nunca se muestra en pantalla — solo se puede copiar para soporte. -->
-      @if (!enPrueba() && mensajeInfactible()) {
+           (Fase 1/2/3, HC-…, ms) nunca se muestra en pantalla — solo se puede copiar para soporte.
+           También con una prueba abierta: si falla «Guardar este horario», el motivo tiene que verse. -->
+      @if (mensajeInfactible()) {
         <div class="fail">
           <app-generacion-fallida>
             @if (state.executionLogs().length > 0) {
@@ -498,6 +508,8 @@ export class HorarioComponent implements OnInit {
   /** Guía accionable (sin jerga interna) del aviso persistente de infactibilidad — ver
    *  mensajeInfactibilidadAmigable(). Vive en StateService para que /revisar muestre lo mismo. */
   mensajeInfactible = this.state.errorGeneracion;
+  /** Motivo (ya traducido) de la última prueba sin solución; no toca el estado de la generación real. */
+  errorPrueba = signal('');
 
   ngOnInit() { this.syncFromBackend(); }
   constructor() { const espacios = this.state.espacios(); if (espacios.length > 0) this.activeSpace.set(espacios[0]); }
@@ -534,21 +546,21 @@ export class HorarioComponent implements OnInit {
   }));
 
   /** Fija una clase para las pruebas. Un grupo no puede fijar más clases de un tipo de las que tiene:
-   *  la que sobra el servidor la sumaría como una clase extra. */
+   *  la que sobra el servidor la sumaría como una clase extra. Conserva su pareja de alternancia: el
+   *  servidor la rearma solo si las dos quedan fijas (si no, alterna sola nunca: vuelve a todas las
+   *  semanas). Quitársela hacía que fijar las dos dejara dos clases en la misma aula y franja. */
   private fijar(s: Sesion) {
-    const asig = this.state.asignaturaById().get(s.asignaturaId);
-    const tope = !asig ? 0 : s.tipoFlujo === 'Laboratorio' ? asig.sesionesLaboratorioSemana
-      : s.virtual ? asig.sesionesTeoriaVirtualSemana : asig.sesionesTeoriaPresencialSemana;
+    const tope = this.state.topeClasesDelTipo(s);
     const mismas = this.state.clasesFijas().filter(c => claveTipoSesion(c.sesion) === claveTipoSesion(s));
     if (mismas.some(c => c.sesion.dia === s.dia && c.sesion.horaInicio === s.horaInicio)) {
       this.snackBar.open('Esa clase ya está fijada en esa franja.', 'Cerrar', { duration: 4000 }); return;
     }
     if (mismas.length >= tope) {
-      this.snackBar.open(`Ese grupo ya tiene fijadas sus ${tope} clase(s) de ese tipo. Quite una en «Pruebas de horario» antes de fijar otra.`, 'Cerrar', { duration: 6000 }); return;
+      this.snackBar.open(`Ese grupo ya tiene fijadas sus ${tope} clase(s) de ese tipo. Quite una en «Ajustes del horario» antes de fijar otra.`, 'Cerrar', { duration: 6000 }); return;
     }
     this.state.fijarClase({
-      ...s, id: nuevoId(), semana: undefined, parejaId: undefined, esContraparteVirtual: undefined,
-      alternancia: 'SinAlternancia', espacioIdHogar: undefined, motivoConflicto: undefined,
+      ...s, id: nuevoId(), semana: undefined, esContraparteVirtual: undefined,
+      espacioIdHogar: undefined, motivoConflicto: undefined,
     });
     this.snackBar.open('Clase fijada. Pulse «Probar sin guardar» para ver cómo queda el resto.', 'Cerrar', { duration: 5000 });
   }
@@ -635,14 +647,17 @@ export class HorarioComponent implements OnInit {
   ubicarPendiente(p: ClasePendiente) { this.abrirCrearSesion({ asignaturaId: p.asignaturaId, grupoId: p.grupoId, tipo: p.tipo }); }
 
   /** Opción 2: prueba con TODAS las clases actuales fijas — el generador solo completa lo que le falta a
-   *  cada grupo, es decir, las pendientes. Sin clases fijas del panel ni punto de partida: sobran. */
-  buscarLugarPendientes() { this.ejecutarGeneracion(true, this.state.sesiones().filter(s => !s.esContraparteVirtual)); }
+   *  cada grupo, es decir, las pendientes. Las clases fijas del panel se suman (fijasSobre); el punto
+   *  de partida no: el horario guardado ya hace ese papel. */
+  buscarLugarPendientes() { this.probarSobre(this.state.sesiones().filter(s => !s.esContraparteVirtual)); }
 
-  /** Las fijas con que se abrió la prueba, para que «Probar otra vez» repita el mismo tipo de prueba. */
+  /** Horario de partida de la prueba abierta (solo «Buscar lugar…»): «Probar otra vez» lo vuelve a
+   *  fijar junto con las clases fijas actuales, incluidas las que se fijaron desde la prueba. */
   private fijasDeLaPrueba?: Sesion[];
   probarHorario() { this.ejecutarGeneracion(true); }
-  probarOtraVez() { this.ejecutarGeneracion(true, this.fijasDeLaPrueba); }
-  descartarPrueba() { this.state.prueba.set(null); }
+  probarOtraVez() { if (this.fijasDeLaPrueba) this.probarSobre(this.fijasDeLaPrueba); else this.probarHorario(); }
+  private probarSobre(snapshot: Sesion[]) { this.ejecutarGeneracion(true, this.state.fijasSobre(snapshot), snapshot); }
+  descartarPrueba() { this.state.prueba.set(null); this.errorPrueba.set(''); }
 
   /** Guarda la prueba tal cual: se regenera con TODAS sus clases fijas (restricciones de igualdad),
    *  así el horario guardado es exactamente el que se vio. */
@@ -1104,8 +1119,9 @@ export class HorarioComponent implements OnInit {
   generarHorario() { this.ejecutarGeneracion(false); }
 
   /** `soloPrueba`: el servidor no guarda nada y el resultado se muestra como prueba. `fijas`: en lugar
-   *  del punto de partida y las clases fijas (lo usa guardarPrueba para guardar la prueba tal cual). */
-  private ejecutarGeneracion(soloPrueba: boolean, fijas?: Sesion[]) {
+   *  del punto de partida y las clases fijas (lo usa guardarPrueba para guardar la prueba tal cual).
+   *  `snapshot`: horario de partida que «Probar otra vez» debe volver a fijar (ver fijasDeLaPrueba). */
+  private ejecutarGeneracion(soloPrueba: boolean, fijas?: Sesion[], snapshot?: Sesion[]) {
     if (this.generandoHorario()) return;
     if (!this.backendReady()) { this.snackBar.open('No hay conexión con el sistema; no se puede generar ahora.', 'Cerrar', { duration: 4000 }); return; }
     // L-7 auditoría 2026-09-28: ya no se exigen docentes — salieron del pipeline de generación (CR-02/CR-08) y
@@ -1129,17 +1145,19 @@ export class HorarioComponent implements OnInit {
           dialogRef.close();
           const sesiones = this.horarioApi.mapearSesiones(respuesta.sesiones);
           const omitidas = respuesta.sesionesFijasOmitidas ? ` ${respuesta.sesionesFijasOmitidas} clase(s) fija(s) no se pudieron respetar (su grupo o asignatura ya no existe, o no cabe en la jornada).` : '';
-          this.state.setGruposEnConflicto([]);
-          this.state.setMotivoInfactibilidad(undefined);
-          this.mensajeInfactible.set('');
+          this.errorPrueba.set('');
+          // Una prueba no cambia el horario guardado: el aviso de la última generación real se queda.
           if (soloPrueba) {
             this.state.prueba.set(sesiones);
-            this.fijasDeLaPrueba = fijas;
+            this.fijasDeLaPrueba = snapshot;
             this.panelAbierto.set(true);
             this.selectTodos();
             this.snackBar.open(`Prueba lista: ${sesiones.length} clases. No se guardó nada.${omitidas}`, 'Cerrar', { duration: 7000 });
             return;
           }
+          this.state.setGruposEnConflicto([]);
+          this.state.setMotivoInfactibilidad(undefined);
+          this.mensajeInfactible.set('');
           this.state.prueba.set(null);
           this.state.setSesiones(sesiones);
           this.state.setExecutionLogs(respuesta.logs || []);
@@ -1154,11 +1172,7 @@ export class HorarioComponent implements OnInit {
           // Un 422 (GenerarHorarioResponse) pasa tal cual desde manejarError — mensajeError no
           // pasó por mensajeErrorHttp, así que puede traer el código de regla crudo (HC-SEP…).
           const mensaje = limpiarEtiquetaInterna(err.mensajeError || err.message || err.error || 'Error desconocido');
-          if (err.logs && Array.isArray(err.logs)) this.state.setExecutionLogs(err.logs);
           const gruposEnConflicto = Array.isArray(err.gruposEnConflicto) ? err.gruposEnConflicto : [];
-          this.state.setGruposEnConflicto(gruposEnConflicto);
-          this.state.setMotivoInfactibilidad(err.motivoInfactibilidad);
-          this.state.espacioLimitanteId.set(err.espacioLimitanteId);
           // Antes solo se traducía si el mensaje crudo contenía "factible"/"infeasible" — un fallo
           // distinto (p. ej. una violación de reglas post-GA) se colaba tal cual, con jerga interna.
           // Con motivo o grupos estructurados ya hay suficiente señal para traducir igual.
@@ -1166,6 +1180,17 @@ export class HorarioComponent implements OnInit {
           const texto = esInfeasible
             ? mensajeInfactibilidadAmigable(err.motivoInfactibilidad, gruposEnConflicto, this.state.grupos(), asignaturas.length, this.state.espacios().length, this.state.contextoCapacidad())
             : mensaje;
+          // Una prueba fallida no es una generación fallida: el horario guardado sigue igual, así que
+          // no marca grupos en conflicto ni cambia el aviso que comparten /horario y /revisar.
+          if (soloPrueba) {
+            this.errorPrueba.set(texto);
+            this.snackBar.open('La prueba no encontró un horario. Vea el motivo en el aviso de arriba.', 'Cerrar', { duration: 6000, panelClass: ['snack-error'] });
+            return;
+          }
+          if (err.logs && Array.isArray(err.logs)) this.state.setExecutionLogs(err.logs);
+          this.state.setGruposEnConflicto(gruposEnConflicto);
+          this.state.setMotivoInfactibilidad(err.motivoInfactibilidad);
+          this.state.espacioLimitanteId.set(err.espacioLimitanteId);
           // El banner persistente de /horario (a diferencia del snackbar) sigue visible hasta la
           // próxima generación — siempre con el mismo texto limpio, nunca vacío ni con jerga.
           this.mensajeInfactible.set(texto);
