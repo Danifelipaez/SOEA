@@ -1,5 +1,6 @@
-import { Asignatura, DisponibilidadUi, Docente, Espacio, Grupo, Sesion, TipoSesionUi } from '../../core/models';
+import { Asignatura, DimFiltro, DisponibilidadUi, Docente, Espacio, FiltroHorario, Grupo, Sesion, TipoSesionUi } from '../../core/models';
 import { HORA_APERTURA, HORA_CIERRE, HORA_CIERRE_SABADO } from '../../core/jornada';
+import { porTexto } from '../../core/orden';
 
 /** Representación visual de una sesión atómica multi-slot. */
 export interface MergedSesion {
@@ -23,6 +24,8 @@ export interface MergedSesion {
   /** Contraparte virtual de esta sesión, dibujada como sub-caja DENTRO de la misma celda:
    *  la materia que ocupa el aula la semana contraria se sigue dictando, en línea. */
   contraparte?: MergedSesion;
+  /** Con el filtro en modo "atenuar": la tarjeta no coincide con el filtro y se dibuja en gris. */
+  atenuada?: boolean;
 }
 
 /** Una sesión ya ubicada en la cuadrícula (grid-row/grid-column resueltos) lista para el template. */
@@ -195,6 +198,40 @@ export function gruposQueNoCaben(grupos: Grupo[], asignaturaById: ReadonlyMap<st
   return res;
 }
 
+/** Clases que el catálogo pide para un grupo y no están en el horario, por tipo. */
+export interface ClasePendiente { grupoId: string; asignaturaId: string; tipo: TipoSesionUi; horas: number; faltan: number; }
+export const ETIQUETA_TIPO_SESION: Record<TipoSesionUi, string> = {
+  TeoriaPresencial: 'Teoría presencial', TeoriaVirtual: 'Teoría virtual', Laboratorio: 'Laboratorio',
+};
+
+/**
+ * "Pendientes de ubicar": lo que cada grupo debe tener según su asignatura (igual que
+ * GenerarHorarioService.MapearSesionesIniciales) menos lo que ya está en el horario. No se guardan
+ * aparte: una clase liberada (o una que el catálogo agregó después de generar) aparece aquí sola, y
+ * la próxima generación la vuelve a crear. La contraparte virtual de una clase que alterna no cuenta.
+ */
+export function clasesPendientes(sesiones: Sesion[], grupos: Grupo[], asignaturaById: ReadonlyMap<string, Asignatura>): ClasePendiente[] {
+  const tipoDe = (s: Sesion): TipoSesionUi => s.tipoFlujo === 'Laboratorio' ? 'Laboratorio' : s.virtual ? 'TeoriaVirtual' : 'TeoriaPresencial';
+  const ubicadas = new Map<string, number>();
+  for (const s of sesiones) {
+    if (s.esContraparteVirtual || !s.grupoId) continue;
+    const k = `${s.grupoId}|${tipoDe(s)}`;
+    ubicadas.set(k, (ubicadas.get(k) ?? 0) + 1);
+  }
+  const res: ClasePendiente[] = [];
+  for (const g of grupos) {
+    const a = asignaturaById.get(g.asignaturaId);
+    if (!a) continue;
+    const pide: [TipoSesionUi, number, number][] = [['TeoriaPresencial', a.sesionesTeoriaPresencialSemana, a.horasTeoriaPresencial],
+      ['TeoriaVirtual', a.sesionesTeoriaVirtualSemana, a.horasTeoriaVirtual], ['Laboratorio', a.sesionesLaboratorioSemana, a.horasLaboratorio]];
+    for (const [tipo, n, horas] of pide) {
+      const faltan = (n || 0) - (ubicadas.get(`${g.id}|${tipo}`) ?? 0);
+      if (faltan > 0) res.push({ grupoId: g.id, asignaturaId: a.id, tipo, horas, faltan });
+    }
+  }
+  return res;
+}
+
 /** conIds: ids de las sesiones con las que choca (mismo orden que choques) — permite listar cada
  *  par una sola vez en el resumen sin perder el aviso en ninguna de las dos sesiones. */
 export interface AvisosDocente { choques: string[]; conIds: string[]; fueraDeDisponibilidad?: string; }
@@ -287,7 +324,7 @@ export function avisosDocentePorSesion(sesiones: Sesion[], docentes: Docente[], 
 /**
  * Choques de aula por id de sesión: dos clases presenciales en el mismo espacio, mismo día, con
  * franjas solapadas y alguna semana en común (ver nuncaCoexisteEnSemana). Un horario generado no
- * debería tener ninguno; sirve sobre todo para el modo borrador, donde las clases se agregan a mano.
+ * debería tener ninguno; sirve para sesiones agregadas o movidas a mano.
  * Mismo formato que avisosDocentePorSesion (choques + conIds) para listar cada par una sola vez.
  */
 export function choquesEspacioPorSesion(sesiones: Sesion[], espacios: Espacio[], asignaturas: Asignatura[], grupos: Grupo[], programaById?: ReadonlyMap<string, { nombre: string }>): Map<string, AvisosDocente> {
@@ -328,7 +365,7 @@ export function filasDeChoques(sesiones: Sesion[], choques: Map<string, AvisosDo
     listadas.add(s.id);
     if (nuevos.length) filas.push({ s, etiqueta: describirSesionConflicto(s, asignaturas, grupos, programaById), detalle: nuevos.join(' ') });
   }
-  return filas;
+  return filas.sort((a, b) => porTexto(a.etiqueta, b.etiqueta));
 }
 
 /** Ubicación de una sesión en la cuadrícula: fila1 es exclusiva (grid-row: "fila0 / fila1"),
@@ -409,6 +446,27 @@ export function distribuirEnCarriles<T extends { ini: number; fin: number }>(
   return { tarjetas, mas: mas.filter(m => m.items.length > 1) };
 }
 
+export const INTRO_NO_CABEN = 'Estos grupos tienen más horas de clase de las que caben en su disponibilidad declarada';
+export const CIERRE_NO_CABEN = 'Amplíe su disponibilidad en el catálogo o ajuste las sesiones de la asignatura.';
+
+/** "Grupo (Programa): motivo" por cada grupo en conflicto de un fallo FranjaGrupo — el aviso lo pinta
+ *  como lista. El import repite "QUIMICA GENERAL - Grupo 1" en varios programas: sin el programa no
+ *  se sabe cuál abrir. */
+export function gruposNoCabenDetalle(
+  gruposEnConflictoIds: string[] | undefined,
+  grupos: Grupo[],
+  capacidad?: { asignaturas: Asignatura[]; programaById: Map<string, { nombre: string }> }
+): string[] {
+  const conflicto = grupos.filter(g => gruposEnConflictoIds?.includes(g.id));
+  const asigById = new Map((capacidad?.asignaturas ?? []).map(a => [a.id, a]));
+  const motivos = gruposQueNoCaben(conflicto, asigById);
+  return conflicto.map(g => {
+    const prog = capacidad?.programaById.get(asigById.get(g.asignaturaId)?.programaId ?? g.programaId)?.nombre;
+    const m = motivos.get(g.id);
+    return `${g.nombre}${prog ? ` (${prog})` : ''}${m ? `: ${m}` : ''}`;
+  });
+}
+
 /**
  * El backend siempre reporta un MensajeError técnico ("status del solver: Infeasible", "HC-SEP",
  * "HC-ALT") pensado para quien lee el código, no para un coordinador académico — y el snackbar lo
@@ -428,18 +486,9 @@ export function mensajeInfactibilidadAmigable(
   capacidad?: { espacioLimitanteId?: string; espacios: Espacio[]; asignaturas: Asignatura[]; programaById: Map<string, { nombre: string }> }
 ): string {
   if (motivo === 'FranjaGrupo') {
-    const conflicto = grupos.filter(g => gruposEnConflictoIds?.includes(g.id));
-    if (conflicto.length > 0) {
-      const asigById = new Map((capacidad?.asignaturas ?? []).map(a => [a.id, a]));
-      const motivos = gruposQueNoCaben(conflicto, asigById);
-      // El import repite "QUIMICA GENERAL - Grupo 1" en varios programas: sin el programa no se sabe cuál abrir.
-      const lista = conflicto.map(g => {
-        const prog = capacidad?.programaById.get(asigById.get(g.asignaturaId)?.programaId ?? g.programaId)?.nombre;
-        const m = motivos.get(g.id);
-        return `${g.nombre}${prog ? ` (${prog})` : ''}${m ? `: ${m}` : ''}`;
-      });
-      return `Estos grupos tienen más horas de clase de las que caben en su disponibilidad declarada — ${lista.join('; ')}. ` +
-        'Amplíe su disponibilidad en el catálogo o ajuste las sesiones de la asignatura.';
+    const lista = gruposNoCabenDetalle(gruposEnConflictoIds, grupos, capacidad);
+    if (lista.length > 0) {
+      return `${INTRO_NO_CABEN} — ${lista.join('; ')}. ${CIERRE_NO_CABEN}`;
     }
   }
   if (motivo === 'Capacidad') {
@@ -478,3 +527,46 @@ export function mensajeInfactibilidadAmigable(
 
 /** Resultado de una validación de los diálogos de sesión. */
 export interface Check { ok: boolean; texto: string; }
+
+// ── Filtro de la vista de horario (facetas) ─────────────────────────────────────
+/** Dimensiones por las que se filtra, de lo general a lo particular (orden de la lista de opciones). */
+export const DIMS_FILTRO: readonly DimFiltro[] = ['facultad', 'programa', 'asignatura', 'grupo', 'docente'];
+export type ClavesSesion = Partial<Record<DimFiltro, string>>;
+
+/** A qué facultad, programa, asignatura, grupo y docente pertenece una sesión. */
+export function clavesDeSesion(s: Sesion, asignaturaById: ReadonlyMap<string, Asignatura>,
+                               programaById: ReadonlyMap<string, { facultadId: string }>): ClavesSesion {
+  const programa = asignaturaById.get(s.asignaturaId)?.programaId;
+  return {
+    facultad: programa ? programaById.get(programa)?.facultadId : undefined,
+    programa, asignatura: s.asignaturaId, grupo: s.grupoId, docente: s.docenteId,
+  };
+}
+
+/**
+ * Búsqueda por facetas: dentro de una misma dimensión basta con coincidir con UNO de los valores
+ * elegidos (dos grupos = los dos grupos); entre dimensiones se exigen TODAS (programa Y docente).
+ * `ignorar` deja fuera una dimensión: así se cuentan las opciones de esa dimensión sin que sus
+ * propios chips las anulen.
+ */
+export function pasaFiltrosHorario(claves: ClavesSesion, filtros: readonly FiltroHorario[], ignorar?: DimFiltro): boolean {
+  for (const dim of DIMS_FILTRO) {
+    if (dim === ignorar) continue;
+    const elegidos = filtros.filter(f => f.dim === dim);
+    if (elegidos.length && !elegidos.some(f => f.id === claves[dim])) return false;
+  }
+  return true;
+}
+
+/** Clases que quedarían a la vista con cada opción, por dimensión (facetas con conteo). Una
+ *  opción en 0 se oculta de la lista: elegirla vaciaría la cuadrícula. */
+export function conteosFiltro(claves: readonly ClavesSesion[], filtros: readonly FiltroHorario[]): Record<DimFiltro, Map<string, number>> {
+  const conteos = Object.fromEntries(DIMS_FILTRO.map(d => [d, new Map<string, number>()])) as Record<DimFiltro, Map<string, number>>;
+  for (const c of claves) {
+    for (const dim of DIMS_FILTRO) {
+      const id = c[dim];
+      if (id && pasaFiltrosHorario(c, filtros, dim)) conteos[dim].set(id, (conteos[dim].get(id) ?? 0) + 1);
+    }
+  }
+  return conteos;
+}

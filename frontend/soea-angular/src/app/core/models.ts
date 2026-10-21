@@ -170,9 +170,17 @@ export interface Sesion {
   tipoFlujo?: 'Laboratorio' | 'AulaVirtual';
   /** Causa por la que Fase 1 no encontró un bloque libre sin conflicto para esta sesión. Vacío si se agendó sin conflicto. */
   motivoConflicto?: string;
-  /** Clase agregada en el modo borrador: solo existe en memoria hasta convertir el borrador en horario real. */
-  deBorrador?: boolean;
 }
+
+/** Clase fijada para las pruebas de horario (ver StateService.clasesFijas). */
+export interface ClaseFija { sesion: Sesion; activa: boolean; }
+
+/** Qué sesiones pueden alternar según el tipo de espacio que usan (GenerarHorarioRequest.TipoEspacioAlternancia). */
+export type TipoEspacioAlternancia = 'Todos' | 'Laboratorio' | 'Salon';
+
+/** Filtro de la vista de /horario: una faceta elegida (ver pasaFiltrosHorario). */
+export type DimFiltro = 'facultad' | 'programa' | 'asignatura' | 'grupo' | 'docente';
+export interface FiltroHorario { dim: DimFiltro; id: string; }
 
 /** Vista de UI de los 3 tipos de sesión combinables por asignatura (desglose por tipo). */
 export type TipoSesionUi = 'TeoriaPresencial' | 'TeoriaVirtual' | 'Laboratorio';

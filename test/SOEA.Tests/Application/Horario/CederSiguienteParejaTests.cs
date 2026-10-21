@@ -365,6 +365,51 @@ namespace SOEA.Tests.Application.Horario
             Assert.False(r.S1!.Id == a1.Id && r.S2!.Id == b1.Id);
         }
 
+        // ── Límite por tipo de espacio (pestaña Alternancia) ────────────────────────
+
+        [Fact]
+        public void SoloLaboratorio_EmparejaLabsYNuncaTeoria()
+        {
+            var t1 = Pres(Guid.NewGuid(), Guid.NewGuid()); var t2 = Pres(Guid.NewGuid(), Guid.NewGuid());
+            var l1 = PresLab(Guid.NewGuid(), Guid.NewGuid()); var l2 = PresLab(Guid.NewGuid(), Guid.NewGuid());
+            var sesiones = new List<Sesion> { t1, t2, l1, l2 };
+            var criterios = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)>
+                { CriterioElegible(sesiones.Select(s => s.AsignaturaId).ToHashSet()) };
+
+            var r = GenerarHorarioService.CederSiguientePareja(sesiones, criterios, new HashSet<Guid>(),
+                Ctx(sesiones), new HashSet<(Guid, Guid)>(), TipoEspacio.Laboratorio);
+
+            Assert.True(r.Cedio);
+            Assert.Equal(new[] { l1.Id, l2.Id }.OrderBy(x => x), new[] { r.S1!.Id, r.S2!.Id }.OrderBy(x => x));
+        }
+
+        [Fact]
+        public void SoloSalon_SinTeoriasElegibles_NoCedeYDiceQueCambieElLimite()
+        {
+            var l1 = PresLab(Guid.NewGuid(), Guid.NewGuid()); var l2 = PresLab(Guid.NewGuid(), Guid.NewGuid());
+            var sesiones = new List<Sesion> { l1, l2 };
+            var criterios = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)>
+                { CriterioElegible(sesiones.Select(s => s.AsignaturaId).ToHashSet()) };
+
+            var r = GenerarHorarioService.CederSiguientePareja(sesiones, criterios, new HashSet<Guid>(),
+                Ctx(sesiones), new HashSet<(Guid, Guid)>(), TipoEspacio.Salon);
+
+            Assert.False(r.Cedio);
+            Assert.Contains("limitada a sesiones en salón", Assert.Single(r.Diagnostico));
+            Assert.All(sesiones, s => Assert.Equal(TipoAlternancia.SinAlternancia, s.Alternancia));
+        }
+
+        [Fact]
+        public void TipoEspacioDe_TeoriaConRequisitoDeLaboratorio_CuentaComoLaboratorio()
+        {
+            // El import marca aulas fijas de laboratorio también en teoría: esa sesión usa un lab.
+            var teoria = Pres(Guid.NewGuid(), Guid.NewGuid());
+            var requisito = new SOEA.Domain.ValueObjects.RequisitoEspacio(TipoSesion.TeoriaPresencial, null, TipoEspacio.Laboratorio, 1);
+
+            Assert.Equal(TipoEspacio.Laboratorio, SOEA.Domain.Services.CalculadorEspaciosSesion.TipoEspacioDe(teoria, requisito, Array.Empty<Espacio>()));
+            Assert.Equal(TipoEspacio.Salon, SOEA.Domain.Services.CalculadorEspaciosSesion.TipoEspacioDe(teoria, null, Array.Empty<Espacio>()));
+        }
+
         [Fact]
         public void ClaveDePareja_EsSimetrica()
         {

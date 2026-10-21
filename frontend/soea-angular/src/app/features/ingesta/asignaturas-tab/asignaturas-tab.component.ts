@@ -4,6 +4,7 @@ import { switchMap } from 'rxjs/operators';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
 import { MatDialogModule, MatDialog, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
+import { ActivatedRoute } from '@angular/router';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
 import { CatalogoService } from '../../../core/catalogo.service';
@@ -41,7 +42,7 @@ import { gruposQueNoCaben } from '../../horario/horario.reglas';
           </select>
           <select class="input fsel" aria-label="Filtrar por estado" [value]="estadoFiltro()" (change)="estadoFiltro.set($any($event.target).value)">
             <option value="">Todas</option>
-            <option value="incompletas">Con datos incompletos</option>
+            <option value="incompletas">Con datos incompletos o en conflicto</option>
             <option value="sinGrupos">Sin grupos</option>
           </select>
           <span class="text-muted count">{{ filtered().length }} asignaturas</span>
@@ -180,7 +181,9 @@ export class AsignaturasTabComponent {
   filterStr = signal('');
   facultadFiltro = signal('');
   programaFiltro = signal('');
-  estadoFiltro = signal<'' | 'incompletas' | 'sinGrupos'>('');
+  /** ?estado=incompletas: el aviso de generación fallida enlaza aquí con los grupos a corregir ya filtrados. */
+  estadoFiltro = signal<'' | 'incompletas' | 'sinGrupos'>(
+    inject(ActivatedRoute, { optional: true })?.snapshot.queryParamMap.get('estado') === 'incompletas' ? 'incompletas' : '');
   expandidos = signal<Set<string>>(new Set());
 
   facultadesOrdenadas = computed(() => [...this.state.facultades()].sort(porNombre));
@@ -199,7 +202,7 @@ export class AsignaturasTabComponent {
         this.programaNombre(a.programaId).toLowerCase().includes(f)) &&
       (!prog || a.programaId === prog) &&
       (!fac || this.state.getProgramaById(a.programaId)?.facultadId === fac) &&
-      (estado !== 'incompletas' || this.asignaturaIncompleta(a)) &&
+      (estado !== 'incompletas' || this.asignaturaIncompleta(a) || this.asignaturaEnConflicto(a)) &&
       (estado !== 'sinGrupos' || this.state.getGruposByAsignatura(a.id).length === 0)
     ).sort((a, b) => porNombre(a, b) || this.programaNombre(a.programaId).localeCompare(this.programaNombre(b.programaId), 'es'));
   });

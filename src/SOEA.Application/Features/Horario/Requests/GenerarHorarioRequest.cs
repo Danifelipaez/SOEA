@@ -33,6 +33,18 @@ namespace SOEA.Application.Features.Horario.Requests
         /// Null o lista vacía = no usar base.
         /// </summary>
         public List<SesionFijaDto>? SesionesFijas { get; set; }
+
+        /// <summary>
+        /// Qué sesiones pueden entrar a la alternancia según el espacio que usan: "Laboratorio",
+        /// "Salon" o null/"Todos" (sin límite). Se suma a los criterios de cesión.
+        /// </summary>
+        public string? TipoEspacioAlternancia { get; set; }
+
+        /// <summary>
+        /// Prueba de horario: genera igual pero NO guarda nada (no reemplaza el horario vigente).
+        /// La respuesta trae las sesiones con HorarioId vacío.
+        /// </summary>
+        public bool SoloPrueba { get; set; }
     }
 
     public class SesionFijaDto

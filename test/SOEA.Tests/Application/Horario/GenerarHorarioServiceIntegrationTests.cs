@@ -360,6 +360,31 @@ namespace SOEA.Tests.Application.Horario
         }
 
         [Fact]
+        public async Task SoloPrueba_GeneraSinGuardarNiReemplazarElHorarioVigente()
+        {
+            var horarioRepo = new FakeHorarioRepo();
+            var sesionRepo  = new FakeSesionRepo();
+            var asigRepo    = new FakeAsignacionRepo();
+            var uow         = new FakeUow();
+            var svc = CrearServicio(horarioRepo, sesionRepo, asigRepo, uow);
+            var vigente = await svc.EjecutarAsync(RequestBase());
+            Assert.True(vigente.EsFactible, vigente.MensajeError ?? string.Join("\n", vigente.Logs));
+            int sesionesAntes = sesionRepo.Items.Count, commitsAntes = uow.Commits;
+
+            var prueba = RequestBase();
+            prueba.SoloPrueba = true;
+            var r = await svc.EjecutarAsync(prueba);
+
+            Assert.True(r.EsFactible, r.MensajeError ?? string.Join("\n", r.Logs));
+            Assert.Null(r.HorarioId);
+            Assert.Equal(4, r.Sesiones.Count);
+            Assert.Single(horarioRepo.Items);
+            Assert.Equal(sesionesAntes, sesionRepo.Items.Count);
+            Assert.Equal(commitsAntes, uow.Commits);
+            Assert.Equal(vigente.HorarioId, (await svc.ObtenerActualAsync(prueba.Semestre))!.HorarioId);
+        }
+
+        [Fact]
         public async Task ObtenerActualAsync_SinNingunaGeneracionPrevia_DevuelveNull()
         {
             var svc = CrearServicio(new FakeHorarioRepo(), new FakeSesionRepo(), new FakeAsignacionRepo(), new FakeUow());

@@ -1,8 +1,8 @@
 import { Injectable, signal, computed } from '@angular/core';
-import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, HorarioBase } from './models';
+import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, HorarioBase, FiltroHorario, ClaseFija, TipoEspacioAlternancia } from './models';
 import { nuevoId } from './id.util';
 import { SEMESTRE_POR_DEFECTO } from './semestre';
-import { porNombre } from './orden';
+import { porNombre, ordenar } from './orden';
 
 @Injectable({
   providedIn: 'root'
@@ -75,40 +75,43 @@ export class StateService {
     return StateService.PALETA_ASIGNATURA[hash % StateService.PALETA_ASIGNATURA.length];
   }
 
+  // Todas las listas del catálogo se guardan en orden alfabético (ordenar): así cada listado,
+  // selector y chip de la app sale ordenado sin que cada vista tenga que recordarlo.
+
   // ── Facultades ───────────────────────────────────────────────────────────────
-  addFacultad(f: Facultad)      { this.facultades.update(v => [...v, f]); }
-  updateFacultad(f: Facultad)   { this.facultades.update(v => v.map(x => x.id === f.id ? f : x)); }
+  addFacultad(f: Facultad)      { this.facultades.update(v => ordenar([...v, f])); }
+  updateFacultad(f: Facultad)   { this.facultades.update(v => ordenar(v.map(x => x.id === f.id ? f : x))); }
   deleteFacultad(id: string)    { this.facultades.update(v => v.filter(x => x.id !== id)); }
 
   // ── Programas ────────────────────────────────────────────────────────────────
-  addPrograma(p: Programa)      { this.programas.update(v => [...v, p]); }
-  updatePrograma(p: Programa)   { this.programas.update(v => v.map(x => x.id === p.id ? p : x)); }
+  addPrograma(p: Programa)      { this.programas.update(v => ordenar([...v, p])); }
+  updatePrograma(p: Programa)   { this.programas.update(v => ordenar(v.map(x => x.id === p.id ? p : x))); }
   deletePrograma(id: string)    { this.programas.update(v => v.filter(x => x.id !== id)); }
 
   // ── Espacios ─────────────────────────────────────────────────────────────────
-  addEspacio(e: Espacio)        { this.espacios.update(v => [...v, e]); }
-  updateEspacio(e: Espacio)     { this.espacios.update(v => v.map(x => x.id === e.id ? e : x)); }
+  addEspacio(e: Espacio)        { this.espacios.update(v => ordenar([...v, e])); }
+  updateEspacio(e: Espacio)     { this.espacios.update(v => ordenar(v.map(x => x.id === e.id ? e : x))); }
   deleteEspacio(id: string)     { this.espacios.update(v => v.filter(x => x.id !== id)); }
 
   // ── Docentes ─────────────────────────────────────────────────────────────────
-  addDocente(d: Docente)        { this.docentes.update(v => [...v, d]); }
-  updateDocente(d: Docente)     { this.docentes.update(v => v.map(x => x.id === d.id ? d : x)); }
+  addDocente(d: Docente)        { this.docentes.update(v => ordenar([...v, d])); }
+  updateDocente(d: Docente)     { this.docentes.update(v => ordenar(v.map(x => x.id === d.id ? d : x))); }
   deleteDocente(id: string)     { this.docentes.update(v => v.filter(x => x.id !== id)); }
 
   // ── Grupos ───────────────────────────────────────────────────────────────────
-  addGrupo(g: Grupo)            { this.grupos.update(v => [...v, g]); }
-  updateGrupo(g: Grupo)         { this.grupos.update(v => v.map(x => x.id === g.id ? g : x)); }
+  addGrupo(g: Grupo)            { this.grupos.update(v => ordenar([...v, g])); }
+  updateGrupo(g: Grupo)         { this.grupos.update(v => ordenar(v.map(x => x.id === g.id ? g : x))); }
   deleteGrupo(id: string)       { this.grupos.update(v => v.filter(x => x.id !== id)); }
 
   // ── Asignaturas ──────────────────────────────────────────────────────────────
-  addAsignatura(a: Asignatura)      { this.asignaturas.update(v => [...v, a]); }
-  updateAsignatura(a: Asignatura)   { this.asignaturas.update(v => v.map(x => x.id === a.id ? a : x)); }
+  addAsignatura(a: Asignatura)      { this.asignaturas.update(v => ordenar([...v, a])); }
+  updateAsignatura(a: Asignatura)   { this.asignaturas.update(v => ordenar(v.map(x => x.id === a.id ? a : x))); }
   deleteAsignatura(id: string)      {
     this.grupos.update(v => v.filter(g => g.asignaturaId !== id));
     this.asignaturas.update(v => v.filter(x => x.id !== id));
   }
   /** Reemplaza el listado completo (útil para importación masiva desde Excel). */
-  setAsignaturas(list: Asignatura[]) { this.asignaturas.set(list); }
+  setAsignaturas(list: Asignatura[]) { this.asignaturas.set(ordenar(list)); }
 
   // ── Sesiones y Logs (resultado del algoritmo) ──────────────────────────────
   /** Semestre con el que se genera y se rehidrata el horario (L-8). */
@@ -147,12 +150,10 @@ export class StateService {
   }
   setExecutionLogs(logs: string[]) { this.executionLogs.set(logs); }
 
-  /**
-   * Modo borrador de /horario: copia del horario a la que se le agregan clases a mano para probar
-   * (las nuevas llevan `deBorrador`). null = modo apagado. Vive aquí (no en el componente) para no
-   * perderse al cambiar de pestaña; ponytail: no sobrevive a un F5 — persistirlo si hace falta.
-   */
-  borrador = signal<Sesion[] | null>(null);
+  /** Filtro de la vista de /horario (solo cambia lo que se ve, nunca el horario). Aquí para que
+   *  sobreviva al cambio de pestaña; ponytail: se pierde con F5. */
+  filtrosHorario = signal<FiltroHorario[]>([]);
+  filtroAtenuar = signal(false);
 
   /**
    * Ids de grupo que el backend señaló como responsables de una infactibilidad (diagnóstico
@@ -160,8 +161,21 @@ export class StateService {
    * fallado ninguna generación, o tras una generación exitosa (ver horario.component.ts).
    */
   gruposEnConflicto = signal<string[]>([]);
-  readonly gruposEnConflictoSet = computed(() => new Set(this.gruposEnConflicto()));
-  setGruposEnConflicto(ids: string[]) { this.gruposEnConflicto.set(ids); }
+  /** Los que siguen marcados en el catálogo: un grupo deja de estarlo en cuanto se edita él o su
+   *  asignatura después del fallo (antes la marca seguía hasta volver a generar, aunque ya estuviera
+   *  corregido). Si el cambio no bastó, el borde de "datos incompletos" lo sigue señalando. */
+  readonly gruposEnConflictoSet = computed(() =>
+    new Set(this.gruposEnConflicto().filter(id => this.firmaGrupo(id) === this.firmasConflicto.get(id))));
+  /** Grupo + asignatura como estaban al fallar la generación. Se escribe junto con gruposEnConflicto. */
+  private firmasConflicto = new Map<string, string>();
+  private firmaGrupo(id: string): string {
+    const g = this.grupos().find(x => x.id === id);
+    return g ? JSON.stringify([g, this.asignaturaById().get(g.asignaturaId)]) : '';
+  }
+  setGruposEnConflicto(ids: string[]) {
+    this.firmasConflicto = new Map(ids.map(id => [id, this.firmaGrupo(id)]));
+    this.gruposEnConflicto.set(ids);
+  }
 
   /**
    * M6 auditoría: causa de infactibilidad (GenerarHorarioResponse.MotivoInfactibilidad) del último
@@ -170,6 +184,9 @@ export class StateService {
    * signal local de HorarioComponent, que se destruye al salir de la ruta).
    */
   motivoInfactibilidad = signal<string | undefined>(undefined);
+  /** Texto ya traducido (sin jerga) del último intento fallido de generar; '' tras uno exitoso.
+   *  Lo pintan /horario y /revisar (GeneracionFallidaComponent), sobrevive a la navegación. */
+  errorGeneracion = signal('');
   setMotivoInfactibilidad(motivo: string | undefined) { this.motivoInfactibilidad.set(motivo); }
   /** Con motivo Capacidad: el espacio de mayor aforo que el grupo en conflicto podía usar. */
   espacioLimitanteId = signal<string | undefined>(undefined);
@@ -218,6 +235,40 @@ export class StateService {
     } catch { /* cuota excedida — ignorar */ }
   }
 
+  // ── Pruebas de horario ───────────────────────────────────────────────────────
+  /** Clases fijadas a mano para probar combinaciones: al generar (o probar) quedan en su franja y
+   *  el resto se acomoda alrededor. `activa` deja apagar una sin perderla. Se guardan en este
+   *  navegador, como los puntos de partida. */
+  clasesFijas = signal<ClaseFija[]>(leerLocal('soea_clases_fijas', []));
+  /** Resultado de "Probar sin guardar": se muestra en lugar del horario guardado hasta guardarlo o
+   *  descartarlo. null = no hay prueba abierta. */
+  prueba = signal<Sesion[] | null>(null);
+
+  fijarClase(sesion: Sesion) { this.guardarFijas([...this.clasesFijas(), { sesion, activa: true }]); }
+  alternarClaseFija(id: string) { this.guardarFijas(this.clasesFijas().map(c => c.sesion.id === id ? { ...c, activa: !c.activa } : c)); }
+  quitarClaseFija(id: string) { this.guardarFijas(this.clasesFijas().filter(c => c.sesion.id !== id)); }
+  private guardarFijas(v: ClaseFija[]) { this.clasesFijas.set(v); escribirLocal('soea_clases_fijas', v); }
+
+  /**
+   * Lo que se manda como fijo al generar: el punto de partida elegido más las clases fijas activas.
+   * Una clase fija reemplaza a una sesión del punto de partida del mismo grupo, asignatura y tipo
+   * (si no, el grupo quedaría con una clase de más: el servidor suma la fija que no reemplaza nada).
+   */
+  readonly sesionesFijasParaGenerar = computed<Sesion[]>(() => {
+    const base = [...(this.baseSeleccionada()?.sesiones ?? [])].filter(s => !s.esContraparteVirtual);
+    const fijas = this.clasesFijas().filter(c => c.activa).map(c => c.sesion);
+    for (const f of fijas) {
+      const i = base.findIndex(s => claveTipoSesion(s) === claveTipoSesion(f));
+      if (i >= 0) base.splice(i, 1);
+    }
+    return [...base, ...fijas];
+  });
+
+  // ── Alternancia ──────────────────────────────────────────────────────────────
+  /** Qué sesiones pueden alternar según el espacio que usan (pestaña Alternancia). */
+  tipoEspacioAlternancia = signal<TipoEspacioAlternancia>(leerLocal('soea_tipo_espacio_alternancia', 'Todos'));
+  setTipoEspacioAlternancia(v: TipoEspacioAlternancia) { this.tipoEspacioAlternancia.set(v); escribirLocal('soea_tipo_espacio_alternancia', v); }
+
   // ── Helpers derivados (delegan a los Maps computados) ───────────────────────
   getFacultadById(id: string): Facultad | undefined {
     return this.facultadById().get(id);
@@ -234,4 +285,16 @@ export class StateService {
   getAsignaturasByPrograma(programaId: string): Asignatura[] {
     return this.asignaturasByPrograma().get(programaId) ?? [];
   }
+}
+
+/** Grupo + asignatura + tipo de sesión: dos sesiones con la misma clave son intercambiables al fijar. */
+export function claveTipoSesion(s: Sesion): string {
+  return `${s.grupoId}|${s.asignaturaId}|${s.tipoFlujo ?? ''}|${s.virtual}`;
+}
+
+function leerLocal<T>(clave: string, porDefecto: T): T {
+  try { const raw = localStorage.getItem(clave); return raw ? JSON.parse(raw) : porDefecto; } catch { return porDefecto; }
+}
+function escribirLocal(clave: string, valor: unknown) {
+  try { localStorage.setItem(clave, JSON.stringify(valor)); } catch { /* cuota excedida o almacenamiento bloqueado */ }
 }

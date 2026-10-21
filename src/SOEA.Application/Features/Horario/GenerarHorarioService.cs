@@ -286,6 +286,12 @@ namespace SOEA.Application.Features.Horario
                 })))
                 .ToList();
 
+            // Límite por tipo de espacio (Laboratorio / Salón / todos) elegido en el catálogo: se suma
+            // a los criterios — una sesión que usa otro tipo de espacio nunca entra a una pareja.
+            var tipoEspacioAlternancia = ParseTipoEspacioAlternancia(request.TipoEspacioAlternancia);
+            if (tipoEspacioAlternancia is not null)
+                logs.Add($"[INFO] Alternancia limitada a sesiones en {tipoEspacioAlternancia}.");
+
             // ── 1c. Contexto de emparejamiento (Semana B) ──────────────────────────────
             // No se cede NADA todavía: la Semana B solo se activa de forma reactiva, cuando CP-SAT
             // demuestra que no existe configuración válida por falta de aulas. El contexto se
@@ -343,7 +349,7 @@ namespace SOEA.Application.Features.Horario
                    && intentosCesion++ < maxIntentosCesion)
             {
                 var cesion = CederSiguientePareja(
-                    sesiones, predicadosCesion, sesionesFijasIds, contextoCesion, parejasDescartadas);
+                    sesiones, predicadosCesion, sesionesFijasIds, contextoCesion, parejasDescartadas, tipoEspacioAlternancia);
                 if (!cesion.Cedio)
                 {
                     diagnosticoCesion = cesion.Diagnostico.ToList();
@@ -565,6 +571,24 @@ namespace SOEA.Application.Features.Horario
             foreach (var a in asignaciones)
                 if (sesionPorIdValidacion.TryGetValue(a.SesionId, out var sesionAsignada))
                     sesionAsignada.AsignarBloqueTiempo(a.BloqueTiempoId);
+
+            // Prueba de horario: mismo pipeline, pero nada se guarda — el horario vigente sigue intacto.
+            if (request.SoloPrueba)
+            {
+                stopwatch.Stop();
+                logs.Add($"[INFO] Prueba de horario: no se guardó nada. Pipeline en {stopwatch.ElapsedMilliseconds}ms.");
+                return new GenerarHorarioResponse
+                {
+                    Semestre       = request.Semestre,
+                    EsFactible     = true,
+                    PuntajeFitness = puntajeFitness,
+                    Generaciones   = resultadoGA.Generaciones,
+                    PenalizacionPresencial = resultadoGA.PenalizacionPresencial,
+                    SesionesFijasOmitidas = sesionesFijasOmitidas,
+                    Logs           = logs,
+                    Sesiones       = ConstruirSesionesDto(sesionesColoreadas, asignaciones, grupos, bloques)
+                };
+            }
 
             // ── 5. Persistir sesiones lógicas, Horario y asignaciones semanales ─
             // Las tres escrituras comparten el mismo DbContext (scoped), así que van en UNA
@@ -1194,7 +1218,8 @@ namespace SOEA.Application.Features.Horario
         internal sealed record ContextoCesion(
             IReadOnlyDictionary<Guid, Grupo> GrupoPorId,
             IReadOnlyDictionary<Guid, int[]> DominioPorSesion,
-            IReadOnlyDictionary<Guid, IReadOnlyList<int>> AulasPorSesion);
+            IReadOnlyDictionary<Guid, IReadOnlyList<int>> AulasPorSesion,
+            IReadOnlyDictionary<Guid, TipoEspacio>? TipoEspacioPorSesion = null);
 
         /// <summary>Pareja cedida, o el motivo por el que no se encontró ninguna.</summary>
         internal sealed record ResultadoCesion(Sesion? S1, Sesion? S2, IReadOnlyList<string> Diagnostico)
@@ -1216,6 +1241,7 @@ namespace SOEA.Application.Features.Horario
 
             var dominios = new Dictionary<Guid, int[]>();
             var aulas = new Dictionary<Guid, IReadOnlyList<int>>();
+            var tipos = new Dictionary<Guid, TipoEspacio>();
             foreach (var sesion in sesiones)
             {
                 var ventana = ventanaPorAsignatura.GetValueOrDefault(sesion.AsignaturaId);
@@ -1230,9 +1256,10 @@ namespace SOEA.Application.Features.Horario
                 aulas[sesion.Id] = CalculadorEspaciosSesion.Candidatos(sesion, espacios, requisito)
                     .Where(e => CalculadorEspaciosSesion.CumpleAforo(espacios[e], estudiantes))
                     .ToList();
+                tipos[sesion.Id] = CalculadorEspaciosSesion.TipoEspacioDe(sesion, requisito, espacios);
             }
 
-            return new ContextoCesion(grupoPorId, dominios, aulas);
+            return new ContextoCesion(grupoPorId, dominios, aulas, tipos);
         }
 
         /// <summary>
@@ -1251,7 +1278,8 @@ namespace SOEA.Application.Features.Horario
             IReadOnlyList<(CriterioElegibilidadAlternancia Criterio, Func<Sesion, bool> Predicado)> criterios,
             HashSet<Guid> sesionesFijasIds,
             ContextoCesion ctx,
-            HashSet<(Guid, Guid)> parejasDescartadas)
+            HashSet<(Guid, Guid)> parejasDescartadas,
+            TipoEspacio? soloTipoEspacio = null)
         {
             var sinPareja = new List<string>();
 
@@ -1309,6 +1337,21 @@ namespace SOEA.Application.Features.Horario
                     "asignaturas como candidatas a alternancia en el catálogo, o active más criterios de cesión."
                 });
 
+            if (soloTipoEspacio is TipoEspacio tipo)
+            {
+                // Sin contexto de tipos (pruebas unitarias) rige el de por defecto de su tipo de sesión.
+                TipoEspacio TipoDe(Sesion s) => ctx.TipoEspacioPorSesion?.GetValueOrDefault(s.Id)
+                    ?? CalculadorEspaciosSesion.TipoEspacioDe(s, null, Array.Empty<Espacio>());
+                elegibles = elegibles.Where(s => TipoDe(s) == tipo).ToList();
+                if (elegibles.Count == 0)
+                    return new ResultadoCesion(null, null, new[]
+                    {
+                        $"La alternancia está limitada a sesiones en {NombreTipoEspacio(tipo)} y ninguna de las " +
+                        "asignaturas que pueden alternar tiene sesiones ahí. Cambie ese límite en la pestaña " +
+                        "Alternancia del catálogo, o marque otras asignaturas."
+                    });
+            }
+
             var vacio = Array.Empty<int>();
             IReadOnlyList<int> Aulas(Sesion s) => ctx.AulasPorSesion.TryGetValue(s.Id, out var a) ? a : vacio;
             int[] Dominio(Sesion s) => ctx.DominioPorSesion.TryGetValue(s.Id, out var d) ? d : vacio;
@@ -1341,6 +1384,23 @@ namespace SOEA.Application.Features.Horario
                 ? sinPareja
                 : new[] { "No hay ninguna pareja de sesiones que pueda alternar entre las candidatas disponibles." });
         }
+
+        /// <summary>"Laboratorio" / "Salon" → tipo; cualquier otro valor (null, "Todos") = sin límite.</summary>
+        internal static TipoEspacio? ParseTipoEspacioAlternancia(string? valor) =>
+            valor?.Trim().ToLowerInvariant() switch
+            {
+                "laboratorio" => TipoEspacio.Laboratorio,
+                "salon" or "salón" => TipoEspacio.Salon,
+                "auditorio" => TipoEspacio.Auditorio,
+                _ => null
+            };
+
+        private static string NombreTipoEspacio(TipoEspacio tipo) => tipo switch
+        {
+            TipoEspacio.Laboratorio => "laboratorio",
+            TipoEspacio.Salon => "salón",
+            _ => "auditorio"
+        };
 
         /// <summary>Clave simétrica de pareja: (a,b) y (b,a) son la misma.</summary>
         internal static (Guid, Guid) ClaveDePareja(Guid a, Guid b) => a.CompareTo(b) <= 0 ? (a, b) : (b, a);

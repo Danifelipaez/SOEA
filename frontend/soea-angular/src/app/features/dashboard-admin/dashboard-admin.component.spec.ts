@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { DashboardAdminComponent } from './dashboard-admin.component';
 import { StateService } from '../../core/state.service';
 import { CatalogoService } from '../../core/catalogo.service';
@@ -14,7 +15,7 @@ describe('DashboardAdminComponent — carga docente', () => {
   function crear() {
     TestBed.configureTestingModule({
       imports: [DashboardAdminComponent],
-      providers: [{ provide: CatalogoService, useValue: { cargarTodo: () => ({ subscribe: () => {} }) } }],
+      providers: [provideRouter([]), { provide: CatalogoService, useValue: { cargarTodo: () => ({ subscribe: () => {} }) } }],
     });
     const fixture = TestBed.createComponent(DashboardAdminComponent);
     const state = TestBed.inject(StateService);
@@ -79,7 +80,7 @@ describe('DashboardAdminComponent — ocupación de aulas', () => {
   it('una aula con 44 h presenciales está al 50 % (88 h semanales), no al 46 % (96 h)', () => {
     TestBed.configureTestingModule({
       imports: [DashboardAdminComponent],
-      providers: [{ provide: CatalogoService, useValue: { cargarTodo: () => ({ subscribe: () => {} }) } }],
+      providers: [provideRouter([]), { provide: CatalogoService, useValue: { cargarTodo: () => ({ subscribe: () => {} }) } }],
     });
     const component = TestBed.createComponent(DashboardAdminComponent).componentInstance;
     const state = TestBed.inject(StateService);

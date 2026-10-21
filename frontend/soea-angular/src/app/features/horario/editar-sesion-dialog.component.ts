@@ -16,8 +16,9 @@ export interface EditarSesionDialogData {
   merged: MergedSesion; sesion: Sesion; asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[];
   sesiones: Sesion[]; programaById: Map<string, { id: string; nombre: string; facultadId: string }>; facultadById: Map<string, { id: string; nombre: string }>;
 }
-/** `sesion` ausente = un cambio de día/hora/espacio ya refrescó el StateService completo (P5). */
-export interface EditarSesionResult { sesion?: Sesion; advertencias: string[]; }
+/** `sesion` ausente = un cambio de día/hora/espacio ya refrescó el StateService completo (P5).
+ *  `fijar`: no se guardó nada; quien abrió el diálogo fija esa clase (con el día/hora/espacio elegidos) para las pruebas. */
+export interface EditarSesionResult { sesion?: Sesion; advertencias: string[]; fijar?: Sesion; }
 
 @Component({
   selector: 'app-editar-sesion-dialog',
@@ -69,6 +70,8 @@ export interface EditarSesionResult { sesion?: Sesion; advertencias: string[]; }
       @if (errorServidor()) { <div class="errb"><b>✕ {{ errorServidor() }}</b></div> }
 
       <div class="popfoot">
+        <button class="btn btn-secondary" (click)="fijar()" [disabled]="guardando() || !cabeEnJornada()"
+                title="No cambia el horario guardado: deja esta clase fija en el día y la hora elegidos para probar">📌 Fijar para pruebas</button>
         <button class="btn btn-secondary" (click)="cancelar()" [disabled]="guardando()">Cancelar</button>
         <button class="btn btn-primary" [disabled]="!puedeGuardar() || guardando()" (click)="guardar()">{{ guardando() ? 'Guardando…' : 'Guardar' }}</button>
       </div>
@@ -253,6 +256,23 @@ export class EditarSesionDialogComponent {
   }
 
   cancelar() { this.dialogRef.close(); }
+
+  cabeEnJornada = computed(() =>
+    finDeJornadaOk(this.dia(), this.horasDisponibles.indexOf(this.horaInicio()) + Math.round(this.data.sesion.duracionHoras ?? 2), this.horasDisponibles));
+
+  /** Para las pruebas solo importa dónde queda la clase: los choques con el horario guardado no
+   *  cuentan, porque al probar se vuelve a acomodar todo lo demás. */
+  fijar() {
+    const inicio = this.horaInicio(), dur = Math.round(this.data.sesion.duracionHoras ?? 2);
+    const virtual = this.data.sesion.virtual && !this.espacioId();
+    this.dialogRef.close({
+      advertencias: [],
+      fijar: {
+        ...this.data.sesion, esContraparteVirtual: false, docenteId: this.docenteId() || undefined, dia: this.dia(),
+        horaInicio: inicio, horaFin: hhmm(parseInt(inicio, 10) + dur), espacioId: this.espacioId() || undefined, virtual,
+      },
+    } satisfies EditarSesionResult);
+  }
   // FE5 auditoría: overlaps/nuncaCoexiste vivían duplicados aquí y en CrearSesionDialogComponent
   // — ahora son las funciones de módulo seSolapanHorarios/nuncaCoexisteEnSemana, usadas por
   // validaciones() arriba. addH/diffH quedaban sin uso salvo ese overlaps().
