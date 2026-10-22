@@ -1,3 +1,5 @@
+using SOEA.Domain.Enums;
+using SOEA.Domain.Exceptions;
 using SOEA.Domain.Interfaces;
 
 namespace SOEA.Application.Features.Horario
@@ -35,6 +37,8 @@ namespace SOEA.Application.Features.Horario
                 ?? throw new KeyNotFoundException("El horario cambió mientras trabajaba. Recargue la página.");
             if (!horario.SesioneIds.Contains(sesionId))
                 throw new KeyNotFoundException("Esa clase ya no está en el horario. Recargue la página.");
+            if (horario.Estado == EstadoHorario.Publicado)
+                throw new BusinessRuleViolationException("El horario ya está publicado: no se pueden sacar clases.");
 
             var sesiones = await _sesiones.GetByIdsAsync(horario.SesioneIds);
             var sesion = sesiones.FirstOrDefault(s => s.Id == sesionId)
@@ -42,6 +46,11 @@ namespace SOEA.Application.Features.Horario
             var ids = sesion.ParejaAlternanciaId is Guid pareja
                 ? sesiones.Where(s => s.ParejaAlternanciaId == pareja).Select(s => s.Id).ToList()
                 : new List<Guid> { sesionId };
+            // Un horario sin clases se lee como "no hay horario" (ObtenerActualAsync, por cómo trabaja
+            // Limpiar): tras recargar se perderían también las pendientes. Vaciarlo es Limpiar.
+            if (ids.Count >= sesiones.Count)
+                throw new BusinessRuleViolationException(
+                    "Son las últimas clases del horario. Para empezar de cero use «Limpiar horario».");
 
             await _uow.BeginTransactionAsync();
             try

@@ -153,6 +153,7 @@ namespace SOEA.API.Controllers
         [HttpDelete("{horarioId:guid}/sesiones/{sesionId:guid}")]
         [ProducesResponseType(typeof(List<Guid>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> LiberarSesion(Guid horarioId, Guid sesionId) =>
             Ok(await _liberarService.EjecutarAsync(horarioId, sesionId));
 

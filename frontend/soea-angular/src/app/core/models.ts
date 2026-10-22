@@ -173,7 +173,12 @@ export interface Sesion {
 }
 
 /** Clase fijada para las pruebas de horario (ver StateService.clasesFijas). */
-export interface ClaseFija { sesion: Sesion; activa: boolean; }
+export interface ClaseFija {
+  sesion: Sesion; activa: boolean;
+  /** Franja de la que salió la clase al fijarla (si se movió, la de antes): fijasSobre reemplaza
+   *  esa y no otra del grupo. Por franja y no por id: las clases de una prueba tienen ids nuevos. */
+  origen?: { dia: string; horaInicio: string };
+}
 
 /** Qué sesiones pueden alternar según el tipo de espacio que usan (GenerarHorarioRequest.TipoEspacioAlternancia). */
 export type TipoEspacioAlternancia = 'Todos' | 'Laboratorio' | 'Salon';

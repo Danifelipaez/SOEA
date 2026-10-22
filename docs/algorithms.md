@@ -77,7 +77,7 @@ Con `SoloPrueba = true` el pipeline corre completo pero se salta el paso 5 (pers
 |---|---|---|
 | `POST /horario/reacomodar` | `ReacomodarHorarioService` | Mueve una sesión a (día, hora, aula). Recalcula solo la editada y las que ahora chocan (mismo grupo o aula); el resto conserva exactamente su asignación. Rechaza si queda choque de docente |
 | `POST /horario/sesion-manual` | `CrearSesionManualService` | Agrega una sesión fija al horario vigente, validando solapes |
-| `DELETE /horario/{horarioId}/sesiones/{sesionId}` | `LiberarSesionService` | Saca una clase (y su pareja de alternancia) del horario vigente; queda pendiente hasta ubicarla o volver a generar |
+| `DELETE /horario/{horarioId}/sesiones/{sesionId}` | `LiberarSesionService` | Saca una clase (y su pareja de alternancia) del horario vigente; queda pendiente hasta ubicarla o volver a generar. 409 si el horario está publicado o si lo dejaría sin clases (eso es «Limpiar horario») |
 | `PATCH /sesiones/{id}/docente` | `AsignarDocenteSesionService` | Solape de docente → 409; fuera de disponibilidad o sobre el máximo de horas → avisos |
 | `GET` / `DELETE /horario/actual` | `GenerarHorarioService` | Recupera el horario vigente del semestre / borra sus sesiones |
 

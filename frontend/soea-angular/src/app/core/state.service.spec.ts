@@ -39,6 +39,10 @@ describe('StateService — gruposEnConflicto', () => {
       { id: 'g2', asignaturaId: 'b' } as Grupo]);
     state.setGruposEnConflicto(['g1', 'g2']);
 
+    // Renombrar no corrige nada: sigue marcado.
+    state.grupos.update(gs => gs.map(g => ({ ...g, nombre: 'otro' })));
+    expect(state.gruposEnConflictoSet().size).toBe(2);
+
     state.grupos.update(gs => gs.map(g => g.id === 'g1' ? { ...g, disponibilidadUiJson: '{"miercoles":{"desde":"06:00","hasta":"09:00"}}' } : g));
     expect([...state.gruposEnConflictoSet()]).toEqual(['g2']);
     expect(state.gruposEnConflicto()).toEqual(['g1', 'g2']); // el aviso del intento fallido no cambia
@@ -115,6 +119,21 @@ describe('StateService — fijasSobre', () => {
     const state = nuevo(2);
     state.clasesFijas.set([{ sesion: ses('f', '10:00'), activa: true }]);
     expect(state.fijasSobre([ses('x', '08:00'), ses('y', '10:00')]).map(s => s.id)).toEqual(['x', 'f']);
+  });
+
+  it('una clase movida reemplaza a la que estaba en su franja de origen, no a otra del grupo', () => {
+    const state = nuevo(2);
+    state.clasesFijas.set([{ sesion: ses('f', '14:00'), activa: true, origen: { dia: 'lunes', horaInicio: '10:00' } }]);
+    expect(state.fijasSobre([ses('x', '08:00'), ses('y', '10:00')]).map(s => s.id)).toEqual(['x', 'f']);
+  });
+
+  it('dos fijas del mismo grupo no se reemplazan entre sí ni dejan una clase de más', () => {
+    const state = nuevo(2);
+    state.clasesFijas.set([
+      { sesion: ses('f1', '10:00'), activa: true, origen: { dia: 'lunes', horaInicio: '08:00' } },
+      { sesion: ses('f2', '16:00'), activa: true, origen: { dia: 'lunes', horaInicio: '10:00' } },
+    ]);
+    expect(state.fijasSobre([ses('x', '08:00'), ses('y', '10:00')]).map(s => s.id)).toEqual(['f1', 'f2']);
   });
 
   it('a un horario con una pendiente le suma la fija sin quitar nada; las apagadas no cuentan', () => {
