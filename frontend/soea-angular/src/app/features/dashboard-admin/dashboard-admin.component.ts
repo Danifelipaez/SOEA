@@ -4,29 +4,27 @@ import { StateService } from '../../core/state.service';
 import { HORAS_AULA_SEMANA } from '../../core/jornada';
 import { CatalogoService } from '../../core/catalogo.service';
 import { RouterModule } from '@angular/router';
-import { mensajeInfactibilidadAmigable } from '../horario/horario.reglas';
+import { avisosDocentePorSesion, choquesEspacioPorSesion, clasesPendientes, filasDeChoques, fueraDisponibilidadGrupo } from '../horario/horario.reglas';
+import { GeneracionFallidaComponent } from '../../shared/generacion-fallida/generacion-fallida.component';
 
 /** Paso 4 del journey (HF-4) — KPIs de solo lectura sobre el horario generado. */
 @Component({
   selector: 'app-dashboard-admin',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [CommonModule, RouterModule, GeneracionFallidaComponent],
   template: `
     <div class="rev-head">
       <span class="soea-tag">Paso 4</span>
       <h1 class="rev-title">Revisar</h1>
-      <span class="text-muted rev-sub">Solo lectura, tras generar/ajustar el horario.</span>
+      <span class="text-muted rev-sub">Resumen del horario guardado: conflictos, uso de aulas y carga docente.</span>
     </div>
 
     <!-- M6 auditoría: antes este aviso solo vivía en /horario y se perdía al navegar. -->
-    @if (mensajeConflicto()) {
-      <div class="blueprint elev-md conflict-banner">
-        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-        <b>⚠ No se pudo generar el horario en el último intento.</b>
-        <p>{{ mensajeConflicto() }}</p>
-        <a class="btn btn-secondary" routerLink="/horario">Ir a Horario para ajustar y reintentar</a>
-      </div>
-    }
+    <div class="rev-fallo">
+      <app-generacion-fallida>
+        <a class="btn btn-secondary" routerLink="/horario">Ir a Horario para reintentar</a>
+      </app-generacion-fallida>
+    </div>
 
     @if (cargaError()) {
       <div class="soft" style="margin-bottom:18px">No se pudieron cargar los datos. Revise su conexión e intente de nuevo.</div>
@@ -38,6 +36,30 @@ import { mensajeInfactibilidadAmigable } from '../horario/horario.reglas';
         <p>Aún no hay un horario generado. Ve a <a routerLink="/horario">Horario</a> y genera uno para ver sus métricas.</p>
       </div>
     } @else {
+      <!-- Conflictos: lo primero que hay que revisar. Antes solo se veían plegados bajo la cuadrícula de /horario. -->
+      <div class="blueprint conflictos">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <h3 class="sec">Conflictos</h3>
+        @if (fueraGrupo() + choquesEspacio() === 0) {
+          <div class="okb">✓ Ninguna clase fuera del horario de su grupo ni en un espacio ocupado.</div>
+        }
+        @if (fueraGrupo() > 0) {
+          <div class="errb">✕ {{ fueraGrupo() }} clase(s) fuera del horario disponible de su grupo. Vuelva a generar el horario.</div>
+        }
+        @if (choquesEspacio() > 0) {
+          <div class="errb">✕ {{ choquesEspacio() }} clase(s) en un espacio ya ocupado a esa hora.</div>
+        }
+        @if (sinUbicar() > 0) {
+          <div class="errb">✕ {{ sinUbicar() }} clase(s) sin ubicar: el catálogo las pide y no están en el horario. Ubíquelas en Horario › Ajustes del horario, o vuelva a generar.</div>
+        }
+        @if (avisosDocente() > 0) {
+          <div class="soft">⚠ {{ avisosDocente() }} aviso(s) del docente (otra clase a la misma hora o fuera de su disponibilidad). No impiden usar el horario.</div>
+        }
+        @if (fueraGrupo() + choquesEspacio() + sinUbicar() + avisosDocente() > 0) {
+          <a class="btn btn-secondary" routerLink="/horario">Ver el detalle en Horario</a>
+        }
+      </div>
+
       <!-- KPIs -->
       <div class="kpis">
         <div class="blueprint kpi">
@@ -92,10 +114,10 @@ import { mensajeInfactibilidadAmigable } from '../horario/horario.reglas';
     .rev-title { margin: 0; font-size: 26px; } .rev-sub { font-size: 13px; }
     .empty { padding: 40px; text-align: center; }
 
-    .conflict-banner { padding: 16px 18px; margin-bottom: 18px; display: flex; flex-direction: column;
-      gap: 8px; align-items: flex-start; border-color: var(--warn-bd, #b45309); }
-    .conflict-banner b { color: var(--warn-bd, #b45309); }
-    .conflict-banner p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--color-neutral-700); }
+    .rev-fallo:has(.gf) { margin-bottom: 18px; }
+    .conflictos { padding: 16px 18px; margin-bottom: 18px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+    .conflictos .sec { margin: 0 0 2px; }
+    .conflictos > div { align-self: stretch; }
 
     .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 18px; }
     .kpi { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
@@ -133,15 +155,24 @@ export class DashboardAdminComponent implements OnInit {
     }
   }
 
-  /** M6 auditoría: mismo texto accionable que el banner de /horario, pero leído de StateService
-   *  (sobrevive a la navegación) en vez del signal local que HorarioComponent destruye al salir. */
-  mensajeConflicto = computed(() => {
-    const motivo = this.state.motivoInfactibilidad();
-    const gruposEnConflicto = this.state.gruposEnConflicto();
-    if (!motivo && gruposEnConflicto.length === 0) return '';
-    return mensajeInfactibilidadAmigable(
-      motivo, gruposEnConflicto, this.state.grupos(),
-      this.state.asignaturas().length, this.state.espacios().length, this.state.contextoCapacidad());
+  /** Mismas reglas que los avisos bajo la cuadrícula de /horario (horario.reglas.ts), solo los conteos. */
+  fueraGrupo = computed(() => {
+    const motivos = fueraDisponibilidadGrupo(this.state.sesiones(), this.state.grupos());
+    return this.state.sesiones().filter(s => motivos.has(s.id) && !s.esContraparteVirtual).length;
+  });
+  /** Clases liberadas a mano (o que el catálogo agregó después de generar) — ver clasesPendientes. */
+  sinUbicar = computed(() => clasesPendientes(this.state.sesiones(), this.state.grupos(), this.state.asignaturaById())
+    .reduce((n, p) => n + p.faltan, 0));
+  choquesEspacio = computed(() => {
+    const st = this.state;
+    return filasDeChoques(st.sesiones(), choquesEspacioPorSesion(st.sesiones(), st.espacios(), st.asignaturas(), st.grupos(), st.programaById()),
+      st.asignaturas(), st.grupos(), st.programaById()).length;
+  });
+  avisosDocente = computed(() => {
+    const st = this.state;
+    const avisos = avisosDocentePorSesion(st.sesiones(), st.docentes(), st.asignaturas(), st.grupos(), st.programaById());
+    return filasDeChoques(st.sesiones(), avisos, st.asignaturas(), st.grupos(), st.programaById()).length
+      + [...avisos.values()].filter(a => a.fueraDeDisponibilidad).length;
   });
 
   /** Sesiones REALES, no filas: una que alterna aporta su fila presencial más la contraparte

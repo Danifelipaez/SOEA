@@ -4,8 +4,10 @@ import { FormsModule } from '@angular/forms';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { StateService } from '../../../core/state.service';
 import { PersistenciaService } from '../../../core/persistencia.service';
-import { Asignatura, CriterioCesionAlternancia } from '../../../core/models';
+import { Asignatura, CriterioCesionAlternancia, TipoEspacioAlternancia } from '../../../core/models';
+import { diagnosticarAlternancia } from './diagnostico-alternancia';
 import { mensajeErrorHttp } from '../../../core/http-error.util';
+import { porTexto } from '../../../core/orden';
 
 interface AsignaturaFila {
   asignatura: Asignatura;
@@ -67,6 +69,33 @@ interface AsignaturaFila {
         }
       </section>
 
+      <!-- Límite por tipo de espacio -->
+      <section>
+        <h3 class="sec">Qué clases pueden alternar</h3>
+        <p class="text-muted" style="font-size:12.5px;margin:2px 0 10px">
+          Además de las asignaturas marcadas y la prioridad, elija en qué espacios se permite alternar.
+        </p>
+        <div class="tipos" role="radiogroup" aria-label="Qué clases pueden alternar">
+          @for (o of opcionesTipo(); track o.valor) {
+            <label class="tipo" [class.on]="state.tipoEspacioAlternancia() === o.valor" [class.imposible]="!o.diag.hayPareja">
+              <input type="radio" name="tipoEspacioAlternancia" [checked]="state.tipoEspacioAlternancia() === o.valor"
+                     (change)="state.setTipoEspacioAlternancia(o.valor)">
+              <span><b>{{ o.etiqueta }}</b>
+                <span class="text-muted">{{ o.diag.hayPareja ? o.diag.sesiones + ' clase(s) de ' + o.diag.asignaturas + ' asignatura(s)' : 'ninguna pareja posible' }}</span></span>
+            </label>
+          }
+        </div>
+        @if (diagnostico(); as d) {
+          @if (!d.hayPareja) {
+            <div class="errb" role="alert" style="margin-top:10px"><b>⚠ Con esta combinación ningún grupo podrá alternar.</b> {{ d.motivo }}
+              Si faltan aulas, el horario no se podrá generar.</div>
+          } @else {
+            <div class="okb" style="margin-top:10px">✓ Si faltan aulas, podrán alternar hasta {{ d.sesiones }} clase(s) de {{ d.asignaturas }} asignatura(s).
+              Que la pareja funcione depende además de que compartan horario disponible y un aula con cupo.</div>
+          }
+        }
+      </section>
+
       <!-- Orden de cesión a alternancia -->
       <section>
         <h3 class="sec">Prioridad para alternar</h3>
@@ -117,10 +146,16 @@ interface AsignaturaFila {
     .prog-group .table th { background: transparent; }
     tr.guardando td { opacity: .7; }
     .ic-edit:disabled { opacity: .3; pointer-events: none; }
+    .tipos { display: flex; gap: 10px; flex-wrap: wrap; }
+    .tipo { display: flex; gap: 8px; align-items: flex-start; padding: 9px 12px; border: 1px solid var(--color-divider); cursor: pointer; min-width: 220px; }
+    .tipo span { display: flex; flex-direction: column; font-size: 13px; }
+    .tipo .text-muted { font-size: 11.5px; }
+    .tipo.on { border-color: var(--color-accent); background: var(--color-accent-100); }
+    .tipo.imposible .text-muted { color: var(--err-bd); }
   `]
 })
 export class AlternanciaTabComponent implements OnInit {
-  private state = inject(StateService);
+  state = inject(StateService);
   private persistencia = inject(PersistenciaService);
   private snack = inject(MatSnackBar);
 
@@ -193,6 +228,16 @@ export class AlternanciaTabComponent implements OnInit {
     });
   }
 
+  /** Las tres opciones con su diagnóstico: se ve de antemano cuál deja la alternancia sin parejas. */
+  opcionesTipo = computed(() => ([['Todos', 'Todas las clases'], ['Laboratorio', 'Solo laboratorios'], ['Salon', 'Solo salones y auditorios']] as [TipoEspacioAlternancia, string][])
+    .map(([valor, etiqueta]) => ({
+      valor, etiqueta,
+      diag: diagnosticarAlternancia(this.state.asignaturas(), this.state.grupos(), this.state.espacios(), this.criterios(), valor),
+    })));
+  /** Sin criterios cargados todavía no hay nada que diagnosticar. */
+  diagnostico = computed(() => this.cargandoCriterios() ? null
+    : this.opcionesTipo().find(o => o.valor === this.state.tipoEspacioAlternancia())?.diag ?? null);
+
   private filas = computed<AsignaturaFila[]>(() => this.state.asignaturas().map(a => ({ asignatura: a, guardando: false, error: null })));
 
   totalAsignaturas = computed(() => this.state.asignaturas().length);
@@ -215,7 +260,7 @@ export class AlternanciaTabComponent implements OnInit {
       if (!mapa.has(progId)) mapa.set(progId, { id: progId, programa: progNom, filas: [] });
       mapa.get(progId)!.filas.push(fila);
     }
-    return [...mapa.values()].sort((a, b) => a.programa.localeCompare(b.programa));
+    return [...mapa.values()].sort((a, b) => porTexto(a.programa, b.programa));
   });
 
   /** Docentes de la asignatura, derivados de sus grupos (Fase 2: el docente vive en el grupo). */

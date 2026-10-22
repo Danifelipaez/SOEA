@@ -41,6 +41,10 @@ namespace SOEA.Domain.Entities
         /// </summary>
         public void AgregarSesion(Guid sesionId) => SesioneIds = [.. SesioneIds, sesionId];
 
+        /// <summary>Saca sesiones liberadas a mano (quedan pendientes de ubicar). Lista nueva, como <see cref="AgregarSesion"/>.</summary>
+        public void QuitarSesiones(IReadOnlyCollection<Guid> sesionIds) =>
+            SesioneIds = SesioneIds.Where(id => !sesionIds.Contains(id)).ToList();
+
         /// <summary>
         /// Marca el horario como publicado.
         /// </summary>

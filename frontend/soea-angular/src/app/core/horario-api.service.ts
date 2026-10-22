@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, of, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { Asignatura, ConfiguracionAlgoritmo, DisponibilidadUi, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion } from './models';
+import { Asignatura, ConfiguracionAlgoritmo, DisponibilidadUi, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion, TipoEspacioAlternancia } from './models';
 import { environment } from '../../environments/environment';
 import { mensajeErrorHttp } from './http-error.util';
 import { SEMESTRE_POR_DEFECTO } from './semestre';
@@ -65,6 +65,10 @@ export interface GenerarHorarioRequest {
   grupos?: GrupoApiDto[];
   configuracion?: ConfiguracionAlgoritmoApiDto;
   sesionesFijas?: SesionFijaApiDto[];
+  /** Laboratorio | Salon | Todos: qué sesiones pueden alternar según el espacio que usan. */
+  tipoEspacioAlternancia?: TipoEspacioAlternancia;
+  /** Prueba de horario: el servidor genera pero no guarda nada (horarioId llega null). */
+  soloPrueba?: boolean;
 }
 
 export interface AsignaturaApiDto {
@@ -117,6 +121,8 @@ export interface GenerarHorarioResponse {
   gruposEnConflicto?: string[];
   /** Solo con motivoInfactibilidad 'Capacidad': el espacio de mayor aforo que el grupo podía usar. */
   espacioLimitanteId?: string;
+  /** Clases fijas que el servidor no pudo respetar (grupo inexistente, franja fuera de jornada…). */
+  sesionesFijasOmitidas?: number;
   logs?: string[];
   // alternancia y semana llegan como string desde JSON; mapearSesiones() los castea
   sesiones: (Omit<Sesion, 'alternancia' | 'semana'> & { alternancia: string; semana?: string })[];
@@ -158,7 +164,8 @@ export class HorarioApiService {
     config?: ConfiguracionAlgoritmo,
     semestre = SEMESTRE_POR_DEFECTO,
     base?: HorarioBase,
-    grupos?: Grupo[]
+    grupos?: Grupo[],
+    opciones: { tipoEspacioAlternancia?: TipoEspacioAlternancia; soloPrueba?: boolean } = {}
   ): Observable<GenerarHorarioResponse> {
     // La contraparte virtual de una sesión que alterna es una fila derivada, no una sesión propia:
     // fijarla también duplicaría la sesión.
@@ -190,6 +197,7 @@ export class HorarioApiService {
     }));
 
     const body: GenerarHorarioRequest = {
+      ...opciones,
       semestre,
       grupos: gruposDto?.length ? gruposDto : undefined,
       sesionesFijas: sesionesFijas?.length ? sesionesFijas : undefined,
@@ -257,6 +265,13 @@ export class HorarioApiService {
   limpiar(semestre = SEMESTRE_POR_DEFECTO): Observable<void> {
     return this.http
       .delete<void>(`${this.apiBase}/horario/actual`, { params: { semestre } })
+      .pipe(catchError(this.manejarError));
+  }
+
+  /** Saca una clase (y su pareja de alternancia) del horario guardado; devuelve los ids liberados. */
+  liberarSesion(horarioId: string, sesionId: string): Observable<string[]> {
+    return this.http
+      .delete<string[]>(`${this.apiBase}/horario/${horarioId}/sesiones/${sesionId}`)
       .pipe(catchError(this.manejarError));
   }
 

@@ -51,7 +51,7 @@ Fuente única compartida por las tres fases y el validador:
 | `api/docentes` | CRUD · `GET duplicados` · `POST fusionar` |
 | `api/espacios`, `api/facultades`, `api/programas` | CRUD |
 | `api/criterioscesionalternancia` | `GET` · `PATCH {id}` |
-| `api/horario` | `GET actual` · `DELETE actual` · `POST generar` · `POST sesion-manual` · `POST reacomodar` |
+| `api/horario` | `GET actual` · `DELETE actual` · `POST generar` · `POST sesion-manual` · `DELETE {horarioId}/sesiones/{sesionId}` · `POST reacomodar` |
 | `api/import` | `POST excel/revisar` · `POST filas/revisar` · `POST filas` |
 | `api/sesiones` | `PATCH {id}/docente` |
 

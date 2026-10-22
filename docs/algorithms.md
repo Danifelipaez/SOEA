@@ -22,7 +22,7 @@ POST /api/horario/generar  (catálogo enviado por el frontend + semestre + confi
 
 - Plazo total: 200 s (`PlazoTotalPorDefecto`). Si vence antes de Fase 2 → 422 `Timeout`; si vence en Fase 3 → se publica la solución de Fase 2.
 - Una generación a la vez (429 si hay otra en curso). Parámetros del GA validados por rango (400).
-- Infactible → 422 con `motivoInfactibilidad` ∈ {`Espacio`, `Capacidad`, `VentanaHoraria`, `FranjaGrupo`, `Datos`, `Timeout`, `Otro`} y un mensaje que nombra lo que no cupo.
+- Infactible → 422 con `motivoInfactibilidad` ∈ {`Espacio`, `Capacidad`, `VentanaHoraria`, `FranjaGrupo`, `Datos`, `Timeout`, `Otro`} y un mensaje que nombra lo que no cupo. Con `FranjaGrupo` (pre-check HC-G01: la suma de horas del grupo supera su disponibilidad, o una clase no cabe en ningún día), `gruposEnConflicto` trae los grupos y la UI los nombra con su programa; el catálogo marca esos mismos grupos en "Con datos incompletos" antes de generar (`gruposQueNoCaben`, espejo del pre-check).
 
 ## Fase 1 — Coloración (Welsh-Powell)
 
@@ -48,9 +48,14 @@ Solo se activa si Fase 2 devuelve `Espacio`:
 
 1. `CederSiguientePareja` elige dos candidatas y las empareja (una TipoA, otra TipoB, mismo `ParejaAlternanciaId`, `CedidaPorSaturacion = true`).
 2. **Candidata:** presencial, sin alternancia, no fija ni bloqueada, alcanzada por algún criterio activo de `CriterioCesionAlternancia` (Electiva → Optativa → Elegible, en el orden configurado; `MultiplesSesiones` solo desempata).
+   Si la petición trae `TipoEspacioAlternancia` (`Laboratorio` / `Salon`, elegido en la pestaña Alternancia), además debe usar ese tipo de espacio según `CalculadorEspaciosSesion.TipoEspacioDe` (espacio fijo → tipo exigido por el requisito del grupo → laboratorio para labs, salón para teoría). El límite separa laboratorios de aulas de teoría: `Salon` admite también auditorios, porque CP-SAT elige el aula de la pareja entre sus candidatas y una teoría sin requisito puede caer en cualquiera de los dos; como las candidatas de una sesión son todas laboratorio o todas no-laboratorio (`CumpleTipo`), el filtro acota también el aula que se libera. La pestaña avisa antes de generar si la combinación de criterios, asignaturas marcadas y tipo de espacio no deja ninguna pareja posible (`diagnostico-alternancia.ts`, espejo de las compuertas que no dependen de franja ni aula).
 3. **Pareja válida** (`EvaluadorParejaAlternancia`): grupos y asignaturas distintos, misma duración, requisito de aula compatible y, sobre todo, **franja común y aula común** según las mismas fuentes que usa CP-SAT.
 4. Se reintenta Fase 1 + Fase 2. Si la pareja provoca otra causa de infactibilidad (p. ej. HC-SEP), se deshace y se prueba otra.
 5. Si no quedan parejas posibles, la generación **falla** nombrando qué no cupo. Nunca se virtualiza una sesión en silencio.
+
+## Prueba de horario (`SoloPrueba`)
+
+Con `SoloPrueba = true` el pipeline corre completo pero se salta el paso 5 (persistir): el horario vigente queda intacto y la respuesta trae las sesiones con `HorarioId = null`. Para guardar una prueba tal cual, el frontend vuelve a generar con **todas** sus sesiones como fijas (restricciones de igualdad), así el resultado guardado es el mismo que se vio.
 
 ## Fase 3 — Algoritmo genético
 
@@ -72,6 +77,7 @@ Solo se activa si Fase 2 devuelve `Espacio`:
 |---|---|---|
 | `POST /horario/reacomodar` | `ReacomodarHorarioService` | Mueve una sesión a (día, hora, aula). Recalcula solo la editada y las que ahora chocan (mismo grupo o aula); el resto conserva exactamente su asignación. Rechaza si queda choque de docente |
 | `POST /horario/sesion-manual` | `CrearSesionManualService` | Agrega una sesión fija al horario vigente, validando solapes |
+| `DELETE /horario/{horarioId}/sesiones/{sesionId}` | `LiberarSesionService` | Saca una clase (y su pareja de alternancia) del horario vigente; queda pendiente hasta ubicarla o volver a generar |
 | `PATCH /sesiones/{id}/docente` | `AsignarDocenteSesionService` | Solape de docente → 409; fuera de disponibilidad o sobre el máximo de horas → avisos |
 | `GET` / `DELETE /horario/actual` | `GenerarHorarioService` | Recupera el horario vigente del semestre / borra sus sesiones |
 

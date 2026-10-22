@@ -6,6 +6,7 @@ import { AsignaturaApi, DocenteApi, EspacioApi, GrupoApi, PersistenciaService } 
 import { StateService } from './state.service';
 import { HorarioApiService } from './horario-api.service';
 import { mensajeErrorHttp } from './http-error.util';
+import { ordenar } from './orden';
 import { Asignatura, Docente, Espacio, Facultad, Grupo, Programa } from './models';
 
 export interface ResumenCatalogo {
@@ -235,14 +236,14 @@ export class CatalogoService {
       }))
     }).pipe(
       map(({ facultades, programas, asignaturas, docentes, espacios, grupos, horario }) => {
-        this.state.facultades.set(facultades.map(f => ({ id: f.id, nombre: f.nombre })));
-        this.state.programas.set(programas.map(p => ({
+        this.state.facultades.set(ordenar(facultades.map(f => ({ id: f.id, nombre: f.nombre }))));
+        this.state.programas.set(ordenar(programas.map(p => ({
           id: p.id, nombre: p.nombre, facultadId: p.facultadId
-        })));
-        this.state.docentes.set(docentes.map(d => this.mapDocente(d)));
-        this.state.espacios.set(espacios.map(e => this.mapEspacio(e)));
+        }))));
+        this.state.docentes.set(ordenar(docentes.map(d => this.mapDocente(d))));
+        this.state.espacios.set(ordenar(espacios.map(e => this.mapEspacio(e))));
         this.state.setAsignaturas(asignaturas.map(a => this.mapAsignatura(a)));
-        this.state.grupos.set(grupos.map(g => this.mapGrupo(g)));
+        this.state.grupos.set(ordenar(grupos.map(g => this.mapGrupo(g))));
         if (horario) {
           this.state.errorHorarioActual.set(null);
           this.state.setSesiones(this.horarioApi.mapearSesiones(horario.sesiones));

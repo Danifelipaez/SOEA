@@ -13,17 +13,20 @@ namespace SOEA.API.Controllers
         private readonly GenerarHorarioService       _generarService;
         private readonly CrearSesionManualService    _sesionManualService;
         private readonly ReacomodarHorarioService    _reacomodarService;
+        private readonly LiberarSesionService        _liberarService;
         private readonly ILogger<HorarioController>  _logger;
 
         public HorarioController(
             GenerarHorarioService       generarService,
             CrearSesionManualService    sesionManualService,
             ReacomodarHorarioService    reacomodarService,
+            LiberarSesionService        liberarService,
             ILogger<HorarioController>  logger)
         {
             _generarService      = generarService;
             _sesionManualService = sesionManualService;
             _reacomodarService   = reacomodarService;
+            _liberarService      = liberarService;
             _logger              = logger;
         }
 
@@ -140,6 +143,18 @@ namespace SOEA.API.Controllers
             var resultado = await _sesionManualService.EjecutarAsync(request);
             return StatusCode(StatusCodes.Status201Created, resultado);
         }
+
+        /// <summary>
+        /// "Liberar espacio del horario": saca una clase (y su pareja de alternancia, si la tiene) del
+        /// horario vigente. Queda pendiente de ubicar hasta crearla a mano o volver a generar.
+        /// Devuelve los ids liberados.
+        /// </summary>
+        // Sin catch — GlobalExceptionHandler traduce KeyNotFoundException a 404.
+        [HttpDelete("{horarioId:guid}/sesiones/{sesionId:guid}")]
+        [ProducesResponseType(typeof(List<Guid>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> LiberarSesion(Guid horarioId, Guid sesionId) =>
+            Ok(await _liberarService.EjecutarAsync(horarioId, sesionId));
 
         /// <summary>
         /// Petición 13 — mueve una sesión ya generada a un nuevo (día, hora, espacio) sin

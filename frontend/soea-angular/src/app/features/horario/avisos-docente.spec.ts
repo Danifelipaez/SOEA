@@ -123,7 +123,7 @@ describe('fueraDisponibilidadGrupo', () => {
   });
 });
 
-describe('choquesEspacioPorSesion (modo borrador)', () => {
+describe('choquesEspacioPorSesion', () => {
   const espacios = [{ id: 'e1', nombre: 'Lab 1', tipo: 'Laboratorio', capacidad: 30 }] as any[];
 
   it('avisa dos clases presenciales solapadas en el mismo espacio, en ambas sesiones', () => {

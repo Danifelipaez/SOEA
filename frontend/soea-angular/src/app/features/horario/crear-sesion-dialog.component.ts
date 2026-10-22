@@ -6,24 +6,26 @@ import { MatSnackBarModule } from '@angular/material/snack-bar';
 import { StateService } from '../../core/state.service';
 import { PersistenciaService } from '../../core/persistencia.service';
 import { Asignatura, Docente, Espacio, Grupo, Sesion, TipoSesionUi, tipoFlujoDesde, esVirtualDesde } from '../../core/models';
-import { nuevoId } from '../../core/id.util';
 import { HORA_CIERRE_SABADO } from '../../core/jornada';
 import { mensajeErrorHttp } from '../../core/http-error.util';
 import { SearchableSelectComponent, SearchableOption } from '../../shared/searchable-select/searchable-select.component';
-import { porNombre } from '../../core/orden';
-import { describirSesionConflicto, hhmm, HORAS_GRILLA, DIAS_GRILLA, seSolapanHorarios, nuncaCoexisteEnSemana, finDeJornadaOk, espaciosPermitidosPara, avisosDocentePorSesion, Check } from './horario.reglas';
+import { porTexto } from '../../core/orden';
+import { describirSesionConflicto, hhmm, HORAS_GRILLA, DIAS_GRILLA, seSolapanHorarios, nuncaCoexisteEnSemana, finDeJornadaOk, espaciosPermitidosPara, fueraDisponibilidadGrupo, avisosDocentePorSesion, Check } from './horario.reglas';
 
 // ═══ Diálogo: Crear sesión manual (REQUISITOS §2) ═══
-/** `modoFija`: la sesión va a un horario base (se devuelve a quien abrió el diálogo) en vez de crearse en el servidor.
- *  `modoBorrador`: igual, pero va al borrador; los choques avisan en vez de bloquear y el docente se puede cambiar. */
-export interface CrearSesionDialogData { asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[]; grupos: Grupo[]; sesiones: Sesion[]; programaById: Map<string, { id: string; nombre: string }>; modoFija?: boolean; modoBorrador?: boolean; }
+/** `prefill`: abre ya en ese grupo y tipo — «Elegir hora» de una clase pendiente de ubicar. */
+export interface CrearSesionDialogData {
+  asignaturas: Asignatura[]; docentes: Docente[]; espacios: Espacio[]; grupos: Grupo[]; sesiones: Sesion[];
+  programaById: Map<string, { id: string; nombre: string }>;
+  prefill?: { asignaturaId: string; grupoId: string; tipo: TipoSesionUi };
+}
 
 @Component({
   selector: 'app-crear-sesion-dialog',
   standalone: true,
   imports: [CommonModule, FormsModule, MatDialogModule, MatSnackBarModule, SearchableSelectComponent],
   template: `
-    <div class="pophd">{{ modoFija ? 'Fijar clase antes de generar' : modoBorrador ? 'Agregar clase al borrador' : 'Agregar clase' }} <button type="button" class="pop-close" (click)="cancelar()" aria-label="Cerrar">✕</button></div>
+    <div class="pophd">Agregar clase <button type="button" class="pop-close" (click)="cancelar()" aria-label="Cerrar">✕</button></div>
     <div class="popbd" style="max-height:80vh;overflow:auto">
       <div class="dfield"><label>Asignatura <span class="rq">*</span></label>
         <app-searchable-select [(ngModel)]="asignaturaId" (ngModelChange)="onAsignaturaChange($event)"
@@ -40,15 +42,7 @@ export interface CrearSesionDialogData { asignaturas: Asignatura[]; docentes: Do
             @for (t of tiposDisponibles(); track t.tipo) { <label class="seg-opt" [class.on]="tipoSesion() === t.tipo" (click)="setTipoSesion(t.tipo)">{{ t.label }}</label> }
           </div>
         </div>
-        @if (modoBorrador) {
-          <div class="dfield"><label>Docente</label>
-            <app-searchable-select [ngModel]="docenteActual()" (ngModelChange)="docenteElegido = $event; recheck()"
-                                    [options]="docenteOptions" placeholder="— Sin docente —"></app-searchable-select>
-          </div>
-          <div class="text-muted" style="font-size:12px">⏱ {{ duracionSeleccionada() }}h por sesión (fijo)</div>
-        } @else {
-          <div class="text-muted" style="font-size:12px">👤 {{ docenteDelGrupo() }} · ⏱ {{ duracionSeleccionada() }}h por sesión (fijo)</div>
-        }
+        <div class="text-muted" style="font-size:12px">👤 {{ docenteDelGrupo() }} · ⏱ {{ duracionSeleccionada() }}h por sesión (fijo)</div>
       }
 
       <div class="dfield"><label>Día <span class="rq">*</span></label>
@@ -67,7 +61,7 @@ export interface CrearSesionDialogData { asignaturas: Asignatura[]; docentes: Do
         <div class="dfield" style="flex:1"><label>Espacio {{ tipoSesion() === 'TeoriaVirtual' ? '(virtual)' : '' }}</label>
           @if (tipoSesion() === 'TeoriaVirtual') { <div class="selval text-muted">Sin espacio físico</div> }
           @else {
-            <app-searchable-select [(ngModel)]="espacioId" (ngModelChange)="recheck()" [disabled]="espacioFijoBloqueado()"
+            <app-searchable-select [(ngModel)]="espacioId" (ngModelChange)="espacioPropuesto = false; recheck()" [disabled]="espacioFijoBloqueado()"
                                     [options]="espacioOptions()" placeholder="— Seleccione —"></app-searchable-select>
           }
         </div>
@@ -75,18 +69,14 @@ export interface CrearSesionDialogData { asignaturas: Asignatura[]; docentes: Do
 
 
       @if (asignaturaId && dia && horaInicio && (espacioId || tipoSesion() === 'TeoriaVirtual')) {
-        <!-- En el borrador un choque no bloquea: se avisa y la clase se puede agregar igual. -->
-        @for (c of checks(); track c.texto) { <div [class]="c.ok ? 'okb' : modoBorrador ? 'soft' : 'errb'">{{ c.ok ? '✓' : modoBorrador ? '⚠' : '✕' }} {{ c.texto }}</div> }
+        @for (c of checks(); track c.texto) { <div [class]="c.ok ? 'okb' : 'errb'">{{ c.ok ? '✓' : '✕' }} {{ c.texto }}</div> }
         @for (w of avisos(); track w) { <div class="soft"><b>⚠ Aviso (no bloquea):</b> {{ w }}</div> }
       }
       @if (errorServidor()) { <div class="errb"><b>✕ {{ errorServidor() }}</b></div> }
-      @if (modoFija) {
-        <p class="text-muted" style="font-size:11.5px;margin:0;border-top:1px dashed var(--color-neutral-300);padding-top:8px">Esta clase quedará fija; al generar, el resto del horario se acomoda alrededor.</p>
-      }
 
       <div class="popfoot">
         <button class="btn btn-secondary" (click)="cancelar()" [disabled]="guardando()">Cancelar</button>
-        <button class="btn btn-primary" [disabled]="!puedeCrear() || guardando()" (click)="crear()">{{ guardando() ? 'Creando…' : modoFija ? 'Fijar sesión' : modoBorrador ? 'Agregar al borrador' : 'Crear' }}</button>
+        <button class="btn btn-primary" [disabled]="!puedeCrear() || guardando()" (click)="crear()">{{ guardando() ? 'Creando…' : 'Crear' }}</button>
       </div>
     </div>
   `
@@ -96,15 +86,18 @@ export class CrearSesionDialogComponent {
   private data: CrearSesionDialogData = inject(MAT_DIALOG_DATA);
   private persistencia = inject(PersistenciaService);
   private state = inject(StateService);
-  readonly modoFija = !!this.data.modoFija;
-  readonly modoBorrador = !!this.data.modoBorrador;
-  /** Solo en el borrador: docente elegido a mano. null = el del grupo; '' = sin docente. */
-  docenteElegido: string | null = null;
-  readonly docenteOptions: SearchableOption[] = [{ value: '', label: 'Sin docente' },
-    ...[...this.data.docentes].sort(porNombre).map(d => ({ value: d.id, label: d.nombre }))];
-  docenteActual(): string { return this.docenteElegido ?? this.docenteIdDelGrupo(); }
+
+  constructor() {
+    const p = this.data.prefill;
+    if (!p) return;
+    this.asignaturaId = p.asignaturaId; this.onAsignaturaChange(p.asignaturaId);
+    this.grupoId = p.grupoId; this.onGrupoChange();
+    this.setTipoSesion(p.tipo);
+  }
 
   asignaturaId = ''; dia = ''; horaInicio = ''; espacioId = '';
+  /** true mientras el aula la propuso recheck() y no el usuario: se vuelve a proponer al cambiar día u hora. */
+  espacioPropuesto = false;
   /** Una clase agregada a mano nunca alterna: emparejar es cosa del generador (regla 10). */
   readonly alternancia = 'SinAlternancia' as const;
   guardando = signal(false); errorServidor = signal('');
@@ -128,7 +121,7 @@ export class CrearSesionDialogComponent {
       label: a.nombre + (a.codigo ? ` (${a.codigo})` : ''),
       sub: this.data.programaById.get(a.programaId)?.nombre
     }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort((a, b) => porTexto(a.label, b.label));
 
   espacioOptions = computed<SearchableOption[]>(() =>
     this.espaciosDisponibles().map(e => ({ value: e.id, label: e.nombre })));
@@ -149,7 +142,7 @@ export class CrearSesionDialogComponent {
     const id = this.docenteIdDelGrupo();
     return id ? this.nombreDocente(id) : '— sin docente en el grupo —';
   }
-  onGrupoChange() { this.grupoIdSel.set(this.grupoId); this.espacioId = ''; this.docenteElegido = null; this.recheck(); }
+  onGrupoChange() { this.grupoIdSel.set(this.grupoId); this.espacioId = ''; this.recheck(); }
 
   tiposDisponibles = computed<{ tipo: TipoSesionUi; label: string }[]>(() => {
     const a = this.asignaturaSeleccionada();
@@ -198,8 +191,17 @@ export class CrearSesionDialogComponent {
   recheck() {
     const a = this.asignaturaSeleccionada(), dur = this.duracionSeleccionada(), esVirtual = this.tipoSesion() === 'TeoriaVirtual';
     const chks: Check[] = []; let ok = true;
-    if (!a || !this.dia || !this.horaInicio || (!this.espacioId && !esVirtual)) { this.checks.set([]); this.checksOk.set(false); this.avisos.set([]); return; }
     const startIdx = this.horasDisponibles.indexOf(this.horaInicio), endIdx = startIdx + dur;
+    const ocupa = (s: Sesion, espacioId: string) => s.espacioId === espacioId && s.dia === this.dia && !s.virtual && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles);
+    // Con día y hora elegidos se propone la primera aula permitida libre (o, si no hay ninguna, la
+    // primera permitida, para que el aviso diga que está ocupada). La propuesta sigue al día y la hora
+    // hasta que se elige un aula a mano.
+    if (a && this.dia && this.horaInicio && !esVirtual && (!this.espacioId || this.espacioPropuesto)) {
+      const permitidos = this.espaciosDisponibles();
+      this.espacioId = (permitidos.find(e => !this.data.sesiones.some(s => ocupa(s, e.id))) ?? permitidos[0])?.id ?? '';
+      this.espacioPropuesto = true;
+    }
+    if (!a || !this.dia || !this.horaInicio || (!this.espacioId && !esVirtual)) { this.checks.set([]); this.checksOk.set(false); this.avisos.set([]); return; }
     // FE16 auditoría: antes solo se acotaba el sábado — ver mismo fix en EditarSesionDialogComponent.
     if (!finDeJornadaOk(this.dia, endIdx, this.horasDisponibles)) {
       chks.push({ ok: false, texto: this.dia === 'sabado' ? `Sábado solo tiene jornada hasta las ${hhmm(HORA_CIERRE_SABADO)}` : 'La sesión no cabe en la jornada de ese día.' });
@@ -213,7 +215,21 @@ export class CrearSesionDialogComponent {
     // La clase nueva no alterna: ocupa todas las semanas, así que choca con cualquier otra.
     const semanaActual: Sesion['semana'] = undefined;
 
-    const docenteId = this.docenteActual();
+    const nueva: Sesion = {
+      id: '', asignaturaId: a.id, grupoId: this.grupoIdSel(), docenteId: this.docenteIdDelGrupo() || undefined, dia: this.dia, horaInicio: this.horaInicio,
+      horaFin: hhmm(parseInt(this.horaInicio, 10) + Math.round(dur)), duracionHoras: dur, virtual: esVirtual, alternancia: this.alternancia,
+    };
+    // Grupo (HC-G01 y HC-C01): mismo bloqueo que hará el servidor, dicho antes de pulsar Crear.
+    const fueraGrupo = fueraDisponibilidadGrupo([nueva], this.data.grupos).get('');
+    if (fueraGrupo) ok = false;
+    chks.push({ ok: !fueraGrupo, texto: fueraGrupo ? `Fuera del horario del grupo: ${fueraGrupo}.` : 'El grupo está disponible en esa franja' });
+    const otraDelGrupo = this.data.sesiones.find(s => s.grupoId === this.grupoIdSel() && !s.esContraparteVirtual && s.dia === this.dia && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
+    if (otraDelGrupo) {
+      ok = false;
+      chks.push({ ok: false, texto: `El grupo ya tiene clase a esa hora: ${sesion2(otraDelGrupo)}.` });
+    }
+
+    const docenteId = this.docenteIdDelGrupo();
     if (docenteId) {
       const conflictoDocente = this.data.sesiones.find(s => s.docenteId === docenteId && s.dia === this.dia && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
       if (conflictoDocente) ok = false;
@@ -227,7 +243,7 @@ export class CrearSesionDialogComponent {
       // FE5 auditoría: faltaba la exención de semana que Editar ya tenía — una TipoB nueva en el
       // mismo bloque/aula que una TipoA existente es válida (nunca comparten semana), pero esto
       // la bloqueaba igual por mirar solo solape de horario.
-      const conflictoEspacio = this.data.sesiones.find(s => s.espacioId === this.espacioId && s.dia === this.dia && !s.virtual && !nuncaCoexisteEnSemana(s.semana, semanaActual) && seSolapanHorarios(s, startIdx, endIdx, this.horasDisponibles));
+      const conflictoEspacio = this.data.sesiones.find(s => ocupa(s, this.espacioId) && !nuncaCoexisteEnSemana(s.semana, semanaActual));
       if (conflictoEspacio) ok = false;
       const espNombre = this.data.espacios.find(e => e.id === this.espacioId)?.nombre ?? this.espacioId;
       const texto = conflictoEspacio
@@ -236,12 +252,7 @@ export class CrearSesionDialogComponent {
         : `${espNombre} está libre en esa franja`;
       chks.push({ ok: !conflictoEspacio, texto });
     }
-    // En el borrador un choque solo avisa: con los campos completos siempre se puede agregar.
-    this.checks.set(chks); this.checksOk.set(ok || this.modoBorrador);
-    const nueva: Sesion = {
-      id: '', asignaturaId: a.id, grupoId: this.grupoIdSel(), docenteId: docenteId || undefined, dia: this.dia, horaInicio: this.horaInicio,
-      horaFin: hhmm(parseInt(this.horaInicio, 10) + Math.round(dur)), duracionHoras: dur, virtual: esVirtual, alternancia: this.alternancia,
-    };
+    this.checks.set(chks); this.checksOk.set(ok);
     const fuera = avisosDocentePorSesion([nueva], this.data.docentes, [], []).get('')?.fueraDeDisponibilidad;
     this.avisos.set(fuera ? [fuera] : []);
   }
@@ -250,20 +261,8 @@ export class CrearSesionDialogComponent {
     if (!this.puedeCrear()) return;
     const a = this.asignaturaSeleccionada()!, tipo = this.tipoSesion(), duracion = this.duracionSeleccionada();
     // Grupo sin docente → null: '' no es un Guid y el servidor lo rechazaba con 400.
-    const docenteId = this.docenteActual() || null;
+    const docenteId = this.docenteIdDelGrupo() || null;
     const espacioId = tipo === 'TeoriaVirtual' ? null : (this.espacioId || null);
-    if (this.modoFija || this.modoBorrador) {
-      const [hh, mm] = this.horaInicio.split(':').map(Number);
-      const sesion: Sesion = {
-        id: nuevoId(), asignaturaId: a.id, grupoId: this.grupoIdSel(), docenteId: docenteId ?? undefined,
-        dia: this.dia, horaInicio: this.horaInicio, duracionHoras: duracion,
-        horaFin: `${String(hh + duracion).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
-        espacioId: espacioId ?? undefined, virtual: esVirtualDesde(tipo), alternancia: this.alternancia, tipoFlujo: tipoFlujoDesde(tipo),
-        ...(this.modoBorrador ? { deBorrador: true } : {})
-      };
-      this.dialogRef.close([sesion]);
-      return;
-    }
     // P0-5 auditoría: la sesión se agrega al horario vigente; sin uno generado no hay dónde guardarla.
     const horarioId = this.state.horarioId();
     if (!horarioId) { this.errorServidor.set('Genere el horario antes de agregar clases.'); return; }

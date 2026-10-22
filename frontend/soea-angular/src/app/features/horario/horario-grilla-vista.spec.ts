@@ -175,7 +175,7 @@ describe('HorarioComponent.grilla() — alternancia: horario completo y semana s
   it('filtrar por el grupo de una no le quita el ⇄: la pareja se busca en todo el horario', () => {
     const component = crearComponente();
     TestBed.inject(StateService).setSesiones(pareja());
-    component.setFiltro('grupo', 'gx');
+    component.agregarFiltro({ dim: 'grupo', id: 'gx' });
 
     const jueves = component.grilla().dias.find(d => d.valor === 'jueves')!;
     expect(jueves.tarjetas).toHaveLength(1);

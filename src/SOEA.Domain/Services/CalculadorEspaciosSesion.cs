@@ -51,6 +51,22 @@ namespace SOEA.Domain.Services
             return null;
         }
 
+        /// <summary>
+        /// Tipo de espacio que ocupa una sesión presencial: el de su espacio fijo (de la sesión o del
+        /// requisito del grupo), el tipo exigido por el requisito, o el de por defecto según el tipo
+        /// de sesión (laboratorio → laboratorio; teoría → salón). Decide qué sesiones entran a la
+        /// alternancia cuando la coordinación la limita a un tipo de espacio.
+        /// </summary>
+        public static TipoEspacio TipoEspacioDe(Sesion sesion, RequisitoEspacio? requisito, IReadOnlyList<Espacio> espacios)
+        {
+            Guid? fijo = sesion.EspacioId ?? requisito?.EspacioId;
+            if (fijo.HasValue)
+                foreach (var e in espacios)
+                    if (e.Id == fijo.Value) return e.Tipo;
+            if (requisito?.TipoEspacio is TipoEspacio tipo) return tipo;
+            return TipoSesionDe(sesion) == TipoSesion.Laboratorio ? TipoEspacio.Laboratorio : TipoEspacio.Salon;
+        }
+
         /// <summary>HC-CAP: el aforo alcanza para el grupo. Sin estudiantes conocidos (≤ 0) no restringe.</summary>
         public static bool CumpleAforo(Espacio espacio, int estudiantes) =>
             estudiantes <= 0 || espacio.Capacidad >= estudiantes;

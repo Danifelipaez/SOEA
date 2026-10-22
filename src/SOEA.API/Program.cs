@@ -100,6 +100,7 @@ builder.Services.AddScoped<SesionCascadeService>();
 // CRUD Asignaturas
 builder.Services.AddScoped<AsignaturaService>();
 builder.Services.AddScoped<CrearSesionManualService>();
+builder.Services.AddScoped<LiberarSesionService>();
 // CRUD Grupos
 builder.Services.AddScoped<GrupoService>();
 // CRUD Docentes
