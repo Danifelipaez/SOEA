@@ -49,21 +49,23 @@ namespace SOEA.Tests.Engine.ConstraintProg
             // Mismo escenario infactible que SweepGruposInfactiblesTests, pero con
             // TimeoutSegundos=0: el solver no tiene presupuesto de tiempo y termina Unknown
             // (no Infeasible), sin importar si el modelo es genuinamente irresoluble o no.
-            var bloques = CrearBloques(1);
+            var bloques = CrearBloques(2);
             var espacioFijo = new Espacio(Guid.NewGuid(), "Salón fijo", TipoEspacio.Salon, 30);
             var otroSalon = new Espacio(Guid.NewGuid(), "Salón libre", TipoEspacio.Salon, 30);
             var grupoA = GrupoConEspacioFijo(espacioFijo.Id);
             var grupoB = GrupoConEspacioFijo(espacioFijo.Id);
+            var grupoC = GrupoConEspacioFijo(espacioFijo.Id);
             var sesionA = CrearSesionPresencial(grupoA.Id, 1m);
             var sesionB = CrearSesionPresencial(grupoB.Id, 1m);
+            var sesionC = CrearSesionPresencial(grupoC.Id, 1m);
 
             var motor = new MotorConstraintProgramming(
                 NullLogger<MotorConstraintProgramming>.Instance,
                 new CpSatOptions { SweepGrupos = true, TimeoutSegundos = 0, NumWorkers = 1 });
 
             var resultado = await motor.ResolverFactibilidadAsync(
-                new[] { sesionA, sesionB }, bloques, new[] { espacioFijo, otroSalon },
-                new[] { grupoA, grupoB });
+                new[] { sesionA, sesionB, sesionC }, bloques, new[] { espacioFijo, otroSalon },
+                new[] { grupoA, grupoB, grupoC });
 
             Assert.False(resultado.EsFactible);
             Assert.Equal(MotivoInfactibilidad.Timeout, resultado.Motivo);

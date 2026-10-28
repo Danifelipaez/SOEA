@@ -43,24 +43,26 @@ namespace SOEA.Tests.Engine.ConstraintProg
         [Fact]
         public async Task TopeSuperado_SweepSeOmite()
         {
-            // Mismo escenario que SweepGruposInfactiblesTests (2 grupos, mismo espacio fijo,
-            // 1 solo bloque) pero con el tope fijado en 1: con 2 candidatos supera el tope
-            // (candidatos.Count > SweepGruposMaximo ⇒ 2 > 1) y el barrido debe omitirse.
-            var bloques = CrearBloques(1);
+            // Mismo escenario que SweepGruposInfactiblesTests (3 grupos, mismo espacio fijo,
+            // 2 bloques) pero con el tope fijado en 1: con 3 candidatos supera el tope
+            // (candidatos.Count > SweepGruposMaximo ⇒ 3 > 1) y el barrido debe omitirse.
+            var bloques = CrearBloques(2);
             var espacioFijo = new Espacio(Guid.NewGuid(), "Salón fijo", TipoEspacio.Salon, 30);
             var otroSalon = new Espacio(Guid.NewGuid(), "Salón libre", TipoEspacio.Salon, 30);
             var grupoA = GrupoConEspacioFijo(espacioFijo.Id);
             var grupoB = GrupoConEspacioFijo(espacioFijo.Id);
+            var grupoC = GrupoConEspacioFijo(espacioFijo.Id);
             var sesionA = CrearSesionPresencial(grupoA.Id, 1m);
             var sesionB = CrearSesionPresencial(grupoB.Id, 1m);
+            var sesionC = CrearSesionPresencial(grupoC.Id, 1m);
 
             var motor = new MotorConstraintProgramming(
                 NullLogger<MotorConstraintProgramming>.Instance,
                 new CpSatOptions { SweepGrupos = true, SweepGruposMaximo = 1 });
 
             var resultado = await motor.ResolverFactibilidadAsync(
-                new[] { sesionA, sesionB }, bloques, new[] { espacioFijo, otroSalon },
-                new[] { grupoA, grupoB });
+                new[] { sesionA, sesionB, sesionC }, bloques, new[] { espacioFijo, otroSalon },
+                new[] { grupoA, grupoB, grupoC });
 
             Assert.False(resultado.EsFactible);
             Assert.Null(resultado.GruposResponsablesIds);
@@ -70,24 +72,26 @@ namespace SOEA.Tests.Engine.ConstraintProg
         [Fact]
         public async Task TopeExacto_SweepSiCorre()
         {
-            // Boundary: con candidatos.Count == SweepGruposMaximo (2 == 2), la comparación
+            // Boundary: con candidatos.Count == SweepGruposMaximo (3 == 3), la comparación
             // estrictamente-mayor NO debe omitir el barrido — verifica que el guard no tiene
             // un off-by-one que excluya el caso límite.
-            var bloques = CrearBloques(1);
+            var bloques = CrearBloques(2);
             var espacioFijo = new Espacio(Guid.NewGuid(), "Salón fijo", TipoEspacio.Salon, 30);
             var otroSalon = new Espacio(Guid.NewGuid(), "Salón libre", TipoEspacio.Salon, 30);
             var grupoA = GrupoConEspacioFijo(espacioFijo.Id);
             var grupoB = GrupoConEspacioFijo(espacioFijo.Id);
+            var grupoC = GrupoConEspacioFijo(espacioFijo.Id);
             var sesionA = CrearSesionPresencial(grupoA.Id, 1m);
             var sesionB = CrearSesionPresencial(grupoB.Id, 1m);
+            var sesionC = CrearSesionPresencial(grupoC.Id, 1m);
 
             var motor = new MotorConstraintProgramming(
                 NullLogger<MotorConstraintProgramming>.Instance,
-                new CpSatOptions { SweepGrupos = true, SweepGruposMaximo = 2 });
+                new CpSatOptions { SweepGrupos = true, SweepGruposMaximo = 3 });
 
             var resultado = await motor.ResolverFactibilidadAsync(
-                new[] { sesionA, sesionB }, bloques, new[] { espacioFijo, otroSalon },
-                new[] { grupoA, grupoB });
+                new[] { sesionA, sesionB, sesionC }, bloques, new[] { espacioFijo, otroSalon },
+                new[] { grupoA, grupoB, grupoC });
 
             Assert.False(resultado.EsFactible);
             Assert.NotNull(resultado.GruposResponsablesIds);

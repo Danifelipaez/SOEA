@@ -45,22 +45,24 @@ namespace SOEA.Tests.Engine.ConstraintProg
         [Fact]
         public async Task SweepActivado_ExponeIdsDeGruposResponsablesEnCampoEstructurado()
         {
-            var bloques = CrearBloques(1);
+            var bloques = CrearBloques(2);
             var espacioFijo = new Espacio(Guid.NewGuid(), "Salón fijo", TipoEspacio.Salon, 30);
             var otroSalon = new Espacio(Guid.NewGuid(), "Salón libre", TipoEspacio.Salon, 30);
 
             var grupoA = GrupoConEspacioFijo(espacioFijo.Id);
             var grupoB = GrupoConEspacioFijo(espacioFijo.Id);
+            var grupoC = GrupoConEspacioFijo(espacioFijo.Id);
             var sesionA = CrearSesionPresencial(grupoA.Id, 1m);
             var sesionB = CrearSesionPresencial(grupoB.Id, 1m);
+            var sesionC = CrearSesionPresencial(grupoC.Id, 1m);
 
             var motor = new MotorConstraintProgramming(
                 NullLogger<MotorConstraintProgramming>.Instance,
                 new CpSatOptions { SweepGrupos = true });
 
             var resultado = await motor.ResolverFactibilidadAsync(
-                new[] { sesionA, sesionB }, bloques, new[] { espacioFijo, otroSalon },
-                new[] { grupoA, grupoB });
+                new[] { sesionA, sesionB, sesionC }, bloques, new[] { espacioFijo, otroSalon },
+                new[] { grupoA, grupoB, grupoC });
 
             Assert.False(resultado.EsFactible);
             Assert.NotNull(resultado.GruposResponsablesIds);
@@ -71,19 +73,21 @@ namespace SOEA.Tests.Engine.ConstraintProg
         [Fact]
         public async Task SweepDesactivado_GruposResponsablesIdsEsNull()
         {
-            var bloques = CrearBloques(1);
+            var bloques = CrearBloques(2);
             var espacioFijo = new Espacio(Guid.NewGuid(), "Salón fijo", TipoEspacio.Salon, 30);
             var otroSalon = new Espacio(Guid.NewGuid(), "Salón libre", TipoEspacio.Salon, 30);
             var grupoA = GrupoConEspacioFijo(espacioFijo.Id);
             var grupoB = GrupoConEspacioFijo(espacioFijo.Id);
+            var grupoC = GrupoConEspacioFijo(espacioFijo.Id);
             var sesionA = CrearSesionPresencial(grupoA.Id, 1m);
             var sesionB = CrearSesionPresencial(grupoB.Id, 1m);
+            var sesionC = CrearSesionPresencial(grupoC.Id, 1m);
 
             var motor = new MotorConstraintProgramming(NullLogger<MotorConstraintProgramming>.Instance);
 
             var resultado = await motor.ResolverFactibilidadAsync(
-                new[] { sesionA, sesionB }, bloques, new[] { espacioFijo, otroSalon },
-                new[] { grupoA, grupoB });
+                new[] { sesionA, sesionB, sesionC }, bloques, new[] { espacioFijo, otroSalon },
+                new[] { grupoA, grupoB, grupoC });
 
             Assert.False(resultado.EsFactible);
             Assert.Null(resultado.GruposResponsablesIds);

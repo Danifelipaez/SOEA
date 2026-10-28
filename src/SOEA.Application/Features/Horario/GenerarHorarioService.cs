@@ -197,6 +197,8 @@ namespace SOEA.Application.Features.Horario
                 .ToDictionary(dto => Guid.Parse(dto.Id), dto => ParseCategoria(dto.Categoria));
             var elegiblePorAsig = asignaturasConIdValido
                 .ToDictionary(dto => Guid.Parse(dto.Id), dto => dto.EsCandidataAlternancia);
+            var nombrePorAsig = asignaturasConIdValido
+                .ToDictionary(dto => Guid.Parse(dto.Id), dto => dto.Nombre);
 
             // HC-VH: ventana horaria por asignatura (la fija Secretaría Académica). Se pasa a CP-SAT
             // como hard constraint — ninguna sesión se asigna fuera de [HoraInicioMin, HoraFinMax].
@@ -296,7 +298,8 @@ namespace SOEA.Application.Features.Horario
             // No se cede NADA todavía: la Semana B solo se activa de forma reactiva, cuando CP-SAT
             // demuestra que no existe configuración válida por falta de aulas. El contexto se
             // construye una vez y se reutiliza en cada intento del bucle.
-            var contextoCesion = ConstruirContextoCesion(sesiones, espacios, grupos, bloques, ventanaPorAsig);
+            var contextoCesion = ConstruirContextoCesion(sesiones, espacios, grupos, bloques, ventanaPorAsig)
+                with { NombrePorAsignatura = nombrePorAsig };
             var sesionesCedidasEnOrden = new List<Guid>();
             var parejasDescartadas = new HashSet<(Guid, Guid)>();
             var diagnosticoCesion = new List<string>();
@@ -1219,7 +1222,8 @@ namespace SOEA.Application.Features.Horario
             IReadOnlyDictionary<Guid, Grupo> GrupoPorId,
             IReadOnlyDictionary<Guid, int[]> DominioPorSesion,
             IReadOnlyDictionary<Guid, IReadOnlyList<int>> AulasPorSesion,
-            IReadOnlyDictionary<Guid, TipoEspacio>? TipoEspacioPorSesion = null);
+            IReadOnlyDictionary<Guid, TipoEspacio>? TipoEspacioPorSesion = null,
+            IReadOnlyDictionary<Guid, string>? NombrePorAsignatura = null);
 
         /// <summary>Pareja cedida, o el motivo por el que no se encontró ninguna.</summary>
         internal sealed record ResultadoCesion(Sesion? S1, Sesion? S2, IReadOnlyList<string> Diagnostico)
@@ -1358,6 +1362,22 @@ namespace SOEA.Application.Features.Horario
                     });
             }
 
+            // Una pareja necesita dos asignaturas distintas: si todas las que pueden alternar son de
+            // la misma, un renglón por grupo repitiendo "misma asignatura" no dice qué hacer.
+            if (elegibles.Select(s => s.AsignaturaId).Distinct().Count() == 1)
+            {
+                var asig = elegibles[0].AsignaturaId;
+                var nombre = ctx.NombrePorAsignatura?.GetValueOrDefault(asig) is { Length: > 0 } n
+                    ? $"'{n}'" : "una asignatura";
+                var clases = elegibles.Count == 1 ? "1 clase" : $"{elegibles.Count} clases";
+                return new ResultadoCesion(null, null, new[]
+                {
+                    $"Solo {nombre} ({clases}) puede alternar, y una pareja necesita dos asignaturas distintas " +
+                    "que compartan aula en semanas alternas. Marque como candidata a alternancia otra asignatura " +
+                    "con clases de la misma duración a la misma hora."
+                });
+            }
+
             var vacio = Array.Empty<int>();
             IReadOnlyList<int> Aulas(Sesion s) => ctx.AulasPorSesion.TryGetValue(s.Id, out var a) ? a : vacio;
             int[] Dominio(Sesion s) => ctx.DominioPorSesion.TryGetValue(s.Id, out var d) ? d : vacio;
@@ -1417,10 +1437,16 @@ namespace SOEA.Application.Features.Horario
             return $"la sesión de {CalculadorEspaciosSesion.TipoSesionDe(s)} de '{grupo}'";
         }
 
-        /// <summary>Traduce el motivo más frecuente a lenguaje del coordinador.</summary>
+        /// <summary>
+        /// Traduce el motivo más frecuente a lenguaje del coordinador. "Misma asignatura" solo cuenta si
+        /// no hay otro: compararse con los demás grupos de la propia materia no dice por qué no encontró
+        /// pareja en otra, y con muchos grupos tapaba el motivo que sí se puede corregir.
+        /// </summary>
         private static string ExplicarRechazo(List<MotivoRechazoPareja> motivos)
         {
-            var motivo = motivos.GroupBy(m => m).OrderByDescending(g => g.Count()).First().Key;
+            var conOtras = motivos.Where(m => m != MotivoRechazoPareja.MismaAsignatura).ToList();
+            var motivo = (conOtras.Count > 0 ? conOtras : motivos)
+                .GroupBy(m => m).OrderByDescending(g => g.Count()).First().Key;
             return motivo switch
             {
                 MotivoRechazoPareja.SinFranjaComun =>

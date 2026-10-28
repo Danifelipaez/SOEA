@@ -16,7 +16,7 @@ namespace SOEA.Tests.Engine.ConstraintProg
     /// ningún pre-check estructural lo haya explicado (el catch-all final, MotivoInfactibilidad.Otro),
     /// se reintenta el solve una vez por grupo excluyéndolo, para nombrar cuáles son responsables —
     /// cubre causas que la disponibilidad de un solo grupo (HC-G01 agregada) no puede ver, como
-    /// dos grupos compitiendo por el mismo espacio fijo (HC-S05).
+    /// tres grupos compitiendo por el mismo espacio fijo (HC-S05).
     /// </summary>
     public class SweepGruposInfactiblesTests
     {
@@ -43,55 +43,61 @@ namespace SOEA.Tests.Engine.ConstraintProg
                 tipoFlujo: TipoFlujo.AulaVirtual);
 
         [Fact]
-        public async Task DosGruposCompitenPorElMismoEspacioFijo_SweepLosNombraAAmbos()
+        public async Task TresGruposCompitenPorElMismoEspacioFijo_SweepLosNombra()
         {
-            // Grilla de 1 solo bloque: dos sesiones que exigen el MISMO espacio fijo no pueden
-            // evitar solaparse (solo hay un momento posible), aunque cada grupo por separado
-            // (sin el otro) sí cabría perfectamente — HC-G01 agregada no ve esto (ninguno declara
-            // disponibilidad), y el chequeo de capacidad por tipo tampoco (hay 2 salones en total,
-            // la demanda de 2h cabe en 2h de capacidad agregada) — solo CP-SAT lo prueba.
-            var bloques = CrearBloques(1);
+            // Grilla de 2 bloques: tres sesiones que exigen el MISMO espacio fijo no caben (solo
+            // hay dos momentos), aunque sin cualquiera de ellas sí. HC-G01 agregada no ve esto
+            // (ninguno declara disponibilidad), el chequeo de capacidad por tipo tampoco (la demanda
+            // de 3h cabe en las 4h de los 2 salones) y DetectorChoquesAulas tampoco (ninguna hora es
+            // obligatoria para ninguna sesión) — solo CP-SAT lo prueba.
+            var bloques = CrearBloques(2);
             var espacioFijo = new Espacio(Guid.NewGuid(), "Salón fijo", TipoEspacio.Salon, 30);
             var otroSalon = new Espacio(Guid.NewGuid(), "Salón libre", TipoEspacio.Salon, 30); // nunca elegible (RequisitoEspacio fija el otro)
 
             var grupoA = GrupoConEspacioFijo(espacioFijo.Id);
             var grupoB = GrupoConEspacioFijo(espacioFijo.Id);
+            var grupoC = GrupoConEspacioFijo(espacioFijo.Id);
             var sesionA = CrearSesionPresencial(grupoA.Id, 1m);
             var sesionB = CrearSesionPresencial(grupoB.Id, 1m);
+            var sesionC = CrearSesionPresencial(grupoC.Id, 1m);
 
             var motor = new MotorConstraintProgramming(
                 NullLogger<MotorConstraintProgramming>.Instance,
                 new CpSatOptions { SweepGrupos = true });
 
             var resultado = await motor.ResolverFactibilidadAsync(
-                new[] { sesionA, sesionB }, bloques, new[] { espacioFijo, otroSalon },
-                new[] { grupoA, grupoB });
+                new[] { sesionA, sesionB, sesionC }, bloques, new[] { espacioFijo, otroSalon },
+                new[] { grupoA, grupoB, grupoC });
 
             Assert.False(resultado.EsFactible);
-            // Dos grupos peleando por el mismo espacio fijo ES un problema de aulas: el motivo
+            // Tres grupos peleando por el mismo espacio fijo ES un problema de aulas: el motivo
             // dice QUÉ hacer (emparejar / añadir aulas) y el barrido dice A QUIÉN mirar.
             Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);
             Assert.Contains(grupoA.Nombre, resultado.MensajeError);
             Assert.Contains(grupoB.Nombre, resultado.MensajeError);
+            Assert.Contains(grupoC.Nombre, resultado.MensajeError);
+            Assert.Contains("Diagnóstico adicional", resultado.MensajeError);
         }
 
         [Fact]
         public async Task SweepDesactivadoPorDefault_NoNombraGrupos()
         {
-            var bloques = CrearBloques(1);
+            var bloques = CrearBloques(2);
             var espacioFijo = new Espacio(Guid.NewGuid(), "Salón fijo", TipoEspacio.Salon, 30);
             var otroSalon = new Espacio(Guid.NewGuid(), "Salón libre", TipoEspacio.Salon, 30);
             var grupoA = GrupoConEspacioFijo(espacioFijo.Id);
             var grupoB = GrupoConEspacioFijo(espacioFijo.Id);
+            var grupoC = GrupoConEspacioFijo(espacioFijo.Id);
             var sesionA = CrearSesionPresencial(grupoA.Id, 1m);
             var sesionB = CrearSesionPresencial(grupoB.Id, 1m);
+            var sesionC = CrearSesionPresencial(grupoC.Id, 1m);
 
             // Motor sin CpSatOptions explícito ⇒ SweepGrupos default false.
             var motor = new MotorConstraintProgramming(NullLogger<MotorConstraintProgramming>.Instance);
 
             var resultado = await motor.ResolverFactibilidadAsync(
-                new[] { sesionA, sesionB }, bloques, new[] { espacioFijo, otroSalon },
-                new[] { grupoA, grupoB });
+                new[] { sesionA, sesionB, sesionC }, bloques, new[] { espacioFijo, otroSalon },
+                new[] { grupoA, grupoB, grupoC });
 
             Assert.False(resultado.EsFactible);
             Assert.Equal(MotivoInfactibilidad.Espacio, resultado.Motivo);

@@ -37,6 +37,7 @@ Fuente única compartida por las tres fases y el validador:
 | `CalculadorEspaciosSesion` | Aulas candidatas (HC-S03 tipo, HC-S05 aula fija), `RequisitoDe` (requisito del grupo para el tipo de sesión) y `CumpleAforo` (HC-CAP) |
 | `ModalidadSemanal` | Modalidad por semana y semanas en que una sesión ocupa aula (fuente de ALT-05) |
 | `EvaluadorParejaAlternancia` | Decide si dos sesiones pueden emparejarse (Semana B) |
+| `DetectorChoquesAulas` | Franjas donde la disponibilidad obliga a más clases a coincidir que aulas hay (Fase 2) |
 | `BloquesPlanner`, `ReglasSesion` | Encaje de sesiones multi-hora y reglas de sesión compartidas |
 | `DetectorDocentesDuplicados` | Detección de docentes repetidos para la fusión |
 

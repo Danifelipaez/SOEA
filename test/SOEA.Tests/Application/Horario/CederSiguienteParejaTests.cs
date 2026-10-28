@@ -182,6 +182,49 @@ namespace SOEA.Tests.Application.Horario
             Assert.Contains(r.Diagnostico, m => m.Contains("aula", StringComparison.OrdinalIgnoreCase));
         }
 
+        [Fact]
+        public void TodasDeUnaMismaAsignatura_UnSoloAvisoQueLaNombra()
+        {
+            // Caso de producción: solo QUIMICA GENERAL (21 grupos) estaba marcada. Antes salía un
+            // renglón por grupo repitiendo "solo quedan candidatas de su misma asignatura".
+            var asig = Guid.NewGuid();
+            var sesiones = Enumerable.Range(0, 5).Select(_ => Pres(asig, Guid.NewGuid())).ToList();
+            var criterios = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)>
+                { CriterioElegible(new HashSet<Guid> { asig }) };
+            var ctx = Ctx(sesiones) with
+            {
+                NombrePorAsignatura = new Dictionary<Guid, string> { [asig] = "QUIMICA GENERAL" }
+            };
+
+            var r = Ceder(sesiones, criterios, ctx);
+
+            Assert.False(r.Cedio);
+            var aviso = Assert.Single(r.Diagnostico);
+            Assert.Contains("'QUIMICA GENERAL' (5 clases)", aviso);
+            Assert.Contains("otra asignatura", aviso);
+        }
+
+        [Fact]
+        public void MismaAsignatura_NoTapaElMotivoQueSeCorrige()
+        {
+            // Tres grupos de A (bloques 0-1) y uno de B (8-9): para cada grupo de A hay dos rechazos
+            // por "misma asignatura" y uno por franja. El que se puede corregir es la franja.
+            var asigA = Guid.NewGuid(); var asigB = Guid.NewGuid();
+            var deA = Enumerable.Range(0, 3).Select(_ => Pres(asigA, Guid.NewGuid())).ToList();
+            var deB = Pres(asigB, Guid.NewGuid());
+            var sesiones = deA.Append(deB).ToList();
+            var criterios = new List<(CriterioElegibilidadAlternancia, Func<Sesion, bool>)>
+                { CriterioElectiva(Electivas(asigA, asigB)) };
+            var dominios = sesiones.ToDictionary(s => s.Id, s => s == deB ? new[] { 8, 9 } : new[] { 0, 1 });
+
+            var r = Ceder(sesiones, criterios, Ctx(sesiones, dominios));
+
+            Assert.False(r.Cedio);
+            Assert.Equal(4, r.Diagnostico.Count);
+            Assert.All(r.Diagnostico, m => Assert.Contains("franja", m, StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(r.Diagnostico, m => m.Contains("misma asignatura"));
+        }
+
         // ── Invariantes de seguridad ────────────────────────────────────────────────
 
         [Fact]

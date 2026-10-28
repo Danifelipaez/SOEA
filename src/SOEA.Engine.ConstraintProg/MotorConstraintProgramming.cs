@@ -282,6 +282,9 @@ namespace SOEA.Engine.ConstraintProg
             var intervalVars = new Dictionary<Guid, IntervalVar>();
             var spaceVars    = new Dictionary<Guid, IntVar>(); // solo sesiones que ocupan aula
             var duraciones   = new Dictionary<Guid, int>();
+            // Inicios que el modelo permite a cada sesión (el de una fija, o su dominio): alimentan
+            // el chequeo de choques de aulas por franja (DetectorChoquesAulas).
+            var startsPorSesion = new Dictionary<Guid, int[]>();
 
             foreach (var sesion in sesiones)
             {
@@ -372,6 +375,7 @@ namespace SOEA.Engine.ConstraintProg
                     }
 
                     model.Add(startVars[sesion.Id] == idxFija);
+                    startsPorSesion[sesion.Id] = new[] { idxFija };
                     continue;
                 }
 
@@ -450,6 +454,7 @@ namespace SOEA.Engine.ConstraintProg
 
                 var dominio = CpDomain.FromValues(startsFiltrados.Select(v => (long)v).ToArray());
                 model.AddLinearExpressionInDomain(startVars[sesion.Id], dominio);
+                startsPorSesion[sesion.Id] = startsFiltrados;
             }
 
             // ── HC-SEP: separación mínima de días entre sesiones semanales del mismo
@@ -568,6 +573,21 @@ namespace SOEA.Engine.ConstraintProg
                     }
 
                     candidatosPorSesion[sesion.Id] = lista;
+                }
+
+                // Choques por franja: la disponibilidad obliga a más clases a coincidir que aulas
+                // les sirven (típico del Excel, donde cada grupo trae una franja exacta). Se prueba
+                // sin resolver y, a diferencia de la relajación de abajo, dice QUÉ hora y QUÉ clases
+                // mirar. Es Espacio: emparejar dos de esas clases sí lo puede resolver.
+                var choques = DetectorChoquesAulas.Detectar(sesiones, startsPorSesion, candidatosPorSesion);
+                if (choques.Count > 0)
+                {
+                    var msg = MensajeChoquesAulas(choques, sesiones, bloques, NombreGrupo);
+                    _logger.LogError(msg);
+                    var sesionPorId = sesiones.ToDictionary(x => x.Id);
+                    var gruposChoque = choques.SelectMany(c => c.SesionIds)
+                        .Select(id => sesionPorId[id].GrupoId).Distinct().ToList();
+                    return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio, gruposChoque);
                 }
 
                 // Intervalos opcionales agrupados por (espacio, semana). La sesión tiene UN solo
@@ -804,6 +824,46 @@ namespace SOEA.Engine.ConstraintProg
                 esFaltaDeAulas ? MotivoInfactibilidad.Espacio : MotivoInfactibilidad.Otro,
                 gruposResponsablesIds);
         }
+
+        /// <summary>
+        /// "El miércoles de 08:00 a 09:00 coinciden 3 clases y solo hay 2 aulas para ellas: …".
+        /// Nombra hasta tres franjas; el resto se cuenta.
+        /// </summary>
+        private static string MensajeChoquesAulas(
+            IReadOnlyList<ChoqueAulas> choques, List<Sesion> sesiones, List<BloqueTiempo> bloques,
+            Func<Guid?, string> nombreGrupo)
+        {
+            var sesionPorId = sesiones.ToDictionary(x => x.Id);
+            string Franja(ChoqueAulas c)
+            {
+                var inicio = bloques[c.BloqueInicio];
+                var fin = bloques[c.BloqueFin - 1];
+                var grupos = c.SesionIds.Select(id => $"'{nombreGrupo(sesionPorId[id].GrupoId)}'").ToList();
+                var lista = grupos.Count > 1
+                    ? string.Join(", ", grupos.Take(grupos.Count - 1)) + " y " + grupos[^1]
+                    : grupos[0];
+                var aulas = c.Aulas == 1 ? "1 aula" : $"{c.Aulas} aulas";
+                return $"el {NombreDia(inicio.Dia)} de {inicio.HoraInicio:HH\\:mm} a {fin.HoraFin:HH\\:mm} " +
+                       $"coinciden {c.SesionIds.Count} clases y solo hay {aulas} para ellas: {lista}";
+            }
+
+            var detalle = string.Join("; ", choques.Take(3).Select(Franja));
+            var resto = choques.Count > 3 ? $"; y {choques.Count - 3} franja(s) más" : "";
+            return "No alcanzan las aulas: la disponibilidad de los grupos obliga a dictar a la vez más clases " +
+                   $"de las que caben. {char.ToUpper(detalle[0])}{detalle[1..]}{resto}. Amplíe la disponibilidad " +
+                   "de alguno de esos grupos para que su clase pueda ir a otra hora, añada un aula, o marque como " +
+                   "candidatas a alternancia dos de esas clases que sean de asignaturas distintas y duren lo mismo.";
+        }
+
+        private static string NombreDia(DiaDeSemana dia) => dia switch
+        {
+            DiaDeSemana.Lunes => "lunes",
+            DiaDeSemana.Martes => "martes",
+            DiaDeSemana.Miercoles => "miércoles",
+            DiaDeSemana.Jueves => "jueves",
+            DiaDeSemana.Viernes => "viernes",
+            _ => "sábado"
+        };
 
         /// <summary>
         /// Grupos cuyas sesiones no tienen solución ni con todo el catálogo de espacios y bloques para
