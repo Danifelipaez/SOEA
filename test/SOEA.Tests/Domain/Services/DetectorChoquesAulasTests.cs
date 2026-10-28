@@ -26,7 +26,7 @@ namespace SOEA.Tests.Domain.Services
             return DetectorChoquesAulas.Detectar(
                 lista.Select(d => d.Sesion),
                 lista.ToDictionary(d => d.Sesion.Id, d => d.Starts),
-                lista.ToDictionary(d => d.Sesion.Id, d => d.Aulas.ToList()));
+                lista.ToDictionary(d => d.Sesion.Id, d => (IReadOnlyList<int>)d.Aulas));
         }
 
         [Fact]

@@ -50,7 +50,12 @@ namespace SOEA.Domain.Interfaces
         /// </summary>
         IReadOnlyList<Guid>? GruposResponsablesIds = null,
         /// <summary>Solo con <see cref="MotivoInfactibilidad.Capacidad"/>: el espacio de mayor aforo que el grupo podía usar.</summary>
-        Guid? EspacioLimitanteId = null);
+        Guid? EspacioLimitanteId = null,
+        /// <summary>
+        /// Solo con <see cref="MotivoInfactibilidad.Espacio"/> probado por
+        /// <see cref="Services.DetectorChoquesAulas"/>: las franjas donde no caben las clases obligadas.
+        /// </summary>
+        IReadOnlyList<Services.ChoqueAulas>? ChoquesAulas = null);
 
     /// <summary>
     /// Motor de Constraint Programming (Fase 2).

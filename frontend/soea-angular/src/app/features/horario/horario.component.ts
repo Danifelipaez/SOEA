@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, OnInit, HostListener } from '@angular/core';
+import { Component, inject, signal, computed, effect, untracked, OnInit, HostListener, DestroyRef } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
@@ -9,14 +9,14 @@ import { RouterModule } from '@angular/router';
 import { StateService } from '../../core/state.service';
 import { HorarioApiService } from '../../core/horario-api.service';
 import { CatalogoService } from '../../core/catalogo.service';
-import { DimFiltro, Espacio, FiltroHorario, HorarioBase, Sesion } from '../../core/models';
+import { ChoqueAulas, DimFiltro, Espacio, FiltroHorario, HorarioBase, Sesion } from '../../core/models';
 import { claveTipoSesion } from '../../core/state.service';
 import { nuevoId } from '../../core/id.util';
 import { HORA_APERTURA, HORA_CIERRE, HORA_CIERRE_SABADO } from '../../core/jornada';
 import { mensajeErrorHttp, limpiarEtiquetaInterna } from '../../core/http-error.util';
 import { ConfirmDeleteDialogComponent } from '../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { porTexto } from '../../core/orden';
-import { MergedSesion, SesionFuera, DiaGrilla, GrillaSemanal, ItemGrilla, describirSesionConflicto, hhmm, HORAS_GRILLA, DIAS_GRILLA, fueraDisponibilidadGrupo, avisosDocentePorSesion, choquesEspacioPorSesion, filasDeChoques, ubicarEnGrilla, distribuirEnCarriles, mensajeInfactibilidadAmigable, DIMS_FILTRO, clavesDeSesion, pasaFiltrosHorario, conteosFiltro, clasesPendientes, ClasePendiente, ETIQUETA_TIPO_SESION } from './horario.reglas';
+import { MergedSesion, SesionFuera, DiaGrilla, GrillaSemanal, ItemGrilla, describirSesionConflicto, hhmm, HORAS_GRILLA, DIAS_GRILLA, fueraDisponibilidadGrupo, avisosDocentePorSesion, choquesEspacioPorSesion, filasDeChoques, ubicarEnGrilla, distribuirEnCarriles, mensajeInfactibilidadAmigable, choquesAulasDetalle, INTRO_CHOQUES_AULAS, CIERRE_CHOQUES_AULAS, DIMS_FILTRO, clavesDeSesion, pasaFiltrosHorario, conteosFiltro, clasesPendientes, ClasePendiente, ETIQUETA_TIPO_SESION } from './horario.reglas';
 import { EditarSesionDialogComponent, EditarSesionDialogData, EditarSesionResult } from './editar-sesion-dialog.component';
 import { CrearSesionDialogComponent, CrearSesionDialogData } from './crear-sesion-dialog.component';
 import { ProgressDialogComponent } from './progress-dialog.component';
@@ -134,6 +134,18 @@ import { GeneracionFallidaComponent } from '../../shared/generacion-fallida/gene
               <button type="button" class="btn-link" (click)="copiarDetalleSoporte()">Copiar detalle para soporte</button>
             }
           </app-generacion-fallida>
+        </div>
+      }
+
+      <!-- Antes de generar: horas con más clases obligadas que aulas. Mientras existan, generar falla. -->
+      @if (!enPrueba() && !mensajeInfactible() && choquesPreviosDetalle().length > 0) {
+        <div class="fail">
+          <div class="soft choques" role="status">
+            <b>⚠ Así no se puede generar el horario.</b> {{ introChoques }}:
+            <ul>@for (c of choquesPreviosDetalle(); track c) { <li>{{ c }}</li> }</ul>
+            <span>{{ cierreChoques }}</span>
+            <a class="btn btn-secondary" routerLink="/catalogo">Corregir en Catálogo</a>
+          </div>
         </div>
       }
 
@@ -406,6 +418,8 @@ import { GeneracionFallidaComponent } from '../../shared/generacion-fallida/gene
     .fail { padding: 16px 22px 0; }
     .desact { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 13px; }
     .desact span { flex: 1; min-width: 280px; }
+    .choques { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; font-size: 13px; }
+    .choques ul { margin: 0; padding-left: 18px; max-height: 200px; overflow-y: auto; }
 
     .grid-area { padding: 18px 22px; display: flex; gap: 18px; align-items: flex-start; }
     .grid-main { flex: 1; min-width: 0; }
@@ -512,6 +526,41 @@ export class HorarioComponent implements OnInit {
   errorPrueba = signal('');
 
   ngOnInit() { this.syncFromBackend(); }
+
+  // ── Choques de aulas antes de generar ────────────────────────────────────────
+  readonly introChoques = INTRO_CHOQUES_AULAS;
+  readonly cierreChoques = CIERRE_CHOQUES_AULAS;
+  /** Lo calcula el servidor con la misma petición y las mismas reglas que «Generar». */
+  choquesPrevios = signal<ChoqueAulas[]>([]);
+  choquesPreviosDetalle = computed(() =>
+    choquesAulasDetalle(this.choquesPrevios(), this.state.grupos(), this.state.contextoCapacidad()));
+  private consultaChoques?: { unsubscribe(): void };
+  private esperaChoques?: ReturnType<typeof setTimeout>;
+  // Se vuelve a consultar cuando cambia el catálogo (p. ej. tras corregir una disponibilidad), con
+  // una espera corta para no lanzar una consulta por cada cambio. Un fallo deja el aviso vacío: es
+  // una ayuda, la generación sigue explicando su propio fallo.
+  private readonly vigilarChoques = effect(() => {
+    if (!this.backendReady()) return;
+    this.state.asignaturas(); this.state.espacios(); this.state.grupos();
+    this.state.sesionesFijasParaGenerar(); this.state.tipoEspacioAlternancia();
+    untracked(() => {
+      clearTimeout(this.esperaChoques);
+      this.esperaChoques = setTimeout(() => this.consultarChoques(), 400);
+    });
+  });
+  private readonly limpiarChoques = inject(DestroyRef).onDestroy(() => {
+    clearTimeout(this.esperaChoques);
+    this.consultaChoques?.unsubscribe();
+  });
+  private consultarChoques() {
+    this.consultaChoques?.unsubscribe();
+    if (this.state.asignaturas().length === 0 || this.state.espacios().length === 0) { this.choquesPrevios.set([]); return; }
+    const fijas = this.state.sesionesFijasParaGenerar();
+    const base: HorarioBase | undefined = fijas.length ? { id: 'fijas', nombre: 'Clases fijas', creadoEn: '', sesiones: fijas } : undefined;
+    this.consultaChoques = this.horarioApi.choquesAulas(this.state.asignaturas(), this.state.docentes(), this.state.espacios(), undefined,
+      this.state.semestre(), base, this.state.grupos(), { tipoEspacioAlternancia: this.state.tipoEspacioAlternancia() })
+      .subscribe({ next: c => this.choquesPrevios.set(c ?? []), error: () => this.choquesPrevios.set([]) });
+  }
   constructor() { const espacios = this.state.espacios(); if (espacios.length > 0) this.activeSpace.set(espacios[0]); }
 
   /** Chip "Todos los espacios": la vista natural para revisar un grupo o un docente filtrado. */
@@ -1157,6 +1206,7 @@ export class HorarioComponent implements OnInit {
           }
           this.state.setGruposEnConflicto([]);
           this.state.setMotivoInfactibilidad(undefined);
+          this.state.choquesAulas.set([]);
           this.mensajeInfactible.set('');
           this.state.prueba.set(null);
           this.state.setSesiones(sesiones);
@@ -1177,8 +1227,9 @@ export class HorarioComponent implements OnInit {
           // distinto (p. ej. una violación de reglas post-GA) se colaba tal cual, con jerga interna.
           // Con motivo o grupos estructurados ya hay suficiente señal para traducir igual.
           const esInfeasible = !!err.motivoInfactibilidad || gruposEnConflicto.length > 0 || /factible|infeasible/i.test(mensaje);
+          const choques: ChoqueAulas[] = Array.isArray(err.choquesAulas) ? err.choquesAulas : [];
           const texto = esInfeasible
-            ? mensajeInfactibilidadAmigable(err.motivoInfactibilidad, gruposEnConflicto, this.state.grupos(), asignaturas.length, this.state.espacios().length, this.state.contextoCapacidad())
+            ? mensajeInfactibilidadAmigable(err.motivoInfactibilidad, gruposEnConflicto, this.state.grupos(), asignaturas.length, this.state.espacios().length, this.state.contextoCapacidad(), choques)
             : mensaje;
           // Una prueba fallida no es una generación fallida: el horario guardado sigue igual, así que
           // no marca grupos en conflicto ni cambia el aviso que comparten /horario y /revisar.
@@ -1191,6 +1242,7 @@ export class HorarioComponent implements OnInit {
           this.state.setGruposEnConflicto(gruposEnConflicto);
           this.state.setMotivoInfactibilidad(err.motivoInfactibilidad);
           this.state.espacioLimitanteId.set(err.espacioLimitanteId);
+          this.state.choquesAulas.set(choques);
           // El banner persistente de /horario (a diferencia del snackbar) sigue visible hasta la
           // próxima generación — siempre con el mismo texto limpio, nunca vacío ni con jerga.
           this.mensajeInfactible.set(texto);

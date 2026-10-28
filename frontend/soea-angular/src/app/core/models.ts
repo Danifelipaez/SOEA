@@ -178,6 +178,18 @@ export interface ClaseFija { sesion: Sesion; activa: boolean; }
 /** Qué sesiones pueden alternar según el tipo de espacio que usan (GenerarHorarioRequest.TipoEspacioAlternancia). */
 export type TipoEspacioAlternancia = 'Todos' | 'Laboratorio' | 'Salon';
 
+/** Hora en la que la disponibilidad obliga a más clases a coincidir que aulas les sirven
+ *  (ChoqueAulasDto del backend). Mientras exista, la generación falla. */
+export interface ChoqueAulas {
+  /** Mismo valor que Sesion.dia ("miercoles"). */
+  dia: string;
+  horaInicio: string;
+  horaFin: string;
+  clases: number;
+  aulas: number;
+  grupoIds: string[];
+}
+
 /** Filtro de la vista de /horario: una faceta elegida (ver pasaFiltrosHorario). */
 export type DimFiltro = 'facultad' | 'programa' | 'asignatura' | 'grupo' | 'docente';
 export interface FiltroHorario { dim: DimFiltro; id: string; }

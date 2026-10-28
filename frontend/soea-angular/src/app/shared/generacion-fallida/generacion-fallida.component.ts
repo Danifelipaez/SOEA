@@ -1,7 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { StateService } from '../../core/state.service';
-import { CIERRE_NO_CABEN, INTRO_NO_CABEN, gruposNoCabenDetalle } from '../../features/horario/horario.reglas';
+import { CIERRE_CHOQUES_AULAS, CIERRE_NO_CABEN, INTRO_CHOQUES_AULAS, INTRO_NO_CABEN, choquesAulasDetalle, gruposNoCabenDetalle } from '../../features/horario/horario.reglas';
 
 /**
  * Aviso persistente del último intento fallido de generar (lo pintan /horario y /revisar). Antes, con
@@ -21,6 +21,10 @@ import { CIERRE_NO_CABEN, INTRO_NO_CABEN, gruposNoCabenDetalle } from '../../fea
           <span>{{ intro }}:</span>
           <ul>@for (g of gruposNoCaben(); track g) { <li>{{ g }}</li> }</ul>
           <span>{{ cierre }}</span>
+        } @else if (choques().length > 0) {
+          <span>{{ introChoques }}:</span>
+          <ul>@for (c of choques(); track c) { <li>{{ c }}</li> }</ul>
+          <span>{{ cierreChoques }}</span>
         } @else {
           <span>{{ state.errorGeneracion() }}</span>
         }
@@ -47,8 +51,14 @@ export class GeneracionFallidaComponent {
   state = inject(StateService);
   readonly intro = INTRO_NO_CABEN;
   readonly cierre = CIERRE_NO_CABEN;
+  readonly introChoques = INTRO_CHOQUES_AULAS;
+  readonly cierreChoques = CIERRE_CHOQUES_AULAS;
 
   gruposNoCaben = computed(() => this.state.motivoInfactibilidad() === 'FranjaGrupo'
     ? gruposNoCabenDetalle(this.state.gruposEnConflicto(), this.state.grupos(), this.state.contextoCapacidad())
+    : []);
+
+  choques = computed(() => this.state.motivoInfactibilidad() === 'Espacio'
+    ? choquesAulasDetalle(this.state.choquesAulas(), this.state.grupos(), this.state.contextoCapacidad())
     : []);
 }

@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, of, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { Asignatura, ConfiguracionAlgoritmo, DisponibilidadUi, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion, TipoEspacioAlternancia } from './models';
+import { Asignatura, ChoqueAulas, ConfiguracionAlgoritmo, DisponibilidadUi, Docente, Espacio, Grupo, HorarioBase, RequisitoEspacio, Sesion, TipoEspacioAlternancia } from './models';
 import { environment } from '../../environments/environment';
 import { mensajeErrorHttp } from './http-error.util';
 import { SEMESTRE_POR_DEFECTO } from './semestre';
@@ -123,6 +123,8 @@ export interface GenerarHorarioResponse {
   espacioLimitanteId?: string;
   /** Clases fijas que el servidor no pudo respetar (grupo inexistente, franja fuera de jornada…). */
   sesionesFijasOmitidas?: number;
+  /** Con motivoInfactibilidad 'Espacio': horas con más clases obligadas que aulas (ver choquesAulas()). */
+  choquesAulas?: ChoqueAulas[];
   logs?: string[];
   // alternancia y semana llegan como string desde JSON; mapearSesiones() los castea
   sesiones: (Omit<Sesion, 'alternancia' | 'semana'> & { alternancia: string; semana?: string })[];
@@ -157,7 +159,24 @@ export class HorarioApiService {
    * Construye el payload desde los datos actuales del StateService
    * y retorna las sesiones generadas listas para el StateService.
    */
-  generarHorario(
+  generarHorario(...args: Parameters<HorarioApiService['construirPeticion']>): Observable<GenerarHorarioResponse> {
+    return this.http
+      .post<GenerarHorarioResponse>(`${this.apiBase}/horario/generar`, this.construirPeticion(...args))
+      .pipe(catchError(this.manejarError));
+  }
+
+  /**
+   * Horas en las que la disponibilidad de los grupos obliga a más clases a coincidir que aulas hay,
+   * sin generar nada: el servidor usa la misma petición y las mismas reglas que al generar, así que
+   * mientras haya alguno la generación va a fallar. Sirve para avisar antes de pulsar «Generar».
+   */
+  choquesAulas(...args: Parameters<HorarioApiService['construirPeticion']>): Observable<ChoqueAulas[]> {
+    return this.http
+      .post<ChoqueAulas[]>(`${this.apiBase}/horario/choques-aulas`, this.construirPeticion(...args))
+      .pipe(catchError(this.manejarError));
+  }
+
+  private construirPeticion(
     asignaturas: Asignatura[],
     docentes: Docente[],
     espacios: Espacio[],
@@ -166,7 +185,7 @@ export class HorarioApiService {
     base?: HorarioBase,
     grupos?: Grupo[],
     opciones: { tipoEspacioAlternancia?: TipoEspacioAlternancia; soloPrueba?: boolean } = {}
-  ): Observable<GenerarHorarioResponse> {
+  ): GenerarHorarioRequest {
     // La contraparte virtual de una sesión que alterna es una fila derivada, no una sesión propia:
     // fijarla también duplicaría la sesión.
     const sesionesFijas: SesionFijaApiDto[] | undefined = base?.sesiones.filter(s => !s.esContraparteVirtual).map(s => ({
@@ -196,7 +215,7 @@ export class HorarioApiService {
       requisitosEspacio: g.requisitosEspacio ?? [],
     }));
 
-    const body: GenerarHorarioRequest = {
+    return {
       ...opciones,
       semestre,
       grupos: gruposDto?.length ? gruposDto : undefined,
@@ -243,10 +262,6 @@ export class HorarioApiService {
         tipo: e.tipo
       }))
     };
-
-    return this.http
-      .post<GenerarHorarioResponse>(`${this.apiBase}/horario/generar`, body)
-      .pipe(catchError(this.manejarError));
   }
 
   /**

@@ -36,8 +36,30 @@ namespace SOEA.Application.Features.Horario.Responses
         /// factible. Nunca se virtualiza una sesión en silencio para evitar este fallo.
         /// </summary>
         public List<string> SesionesSinAlternanciaPosible { get; set; } = new();
+        /// <summary>
+        /// Con MotivoInfactibilidad "Espacio": franjas donde la disponibilidad obliga a más clases a
+        /// coincidir que aulas hay. Mismo cálculo que POST /api/horario/choques-aulas.
+        /// </summary>
+        public List<ChoqueAulasDto> ChoquesAulas { get; set; } = new();
         public List<string> Logs     { get; set; } = new();
         public List<SesionGeneradaDto> Sesiones { get; set; } = new();
+    }
+
+    /// <summary>
+    /// "El miércoles de 08:00 a 09:00 coinciden 3 clases y solo hay 2 aulas para ellas". El frontend
+    /// nombra los grupos (con su programa) a partir de <see cref="GrupoIds"/>.
+    /// </summary>
+    public class ChoqueAulasDto
+    {
+        /// <summary>Mismo formato que <see cref="SesionGeneradaDto.Dia"/> ("miercoles").</summary>
+        public string Dia { get; set; } = string.Empty;
+        public string HoraInicio { get; set; } = string.Empty;
+        public string HoraFin { get; set; } = string.Empty;
+        /// <summary>Clases obligadas a dictarse a la vez en la franja.</summary>
+        public int Clases { get; set; }
+        /// <summary>Aulas que esas clases pueden usar (menos que <see cref="Clases"/>).</summary>
+        public int Aulas { get; set; }
+        public List<string> GrupoIds { get; set; } = new();
     }
 
     /// <summary>

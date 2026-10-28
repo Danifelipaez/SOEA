@@ -1,5 +1,5 @@
 import { Injectable, signal, computed } from '@angular/core';
-import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, HorarioBase, FiltroHorario, ClaseFija, TipoEspacioAlternancia } from './models';
+import { Facultad, Programa, Espacio, Docente, Grupo, Asignatura, Sesion, HorarioBase, FiltroHorario, ClaseFija, TipoEspacioAlternancia, ChoqueAulas } from './models';
 import { nuevoId } from './id.util';
 import { SEMESTRE_POR_DEFECTO } from './semestre';
 import { porNombre, ordenar } from './orden';
@@ -190,6 +190,8 @@ export class StateService {
   setMotivoInfactibilidad(motivo: string | undefined) { this.motivoInfactibilidad.set(motivo); }
   /** Con motivo Capacidad: el espacio de mayor aforo que el grupo en conflicto podía usar. */
   espacioLimitanteId = signal<string | undefined>(undefined);
+  /** Con motivo Espacio: horas con más clases obligadas que aulas en el último intento fallido. */
+  choquesAulas = signal<ChoqueAulas[]>([]);
   readonly contextoCapacidad = computed(() => ({
     espacioLimitanteId: this.espacioLimitanteId(), espacios: this.espacios(),
     asignaturas: this.asignaturas(), programaById: this.programaById()

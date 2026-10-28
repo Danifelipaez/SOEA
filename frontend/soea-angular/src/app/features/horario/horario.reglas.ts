@@ -1,4 +1,4 @@
-import { Asignatura, DimFiltro, DisponibilidadUi, Docente, Espacio, FiltroHorario, Grupo, Sesion, TipoSesionUi } from '../../core/models';
+import { Asignatura, ChoqueAulas, DimFiltro, DisponibilidadUi, Docente, Espacio, FiltroHorario, Grupo, Sesion, TipoSesionUi } from '../../core/models';
 import { HORA_APERTURA, HORA_CIERRE, HORA_CIERRE_SABADO } from '../../core/jornada';
 import { porTexto } from '../../core/orden';
 
@@ -467,6 +467,32 @@ export function gruposNoCabenDetalle(
   });
 }
 
+export const INTRO_CHOQUES_AULAS = 'La disponibilidad de los grupos obliga a dictar a la vez más clases de las que caben en las aulas';
+export const CIERRE_CHOQUES_AULAS = 'Amplíe la disponibilidad de alguno de esos grupos para que su clase pueda ir a otra hora, añada un aula, ' +
+  'o marque como candidatas a alternancia dos de esas clases que sean de asignaturas distintas y duren lo mismo.';
+
+/** "Miércoles 08:00–09:00: 3 clases y solo 2 aulas — BIOQUIMICA - Grupo 1 (INGENIERIA PESQUERA), …" por
+ *  cada choque. Con el programa: el import repite "QUIMICA GENERAL - Grupo 1" en varios programas. */
+export function choquesAulasDetalle(
+  choques: ChoqueAulas[] | undefined,
+  grupos: Grupo[],
+  catalogo?: { asignaturas: Asignatura[]; programaById: Map<string, { nombre: string }> }
+): string[] {
+  const grupoById = new Map(grupos.map(g => [g.id, g]));
+  const asigById = new Map((catalogo?.asignaturas ?? []).map(a => [a.id, a]));
+  return (choques ?? []).map(c => {
+    const dia = DIAS_GRILLA.find(d => d.valor === c.dia)?.etiqueta ?? c.dia;
+    const nombres = c.grupoIds.map(id => {
+      const g = grupoById.get(id);
+      if (!g) return 'un grupo que ya no existe';
+      const prog = catalogo?.programaById.get(asigById.get(g.asignaturaId)?.programaId ?? g.programaId)?.nombre;
+      return `${g.nombre}${prog ? ` (${prog})` : ''}`;
+    });
+    const aulas = c.aulas === 1 ? 'solo 1 aula' : `solo ${c.aulas} aulas`;
+    return `${dia} ${c.horaInicio}–${c.horaFin}: ${c.clases} clases y ${aulas} — ${nombres.join(', ')}`;
+  });
+}
+
 /**
  * El backend siempre reporta un MensajeError técnico ("status del solver: Infeasible", "HC-SEP",
  * "HC-ALT") pensado para quien lee el código, no para un coordinador académico — y el snackbar lo
@@ -483,8 +509,13 @@ export function mensajeInfactibilidadAmigable(
   totalAsignaturas: number,
   totalEspacios: number,
   /** Motivos Capacidad y FranjaGrupo: catálogo con el que nombrar asignatura, programa y espacio. */
-  capacidad?: { espacioLimitanteId?: string; espacios: Espacio[]; asignaturas: Asignatura[]; programaById: Map<string, { nombre: string }> }
+  capacidad?: { espacioLimitanteId?: string; espacios: Espacio[]; asignaturas: Asignatura[]; programaById: Map<string, { nombre: string }> },
+  /** Motivo Espacio: horas concretas donde no caben las clases (GenerarHorarioResponse.choquesAulas). */
+  choques?: ChoqueAulas[]
 ): string {
+  if (motivo === 'Espacio' && choques?.length) {
+    return `${INTRO_CHOQUES_AULAS} — ${choquesAulasDetalle(choques, grupos, capacidad).join('; ')}. ${CIERRE_CHOQUES_AULAS}`;
+  }
   if (motivo === 'FranjaGrupo') {
     const lista = gruposNoCabenDetalle(gruposEnConflictoIds, grupos, capacidad);
     if (lista.length > 0) {

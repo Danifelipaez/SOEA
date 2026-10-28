@@ -119,6 +119,72 @@ namespace SOEA.Application.Features.Horario
             return ids.Count;
         }
 
+        /// <summary>
+        /// POST /api/horario/choques-aulas: franjas donde la disponibilidad de los grupos obliga a más
+        /// clases a coincidir que aulas les sirven, sin generar nada. Recibe la misma petición que
+        /// /generar y arma las sesiones, dominios y aulas candidatas con las mismas fuentes que CP-SAT
+        /// (<see cref="ConstruirContextoCesion"/>), así que un choque aquí hace fallar la generación.
+        /// Sirve para avisar al coordinador ANTES de generar. Que no haya choques no garantiza que el
+        /// horario quepa (puede faltar aula sin que ninguna hora sea obligatoria).
+        /// </summary>
+        public List<ChoqueAulasDto> DetectarChoquesAulas(GenerarHorarioRequest request)
+        {
+            var descartados = new List<string>();
+            var asignaturas = DeduplicarPorId(request.Asignaturas, x => x.Id, x => x.Nombre, "Asignatura", descartados);
+            var (espacios, _) = MapearEspacios(DeduplicarPorId(request.Espacios, x => x.Id, x => x.Nombre, "Espacio", descartados));
+            var bloques = GenerarBloquesTiempo();
+            var (grupos, _) = MapearGrupos(request.Grupos);
+            var (sesiones, _) = MapearSesionesIniciales(grupos, asignaturas);
+            var (fijasIds, _) = AplicarSesionesFijas(sesiones, request.SesionesFijas, bloques, grupos);
+            var ventanas = VentanasPorAsignatura(asignaturas.Where(dto => Guid.TryParse(dto.Id, out _)));
+
+            var ctx = ConstruirContextoCesion(sesiones, espacios, grupos, bloques, ventanas);
+            // Una fija va a su bloque por igualdad (regla 8), no a su dominio, igual que en CP-SAT.
+            var indicePorBloque = bloques.Select((b, i) => (b.Id, i)).ToDictionary(x => x.Id, x => x.i);
+            var starts = sesiones.ToDictionary(s => s.Id, s =>
+                fijasIds.Contains(s.Id) && indicePorBloque.TryGetValue(s.BloqueTiempoId, out var i)
+                    ? new[] { i } : ctx.DominioPorSesion[s.Id]);
+
+            return MapearChoquesAulas(DetectorChoquesAulas.Detectar(sesiones, starts, ctx.AulasPorSesion), bloques);
+        }
+
+        internal static List<ChoqueAulasDto> MapearChoquesAulas(IReadOnlyList<ChoqueAulas>? choques, List<BloqueTiempo> bloques) =>
+            (choques ?? Array.Empty<ChoqueAulas>()).Select(c => new ChoqueAulasDto
+            {
+                Dia        = DiaToString(bloques[c.BloqueInicio].Dia),
+                HoraInicio = bloques[c.BloqueInicio].HoraInicio.ToString("HH:mm"),
+                HoraFin    = bloques[c.BloqueFin - 1].HoraFin.ToString("HH:mm"),
+                Clases     = c.SesionIds.Count,
+                Aulas      = c.Aulas,
+                GrupoIds   = c.GrupoIds.Select(id => id.ToString()).ToList()
+            }).ToList();
+
+        private static Dictionary<Guid, (TimeOnly? min, TimeOnly? max)> VentanasPorAsignatura(IEnumerable<AsignaturaDto> asignaturasConIdValido) =>
+            asignaturasConIdValido.ToDictionary(dto => Guid.Parse(dto.Id), dto => (ParseHora(dto.HoraInicioMin), ParseHora(dto.HoraFinMax)));
+
+        /// <summary>
+        /// P0-3 auditoría: cada fija pertenece a un grupo real del request. Antes recibía un GrupoId
+        /// sintético que la FK de Sesiones rechazaba, así que generar con horario base respondía
+        /// siempre 409. Y ocupa el lugar de una sesión del mismo grupo, asignatura y tipo: el
+        /// generador planifica el resto alrededor (regla 8), no la suma a la demanda del grupo.
+        /// </summary>
+        private static (HashSet<Guid> fijasIds, List<string> omitidas) AplicarSesionesFijas(
+            List<Sesion> sesiones, List<SesionFijaDto>? dtos, List<BloqueTiempo> bloques, List<Grupo> grupos)
+        {
+            if (dtos is not { Count: > 0 }) return (new HashSet<Guid>(), new List<string>());
+
+            var (fijas, omitidas) = MapearSesionesFijas(dtos, bloques, grupos);
+            foreach (var fija in fijas)
+            {
+                var reemplazada = sesiones.FirstOrDefault(s =>
+                    s.GrupoId == fija.GrupoId && s.AsignaturaId == fija.AsignaturaId &&
+                    CalculadorEspaciosSesion.TipoSesionDe(s) == CalculadorEspaciosSesion.TipoSesionDe(fija));
+                if (reemplazada is not null) sesiones.Remove(reemplazada);
+            }
+            sesiones.AddRange(fijas);
+            return (fijas.Select(s => s.Id).ToHashSet(), omitidas);
+        }
+
         public async Task<GenerarHorarioResponse> EjecutarAsync(GenerarHorarioRequest request, CancellationToken ctCliente = default)
         {
             // SEC-2: se valida al entrar, no en la Fase 3 — un valor absurdo no debe gastar minutos de
@@ -202,8 +268,7 @@ namespace SOEA.Application.Features.Horario
 
             // HC-VH: ventana horaria por asignatura (la fija Secretaría Académica). Se pasa a CP-SAT
             // como hard constraint — ninguna sesión se asigna fuera de [HoraInicioMin, HoraFinMax].
-            var ventanaPorAsig = asignaturasConIdValido
-                .ToDictionary(dto => Guid.Parse(dto.Id), dto => (ParseHora(dto.HoraInicioMin), ParseHora(dto.HoraFinMax)));
+            var ventanaPorAsig = VentanasPorAsignatura(asignaturasConIdValido);
 
             var (sesiones, advertenciasSesiones) = MapearSesionesIniciales(grupos, request.Asignaturas);
             logs.AddRange(advertenciasSesiones);
@@ -219,26 +284,11 @@ namespace SOEA.Application.Features.Horario
                 logs.Add($"[WARN] Asignatura '{nombre}' no tiene grupos: no se generará ninguna sesión para ella. Cree al menos un grupo en el catálogo.");
 
             // ── 1b. Sesiones fijas (horario base) — se añaden con bloque pre-asignado ──
-            // P0-3 auditoría: cada fija pertenece a un grupo real del request. Antes recibía un GrupoId
-            // sintético que la FK de Sesiones rechazaba, así que generar con horario base respondía
-            // siempre 409. Y ocupa el lugar de una sesión del mismo grupo, asignatura y tipo: el
-            // generador planifica el resto alrededor (regla 8), no la suma a la demanda del grupo.
-            var sesionesFijasIds = new HashSet<Guid>();
-            int sesionesFijasOmitidas = 0;
+            var (sesionesFijasIds, omitidas) = AplicarSesionesFijas(sesiones, request.SesionesFijas, bloques, grupos);
+            int sesionesFijasOmitidas = omitidas.Count;
             if (request.SesionesFijas is { Count: > 0 })
             {
-                var (fijas, omitidas) = MapearSesionesFijas(request.SesionesFijas, bloques, grupos);
-                foreach (var fija in fijas)
-                {
-                    var reemplazada = sesiones.FirstOrDefault(s =>
-                        s.GrupoId == fija.GrupoId && s.AsignaturaId == fija.AsignaturaId &&
-                        CalculadorEspaciosSesion.TipoSesionDe(s) == CalculadorEspaciosSesion.TipoSesionDe(fija));
-                    if (reemplazada is not null) sesiones.Remove(reemplazada);
-                }
-                sesionesFijasIds = fijas.Select(s => s.Id).ToHashSet();
-                sesionesFijasOmitidas = omitidas.Count;
-                sesiones.AddRange(fijas);
-                logs.Add($"[INFO] {fijas.Count} sesión(es) fijas del horario base añadidas.");
+                logs.Add($"[INFO] {sesionesFijasIds.Count} sesión(es) fijas del horario base añadidas.");
                 foreach (var motivo in omitidas)
                     logs.Add($"[WARN] Sesión fija omitida: {motivo}");
             }
@@ -429,6 +479,7 @@ namespace SOEA.Application.Features.Horario
                     GruposEnConflicto = resultadoFactibilidad.GruposResponsablesIds?.Select(id => id.ToString()).ToList() ?? new(),
                     EspacioLimitanteId = resultadoFactibilidad.EspacioLimitanteId?.ToString(),
                     SesionesSinAlternanciaPosible = diagnosticoCesion,
+                    ChoquesAulas  = MapearChoquesAulas(resultadoFactibilidad.ChoquesAulas, bloques),
                     Logs          = logs,
                     Sesiones      = new List<SesionGeneradaDto>()
                 };

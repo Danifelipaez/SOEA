@@ -579,15 +579,15 @@ namespace SOEA.Engine.ConstraintProg
                 // les sirven (típico del Excel, donde cada grupo trae una franja exacta). Se prueba
                 // sin resolver y, a diferencia de la relajación de abajo, dice QUÉ hora y QUÉ clases
                 // mirar. Es Espacio: emparejar dos de esas clases sí lo puede resolver.
-                var choques = DetectorChoquesAulas.Detectar(sesiones, startsPorSesion, candidatosPorSesion);
+                var choques = DetectorChoquesAulas.Detectar(sesiones, startsPorSesion,
+                    candidatosPorSesion.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<int>)kv.Value));
                 if (choques.Count > 0)
                 {
-                    var msg = MensajeChoquesAulas(choques, sesiones, bloques, NombreGrupo);
+                    var msg = MensajeChoquesAulas(choques, bloques, NombreGrupo);
                     _logger.LogError(msg);
-                    var sesionPorId = sesiones.ToDictionary(x => x.Id);
-                    var gruposChoque = choques.SelectMany(c => c.SesionIds)
-                        .Select(id => sesionPorId[id].GrupoId).Distinct().ToList();
-                    return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio, gruposChoque);
+                    var gruposChoque = choques.SelectMany(c => c.GrupoIds).Distinct().ToList();
+                    return new ResultadoFactibilidad(false, SinAsignaciones, msg, MotivoInfactibilidad.Espacio, gruposChoque,
+                        ChoquesAulas: choques);
                 }
 
                 // Intervalos opcionales agrupados por (espacio, semana). La sesión tiene UN solo
@@ -830,15 +830,13 @@ namespace SOEA.Engine.ConstraintProg
         /// Nombra hasta tres franjas; el resto se cuenta.
         /// </summary>
         private static string MensajeChoquesAulas(
-            IReadOnlyList<ChoqueAulas> choques, List<Sesion> sesiones, List<BloqueTiempo> bloques,
-            Func<Guid?, string> nombreGrupo)
+            IReadOnlyList<ChoqueAulas> choques, List<BloqueTiempo> bloques, Func<Guid?, string> nombreGrupo)
         {
-            var sesionPorId = sesiones.ToDictionary(x => x.Id);
             string Franja(ChoqueAulas c)
             {
                 var inicio = bloques[c.BloqueInicio];
                 var fin = bloques[c.BloqueFin - 1];
-                var grupos = c.SesionIds.Select(id => $"'{nombreGrupo(sesionPorId[id].GrupoId)}'").ToList();
+                var grupos = c.GrupoIds.Select(id => $"'{nombreGrupo(id)}'").ToList();
                 var lista = grupos.Count > 1
                     ? string.Join(", ", grupos.Take(grupos.Count - 1)) + " y " + grupos[^1]
                     : grupos[0];

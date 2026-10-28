@@ -125,6 +125,22 @@ namespace SOEA.API.Controllers
         }
 
         /// <summary>
+        /// Franjas donde la disponibilidad de los grupos obliga a más clases a coincidir que aulas
+        /// hay, calculadas sin generar (no guarda nada y no cuenta para el límite de /generar). Recibe
+        /// la misma petición que /generar; el frontend lo usa para avisar antes de generar.
+        /// </summary>
+        [HttpPost("choques-aulas")]
+        [ProducesResponseType(typeof(List<ChoqueAulasDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public IActionResult ChoquesAulas([FromBody] GenerarHorarioRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            return Ok(_generarService.DetectarChoquesAulas(request));
+        }
+
+        /// <summary>
         /// Agrega una sesión manual al horario vigente sin re-ejecutar el modelo de optimización.
         /// Valida las restricciones duras contra las asignaciones reales de ese horario antes de
         /// persistir. Devuelve la fila de la sesión creada.
