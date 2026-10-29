@@ -468,8 +468,13 @@ export function gruposNoCabenDetalle(
 }
 
 export const INTRO_CHOQUES_AULAS = 'La disponibilidad de los grupos obliga a dictar a la vez más clases de las que caben en las aulas';
+/** Antes de generar todavía no hay parejas: el generador puede resolver un choque poniendo dos de esas
+ *  clases en semanas alternas, así que el aviso previo no promete que vaya a fallar. */
+export const AVISO_PREVIO_CHOQUES_AULAS = 'Al generar, solo se resuelve si dos de esas clases pueden alternar (asignaturas ' +
+  'distintas marcadas para alternar y de la misma duración); si no, la generación fallará.';
 export const CIERRE_CHOQUES_AULAS = 'Amplíe la disponibilidad de alguno de esos grupos para que su clase pueda ir a otra hora, añada un aula, ' +
-  'o marque como candidatas a alternancia dos de esas clases que sean de asignaturas distintas y duren lo mismo.';
+  'o marque en la pestaña Alternancia del catálogo dos de esas clases que sean de asignaturas distintas y duren lo mismo ' +
+  '(con el criterio «Marcadas como candidatas» activo en «Prioridad para alternar»).';
 
 /** "Miércoles 08:00–09:00: 3 clases y solo 2 aulas — BIOQUIMICA - Grupo 1 (INGENIERIA PESQUERA), …" por
  *  cada choque. Con el programa: el import repite "QUIMICA GENERAL - Grupo 1" en varios programas. */

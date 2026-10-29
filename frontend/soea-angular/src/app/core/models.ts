@@ -179,7 +179,7 @@ export interface ClaseFija { sesion: Sesion; activa: boolean; }
 export type TipoEspacioAlternancia = 'Todos' | 'Laboratorio' | 'Salon';
 
 /** Hora en la que la disponibilidad obliga a más clases a coincidir que aulas les sirven
- *  (ChoqueAulasDto del backend). Mientras exista, la generación falla. */
+ *  (ChoqueAulasDto del backend). La generación falla salvo que emparejar dos de esas clases lo resuelva. */
 export interface ChoqueAulas {
   /** Mismo valor que Sesion.dia ("miercoles"). */
   dia: string;

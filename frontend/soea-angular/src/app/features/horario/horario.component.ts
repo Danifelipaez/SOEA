@@ -16,7 +16,7 @@ import { HORA_APERTURA, HORA_CIERRE, HORA_CIERRE_SABADO } from '../../core/jorna
 import { mensajeErrorHttp, limpiarEtiquetaInterna } from '../../core/http-error.util';
 import { ConfirmDeleteDialogComponent } from '../../shared/confirm-delete-dialog/confirm-delete-dialog.component';
 import { porTexto } from '../../core/orden';
-import { MergedSesion, SesionFuera, DiaGrilla, GrillaSemanal, ItemGrilla, describirSesionConflicto, hhmm, HORAS_GRILLA, DIAS_GRILLA, fueraDisponibilidadGrupo, avisosDocentePorSesion, choquesEspacioPorSesion, filasDeChoques, ubicarEnGrilla, distribuirEnCarriles, mensajeInfactibilidadAmigable, choquesAulasDetalle, INTRO_CHOQUES_AULAS, CIERRE_CHOQUES_AULAS, DIMS_FILTRO, clavesDeSesion, pasaFiltrosHorario, conteosFiltro, clasesPendientes, ClasePendiente, ETIQUETA_TIPO_SESION } from './horario.reglas';
+import { MergedSesion, SesionFuera, DiaGrilla, GrillaSemanal, ItemGrilla, describirSesionConflicto, hhmm, HORAS_GRILLA, DIAS_GRILLA, fueraDisponibilidadGrupo, avisosDocentePorSesion, choquesEspacioPorSesion, filasDeChoques, ubicarEnGrilla, distribuirEnCarriles, mensajeInfactibilidadAmigable, choquesAulasDetalle, INTRO_CHOQUES_AULAS, CIERRE_CHOQUES_AULAS, AVISO_PREVIO_CHOQUES_AULAS, DIMS_FILTRO, clavesDeSesion, pasaFiltrosHorario, conteosFiltro, clasesPendientes, ClasePendiente, ETIQUETA_TIPO_SESION } from './horario.reglas';
 import { EditarSesionDialogComponent, EditarSesionDialogData, EditarSesionResult } from './editar-sesion-dialog.component';
 import { CrearSesionDialogComponent, CrearSesionDialogData } from './crear-sesion-dialog.component';
 import { ProgressDialogComponent } from './progress-dialog.component';
@@ -137,13 +137,14 @@ import { GeneracionFallidaComponent } from '../../shared/generacion-fallida/gene
         </div>
       }
 
-      <!-- Antes de generar: horas con más clases obligadas que aulas. Mientras existan, generar falla. -->
+      <!-- Antes de generar: horas con más clases obligadas que aulas. Generar falla salvo que emparejar
+           dos de esas clases (alternancia) lo resuelva: el servidor lo calcula todavía sin parejas. -->
       @if (!enPrueba() && !mensajeInfactible() && choquesPreviosDetalle().length > 0) {
         <div class="fail">
           <div class="soft choques" role="status">
-            <b>⚠ Así no se puede generar el horario.</b> {{ introChoques }}:
+            <b>⚠ A estas horas hay más clases que aulas.</b> {{ introChoques }}:
             <ul>@for (c of choquesPreviosDetalle(); track c) { <li>{{ c }}</li> }</ul>
-            <span>{{ cierreChoques }}</span>
+            <span>{{ avisoPrevioChoques }} {{ cierreChoques }}</span>
             <a class="btn btn-secondary" routerLink="/catalogo">Corregir en Catálogo</a>
           </div>
         </div>
@@ -530,6 +531,7 @@ export class HorarioComponent implements OnInit {
   // ── Choques de aulas antes de generar ────────────────────────────────────────
   readonly introChoques = INTRO_CHOQUES_AULAS;
   readonly cierreChoques = CIERRE_CHOQUES_AULAS;
+  readonly avisoPrevioChoques = AVISO_PREVIO_CHOQUES_AULAS;
   /** Lo calcula el servidor con la misma petición y las mismas reglas que «Generar». */
   choquesPrevios = signal<ChoqueAulas[]>([]);
   choquesPreviosDetalle = computed(() =>

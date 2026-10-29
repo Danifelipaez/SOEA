@@ -168,7 +168,8 @@ export class HorarioApiService {
   /**
    * Horas en las que la disponibilidad de los grupos obliga a más clases a coincidir que aulas hay,
    * sin generar nada: el servidor usa la misma petición y las mismas reglas que al generar, así que
-   * mientras haya alguno la generación va a fallar. Sirve para avisar antes de pulsar «Generar».
+   * mientras haya alguno la generación va a fallar, salvo que emparejar dos de esas clases (alternancia)
+   * lo resuelva. Sirve para avisar antes de pulsar «Generar».
    */
   choquesAulas(...args: Parameters<HorarioApiService['construirPeticion']>): Observable<ChoqueAulas[]> {
     return this.http

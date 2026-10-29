@@ -123,7 +123,8 @@ namespace SOEA.Application.Features.Horario
         /// POST /api/horario/choques-aulas: franjas donde la disponibilidad de los grupos obliga a más
         /// clases a coincidir que aulas les sirven, sin generar nada. Recibe la misma petición que
         /// /generar y arma las sesiones, dominios y aulas candidatas con las mismas fuentes que CP-SAT
-        /// (<see cref="ConstruirContextoCesion"/>), así que un choque aquí hace fallar la generación.
+        /// (<see cref="ConstruirContextoCesion"/>), así que un choque aquí hace fallar la generación salvo
+        /// que la Semana B lo absorba emparejando dos de esas clases (aquí todavía no hay parejas).
         /// Sirve para avisar al coordinador ANTES de generar. Que no haya choques no garantiza que el
         /// horario quepa (puede faltar aula sin que ninguna hora sea obligatoria).
         /// </summary>
