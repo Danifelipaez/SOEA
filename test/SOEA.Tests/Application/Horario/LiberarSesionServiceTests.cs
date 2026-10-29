@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using SOEA.Application.Features.Horario;
 using SOEA.Domain.Entities;
 using SOEA.Domain.Enums;
+using SOEA.Domain.Exceptions;
 using SOEA.Tests.Fakes;
 using Xunit;
 
@@ -55,6 +56,35 @@ namespace SOEA.Tests.Application.Horario
 
             Assert.Equal(new[] { a.Id, b.Id }, liberadas);
             Assert.Equal(new[] { otra.Id }, horario.SesioneIds);
+        }
+
+        [Fact]
+        public async Task HorarioPublicado_NoLibera()
+        {
+            var (a, b) = (NuevaSesion(), NuevaSesion());
+            var horario = new SOEA.Domain.Entities.Horario(Guid.NewGuid(), "2026-1", new List<Guid> { a.Id, b.Id });
+            horario.MarcarComoPublicado();
+            var uow = new FakeUnitOfWork();
+            var svc = new LiberarSesionService(new FakeHorarioRepo(horario), new FakeSesionRepo(a, b),
+                new FakeAsignacionRepo(), uow);
+
+            await Assert.ThrowsAsync<BusinessRuleViolationException>(() => svc.EjecutarAsync(horario.Id, a.Id));
+            Assert.Equal(2, horario.SesioneIds.Count);
+            Assert.Equal(0, uow.Commits);
+        }
+
+        [Fact]
+        public async Task UltimasClases_NoVaciaElHorario()
+        {
+            // Un horario sin clases se lee como "no hay horario": vaciarlo es «Limpiar horario».
+            var pareja = Guid.NewGuid();
+            var (a, b) = (NuevaSesion(pareja), NuevaSesion(pareja));
+            var horario = new SOEA.Domain.Entities.Horario(Guid.NewGuid(), "2026-1", new List<Guid> { a.Id, b.Id });
+            var svc = new LiberarSesionService(new FakeHorarioRepo(horario), new FakeSesionRepo(a, b),
+                new FakeAsignacionRepo(), new FakeUnitOfWork());
+
+            await Assert.ThrowsAsync<BusinessRuleViolationException>(() => svc.EjecutarAsync(horario.Id, a.Id));
+            Assert.Equal(2, horario.SesioneIds.Count);
         }
 
         [Fact]

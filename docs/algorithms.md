@@ -78,7 +78,7 @@ Con `SoloPrueba = true` el pipeline corre completo pero se salta el paso 5 (pers
 |---|---|---|
 | `POST /horario/reacomodar` | `ReacomodarHorarioService` | Mueve una sesión a (día, hora, aula). Recalcula solo la editada y las que ahora chocan (mismo grupo o aula); el resto conserva exactamente su asignación. Rechaza si queda choque de docente |
 | `POST /horario/sesion-manual` | `CrearSesionManualService` | Agrega una sesión fija al horario vigente, validando solapes |
-| `DELETE /horario/{horarioId}/sesiones/{sesionId}` | `LiberarSesionService` | Saca una clase (y su pareja de alternancia) del horario vigente; queda pendiente hasta ubicarla o volver a generar |
+| `DELETE /horario/{horarioId}/sesiones/{sesionId}` | `LiberarSesionService` | Saca una clase (y su pareja de alternancia) del horario vigente; queda pendiente hasta ubicarla o volver a generar. 409 si el horario está publicado o si lo dejaría sin clases (eso es «Limpiar horario») |
 | `PATCH /sesiones/{id}/docente` | `AsignarDocenteSesionService` | Solape de docente → 409; fuera de disponibilidad o sobre el máximo de horas → avisos |
 | `POST /horario/choques-aulas` | `GenerarHorarioService.DetectarChoquesAulas` | Con la misma petición que `/generar` y sin guardar nada, devuelve las horas con más clases obligadas que aulas (`DetectorChoquesAulas` sobre los dominios y aulas de `ConstruirContextoCesion`; una fija va a su bloque). Mientras haya alguna, generar falla salvo que la Semana B la absorba emparejando dos de esas clases (el aviso se calcula sin parejas). `/generar` devuelve la misma lista en `ChoquesAulas` cuando falla por eso |
 | `GET` / `DELETE /horario/actual` | `GenerarHorarioService` | Recupera el horario vigente del semestre / borra sus sesiones |

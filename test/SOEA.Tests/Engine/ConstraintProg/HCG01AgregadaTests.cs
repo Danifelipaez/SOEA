@@ -155,8 +155,6 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.All(resultado.Asignaciones, a => Assert.Equal(DiaDeSemana.Lunes, diaPorBloque[a.BloqueTiempoId]));
         }
 
-        // Confirma que el chequeo agregado nuevo es no-op para runs sin ningún Grupo —
-        // bloquesPermitidosPorGrupo queda vacío y el nuevo loop no encuentra nada que agrupar.
         [Fact]
         public async Task SesionMasLargaQueSuVentana_NombraElGrupo()
         {
@@ -174,6 +172,8 @@ namespace SOEA.Tests.Engine.ConstraintProg
             Assert.Equal(new[] { grupo.Id }, resultado.GruposResponsablesIds);
         }
 
+        // Confirma que el chequeo agregado nuevo es no-op para runs sin ningún Grupo —
+        // bloquesPermitidosPorGrupo queda vacío y el nuevo loop no encuentra nada que agrupar.
         [Fact]
         public async Task SinGrupos_NoInterfiereConElCatchAllExistente()
         {

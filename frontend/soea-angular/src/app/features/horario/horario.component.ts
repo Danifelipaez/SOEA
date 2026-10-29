@@ -600,7 +600,8 @@ export class HorarioComponent implements OnInit {
    *  la que sobra el servidor la sumaría como una clase extra. Conserva su pareja de alternancia: el
    *  servidor la rearma solo si las dos quedan fijas (si no, alterna sola nunca: vuelve a todas las
    *  semanas). Quitársela hacía que fijar las dos dejara dos clases en la misma aula y franja. */
-  private fijar(s: Sesion) {
+  /** `origen`: la clase tal como estaba antes de moverla en «Editar» (ver ClaseFija.origen). */
+  private fijar(s: Sesion, origen: Sesion = s) {
     const tope = this.state.topeClasesDelTipo(s);
     const mismas = this.state.clasesFijas().filter(c => claveTipoSesion(c.sesion) === claveTipoSesion(s));
     if (mismas.some(c => c.sesion.dia === s.dia && c.sesion.horaInicio === s.horaInicio)) {
@@ -612,7 +613,7 @@ export class HorarioComponent implements OnInit {
     this.state.fijarClase({
       ...s, id: nuevoId(), semana: undefined, esContraparteVirtual: undefined,
       espacioIdHogar: undefined, motivoConflicto: undefined,
-    });
+    }, { dia: origen.dia, horaInicio: origen.horaInicio });
     this.snackBar.open('Clase fijada. Pulse «Probar sin guardar» para ver cómo queda el resto.', 'Cerrar', { duration: 5000 });
   }
 
@@ -1088,7 +1089,7 @@ export class HorarioComponent implements OnInit {
     });
     ref.afterClosed().subscribe((result: EditarSesionResult | undefined) => {
       if (!result) return;
-      if (result.fijar) { this.fijar(result.fijar); return; }
+      if (result.fijar) { this.fijar(result.fijar, merged.sesiones[0]); return; }
       // Petición 13: un cambio de día/hora/espacio ya refrescó el StateService completo desde la
       // respuesta de /reacomodar (puede haber movido otras sesiones en conflicto); solo un cambio
       // de docente (ya persistido por PATCH) se refleja como mutación local puntual.

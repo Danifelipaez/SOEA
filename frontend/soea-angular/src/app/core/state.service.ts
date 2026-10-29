@@ -168,9 +168,15 @@ export class StateService {
     new Set(this.gruposEnConflicto().filter(id => this.firmaGrupo(id) === this.firmasConflicto.get(id))));
   /** Grupo + asignatura como estaban al fallar la generación. Se escribe junto con gruposEnConflicto. */
   private firmasConflicto = new Map<string, string>();
+  /** Solo lo que puede hacer fallar a un grupo (disponibilidad, aforo, aula, horas y ventana de su
+   *  asignatura): renombrarlo o marcar su asignatura como candidata a alternar no lo da por corregido. */
   private firmaGrupo(id: string): string {
     const g = this.grupos().find(x => x.id === id);
-    return g ? JSON.stringify([g, this.asignaturaById().get(g.asignaturaId)]) : '';
+    if (!g) return '';
+    const a = this.asignaturaById().get(g.asignaturaId);
+    return JSON.stringify([g.asignaturaId, g.disponibilidadUiJson, g.estudiantesInscritos, g.requisitosEspacio,
+      a && [a.sesionesTeoriaPresencialSemana, a.horasTeoriaPresencial, a.sesionesTeoriaVirtualSemana, a.horasTeoriaVirtual,
+        a.sesionesLaboratorioSemana, a.horasLaboratorio, a.horaInicioMin, a.horaFinMax]]);
   }
   setGruposEnConflicto(ids: string[]) {
     this.firmasConflicto = new Map(ids.map(id => [id, this.firmaGrupo(id)]));
@@ -246,7 +252,7 @@ export class StateService {
    *  descartarlo. null = no hay prueba abierta. */
   prueba = signal<Sesion[] | null>(null);
 
-  fijarClase(sesion: Sesion) { this.guardarFijas([...this.clasesFijas(), { sesion, activa: true }]); }
+  fijarClase(sesion: Sesion, origen?: ClaseFija['origen']) { this.guardarFijas([...this.clasesFijas(), { sesion, activa: true, origen }]); }
   alternarClaseFija(id: string) { this.guardarFijas(this.clasesFijas().map(c => c.sesion.id === id ? { ...c, activa: !c.activa } : c)); }
   quitarClaseFija(id: string) { this.guardarFijas(this.clasesFijas().filter(c => c.sesion.id !== id)); }
   private guardarFijas(v: ClaseFija[]) { this.clasesFijas.set(v); escribirLocal('soea_clases_fijas', v); }
@@ -265,18 +271,24 @@ export class StateService {
   /**
    * `base` (punto de partida, o el horario guardado al buscar lugar para las pendientes) más las
    * clases fijas activas. Una fija reemplaza a la clase de la base del mismo grupo, asignatura y tipo
-   * en su misma franja, o a otra de ellas si el grupo ya tiene todas las de ese tipo (si no, quedaría
-   * con una de más: el servidor suma la fija que no reemplaza nada). Si a la base le falta esa clase
-   * (una pendiente), la fija se suma sin quitar ninguna.
+   * que estaba en su franja de origen (la que se movió), si no a la de su misma franja, y si no a
+   * otra de ellas cuando el grupo ya tiene todas las de ese tipo (si no, quedaría con una de más: el
+   * servidor suma la fija que no reemplaza nada). Si a la base le falta esa clase (una pendiente), la
+   * fija se suma sin quitar ninguna. Nunca reemplaza a otra fija.
    */
   fijasSobre(base: readonly Sesion[]): Sesion[] {
     const res = base.filter(s => !s.esContraparteVirtual);
-    for (const f of this.clasesFijas().filter(c => c.activa).map(c => c.sesion)) {
-      const mismas = res.filter(s => claveTipoSesion(s) === claveTipoSesion(f));
-      const reemplazada = mismas.find(s => s.dia === f.dia && s.horaInicio === f.horaInicio)
-        ?? (mismas.length >= this.topeClasesDelTipo(f) ? mismas[0] : undefined);
+    const fijas = new Set<Sesion>();
+    const enFranja = (s: Sesion, franja?: { dia: string; horaInicio: string }) =>
+      !!franja && s.dia === franja.dia && s.horaInicio === franja.horaInicio;
+    for (const { sesion: f, origen } of this.clasesFijas().filter(c => c.activa)) {
+      const delTipo = res.filter(s => claveTipoSesion(s) === claveTipoSesion(f));
+      const mismas = delTipo.filter(s => !fijas.has(s));
+      const reemplazada = mismas.find(s => enFranja(s, origen)) ?? mismas.find(s => enFranja(s, f))
+        ?? (delTipo.length >= this.topeClasesDelTipo(f) ? mismas[0] : undefined);
       if (reemplazada) res.splice(res.indexOf(reemplazada), 1);
       res.push(f);
+      fijas.add(f);
     }
     return res;
   }
